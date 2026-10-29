@@ -1,0 +1,32 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+// glazeui-design: ui=Minimalistic
+// glazeui-design: ui=Slate
+#include "design_dup.h"
+
+DesignFixture::DesignFixture() { initializeComponent(); }
+
+void DesignFixture::initializeComponent()
+{
+    setTitle("Designtema");
+    setClientSize(360, 220);
+
+    btn.text = "Knapp";
+    btn.x = 24;
+    btn.y = 24;
+
+    rows.x = 24;
+    rows.y = 90;
+    rows.width = 280;
+    rows.height = 110;
+
+    row1.text = "Rad ett";
+    row1.dock = glaze::Dock::Top;
+
+    row2.text = "Rad tva";
+    row2.dock = glaze::Dock::Top;
+
+    root().adopt(btn);
+    root().adopt(rows);
+    rows.adopt(row1);
+    rows.adopt(row2);
+}

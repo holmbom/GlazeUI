@@ -1,0 +1,51 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+#include "components.h"
+
+ComponentsFixture::ComponentsFixture() { initializeComponent(); }
+
+void ComponentsFixture::initializeComponent()
+{
+    setTitle("Komponenter");
+    setClientSize(360, 240);
+    setChrome(gfx::Chrome::None);
+    setLocation(120, 80);
+    setStartPosition(glaze::StartPosition::CenterOwner);
+    setWindowState(gfx::WindowState::Maximized);
+    setUseWaitCursor(true);
+
+    status.name = "status";
+    status.setText("Väntar");
+    status.setCursor(gfx::PointerShape::Wait);
+    status.x = 12;
+    status.y = 12;
+
+    knapp.name = "knapp";
+    knapp.setText("Tryck");
+    knapp.setCursor(gfx::PointerShape::Hand);
+    knapp.resetCursor();
+    knapp.x = 12;
+    knapp.y = 48;
+
+    klocka.name = "klocka";
+    klocka.setInterval(250);
+    klocka.setSingleShot(true);
+    klocka.start();
+
+    ikon.name = "ikon";
+    ikon.setToolTip(glaze::tr(1));
+    ikon.setInterval(200);
+    ikon.setTemplateImage(true);
+    ikon.addFrame(glaze::img("ikoner", "a"));
+    ikon.addFrame({});
+    ikon.addItem({}, "Visa");
+    ikon.addSubmenu({}, "Läge");
+    ikon.addRadio("Läge", "Tyst", true);
+    ikon.show();
+
+    klocka.onTick = [this](glaze::Timer* s, glaze::TimerArgs& e) { klockaTick(s, e); };
+    ikon.onClick = [this](glaze::TrayIcon* s, glaze::ClickArgs& e) { ikonClicked(s, e); };
+    ikon.onHover = [this] { ikonHover(); };
+
+    root().adopt(status);
+    root().adopt(knapp);
+}

@@ -1,0 +1,499 @@
+# RAMVERKETS ÖVERSÄTTNINGAR — id 1–999.
+#
+# KÄLLAN till Glaze/language/language.bin. Packa om efter varje ändring:
+#
+#   ./build/apps/glazelanguage/glazelanguage pack --ramverk \
+#       Glaze/language/framework.langtxt Glaze/language/language.bin
+#   ./build/apps/glazelanguage/glazelanguage embed \
+#       Glaze/language/language.bin Glaze/widgets/src/lang_builtin
+#
+# ALLA FYRA SPRÅKEN SKA VARA KOMPLETTA — fallbacken är en garanti och inte
+# en förhoppning. `lang_gate` del 2 fäller bygget om ett id saknas i något
+# av dem, med `glaze/strings.h` som orakel.
+#
+# KONSTANTNAMNEN står INTE här: ramverkets header är HANDSKRIVEN
+# (glaze/strings.h) och får aldrig genereras ovanpå. Appens manifest
+# skriver dem, för dess header genereras av `pack --header`.
+#
+# Finskan är med som contentSize()-STRESSTEST: "Askelpalautin" och
+# "Yritä uudelleen" är de längsta KNAPP- och tangenttexterna i tabellen,
+# och det är meningen — en knapprad som inte rymmer dem är trasig på
+# finska. (Filväljarens felmeningar, id 44–48, är längre men står i en
+# rad som kortar med ellips.)
+#
+# Id 29–56 är FILVÄLJARENS: titlar och knappar, kolumnerna,
+# etiketterna, typtexten (filändelsen + id 41: "PNG" + "-fil" — sv/nb/fi
+# skriver ihop med bindestreck, engelskan med mellanslag), överskrivnings-
+# frågan, felmeningarna, de kända platserna, filväljarfältets "…" och
+# (id 56) kryssrutan för dolda filer.
+#
+# Id 57–60 är FÄRGVÄLJARENS: reglagens tre etiketter och hexfältets
+# — "Hex" på alla fyra språken, som "…" ovan: en etikett, så ett språk får
+# skriva något annat utan att en widget-fil rörs. Finskans "Punainen" är den
+# längsta och avgör popupens etikettkolumn.
+#
+# Id 61–80 är DATUMVÄLJARENS: månadernas namn (61–72, i titelraden
+# "oktober 2026" — gemener på svenska, norska och finska, som språken skriver
+# dem), veckodagarnas korta namn i ISO-ordning måndag–söndag (73–79), och id
+# 80, VECKANS FÖRSTA DAG som ISO-nummer — ett SPRÅKFAKTUM som decimaltecknet
+# (id 24), inte en etikett. "1" (måndag) på ALLA FYRA, och för engelskan är
+# det ett VAL: språket bär ingen region, och ISO 8601 är samma regel som
+# fältets datumform följer (ÅÅÅÅ-MM-DD). USA:s söndag är en regionsfråga,
+# och regionen är ingen dimension i språkramen.
+#
+# Id 160–199 är DOCKNINGENS: 162–165 är panelrubrikens knappnål ("Dölj
+# automatiskt" när panelen är fäst, "Fäst" när den döljs automatiskt — samma
+# två ord i rubrikmenyn), stängknappen och menyknappens tooltip
+# ("Fönsterläge", VS:s "Window Position"), 160/161 rubrikmenyns "Flytande"
+# (panelen i ett eget fönster, VS:s Float) och "Docka" (tillbaka, VS:s Dock),
+# och 166 det flytande verktygsfältets rubrik när fältet saknar egen text
+# ("Verktygsfält", VS:s Toolbar). Talen i blocket är luckiga med flit: de
+# är reserverade i grupper, och `lang_gate` kräver bara att varje konstant i
+# strings.h finns i alla fyra språken.
+#
+# Id 255–269 är FÄRGVÄLJARENS OCH FÄRGDIALOGENS: färgväljarens
+# fjärde reglage, "Alfa" (255 — kanalens namn; "Alpha" på engelska, "Alfa"
+# på de tre andra som i Windows färgdialoger), och färgdialogens titel när
+# appen inte satt någon (256, "Färg" — WinForms ColorDialog säger "Color").
+#
+# Id 400–409 är UTSKRIFTENS: förloppsfönstrets titel
+# (400, "Skriver ut" — Windows "Printing") och sidraden "Sida 3 / 10" (401,
+# ordet "Sida"; talen sätts efter det, så ordföljden är lika i alla fyra).
+#
+# Id 420–429 är VERKTYGSFÄLTETS ÖVERFLÖDE:
+# överflödsknappens tooltip (420, "Visa mer" — Windows kommandofälts "See
+# more") och posten för en inbäddad kontroll utan verktygstips (421,
+# "Kontroll"; kontrollens eget verktygstips är postens text när det finns).
+#
+# Id 81–83: meddelanderutans "Abort" (81 — att låna `Cancel` är fel på
+# engelska och finska), filstorlekens byte-enhet (82 — "B", men finskans tavu
+# "t": "12 kt", "3,4 Mt") och macOS appmenys "Avsluta "-prefix (83 — med sitt
+# avslutande blanksteg, backenden lägger processnamnet efter).
+#
+# Texterna för nb, fi och en är jämförda med Microsofts
+# lokaliserade Windows-texter och med GTK:s, GLib:s och Qt:s översättningar
+# (gtk/po, glib/po, qttranslations). Tangentnamnen följer Microsoft där
+# källorna går isär: norskans Backspace heter "Tilbake" och Shift "Skift",
+# finskans Shift "Vaihto". Ännu inte granskat av modersmålstalare.
+#
+# ATT GRANSKA (modersmålstalare — källorna går isär eller saknas):
+#   nb 10 "Tilbake"  MS och GTK; Qt (nynorsk) och Språkrådet säger "Rettetast"
+#   nb 22 "Skift+"   MS; GTK och Qt säger "Shift+"
+#   fi 52 "Tiedostot" (Dokument) — Windows och Qt; GNOME "Asiakirjat". Krockar
+#         med "tiedostot" = filer (id 43 "Kaikki tiedostot")
+#   fi 49 "Tasoa ylemmäs" — Qt säger "Yläkansio" (överordnad mapp)
+#   fi 82 "t" ensamt ("512 t") — GLib skriver "512 tavua" (kräver plural)
+#   28    "Begin"/"Midt"/"Keski" — Windows kallar tangenten Clear (Qt "Clear",
+#         "Tøm", "Tyhjennä")
+#   nb/fi 162–165 dockningen: "Skjul automatisk"/"Piilota
+#         automaattisesti" efter Visual Studios Auto Hide, "Fest"/"Kiinnitä"
+#         för knappnålen, "Vindusplassering"/"Ikkunan sijainti" för VS:s
+#         Window Position — skrivna utan modersmålstalare
+#   nb/fi 160–161 dockningen: "Flytende"/"Kelluva" för VS:s
+#         Float och "Forankre"/"Telakoi" för Dock — också utan
+#         modersmålstalare
+#   nb/fi 166: "Verktøylinje"/"Työkalurivi" för VS:s Toolbar
+#         — Windows ord, utan modersmålstalare
+#   nb/fi 400–401: "Skriver ut"/"Tulostetaan" och "Side"/"Sivu" —
+#         utan modersmålstalare
+#   nb/fi 420–421: "Vis mer"/"Näytä lisää" (Windows "Näytä
+#         lisää") och "Kontroll"/"Ohjausobjekti" (Microsofts term för en
+#         UI-kontroll) — utan modersmålstalare
+
+default sv
+
+# ---------------------------------------------------------------- svenska
+lang sv Svenska
+id 1 "OK"
+id 2 "Avbryt"
+id 3 "Ja"
+id 4 "Nej"
+id 5 "Försök igen"
+id 6 "Ignorera"
+id 7 "Retur"
+id 8 "Esc"
+id 9 "Tabb"
+id 10 "Backsteg"
+id 11 "Blanksteg"
+id 12 "Del"
+id 13 "Vänster"
+id 14 "Höger"
+id 15 "Upp"
+id 16 "Ner"
+id 17 "Home"
+id 18 "End"
+id 19 "Num "
+id 20 "Ctrl+"
+id 21 "Alt+"
+id 22 "Skift+"
+id 23 "Super+"
+id 24 ","
+id 25 "PgUp"
+id 26 "PgDn"
+id 27 "Ins"
+id 28 "Mitt"
+id 29 "Öppna"
+id 30 "Spara"
+id 31 "Spara som"
+id 32 "Välj mapp"
+id 33 "Namn"
+id 34 "Storlek"
+id 35 "Ändrad"
+id 36 "Typ"
+id 37 "Filnamn:"
+id 38 "Mapp:"
+id 39 "Filtyp"
+id 40 "Filmapp"
+id 41 "-fil"
+id 42 "Fil"
+id 43 "Alla filer"
+id 44 "Filen finns redan. Vill du ersätta den?"
+id 45 "Du har inte behörighet att öppna mappen."
+id 46 "Mappen finns inte."
+id 47 "Mappen kunde inte läsas."
+id 48 "Filen finns inte."
+id 49 "Upp en nivå"
+id 50 "Hem"
+id 51 "Skrivbord"
+id 52 "Dokument"
+id 53 "Hämtade filer"
+id 54 "Bilder"
+id 55 "…"
+id 56 "Visa dolda filer"
+id 57 "Röd"
+id 58 "Grön"
+id 59 "Blå"
+id 60 "Hex"
+id 61 "januari"
+id 62 "februari"
+id 63 "mars"
+id 64 "april"
+id 65 "maj"
+id 66 "juni"
+id 67 "juli"
+id 68 "augusti"
+id 69 "september"
+id 70 "oktober"
+id 71 "november"
+id 72 "december"
+id 73 "må"
+id 74 "ti"
+id 75 "on"
+id 76 "to"
+id 77 "fr"
+id 78 "lö"
+id 79 "sö"
+id 80 "1"
+id 81 "Avbryt"
+id 82 "B"
+id 83 "Avsluta "
+id 160 "Flytande"
+id 161 "Docka"
+id 162 "Dölj automatiskt"
+id 163 "Fäst"
+id 164 "Stäng"
+id 165 "Fönsterläge"
+id 166 "Verktygsfält"
+id 255 "Alfa"
+id 256 "Färg"
+id 400 "Skriver ut"
+id 401 "Sida"
+id 420 "Visa mer"
+id 421 "Kontroll"
+
+# ---------------------------------------------------------------- engelska
+lang en English
+id 1 "OK"
+id 2 "Cancel"
+id 3 "Yes"
+id 4 "No"
+id 5 "Retry"
+id 6 "Ignore"
+id 7 "Enter"
+id 8 "Esc"
+id 9 "Tab"
+id 10 "Backspace"
+id 11 "Space"
+id 12 "Del"
+id 13 "Left"
+id 14 "Right"
+id 15 "Up"
+id 16 "Down"
+id 17 "Home"
+id 18 "End"
+id 19 "Num "
+id 20 "Ctrl+"
+id 21 "Alt+"
+id 22 "Shift+"
+id 23 "Super+"
+id 24 "."
+id 25 "PgUp"
+id 26 "PgDn"
+id 27 "Ins"
+id 28 "Begin"
+id 29 "Open"
+id 30 "Save"
+id 31 "Save As"
+id 32 "Select Folder"
+id 33 "Name"
+id 34 "Size"
+id 35 "Modified"
+id 36 "Type"
+id 37 "File name:"
+id 38 "Folder:"
+id 39 "File type"
+id 40 "File folder"
+id 41 " file"
+id 42 "File"
+id 43 "All files"
+id 44 "The file already exists. Do you want to replace it?"
+id 45 "You don't have permission to open this folder."
+id 46 "The folder does not exist."
+id 47 "The folder could not be read."
+id 48 "The file does not exist."
+id 49 "Up one level"
+id 50 "Home"
+id 51 "Desktop"
+id 52 "Documents"
+id 53 "Downloads"
+id 54 "Pictures"
+id 55 "…"
+id 56 "Show hidden files"
+id 57 "Red"
+id 58 "Green"
+id 59 "Blue"
+id 60 "Hex"
+id 61 "January"
+id 62 "February"
+id 63 "March"
+id 64 "April"
+id 65 "May"
+id 66 "June"
+id 67 "July"
+id 68 "August"
+id 69 "September"
+id 70 "October"
+id 71 "November"
+id 72 "December"
+id 73 "Mo"
+id 74 "Tu"
+id 75 "We"
+id 76 "Th"
+id 77 "Fr"
+id 78 "Sa"
+id 79 "Su"
+id 80 "1"
+id 81 "Abort"
+id 82 "B"
+id 83 "Quit "
+id 160 "Float"
+id 161 "Dock"
+id 162 "Auto Hide"
+id 163 "Pin"
+id 164 "Close"
+id 165 "Window Position"
+id 166 "Toolbar"
+id 255 "Alpha"
+id 256 "Color"
+id 400 "Printing"
+id 401 "Page"
+id 420 "See more"
+id 421 "Control"
+
+# ------------------------------------------------- norska (bokmål: nb)
+lang nb Norsk bokmål
+id 1 "OK"
+id 2 "Avbryt"
+id 3 "Ja"
+id 4 "Nei"
+id 5 "Prøv igjen"
+id 6 "Ignorer"
+id 7 "Enter"
+id 8 "Esc"
+id 9 "Tab"
+id 10 "Tilbake"
+id 11 "Mellomrom"
+id 12 "Del"
+id 13 "Venstre"
+id 14 "Høyre"
+id 15 "Opp"
+id 16 "Ned"
+id 17 "Home"
+id 18 "End"
+id 19 "Num "
+id 20 "Ctrl+"
+id 21 "Alt+"
+id 22 "Skift+"
+id 23 "Super+"
+id 24 ","
+id 25 "PgUp"
+id 26 "PgDn"
+id 27 "Ins"
+id 28 "Midt"
+id 29 "Åpne"
+id 30 "Lagre"
+id 31 "Lagre som"
+id 32 "Velg mappe"
+id 33 "Navn"
+id 34 "Størrelse"
+id 35 "Endret"
+id 36 "Type"
+id 37 "Filnavn:"
+id 38 "Mappe:"
+id 39 "Filtype"
+id 40 "Filmappe"
+id 41 "-fil"
+id 42 "Fil"
+id 43 "Alle filer"
+id 44 "Filen finnes allerede. Vil du erstatte den?"
+id 45 "Du har ikke tilgang til å åpne denne mappen."
+id 46 "Mappen finnes ikke."
+id 47 "Mappen kunne ikke leses."
+id 48 "Filen finnes ikke."
+id 49 "Opp ett nivå"
+id 50 "Hjem"
+id 51 "Skrivebord"
+id 52 "Dokumenter"
+id 53 "Nedlastinger"
+id 54 "Bilder"
+id 55 "…"
+id 56 "Vis skjulte filer"
+id 57 "Rød"
+id 58 "Grønn"
+id 59 "Blå"
+id 60 "Hex"
+id 61 "januar"
+id 62 "februar"
+id 63 "mars"
+id 64 "april"
+id 65 "mai"
+id 66 "juni"
+id 67 "juli"
+id 68 "august"
+id 69 "september"
+id 70 "oktober"
+id 71 "november"
+id 72 "desember"
+id 73 "ma"
+id 74 "ti"
+id 75 "on"
+id 76 "to"
+id 77 "fr"
+id 78 "lø"
+id 79 "sø"
+id 80 "1"
+id 81 "Avbryt"
+id 82 "B"
+id 83 "Avslutt "
+id 160 "Flytende"
+id 161 "Forankre"
+id 162 "Skjul automatisk"
+id 163 "Fest"
+id 164 "Lukk"
+id 165 "Vindusplassering"
+id 166 "Verktøylinje"
+id 255 "Alfa"
+id 256 "Farge"
+id 400 "Skriver ut"
+id 401 "Side"
+id 420 "Vis mer"
+id 421 "Kontroll"
+
+# ----------------------------------------------------------------- finska
+lang fi Suomi
+id 1 "OK"
+id 2 "Peruuta"
+id 3 "Kyllä"
+id 4 "Ei"
+id 5 "Yritä uudelleen"
+id 6 "Ohita"
+id 7 "Enter"
+id 8 "Esc"
+id 9 "Sarkain"
+id 10 "Askelpalautin"
+id 11 "Välilyönti"
+id 12 "Del"
+id 13 "Vasen"
+id 14 "Oikea"
+id 15 "Ylös"
+id 16 "Alas"
+id 17 "Home"
+id 18 "End"
+id 19 "Num "
+id 20 "Ctrl+"
+id 21 "Alt+"
+id 22 "Vaihto+"
+id 23 "Super+"
+id 24 ","
+id 25 "PgUp"
+id 26 "PgDn"
+id 27 "Ins"
+id 28 "Keski"
+id 29 "Avaa"
+id 30 "Tallenna"
+id 31 "Tallenna nimellä"
+id 32 "Valitse kansio"
+id 33 "Nimi"
+id 34 "Koko"
+id 35 "Muokattu"
+id 36 "Tyyppi"
+id 37 "Tiedostonimi:"
+id 38 "Kansio:"
+id 39 "Tiedostotyyppi"
+id 40 "Tiedostokansio"
+id 41 "-tiedosto"
+id 42 "Tiedosto"
+id 43 "Kaikki tiedostot"
+id 44 "Tiedosto on jo olemassa. Haluatko korvata sen?"
+id 45 "Sinulla ei ole oikeutta avata tätä kansiota."
+id 46 "Kansiota ei ole olemassa."
+id 47 "Kansiota ei voitu lukea."
+id 48 "Tiedostoa ei ole olemassa."
+id 49 "Tasoa ylemmäs"
+id 50 "Koti"
+id 51 "Työpöytä"
+id 52 "Tiedostot"
+id 53 "Ladatut tiedostot"
+id 54 "Kuvat"
+id 55 "…"
+id 56 "Näytä piilotiedostot"
+id 57 "Punainen"
+id 58 "Vihreä"
+id 59 "Sininen"
+id 60 "Hex"
+id 61 "tammikuu"
+id 62 "helmikuu"
+id 63 "maaliskuu"
+id 64 "huhtikuu"
+id 65 "toukokuu"
+id 66 "kesäkuu"
+id 67 "heinäkuu"
+id 68 "elokuu"
+id 69 "syyskuu"
+id 70 "lokakuu"
+id 71 "marraskuu"
+id 72 "joulukuu"
+id 73 "ma"
+id 74 "ti"
+id 75 "ke"
+id 76 "to"
+id 77 "pe"
+id 78 "la"
+id 79 "su"
+id 80 "1"
+id 81 "Keskeytä"
+id 82 "t"
+id 83 "Lopeta "
+id 160 "Kelluva"
+id 161 "Telakoi"
+id 162 "Piilota automaattisesti"
+id 163 "Kiinnitä"
+id 164 "Sulje"
+id 165 "Ikkunan sijainti"
+id 166 "Työkalurivi"
+id 255 "Alfa"
+id 256 "Väri"
+id 400 "Tulostetaan"
+id 401 "Sivu"
+id 420 "Näytä lisää"
+id 421 "Ohjausobjekti"

@@ -1,0 +1,156 @@
+{
+  "name": "vscode-glazeui",
+  "displayName": "GlazeUI",
+  "description": "Förhandsvisar GlazeUI-fönsterfiler (.glazeui) som renderade WYSIWYG-bilder via glaze-render — tre lägen (bild/text/text+preview) och Öppna i GlazeBuilder.",
+  "version": "0.1.0",
+  "publisher": "holmbom",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "http://mac-mini.local:3000/holmbom/GlazeUI.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "glazeui.preview",
+        "displayName": "GlazeUI-förhandsvisning",
+        "selector": [
+          {
+            "filenamePattern": "*.glazeui"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "languages": [
+      {
+        "id": "cpp",
+        "extensions": [
+          ".glazeui"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "glazeui.showText",
+        "title": "GlazeUI: Öppna som text",
+        "icon": {
+          "light": "media/icons/text.svg",
+          "dark": "media/icons/text.svg"
+        }
+      },
+      {
+        "command": "glazeui.showPreview",
+        "title": "GlazeUI: Öppna som bild",
+        "icon": {
+          "light": "media/icons/preview.svg",
+          "dark": "media/icons/preview.svg"
+        }
+      },
+      {
+        "command": "glazeui.toggleSidePreview",
+        "title": "GlazeUI: Förhandsvisning vid sidan av/på",
+        "icon": {
+          "light": "media/icons/side.svg",
+          "dark": "media/icons/side.svg"
+        }
+      },
+      {
+        "command": "glazeui.openInBuilder",
+        "title": "GlazeUI: Öppna i GlazeBuilder",
+        "icon": {
+          "light": "media/icons/builder.svg",
+          "dark": "media/icons/builder.svg"
+        }
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "glazeui.showText",
+          "when": "activeCustomEditorId == glazeui.preview",
+          "group": "navigation@1"
+        },
+        {
+          "command": "glazeui.showPreview",
+          "when": "resourceExtname == .glazeui && activeCustomEditorId != glazeui.preview",
+          "group": "navigation@1"
+        },
+        {
+          "command": "glazeui.toggleSidePreview",
+          "when": "resourceExtname == .glazeui && activeCustomEditorId != glazeui.preview",
+          "group": "navigation@2"
+        },
+        {
+          "command": "glazeui.openInBuilder",
+          "when": "resourceExtname == .glazeui && glazeui.builderAvailable",
+          "group": "navigation@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "glazeui.showText",
+          "when": "resourceExtname == .glazeui"
+        },
+        {
+          "command": "glazeui.showPreview",
+          "when": "resourceExtname == .glazeui"
+        },
+        {
+          "command": "glazeui.toggleSidePreview",
+          "when": "resourceExtname == .glazeui"
+        },
+        {
+          "command": "glazeui.openInBuilder",
+          "when": "resourceExtname == .glazeui"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "GlazeUI",
+      "properties": {
+        "glazeui.renderPath": {
+          "type": "string",
+          "default": "",
+          "description": "Sökväg till en egen glaze-render-binär (t.ex. ett eget bygge med projektets widgets). Tom = den buntade generiska binären."
+        },
+        "glazeui.builderPath": {
+          "type": "string",
+          "default": "",
+          "description": "Sökväg till en egen GlazeBuilder-binär. Tom = projektets eget bygge (konventionen build/apps/GlazeBuilder/… i arbetsytan och uppåt från filen) om det finns, annars den buntade generiska binären."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc --noEmit",
+    "vscode:prepublish": "node esbuild.js --production",
+    "bin:host": "node scripts/copy-bin.mjs",
+    "package:darwin-arm64": "node scripts/package.mjs darwin-arm64",
+    "package:darwin-x64": "node scripts/package.mjs darwin-x64",
+    "package:win32-x64": "node scripts/package.mjs win32-x64",
+    "package:linux-x64": "node scripts/package.mjs linux-x64",
+    "publish:darwin-arm64": "node scripts/package.mjs darwin-arm64 --publish",
+    "publish:darwin-x64": "node scripts/package.mjs darwin-x64 --publish",
+    "publish:win32-x64": "node scripts/package.mjs win32-x64 --publish",
+    "publish:linux-x64": "node scripts/package.mjs linux-x64 --publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}

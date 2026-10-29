@@ -1,0 +1,15 @@
+# Grindarnas fixturer är TESTDATA på byte-nivå, inte bara källkod.
+# roundtrip_gate mäter att reader → writer bevarar filens EGNA radslut, och
+# det mäter bara BÅDA vägarna om fixturerna HAR båda. Med core.autocrlf=true
+# (Windows-standard) checkades varje LF-fixtur ut som CRLF: LF-vägen mättes
+# aldrig på Windows, och varje förväntan skriven med "\n" föll.
+#
+# Bara källfilsändelserna — `text` på en binär fixtur hade förstört den.
+tests/fixtures/*.h        text eol=lf
+tests/fixtures/*.cpp      text eol=lf
+tests/fixtures/*.glazeui  text eol=lf
+
+# CRLF MED FLIT: den enda fixturen för CRLF-vägen. `-text` = git rör aldrig
+# bytesen, åt något håll, på någon plattform. Raden står SIST så den vinner
+# över `text` ovan (senare rad överskuggar tidigare per attribut).
+tests/fixtures/design_crlf.*  -text

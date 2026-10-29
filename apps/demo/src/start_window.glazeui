@@ -1,0 +1,387 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+#include "start_window.h"
+
+StartWindow::StartWindow() { initializeComponent(); }
+
+void StartWindow::initializeComponent()
+{
+    setTitle(glaze::tr(1000));
+    setContentSize(880, 674);
+    setMinimumSize(760, 698);
+
+    menuBar.show();
+    menuBar.addMenu(glaze::tr(1001));
+    menuBar.addItem(glaze::tr(1001), glaze::tr(1002), "Ctrl+N");
+    menuBar.addItem(glaze::tr(1001), glaze::tr(1003), "Ctrl+G");
+    menuBar.addSeparator(glaze::tr(1001));
+    menuBar.addItem(glaze::tr(1001), glaze::tr(1004), "Ctrl+W");
+    menuBar.addMenu(glaze::tr(1005));
+    menuBar.addSubmenu(glaze::tr(1005), glaze::tr(1006));
+    menuBar.addRadio({glaze::tr(1005), glaze::tr(1006)}, glaze::tr(1007));
+    menuBar.addRadio({glaze::tr(1005), glaze::tr(1006)}, glaze::tr(1008));
+    menuBar.addRadio({glaze::tr(1005), glaze::tr(1006)}, glaze::tr(1009));
+    menuBar.addSeparator(glaze::tr(1005));
+    menuBar.addCheck(glaze::tr(1005), glaze::tr(1010));
+    menuBar.addMenu(glaze::tr(1011));
+    menuBar.addItem(glaze::tr(1011), glaze::tr(1012));
+
+    appIcon.setLarge(true);
+    appIcon.addItem({}, glaze::tr(1002));
+    appIcon.addItem({}, glaze::tr(1003));
+    appIcon.addSeparator({});
+    appIcon.addItem({}, glaze::tr(1012));
+    appIcon.addSeparator({});
+    appIcon.addItem({}, glaze::tr(1004));
+
+    rubrik.setText(glaze::tr(1013));
+    rubrik.x = 16;
+    rubrik.y = 14;
+    rubrik.name = "rubrik";
+
+    intro1.setText(glaze::tr(1014));
+    intro1.setRole(glaze::Label::Role::Dim);
+    intro1.x = 16;
+    intro1.anchorTop = {"rubrik", 6};
+    intro1.name = "intro1";
+
+    intro2.setText(glaze::tr(1015));
+    intro2.setRole(glaze::Label::Role::Dim);
+    intro2.x = 16;
+    intro2.anchorTop = {"intro1", 2};
+    intro2.name = "intro2";
+
+    utseende.x = 16;
+    utseende.anchorTop = {"intro2", 16};
+    utseende.name = "utseende";
+    utseende.width = 420;
+    utseende.height = 262;
+    utseende.setBorder(true);
+
+    utsRubrik.name = "utsRubrik";
+    utsRubrik.setText(glaze::tr(1016));
+    utsRubrik.x = 10;
+    utsRubrik.y = 8;
+
+    utsSep.name = "utsSep";
+    utsSep.x = 10;
+    utsSep.y = 30;
+    utsSep.anchors = {true, true, true, false};
+    utsSep.right = 10;
+
+    uiLbl.setText(glaze::tr(1017));
+    uiLbl.setRole(glaze::Label::Role::Dim);
+    uiLbl.x = 10;
+    uiLbl.y = 40;
+    uiLbl.name = "uiLbl";
+
+    uiDd.setItems({"Glaze", "Slate", "Minimalistic"});
+    uiDd.width = 190;
+    uiDd.x = 10;
+    uiDd.anchorTop = {"uiLbl", 2};
+    uiDd.name = "uiDd";
+
+    themeLbl.setText(glaze::tr(1018));
+    themeLbl.setRole(glaze::Label::Role::Dim);
+    themeLbl.anchorLeft = {"uiDd", 20};
+    themeLbl.y = 40;
+    themeLbl.name = "themeLbl";
+
+    themeDd.width = 190;
+    themeDd.anchorLeft = {"uiDd", 20};
+    themeDd.anchorTop = {"themeLbl", 2};
+    themeDd.name = "themeDd";
+
+    styleLbl.setText(glaze::tr(1019));
+    styleLbl.setRole(glaze::Label::Role::Dim);
+    styleLbl.x = 10;
+    styleLbl.anchorTop = {"uiDd", 12};
+    styleLbl.name = "styleLbl";
+
+    styleDd.width = 190;
+    styleDd.x = 10;
+    styleDd.anchorTop = {"styleLbl", 2};
+    styleDd.name = "styleDd";
+
+    temaLbl.setText(glaze::tr(1006));
+    temaLbl.setRole(glaze::Label::Role::Dim);
+    temaLbl.anchorLeft = {"styleDd", 20};
+    temaLbl.anchorTop = {"themeDd", 12};
+    temaLbl.name = "temaLbl";
+
+    temaDd.width = 190;
+    temaDd.anchorLeft = {"styleDd", 20};
+    temaDd.anchorTop = {"temaLbl", 2};
+    temaDd.name = "temaDd";
+
+    skalaLbl.setText(glaze::tr(1020));
+    skalaLbl.setRole(glaze::Label::Role::Dim);
+    skalaLbl.x = 10;
+    skalaLbl.anchorTop = {"styleDd", 12};
+    skalaLbl.name = "skalaLbl";
+
+    skalaDd.setItems({"0.8", "0.9", "1.0", "1.1", "1.25"});
+    skalaDd.width = 190;
+    skalaDd.x = 10;
+    skalaDd.anchorTop = {"skalaLbl", 2};
+    skalaDd.name = "skalaDd";
+
+    sprakLbl.setText(glaze::tr(1041));
+    sprakLbl.setRole(glaze::Label::Role::Dim);
+    sprakLbl.anchorLeft = {"skalaDd", 20};
+    sprakLbl.anchorTop = {"temaDd", 12};
+    sprakLbl.name = "sprakLbl";
+
+    sprakDd.width = 190;
+    sprakDd.anchorLeft = {"skalaDd", 20};
+    sprakDd.anchorTop = {"sprakLbl", 2};
+    sprakDd.name = "sprakDd";
+
+    utsHint.name = "utsHint";
+    utsHint.setText(glaze::tr(1021));
+    utsHint.setRole(glaze::Label::Role::Dim);
+    utsHint.x = 10;
+    utsHint.anchorTop = {"skalaDd", 12};
+
+    prova.anchors = {true, true, false, true};
+    prova.x = 16;
+    prova.anchorTop = {"utseende", 12};
+    prova.name = "prova";
+    prova.width = 420;
+    prova.bottom = 88;
+    prova.setBorder(true);
+
+    provaRubrik.name = "provaRubrik";
+    provaRubrik.setText(glaze::tr(1022));
+    provaRubrik.x = 10;
+    provaRubrik.y = 8;
+
+    provaSep.name = "provaSep";
+    provaSep.x = 10;
+    provaSep.y = 30;
+    provaSep.anchors = {true, true, true, false};
+    provaSep.right = 10;
+
+    okBtn.setText(glaze::tr(1023));
+    okBtn.setImg(glaze::img("toolbar", "ok"));
+    okBtn.x = 10;
+    okBtn.y = 42;
+    okBtn.name = "okBtn";
+
+    temaBtn.name = "temaBtn";
+    temaBtn.setText(glaze::tr(1024));
+    temaBtn.y = 42;
+    temaBtn.anchorLeft = {"okBtn", 12};
+
+    animate.setText(glaze::tr(1027));
+    animate.setChecked(true);
+    animate.x = 10;
+    animate.anchorTop = {"okBtn", 12};
+    animate.name = "animate";
+
+    namn.anchors = {true, true, true, false};
+    namn.right = 10;
+    namn.x = 10;
+    namn.anchorTop = {"animate", 10};
+    namn.name = "namn";
+
+    status.name = "status";
+    status.setText(glaze::tr(1028));
+    status.setRole(glaze::Label::Role::Dim);
+    status.x = 10;
+    status.anchorTop = {"namn", 10};
+
+    komp.anchorLeft = {"utseende", 16};
+    komp.anchorTop = {"intro2", 16};
+    komp.height = 262;
+    komp.name = "komp";
+    komp.anchors = {true, true, true, false};
+    komp.right = 16;
+    komp.setBorder(true);
+
+    kompRubrik.name = "kompRubrik";
+    kompRubrik.setText(glaze::tr(1029));
+    kompRubrik.x = 10;
+    kompRubrik.y = 8;
+
+    kompSep.name = "kompSep";
+    kompSep.x = 10;
+    kompSep.y = 30;
+    kompSep.anchors = {true, true, true, false};
+    kompSep.right = 10;
+
+    kompBild.setImg(glaze::img("toolbar", "ok"));
+    kompBild.width = 32;
+    kompBild.height = 32;
+    kompBild.x = 10;
+    kompBild.y = 40;
+    kompBild.name = "kompBild";
+
+    kompLank.name = "kompLank";
+    kompLank.setText(glaze::tr(1030));
+    kompLank.setUrl("https://github.com/holmbom/GlazeUI");
+    kompLank.anchorLeft = {"kompBild", 10};
+    kompLank.y = 48;
+
+    valA.setText(glaze::tr(1031));
+    valA.setGroup("demo");
+    valA.setChecked(true);
+    valA.x = 10;
+    valA.anchorTop = {"kompBild", 10};
+    valA.name = "valA";
+
+    valB.setText(glaze::tr(1032));
+    valB.setGroup("demo");
+    valB.x = 10;
+    valB.anchorTop = {"valA", 4};
+    valB.name = "valB";
+
+    skjut.setMin(0);
+    skjut.setMax(100);
+    skjut.setValue(40);
+    skjut.setStep(5);
+    skjut.anchors = {true, true, true, false};
+    skjut.right = 10;
+    skjut.x = 10;
+    skjut.anchorTop = {"valB", 6};
+    skjut.name = "skjut";
+
+    skjutVarde.setRole(glaze::Label::Role::Dim);
+    skjutVarde.x = 10;
+    skjutVarde.anchorTop = {"skjut", 4};
+    skjutVarde.name = "skjutVarde";
+
+    forlopp.setValue(40);
+    forlopp.anchors = {true, true, true, false};
+    forlopp.right = 10;
+    forlopp.x = 10;
+    forlopp.anchorTop = {"skjutVarde", 4};
+    forlopp.name = "forlopp";
+
+    obestamd.name = "obestamd";
+    obestamd.setText(glaze::tr(1033));
+    obestamd.x = 10;
+    obestamd.anchorTop = {"forlopp", 6};
+
+    panel.name = "panel";
+    panel.anchors = {true, true, true, true};
+    panel.anchorLeft = {"prova", 16};
+    panel.anchorTop = {"komp", 12};
+    panel.right = 16;
+    panel.bottom = 88;
+    panel.setBorder(true);
+
+    panelRubrik.name = "panelRubrik";
+    panelRubrik.setText(glaze::tr(1034));
+    panelRubrik.x = 10;
+    panelRubrik.y = 8;
+
+    panelSep.name = "panelSep";
+    panelSep.x = 10;
+    panelSep.y = 30;
+    panelSep.anchors = {true, true, true, false};
+    panelSep.right = 10;
+
+    inre.setText(glaze::tr(1035));
+    inre.x = 10;
+    inre.y = 42;
+    inre.name = "inre";
+
+    scrollTxt.name = "scrollTxt";
+    scrollTxt.setText(glaze::tr(1036));
+    scrollTxt.setRole(glaze::Label::Role::Dim);
+    scrollTxt.x = 10;
+    scrollTxt.anchorTop = {"inre", 12};
+
+    klipps.name = "klipps";
+    klipps.setText(glaze::tr(1037));
+    klipps.x = 10;
+    klipps.y = 172;
+
+    nyttBtn.setText(glaze::tr(1002));
+    nyttBtn.anchors = {true, false, false, true};
+    nyttBtn.x = 16;
+    nyttBtn.bottom = 16;
+    nyttBtn.name = "nyttBtn";
+
+    galleriBtn.name = "galleriBtn";
+    galleriBtn.setText(glaze::tr(1003));
+    galleriBtn.anchors = {true, false, false, true};
+    galleriBtn.bottom = 16;
+    galleriBtn.anchorLeft = {"nyttBtn", 12};
+
+    stang.name = "stang";
+    stang.setText(glaze::tr(1040));
+    stang.anchors = {false, false, true, true};
+    stang.right = 16;
+    stang.bottom = 16;
+
+    prova.onContextMenu = [this](glaze::Widget* s, glaze::ContextMenuArgs& e) { snabbmenyBegard(s, e); };
+    okBtn.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { okBtnClicked(s, e); };
+    okBtn.onHover = [this](glaze::Widget* s, glaze::HoverArgs& e) { okBtnHovered(s, e); };
+    animate.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { animateChanged(s, e); };
+    temaBtn.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { temaBtnClicked(s, e); };
+    namn.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { namnChanged(s, e); };
+    nyttBtn.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { nyttFonsterClicked(s, e); };
+    galleriBtn.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { galleriClicked(s, e); };
+    temaDd.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { temaDdChanged(s, e); };
+    skalaDd.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { skalaDdChanged(s, e); };
+    sprakDd.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { sprakDdChanged(s, e); };
+    uiDd.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { uiDdChanged(s, e); };
+    themeDd.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { themeDdChanged(s, e); };
+    styleDd.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { styleDdChanged(s, e); };
+    stang.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { stangClicked(s, e); };
+    kompLank.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { kompLankClicked(s, e); };
+    valA.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { valChanged(s, e); };
+    valB.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { valChanged(s, e); };
+    skjut.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { skjutChanged(s, e); };
+    obestamd.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { obestamdChanged(s, e); };
+    glaze::AppWindow::onLoad = [this](glaze::Widget* s, glaze::EventArgs& e) { onLoad(s, e); };
+
+    root().adopt(rubrik);
+    root().adopt(intro1);
+    root().adopt(intro2);
+    root().adopt(utseende);
+    utseende.adopt(utsRubrik);
+    utseende.adopt(utsSep);
+    utseende.adopt(uiLbl);
+    utseende.adopt(uiDd);
+    utseende.adopt(themeLbl);
+    utseende.adopt(themeDd);
+    utseende.adopt(styleLbl);
+    utseende.adopt(styleDd);
+    utseende.adopt(temaLbl);
+    utseende.adopt(temaDd);
+    utseende.adopt(skalaLbl);
+    utseende.adopt(skalaDd);
+    utseende.adopt(sprakLbl);
+    utseende.adopt(sprakDd);
+    utseende.adopt(utsHint);
+    root().adopt(prova);
+    prova.adopt(provaRubrik);
+    prova.adopt(provaSep);
+    prova.adopt(okBtn);
+    prova.adopt(temaBtn);
+    prova.adopt(animate);
+    prova.adopt(namn);
+    prova.adopt(status);
+    root().adopt(komp);
+    komp.adopt(kompRubrik);
+    komp.adopt(kompSep);
+    komp.adopt(kompBild);
+    komp.adopt(kompLank);
+    komp.adopt(valA);
+    komp.adopt(valB);
+    komp.adopt(skjut);
+    komp.adopt(skjutVarde);
+    komp.adopt(forlopp);
+    komp.adopt(obestamd);
+    root().adopt(panel);
+    panel.adopt(panelRubrik);
+    panel.adopt(panelSep);
+    panel.adopt(inre);
+    panel.adopt(scrollTxt);
+    panel.adopt(klipps);
+    root().adopt(nyttBtn);
+    root().adopt(galleriBtn);
+    root().adopt(stang);
+}

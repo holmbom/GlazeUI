@@ -1,0 +1,241 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+#include "dock_window.h"
+
+DockWindow::DockWindow() { initializeComponent(); }
+
+void DockWindow::initializeComponent()
+{
+    setTitle(glaze::tr(1700));
+    setContentSize(960, 600);
+    setMinimumSize(640, 400);
+
+    menuBar.show();
+    menuBar.addMenu(glaze::tr(1701));
+    menuBar.addItem(glaze::tr(1701), glaze::tr(1702));
+    menuBar.addItem(glaze::tr(1701), glaze::tr(1703));
+    menuBar.addItem(glaze::tr(1701), glaze::tr(1704));
+    menuBar.addItem(glaze::tr(1701), glaze::tr(1705));
+    menuBar.addItem(glaze::tr(1701), glaze::tr(1725));
+    menuBar.addItem(glaze::tr(1701), glaze::tr(2000));
+    menuBar.addMenu(glaze::tr(1706));
+    menuBar.addItem(glaze::tr(1706), glaze::tr(1707), "Ctrl+S");
+    menuBar.addItem(glaze::tr(1706), glaze::tr(1708), "Ctrl+R");
+    menuBar.addSeparator(glaze::tr(1706));
+    menuBar.addItem(glaze::tr(1706), glaze::tr(1709));
+    menuBar.addSeparator(glaze::tr(1706));
+    menuBar.addItem(glaze::tr(1706), glaze::tr(1932), "M");
+
+    statusBar.show();
+
+    statusTxt.name = "statusTxt";
+    statusTxt.setText(glaze::tr(1716));
+    statusTxt.setRole(glaze::Label::Role::Dim);
+
+    dock.name = "dock";
+    dock.dock = glaze::Dock::Fill;
+
+    standard.name = "standard";
+    standard.setText(glaze::tr(1727));
+
+    ny.name = "ny";
+    ny.setText(glaze::tr(1740));
+    ny.addItem({}, glaze::tr(1742));
+    ny.addItem({}, glaze::tr(1743));
+
+    angra.name = "angra";
+    angra.setText(glaze::tr(1741));
+    angra.setSplit(true);
+    angra.addItem({}, glaze::tr(1744));
+    angra.addItem({}, glaze::tr(1745));
+    angra.addItem({}, glaze::tr(1746));
+
+    standardSep.name = "standardSep";
+
+    nyttFalt.name = "nyttFalt";
+    nyttFalt.setText(glaze::tr(1717));
+
+    redigera.name = "redigera";
+    redigera.setText(glaze::tr(1728));
+    redigera.setToolTip(glaze::tr(1934));
+    redigera.setAllowedEdges({glaze::Dock::Top, glaze::Dock::Bottom});
+
+    klipp.name = "klipp";
+    klipp.setText(glaze::tr(1720));
+
+    kopiera.name = "kopiera";
+    kopiera.setText(glaze::tr(1721));
+
+    klistra.name = "klistra";
+    klistra.setText(glaze::tr(1722));
+
+    felsok.name = "felsok";
+    felsok.setText(glaze::tr(1729));
+    felsok.setBand(1);
+    felsok.setFloating(true);
+
+    kor.name = "kor";
+    kor.setText(glaze::tr(1718));
+
+    stega.name = "stega";
+    stega.setText(glaze::tr(1719));
+
+    verktyg.name = "verktyg";
+    verktyg.setText(glaze::tr(1730));
+    verktyg.dock = glaze::Dock::Left;
+
+    verktygOk.name = "verktygOk";
+    verktygOk.setImg(glaze::img("toolbar", "ok"));
+
+    verktygAvbryt.name = "verktygAvbryt";
+    verktygAvbryt.setImg(glaze::img("toolbar", "cancel"));
+
+    verktygInfo.name = "verktygInfo";
+    verktygInfo.setImg(glaze::img("toolbar", "info"));
+
+    verktygKugg.name = "verktygKugg";
+    verktygKugg.setImg(glaze::img("toolbar", "gear"));
+
+    utforskare.name = "utforskare";
+    utforskare.setText(glaze::tr(1702));
+    utforskare.width = 240;
+    utforskare.setMinimumSize(160, 0);
+    utforskare.setMaximumSize(400, 0);
+
+    minMax.name = "minMax";
+    minMax.setText(glaze::tr(1715));
+    minMax.setRole(glaze::Label::Role::Dim);
+    minMax.setWrap(true);
+    minMax.dock = glaze::Dock::Bottom;
+
+    filer.name = "filer";
+    filer.setItems({"Rapport.pdf", "Budget.xlsx", "Bilder", "Anteckningar.txt"});
+    filer.dock = glaze::Dock::Fill;
+
+    sok.name = "sok";
+    sok.setText(glaze::tr(1703));
+    sok.width = 240;
+
+    sokEtikett.name = "sokEtikett";
+    sokEtikett.setText(glaze::tr(1713));
+    sokEtikett.dock = glaze::Dock::Top;
+
+    sokFalt.name = "sokFalt";
+    sokFalt.dock = glaze::Dock::Top;
+
+    egenskaper.name = "egenskaper";
+    egenskaper.setText(glaze::tr(1704));
+    egenskaper.setImg(glaze::img("toolbar", "gear"));
+    egenskaper.setPinned(false);
+    egenskaper.width = 240;
+
+    egenskapsLista.name = "egenskapsLista";
+    egenskapsLista.setRows({{"name", "dokument"}, {"dock", "Fill"}, {"width", "AUTO"}});
+    egenskapsLista.dock = glaze::Dock::Fill;
+
+    utdata.name = "utdata";
+    utdata.setText(glaze::tr(1705));
+    utdata.setImg(glaze::img("toolbar", "info"));
+    utdata.dock = glaze::Dock::Bottom;
+    utdata.height = 120;
+
+    utdataText.name = "utdataText";
+    utdataText.setText(glaze::tr(1714));
+    utdataText.setWrap(true);
+    utdataText.dock = glaze::Dock::Fill;
+
+    terminalPanel.name = "terminalPanel";
+    terminalPanel.setText(glaze::tr(2000));
+    terminalPanel.dock = glaze::Dock::Bottom;
+    terminalPanel.height = 120;
+
+    terminal.name = "terminal";
+    terminal.setEnvironmentVariable("GLAZE_DEMO", "dock");
+    terminal.dock = glaze::Dock::Fill;
+
+    bevakning.name = "bevakning";
+    bevakning.setText(glaze::tr(1725));
+    bevakning.setImg(glaze::img("toolbar", "info"));
+    bevakning.dock = glaze::Dock::Right;
+    bevakning.width = 260;
+    bevakning.setFloating(true);
+
+    bevakningText.name = "bevakningText";
+    bevakningText.setText(glaze::tr(1726));
+    bevakningText.setRole(glaze::Label::Role::Dim);
+    bevakningText.setWrap(true);
+    bevakningText.dock = glaze::Dock::Top;
+
+    bevakningLista.name = "bevakningLista";
+    bevakningLista.setItems({"antal = 42", "aktiv = true", "lista.size() = 3"});
+    bevakningLista.dock = glaze::Dock::Fill;
+
+    dokument.name = "dokument";
+    dokument.setBorder(true);
+
+    dokumentText.name = "dokumentText";
+    dokumentText.setText(glaze::tr(1712));
+    dokumentText.setWrap(true);
+    dokumentText.anchors = {true, true, true, false};
+    dokumentText.x = 16;
+    dokumentText.y = 16;
+    dokumentText.right = 16;
+
+    dock.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { dockAndrad(s, e); };
+    angra.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { verktygKlickat(s, e); };
+    nyttFalt.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { nyttFaltKlickat(s, e); };
+    klipp.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { verktygKlickat(s, e); };
+    kopiera.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { verktygKlickat(s, e); };
+    klistra.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { verktygKlickat(s, e); };
+    kor.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { verktygKlickat(s, e); };
+    stega.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { verktygKlickat(s, e); };
+    verktygOk.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { verktygKlickat(s, e); };
+    verktygAvbryt.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { verktygKlickat(s, e); };
+    verktygInfo.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { verktygKlickat(s, e); };
+    verktygKugg.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { verktygKlickat(s, e); };
+    terminal.onExit = [this](glaze::Widget* s, glaze::EventArgs& e) { terminalSlut(s, e); };
+    terminal.onTitleChange = [this](glaze::Widget* s, glaze::EventArgs& e) { terminalTitel(s, e); };
+    glaze::AppWindow::onLoad = [this](glaze::Widget* s, glaze::EventArgs& e) { onLoad(s, e); };
+
+    statusBar.adopt(statusTxt);
+    root().adopt(dock);
+    dock.adopt(standard);
+    standard.adopt(ny);
+    standard.adopt(angra);
+    standard.adopt(standardSep);
+    standard.adopt(nyttFalt);
+    dock.adopt(redigera);
+    redigera.adopt(klipp);
+    redigera.adopt(kopiera);
+    redigera.adopt(klistra);
+    dock.adopt(felsok);
+    felsok.adopt(kor);
+    felsok.adopt(stega);
+    dock.adopt(verktyg);
+    verktyg.adopt(verktygOk);
+    verktyg.adopt(verktygAvbryt);
+    verktyg.adopt(verktygInfo);
+    verktyg.adopt(verktygKugg);
+    dock.adopt(utforskare);
+    utforskare.adopt(minMax);
+    utforskare.adopt(filer);
+    dock.adopt(sok);
+    sok.adopt(sokEtikett);
+    sok.adopt(sokFalt);
+    dock.adopt(egenskaper);
+    egenskaper.adopt(egenskapsLista);
+    dock.adopt(utdata);
+    utdata.adopt(utdataText);
+    dock.adopt(terminalPanel);
+    terminalPanel.adopt(terminal);
+    dock.adopt(bevakning);
+    bevakning.adopt(bevakningText);
+    bevakning.adopt(bevakningLista);
+    dock.adopt(dokument);
+    dokument.adopt(dokumentText);
+
+    dock.dockPanel(sok, utforskare, glaze::Dock::Fill);
+    dock.dockPanel(egenskaper, utforskare, glaze::Dock::Bottom);
+    dock.dockPanel(terminalPanel, utdata, glaze::Dock::Fill);
+
+    utforskare.activate();
+}

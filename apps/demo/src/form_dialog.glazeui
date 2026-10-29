@@ -1,0 +1,146 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+#include "form_dialog.h"
+
+FormDialog::FormDialog() { initializeComponent(); }
+
+void FormDialog::initializeComponent()
+{
+    setTitle(glaze::tr(1951));
+    setContentSize(420, 300);
+    setSizeToContent(glaze::SizeToContent::WidthAndHeight);
+    setSizeToContentMode(glaze::SizeToContentMode::GrowOnly);
+    setStartPosition(glaze::StartPosition::CenterOwner);
+    setAcceptButton(ok);
+    setCancelButton(avbryt);
+
+    ok.name = "ok";
+    ok.setText(glaze::tr(1));
+    ok.setDialogResult(glaze::DialogResult::OK);
+    ok.anchors = {false, false, true, true};
+    ok.right = 12;
+    ok.bottom = 12;
+    ok.tabIndex = 100;
+
+    avbryt.name = "avbryt";
+    avbryt.setText(glaze::tr(2));
+    avbryt.setDialogResult(glaze::DialogResult::Cancel);
+    avbryt.anchors = {false, false, false, true};
+    avbryt.anchorRight = {"ok", 8};
+    avbryt.bottom = 12;
+    avbryt.tabIndex = 101;
+
+    kontakt.name = "kontakt";
+    kontakt.setText(glaze::tr(1952));
+    kontakt.anchors = {true, true, true, false};
+    kontakt.x = 12;
+    kontakt.y = 12;
+    kontakt.right = 12;
+
+    lblNamn.name = "lblNamn";
+    lblNamn.setText(glaze::tr(1381));
+    lblNamn.setWidthGroup("form");
+    lblNamn.setBuddy("namn");
+
+    namn.name = "namn";
+    namn.anchors = {true, true, true, false};
+    namn.anchorLeft = {"lblNamn", 8};
+
+    lblEpost.name = "lblEpost";
+    lblEpost.setText(glaze::tr(1953));
+    lblEpost.setWidthGroup("form");
+    lblEpost.setBuddy("epost");
+    lblEpost.anchorTop = {"namn", 8};
+
+    epost.name = "epost";
+    epost.anchors = {true, true, true, false};
+    epost.anchorLeft = {"lblEpost", 8};
+    epost.anchorTop = {"namn", 8};
+
+    lblTelefon.name = "lblTelefon";
+    lblTelefon.setText(glaze::tr(1954));
+    lblTelefon.setWidthGroup("form");
+    lblTelefon.setBuddy("telefon");
+    lblTelefon.anchorTop = {"epost", 8};
+
+    telefon.name = "telefon";
+    telefon.anchors = {true, true, true, false};
+    telefon.anchorLeft = {"lblTelefon", 8};
+    telefon.anchorTop = {"epost", 8};
+
+    adress.name = "adress";
+    adress.setText(glaze::tr(1955));
+    adress.anchors = {true, true, true, false};
+    adress.anchorTop = {"kontakt", 12};
+    adress.x = 12;
+    adress.right = 12;
+
+    lblGata.name = "lblGata";
+    lblGata.setText(glaze::tr(1956));
+    lblGata.setWidthGroup("form");
+    lblGata.setBuddy("gata");
+
+    gata.name = "gata";
+    gata.anchors = {true, true, true, false};
+    gata.anchorLeft = {"lblGata", 8};
+
+    lblPostort.name = "lblPostort";
+    lblPostort.setText(glaze::tr(1957));
+    lblPostort.setWidthGroup("form");
+    lblPostort.setBuddy("postort");
+    lblPostort.anchorTop = {"gata", 8};
+
+    postort.name = "postort";
+    postort.anchors = {true, true, true, false};
+    postort.anchorLeft = {"lblPostort", 8};
+    postort.anchorTop = {"gata", 8};
+
+    visa.name = "visa";
+    visa.setText(glaze::tr(1959));
+    visa.setChecked(true);
+    visa.x = 12;
+    visa.anchorTop = {"adress", 12};
+    visa.bottom = 12;
+
+    las.name = "las";
+    las.setText(glaze::tr(1960));
+    las.anchorLeft = {"visa", 16};
+    las.anchorTop = {"adress", 12};
+    las.bottom = 12;
+
+    lblKontakter.name = "lblKontakter";
+    lblKontakter.setText(glaze::tr(1958));
+    lblKontakter.x = 12;
+    lblKontakter.anchorTop = {"visa", 12};
+
+    kontakter.name = "kontakter";
+    kontakter.setItems({"Anna Lindqvist", "Bertil Ek", "Cecilia Holm", "David Berg", "Elin Sjöberg", "Fredrik Nyström"});
+    kontakter.anchors = {true, true, true, true};
+    kontakter.x = 12;
+    kontakter.right = 12;
+    kontakter.height = 96;
+    kontakter.anchorTop = {"lblKontakter", 4};
+    kontakter.anchorBottom = {"ok", 12};
+
+    visa.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { visaAndrad(s, e); };
+    las.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { lasAndrad(s, e); };
+    glaze::AppWindow::onLoad = [this](glaze::Widget* s, glaze::EventArgs& e) { onLoad(s, e); };
+
+    root().adopt(ok);
+    root().adopt(avbryt);
+    root().adopt(kontakt);
+    kontakt.adopt(lblNamn);
+    kontakt.adopt(namn);
+    kontakt.adopt(lblEpost);
+    kontakt.adopt(epost);
+    kontakt.adopt(lblTelefon);
+    kontakt.adopt(telefon);
+    root().adopt(adress);
+    adress.adopt(lblGata);
+    adress.adopt(gata);
+    adress.adopt(lblPostort);
+    adress.adopt(postort);
+    root().adopt(visa);
+    root().adopt(las);
+    root().adopt(lblKontakter);
+    root().adopt(kontakter);
+}

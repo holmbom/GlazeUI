@@ -1,0 +1,220 @@
+# VERSION — GlazeUI
+
+Ändringarna MELLAN versionerna, kortfattat — en rad per sak:
+
+- **Fix** — vad som fixades.
+- **New** — vad som är nytt.
+
+Ingen komplett historik: den står i git. Här står det man behöver veta när
+man byter version.
+
+Versionen står på ETT ställe, [`glaze/version.h`](Glaze/widgets/include/glaze/version.h)
+(rot-CMakeLists läser den, `version_gate` mäter att de är lika), och varje
+version har git-taggen `vX.Y.Z`. En ny
+MAJOR eller MINOR (1.0.0, 0.2.0) taggas först när alla tester är utförda på
+alla tre OS; en PATCH (0.1.5) räcker med det OS den byggdes på. Det som
+görs efter en version samlas under **Nästa** och får sitt nummer när
+versionen sätts.
+
+## Nästa
+
+## 0.2.0 — 2026-10-21
+
+- **Testad** — Windows 2026-10-21 (Windows 11, MinGW UCRT64, Intel UHD + RTX 4070): statisk och delad svit (79 + 79 grindar) och röktest — rättelserna nedan inräknade; raderna i doc/os/windows som kräver en människa står kvar. macOS 2026-10-21 (se 0.1.10). **Linux: ej testad** — 0.2.0 går ut med macOS och Windows på Eriks ord.
+- **New** — `UI_GUIDELINES.md`: riktlinjerna för luft och linjering i en app — en skala på 4-px-rutnätet, 8 px som golv mellan klickbara kontroller (fokusringen och skuggan ritas utanför dem), marginalerna, formulärets etikettkolumn, knappraden och ett exempel.
+- **New** — 53 nya standardikoner för CAD- och 3D-verktyg i båda stilarna: rita (`Point`, `Polyline`, `Arc`, `Circle`, `Spline`, `Hatch`, `Dimension`, `AngleDimension`), ändra (`Move`, `Rotate`, `Scale`, `Offset`, `Trim`, `Extend`, `Fillet`, `Chamfer`, `Array`), fästpunkter (`SnapEndpoint` … `Crosshair`), vyer och kamera (`ViewTop`, `ViewFront`, `ViewRight`, `ViewIsometric`, `Perspective`, `Orthographic`, `Orbit`, `Camera`, `Light`, `Axes`, `ZoomWindow`), former (`Box`, `Sphere`, `Cylinder`, `Cone`, `Torus`, `Plane`, `Mesh`) och visning/modellering (`Wireframe`, `Solid`, `Rendered`, `SelectVertex`/`Edge`/`Face`, `Extrude`, `Union`, `Subtract`, `Intersect`) — och 74 andra: bild, dockning, kod, karta, ordna objekt (fram/bak, justera, fördela), fler 3D-vyer, CAD (`Explode`, `Block`, `Note`, `RevisionCloud`, `Area`), text, diagram, status i ring, hårdvara, tid och diagonala pilar.
+- **New** — Filtypsikoner: 74 format med ändelsen utstansad ur en etikett i kategorins färg (geodata som SHP, GeoJSON, KML, GPX, GPKG, GML, GDB, GeoTIFF, MBTiles · CAD/BIM som DWG, DXF, DGN, IFC, STEP · 3D · punktmoln som LAS, LAZ, E57 · bilder · dokument · data · arkiv · media) och tolv filkategorier (`FileImage`, `FileGeo`, `FileCad` …) — 392 standardikoner totalt. Ritspråket fick utstansad text (`K`) och en stark ton i färgvarianten (`strong`).
+- **Fix** — Draperingen på terräng ritade aldrig in en bild som fått vänta på uppladdningsbudgeten: `contentVersion` i bildcachen svarade 0 både utan textur och för en ny bild (version 0), så nyckeln ändrades inte när texturen kom.
+- **Fix** — macOS: programmet i `glaze::Terminal` såg storleken 0 × 0 vid start — storleken sätts nu också på pseudoterminalens slav efter öppningen.
+- **Fix** — Slate: ett tomt inaktiverat textfält såg aktivt ut — ytan är `fieldReadOnly`, som Win32:s inaktiva fält (`TextInput`, `TextArea` och fälten i kompositerna).
+- **Fix** — macOS: ett dolt fönster väntade på skärmens uppdatering i varje bild (5–6 ms i `wait`) — det hämtar ingen drawable längre; retained-innehållet ritas som förut.
+- **Fix** — Windows: profileraren mätte aldrig GPU-tiden på ett Intel-kort — en bild vars tidsstämplar inte var klara när DISJOINT-frågan var det kastades i stället för att läsas nästa bild.
+- **Fix** — macOS 27-SDK: inga varningar i grafikkortslistan (`MTLDevice.location` läses bara när programmet kan köras på en Intel-Mac).
+
+## 0.1.10 — 2026-10-20
+
+- **Testad** — macOS 2026-10-21 (MacBook Pro M1, macOS 27.0.1, Apple clang): statisk och delad svit, röktest och varje körbar rad i doc/os/macos — med rättelserna under **0.2.0**; kvar där är bara rader som kräver hårdvara (andra skärm, PC-tangentbord, Intel-Mac). Windows och Linux: ej testade än.
+- **New** — Bindningstabellen på ritytan: vad musens drag (per knapp), hjulet, styrplattans drag, nypning och vridning, pilarna och + och − gör med kameran är rader (läge, källa, modifierare) → (handling, riktning, fart) — `Canvas::setBinding`/`removeBinding`/`clearBindings`/`effectiveBinding`, lägena `"map"`, `"orbit"`, `"firstPerson"` (giren kring ögat, ny) och appens egna (`setInputMode`), källans och handlingens vändning per enhet, och appens globala tabell som varje rityta ärver rad för rad (`App::setCanvasBinding` m.fl.). Förvalet är dagens gester; högerknappens drag kan bindas. I `.glazeui` och previewn (REQ9 4).
+- **New** — Rullningens riktning globalt och per widget: `App::setWheelInvert`, `AppWindow::setWheelInvert` och `Widget::setWheelInvert` — lodrätt och i sidled, för mushjulet och styrplattan var för sig, ärvt från närmaste förfader och annars från appen, relativt mot OS:ets eget val. I `.glazeui` och previewn (REQ9 5).
+- **New** — Shift+mushjul rullar i sidled på Windows och Linux också; på macOS levererar backenden numera hjulets egen axel och glaze byter (macOS skrivet blint) (REQ9 5).
+- **New** — `glaze::Terminal` i det nya sidopaketet `Terminal/` (`glaze_terminal` + `glaze_terminal_ui`, `GLAZE_TERMINAL`, förval på): ett program i OS:ets pseudoterminal (ConPTY / `posix_openpt`) med vår VT-emulering i Mono — markör, radering, rullningsområden och den alternativa skärmen, 16/256/24-bitars färger, UTF-8 med breda tecken och emoji, bracketed paste, fokushändelser, kittyprotokollets disambiguering och musrapportering — historik med markering och kopiering, tangenterna till programmet (Tab, Escape, Ctrl+C), färgerna härledda ur appens tema och läge eller ett schema (Solarized, One, Tango) med egna färger, `onExit`/`onTitleChange`. I `.glazeui` och previewn (tom terminal, ingen process); demons dockningsfönster har en flik. Windows; macOS och Linux skrivna blint (REQ9 3).
+- **New** — `glaze/color.h` (`glaze::color::hsl`/`mix`/`luminance`/`contrast`/`hueDegrees`, temats färgmatematik publik) och `Draw::withFont` (Ctx:t med Mono, fet/kursiv eller en egen storlek ur fönstrets textfonter) (REQ9 3).
+- **New** — `gfx::gpuAdapters()` (namn, tillverkare, slag, eget minne, valbart, förval och ett id som håller över omstart), `gfx::setGpuAdapter(id)`/`gpuAdapter()` före första fönstret och `Renderer::adapterId()` — kortet som faktiskt ritar. Windows; macOS skrivet blint (REQ9 1).
+- **New** — Linux väljer grafikkortet i processen: `gfx::init` sätter `__NV_PRIME_RENDER_OFFLOAD=1` eller `DRI_PRIME=pci-…` före första EGL-anropet, för kortet eller GPU-preferensen, och en variabel användaren redan satt vinner. Skrivet blint (REQ9 2).
+- **Fix** — Barnprocesser ärver inte grafikkortsvalet: `openUrl`/`openFile` (nu `execve` med programmet och miljön byggda före fork) och terminalens skal startar utan variablerna GlazeUI satte (`gfx::childEnvironmentRemovals`) (REQ9 2).
+- **Fix** — BRYTANDE: `OrbitPan`/`setOrbitPan` och `setProp("orbitPan")` är borttagna — flygläget är två bindningar (`setBinding("orbit", MiddleDragY, 0, Fly)` och med Shift `Lift`). Orbitens vänsterdrag med både vridning och tilt av gör ingenting (förr panorerade det), och Shift mitt i ett drag byter som förut (REQ9 4).
+- **New** — `glaze_standingZ` i de egna programmens förspel (HLSL, GLSL, MSL): de skärmvända hörnens djup, så ett eget program kan stå på marken som ramverkets (REQ9 7).
+- **Fix** — Verktygsfält och dockningspaneler ritade lösa prickar i övre vänstra hörnet: en widget med tom rect ritas inte — `draw`, `drawAfterChildren` och `drawOverlay` anropas inte, barnen vandras ändå (BRYTANDE för en egen widget som lade tillstånd i `draw()`; det hör hemma i den nya `Widget::frameStep`). En rityta utan yta tickar inte, och `zoomToRect`/`zoomToBox`/`panBy` väntar på en ritning med yta (REQ9 6).
+- **Fix** — Punktmolnets linje vid horisonten: de skärmvända hörnen dras högst ungefär en fjärdedel av sitt djup fram mot planet genom ankaret (inget alls när planet nästan går genom ögat), och punkterna dessutom högst fyra radier i världen. Metal och Linux skrivna blint (REQ9 7).
+
+## 0.1.9 — 2026-10-17
+
+- **New** — `glaze::profiler()`: var tiden i en bild går, per fönster — innehållet (med layouten), ritytans förberedelse, draperingar, ritning och `onPaint`, overlayn, presentationen och dess väntan, GPU:ns tid och kompileringen — med renderarens och ritytans räknare per bild, pumpvarven (väntan, händelser, postade funktioner) och appens egna mått (`ProfileLabel`, `ProfileScope`, `profileCount`) från vilken tråd som helst. Alltid inkompilerad och av som förval, också i Release: `setEnabled(true)` eller `GLAZE_PROFILE=1`; läses genom hämtning (`frames`, `summary`, `scopes`, `report()` för appens logg). Utanför `.glazeui` med flit (PRESTANDA A1).
+- **New** — Fasadens mätpunkter: `RenderStats::presentNs` (presentationens väntan), `compileNs` och `targetsCreated`, `Renderer::frameSerial()` och GPU-tiden per frame (`setGpuTiming`, `takeGpuTimes`, `gpuTimingSupported`), och loggen säger vilken GPU som ritar (D3D11 listar adaptrarna en gång). Windows; macOS och Linux skrivna blint (PRESTANDA A1–A2).
+- **New** — `tests/terrain_perf`: en terrängkarta och en 3D-vy i 27 steg med profilerarens siffror per steg och fönster (`--synlig`, `--hp`, `--skärm N`, `--steg N`, `--mål Hz`), på en mätsele som `app_perf` delar (`tests/perf/`); i ctest dolt med grinden "sessionen går" (PRESTANDA B).
+- **New** — `Canvas::setLayerSnap(lager, false)`: ett lager utan hörn- och kantträffar i `hitTest(lokal, HitOptions)` — ytan träffas som förut —, så en höjdmodell slipper sökningen bland sina trianglar vid varje musrörelse. Också i `.glazeui` och previewn (PRESTANDA C5).
+- **New** — Postkön med tidsbudget: `App::setPostBudget(ms)`/`postBudget()`, förval 4 ms per varv (0 = obegränsat) — det som inte hann körs i nästa varv i samma ordning, så en skur av trådarnas svar inte fryser en bildruta. Ramverkets egna poster för nästa bild (ritytans tick, kamerans händelse, `onResize`) går i en egen kö före appens och utan budget (PRESTANDA D2).
+- **Fix** — Kraschen vid hover över en textetikett i ett Ground-lager när terräng ritas: elementindexet blev osignerat (4294967295) och `hitTest` läste utanför formens punkter (`hit_index.cpp`).
+- **Fix** — Draperingen: en dold platta ritas inte om förrän den syns, högst 8 Mi px draperas om per bild (synligt utan drapering först, innehållet kan släpa några bilder; `renderToBitmap` ritar komplett), målen återanvänds ur en pool, och innehållsnyckeln räknas bara när en markstämpel över lagren ändrats — en vridning under tilt ritade om varje drapering i varje bild (PRESTANDA C1–C2).
+- **Fix** — Etiketterna vid markhöjd byggs om bara när terrängen UNDER dem ändras (regionens nyckel), inte vid varje ny platta någonstans (PRESTANDA C3).
+- **Fix** — `heightAt` och terrängens höjd går genom ett rutnät över plattorna (O(1) + plattans sökstruktur i stället för alla plattors lådor), och scenens låda — läst vid varje musrörelse, `castRay`, `hitTest` och `project` — är cachad per vy (PRESTANDA C3).
+- **Fix** — Träffprovet: skymmarna prövas framifrån och sökningen slutar bakom den närmaste ytan, terrängens yta plockas en gång, föremål vars låda strålen inte når prövas inte vidare, och ett Ground-lager utan mark under pekaren prövar inte sina former (PRESTANDA C5).
+- **Fix** — Ritytans `onTick`, `onCameraChange` (från drag, hjul, gest, tröghet och snäpp), `onGesture` och hjul ritar om RITYTAN, inte hela fönstret — BRYTANDE kontrakt: en handler som ändrar ett eget fält som en annan widgets ritning läser anropar den widgetens `invalidate()`; sättarna invaliderar som förut (PRESTANDA D1).
+- **Fix** — Uppladdningen synligt först: föremålen och bilderna som syns i vyn, närmast först, får framens uppladdningsbudget före det som ligger utanför bild (PRESTANDA C6).
+- **Fix** — En text som flyttades med `setShape` hamnade utanför sin körnings låda och därmed utanför scenens låda (3D-vyns klipplan, gallringen); lådan växer nu med texten (PRESTANDA C3).
+
+## 0.1.8 — 2026-10-14
+
+- **New** — `Canvas::setOrbitPan(OrbitPan::Screen | Fly)`: vad 3D-orbitens mittendrag (och tvåfingersdrag) gör. **Screen är förvalet** — punkten under pekaren följer pekaren, bara målet flyttas och upp/ned zoomar inte längre; `Fly` är TODO 55:s flygning längs blicken. Shift byter läge (Screen → Fly, Fly → höj/sänk). `setProp("orbitPan", "screen"|"fly")`, i `.glazeui` och previewn.
+- **New** — Mip-kedjor och rutor för ritytans bilder: en `Bitmap` och en `RenderTexture` har en mip-kedja som räknas om när pixlarna ändras, så en stor bild ritad utzoomad varken blir grynig eller får moiré, och `ImageFilter` gäller mellan nivåerna (`Linear` mjukt och trilinjärt, `Nearest` skarpt i närmaste nivå). En `Bitmap` större än GPU:ns största textur (`Renderer::maxTextureSize`) delas i rutor och ritas av `Shape::image` och `Painter::drawImage` utan söm. Windows; macOS och Linux skrivna blint (REQ8 5).
+- **New** — `glaze::PrintJob`: utskrift genom operativsystemets utskriftssystem (en PDF genom systemets PDF-skrivare) — systemets dialog (skrivare, kopior, sidintervall), standardformaten och egna mått, orienteringen, det utskrivbara området och marginalerna, och sidorna ritade med ritytans `Painter` i sidans mm, med förlopp och Avbryt. Sidan skickas som en bild i 300 dpi än så länge, inte som vektorer. Windows; macOS skrivet blint; Linux svarar `isSupported() == false` (REQ8 10).
+- **New** — `TreeView` med kolumner: kolumnhuvud, celler per nod och sortering inom syskon — tabellens `addColumn`/`setColumn`/`setColumns`, avdelardrag, fyllkolumn och sorteringspil (den delade basen `glaze::ColumnPanel`), kolumn 0 är nodens text och kolumn 1… cellerna (`TreeNode::cells`, `setCell(stig, kolumn, text)`, `cell`); `setSortColumn` och ett klick i huvudet sorterar varje syskonlista medan stigarna förblir appens. Utan kolumner ritar trädet som förut. Också i `.glazeui` och previewn (REQ8 13).
+- **New** — `Stroke::hitInside`: en konturs insida räknas som yta i ritytans träffprov — en ram utan fyllning väljs inifrån, och en helt osynlig form är en träffzon. Också i `.glazeui` och previewn (REQ8 17).
+- **New** — `HitOptions::tolerance`: träffprovets tolerans per anrop (px, mm eller världsenheter) för 2D-formerna, etiketterna och 3D-plockningen; 0 = stilens app-globala (REQ8 18).
+- **New** — `Canvas::hitTest(Rect, HitMode)`: rutmarkering mot en rektangel på skärmen i fönsterläge (`Window` — helt inom) och korsningsläge (`Crossing` — skär eller inom), rätt också vriden och tiltad; markörformerna svarar punkt för punkt (REQ8 19).
+- **New** — `HitResult::element` för markörformerna: vilken punkt i `Shape::points` (eller markören) som träffades, den närmaste pekaren, så ett punktlager kan vara en enda form (REQ8 20).
+- **New** — `Canvas::setChildAnchor(widget, punkt, ankare)`: en widget på ritytan står i en världspunkt och följer kameran i samma bildruta som scenen, också under tröghet och glidning (`clearChildAnchor`, `childAnchor`). Och `glaze::FloatingPanel`: en panel med rubrik och valfri stängknapp som användaren flyttar i rubriken och storleksändrar i hörnets grepp, med `onChange` vid släppet — på ritytan flyttar draget ankaret. Båda i `.glazeui` och previewn (REQ8 14).
+- **New** — `gfx::openFile(sökväg)`: öppnar en lokal fil i systemets standardprogram med en UTF-8-sökväg som den är, utan att appen kodar den till en URL (Windows `ShellExecuteW`, macOS `NSWorkspace`, Linux `xdg-open`; `openUrl` och `openFile` delar öppningen i varje backend). Windows; macOS och Linux skrivna blint (REQ8 11).
+- **New** — `inputBox(…, InputBoxMode::MultiLine)`: inmatningsrutan med ett flerradsfält (`TextArea`) — Enter ger en ny rad och rutan stängs med OK-knappen. `TextArea::heightForRows(c, rader)` ger fältets höjd för ett antal rader (REQ8 22).
+- **New** — `Picture` ritar en bild som är mindre än sitt naturliga mått med ytans medelvärde (`Draw::glyphResampled`) i stället för GPU:ns linjära sampling, så en stor bild i en liten ruta inte blir grynig (REQ8 23).
+- **New** — `Label::setHalo(std::optional<gfx::Color>)` och `setHaloWidth(px)`: en kontur runt etikettens text i en egen färg, så text över en bild med både ljusa och mörka partier läses överallt (`Style::labelHaloWidth`, `Draw::halo`). Också i `.glazeui` och previewn (REQ8 24).
+- **New** — `Bar::setPlain(true)`: en ren flexrad utan fyllning och hårlinje där barnen behåller sin mätta höjd, så en knapprad i en dialog inte ser ut som ett verktygsfält. Också i `.glazeui` och previewn (REQ8 25).
+- **New** — Standardikonerna: `glaze::stockIcon(StockIcon::Save, 24)` ger ett `ImageSource` ur 179 inbyggda ikoner (navigering, pilar, fil, redigering, listor, vyer, zoom, text, status, fönster, verktyg, media, person, tid och data, säkerhet) — vektorer i koden, rastrerade i fönstrets fysiska px och färgade med temats textfärg, så de följer ljust/mörkt och 1×/2×/fraktionerad skala; klasserna 16/24/32/48. Två stilar: `StockIconStyle::Mono` (konturen) och `Color` (samma kontur med accentdelar i temats härledda roller `stockBlue`/`stockGreen`/`stockRed`/`stockAmber`/`stockYellow`). Också i `.glazeui` och previewn (REQ8 12).
+- **New** — Tabellens cellfärger: `ListView::setCellColor(rad, kolumn, bakgrund, text)` (och `DataGrid`) ger en cell en egen bakgrund och textfärg för matriser där varje cell har ett eget tillstånd — tomt är radens eller stilens färg, markeringen vinner och en inaktiv tabell visar inga appfärger. Kolumnen behöver inte finnas än. Också i `.glazeui` och previewn (REQ8 6).
+- **New** — Tabellens radrubriker: `setRowHeaders(true)` gör första kolumnen till en fast kolumn i rubrikens stil som står kvar när tabellen rullas i sidled; ett klick på ett namn väljer raden, och i en `DataGrid` är den ingen aktuell cell och går inte att redigera. Setter-fält i `.glazeui` och previewn (REQ8 7).
+- **New** — Kolumnbredd efter innehållet: `Column::autoWidth` (−1) som kolumnens bredd följer rubrikens och cellernas bredd, och ett dubbelklick på en avdelare i huvudet anpassar kolumnen och skriver bredden som en fast bredd. Gäller `ListView`, `DataGrid` och `TreeView` (trädet mäter de synliga noderna: indrag, pil, ruta, ikon och text i kolumn 0, cellerna i kolumn 1…); konstanten också i `.glazeui` och previewn (REQ8 8).
+- **New** — Ritytans `TextStyle`: plattans kontur (`outline`, `outlineWidth` — ett band utanför bakgrunden och luften, också utan bakgrund som en ram) och radavståndet (`lineSpacing`, en faktor på radhöjden, förval 1), så en inforuta med ram varken mäts eller ritas av appen. Taket, lådan, kollisionen och `measureText` räknar med båda. Också i `.glazeui` och previewn (REQ8 15).
+- **New** — Ritytans `TextSpan`: bakgrund per del (`background` — en ruta bakom delen på varje rad) och tabbstopp (`tabStop` — x där delen börjar från radens början, i px, mm eller världsenheter), så text med färgade fält och kolumner läggs ut av ritytan; radbrytningen, taket och `measureText` räknar med luckan. Också i `.glazeui` och previewn (REQ8 16).
+- **New** — Målarens plats i lagerordningen: `Canvas::setLayerPainter(lager, true)` och `onPaintLayer` — det som ritas varje bildruta ritas i lagret, efter dess former, i stället för ovanpå allt, så ett rutnät som följer vyn kan ligga under ett tungt punktmoln eller en bild (`PaintArgs::layer` säger vilket lager). Lagrets synlighet, opacitet och zoomintervall gäller målaren, och i 3D-målet lagrets djup: på marken utan djup, i ett World-lager med lagrets renderläge. Också i `.glazeui` och previewn (REQ8 2).
+- **New** — `Canvas::setFlat(true)`: en platt rityta utan kant och rundade hörn — bakgrunden, scenen, overlayn och barnen klipps rakt — och med fokusmarkeringen innanför ytan, så ritytor står kant i kant i en delare eller en dockningspanel utan glipor och utan att fokusringen ritas över grannen. Också i `.glazeui` och previewn (REQ8 4).
+- **New** — Färgjustering live för ritytans bilder och texturer: `glaze::ImageStyle` (`opacity`, `saturation`, `contrast`, `brightness`) till `Shape::image` och `Painter::drawImage` — som ersätter det nakna opacitetstalet, `{.opacity = 0.6f}` — och `contrast`/`brightness` sist i `MeshStyle` bredvid `saturation`. Ljusheten multiplicerar, kontrasten sträcker kring mittgrått och mättnaden blandar mot luminansen (0 = gråskala), klampat efter varje steg och med 1 som orört; mättnaden får nu gå över 1. Uniformer i Image- och Mesh-programmen — en ny stil laddar aldrig upp pixlarna igen — och samma funktion i de egna programmens förspel (`glaze_colorAdjust`). Också i `.glazeui` och previewn. Windows; macOS och Linux skrivna blint (REQ8 3).
+- **New** — Klippning i `Painter`: `save(Rect)` klipper allt som ritas till lägets slut till en rektangel i målarens transform och rymd — vriden en fyrhörning, under tilt dess bild på skärmen — och nästlade klipp är snittet. Linjer, ytor, text, markörer och bilder (också i rymden) klipps i varje pixel och kantutjämnat, och det bortklippta skriver inget djup; meshar, instanser och punkter klipps till klippets omskrivna rektangel. Kantplan i `gfx::SceneUniforms::clip` och en klippfunktion i scenprogrammens förspel. Windows; macOS och Linux skrivna blint (REQ8 1).
+- **New** — Verktygsfältets överflöde: ryms barnen inte i fältet döljs de sista och en överflödsknapp ⋯ i fältets ände öppnar en meny med dem — knapparna med text, ikon, kryss och inaktivt läge (posten klickar knappen), rullgardinerna som undermenyer, och inbäddade kontroller som poster som ger dem fokus, varpå de visas i fältet tills fokus lämnar dem. Liggande och stående, fristående och i en `DockHost`, där fälten i ett band krymper bakifrån ned till greppet och knappen. `setOverflow(false)` ger det gamla; också i `.glazeui` och previewn. Och `ToolButton::performClick()` (REQ8 9).
+- **New** — Fönstrets minsta, största och låsta storlek i INNEHÅLLSMÅTT: `setMinimumContentSize(w, h)`, `setMaximumContentSize(w, h)` och `setFixedContentSize(w, h)` på `AppWindow` räknar baklänges genom chromet som `setContentSize` — en statusrad som visas eller ett stilbyte flyttar klientgränsen, aldrig innehållet — och `minimumContentSize()`/`maximumContentSize()` läser dem; `setFixedContentSize` låser innehållsytan (`isFixedSize()`). Klient- och innehållsformen utesluter varandra, den som sätts sist gäller. Nakna fönsteranrop i `.glazeui`, utförda av previewn (REQ8 21).
+- **New** — Textstorlek per fält och lista: `setTextSize(glaze::px(18))` eller `setTextSize(glaze::mm(3))` på `TextInput`, `TextArea`, `ListBox` och `Dropdown` (0 = stilens), så ett fält på en rityta får ritytans textstorlek; radhöjden, careten, markeringen, listans rader, vallistans popup och AUTO-höjden följer. Setter-fält i `.glazeui`, utfört av previewn (REQ8 26).
+- **New** — `AppWindow::setPopupTakesKeys(true)`: en popup som TAR TANGENTBORDET — ägarfönstret skickar tangenter, släpp och tecken till popupens egen ingång medan den är öppen, så en egen sökruta eller kommandopalett i ett popupfönster får sina tangenter på alla plattformar, och Escape som ingenting i den tog stänger den. Färg- och datumväljarens popuper använder attributet (den interna `KeyPopup` är borta). Naket fönsteranrop i `.glazeui` (REQ8 27).
+
+## 0.1.7 — 2026-10-14
+
+- **New** — `Canvas::measureText(c, …)`: textens mått med layoutens Ctx, för en egen rityta som mäter i sin `heightForWidth`/`contentSize` (ett dokument som bryts efter bredden). Formen utan Ctx gick runt i sig själv när den anropades därifrån (stackspill); nu loggar den och svarar `nullopt` (REQ7 4).
+- **Fix** — macOS: en uppladdning till ritytan bröt renderingen mitt i framen, och ett bildlager som byggdes om bröt den två gånger per bild. En buffert eller bild som aldrig ritats skrivs nu direkt, en som ritats i en tidigare frame i ett uppladdningspass före framen, och bara en som redan ritats i samma frame bryter (`RenderStats::uploadBreaks` räknar det); en ny staging-buffert per uppladdning finns inte mer (REQ7 6).
+- **New** — `setSizeToContent` räknar rader mot nederkanten (`anchors.bottom`/`anchorBottom` — en knapprad nere till höger står under fälten), spända barn med sitt mätta mått som minsta (en lista mellan fälten och knapparna) och `bottom`/`right` på ett barn bundet bara uppifrån eller från vänster som luft efter det. Samma regel i `Widget::childrenExtent`, så en `GroupBox` utan mått med barn nere till höger eller spända barn blir större än förut (REQ7 1).
+- **Fix** — En syskonkedja där ett led doldes räknades fel av `setSizeToContent` och `childrenExtent`: raderna efter det dolda ledet bidrog inte, fast `resolve` placerar dem efter hålet, och fönstret krympte förbi dem (REQ7 1).
+- **New** — `setSizeToContentMode(SizeToContentMode::GrowOnly)`: innehållet är fönstrets minsta storlek i stället för ett lås — fönstret går att dra upp men aldrig så litet att innehåll döljs, och det krymper aldrig självt (WinForms `AutoSizeMode`). Förvalet `GrowAndShrink` är det som gällde (REQ7 2).
+- **New** — `Label::setWidthGroup("form")`: etiketter med samma gruppnamn får den bredaste synliga medlemmens bredd, också över flera gruppramar, så fälten bredvid står i linje i varje stil och språk (REQ7 3).
+- **New** — `glaze::MarkdownView`: formaterad text i en rullande yta — rubriker, stycken, listor, fet/kursiv, kod, citat, linjer, länkar, bilder och GFM-tabeller (CommonMark-kärnan; HTML är text). `setText(TrText)`, `setImage(namn, bild)`, `scrollToAnchor`, `linkAt` och `onLinkClick` med `handled` — utan den rullar `#ankare` och `http`/`https`/`mailto` öppnas, inget annat. Också i `.glazeui` och previewn (REQ7 5).
+- **New** — `Draw::ascent(c)` (baslinjens avstånd), `Style::subheadingFontSize` med `fontsize::kUiSubheading`/`kUiSubheadingCompact`, och `Ctx::textFonts` — fönstrets lata textfonter i fet, kursiv och mono (REQ7 5).
+
+## 0.1.6 — 2026-10-13
+
+- **Fix** — macOS: ett ramlöst eller fast fönster (`Chrome::None`, min = max) svarade alltid "maximerat" och låg på (0, 0) i `geometry()` — AppKits `isZoomed` är sann för varje fönster som inte går att ändra storlek på (TODO 96).
+- **Fix** — macOS: dubbelklickets avståndstolerans var dubbelt så stor på Retina — avståndet mättes i punkter men toleransen i fysiska px (TODO 97).
+- **Fix** — Ritytans bilder ritades alltid helt täckande: `Shape::image(…, opacity)` och `Painter::drawImage(…, opacity)` lagrade opaciteten men ritningen läste bara lagrets. Nu är det formens gånger lagrets, också i draperingen på terrängen (REQ6 4).
+- **New** — `ListBox::onActivate`: dubbelklick på den valda raden eller Enter med en vald rad, som i `ListView` — en vallista i en dialog kan svaras utan subklass. Utan handler går Enter till fönstrets standardknapp som förut (REQ5 1).
+- **New** — Snabbmenyn mot noden eller raden: ett högertryck väljer som Utforskaren, och `TreeView::contextPath()`, `ListBox::contextRow()` och `ListView::contextRow()` säger vilken; träffvägarna `pathAt`/`rowAt` i `MouseArgs::local`s rymd.
+- **New** — Autoskroll under drag-and-drop: nära kanten av varje rullande yta (träd, listor, tabeller, paneler) rullar den med jämn takt, och släppets plats följer med; egna widgets får den med kroken `Widget::dragScroll`.
+- **New** — Fyllkolumn och ikonstorlek i tabellerna: `setFillColumn(n)` låter en kolumn ta resten av bredden, och `setIconSize(px)` ger stora miniatyrer med högre rader.
+- **New** — `Label`: `setElide(true)` kortar med "…" och visar hela texten som tooltip, `setVAlign` lägger texten uppe eller nere, och `setBuddy("falt")` gör etiketten lika hög som fältet bredvid.
+- **New** — Textfärg på knapparna: `setColor(gfx::Color{…})` på `Button`, `Checkbox` och `Radio` (`std::nullopt` ger temat).
+- **New** — Ikonstorlek på `Button` och `ToolButton` (`setIconSize(px)`); verktygsfältet blir så tjockt som den högsta knappen.
+- **New** — `TextArea`: tabbar ritas i jämna tabbstopp, och `setAcceptsTab(true)` låter Tab skriva en tabb (Shift+Tab och Ctrl+Tab lämnar fältet).
+- **New** — `FilePicker::setDialogTitle` — filväljardialogens egen titel.
+- **Fix** — Ett formulär med syskonankare åt två håll (etiketten till vänster, raden ovanför) frös fönstret vid första omlayouten: `Widget::resolve` löste varje ankare rekursivt och växte exponentiellt med raderna. Varje syskon löses nu högst en gång per anrop (REQ4 1).
+- **New** — Lösenordsfältet: `TextInput::setPassword(true)` visar texten som stilens mask (`Style::passwordMask`, "•") medan `text()` är den riktiga; kopiera och klipp ut är avstängda, och fältet har ingen ångra-historik.
+- **New** — Ångra och gör om i `TextInput` och `TextArea`: Ctrl+Z, Ctrl+Y och Ctrl+Shift+Z, och `undo()`/`redo()`/`canUndo()`/`canRedo()` för en Redigera-meny. Ett steg är ett ord, en följd backsteg eller en inklistring.
+- **New** — En radbruten `Label` växer på höjden med den bredd layouten ger — sträckt mellan två kanter eller dockad Top/Bottom — och syskonen under följer med (`Widget::heightForWidth`, en krok också för egna widgets).
+- **Fix** — Windows: AltGr-bokstäver (polska ą ć ź ż) markerade allt, klippte ut eller kopierade i textfälten — AltGr är Ctrl+Alt, och fältens genvägar är nu Ctrl utan Alt (så AltGr+Z skriver ż och ångrar inte).
+- **New** — `glaze::Timer`: en timer som hör till APPEN och inte till ett fönster — `setInterval`, `setSingleShot`, `start`/`stop` och `onTick` med timern som sender; den går före det första fönstret och levereras i pumpens svans (EN tick när den hunnit förfalla flera gånger).
+- **New** — Ramlösa fönster med en sättare (`setChrome(gfx::Chrome::None)`), startplatsen (`setStartPosition` med `CenterScreen`/`CenterOwner`/`Manual`, `setLocation` i logiska px, klämd in i arbetsytan), startläget (`setWindowState`) och `geometry()` — normallägets plats och storlek och läget, läsbar också efter stängning för att sparas och återställas.
+- **New** — Pekarna `ClosedHand`, `Hidden` och `Wait`, `Widget::setCursor`/`resetCursor` och `AppWindow::setUseWaitCursor`; ritytans panorering visar den stängda handen.
+- **New** — `Timer` och `TrayIcon` i `.glazeui` som icke-visuella medlemmar (`glaze::Component`, `GLAZE_REGISTER_COMPONENT`): kopplingar med sin egen sendertyp, och previewn utför allt som bara lagrar men startar och visar ingenting.
+- **New** — Meddelanderutan och filväljaren öppnas mitt över ägaren.
+- **Fix** — X11: `setTopmost(true)` före `show()` nådde aldrig fönstret vid öppningen (rättat blint).
+- **Fix** — ett fönster som stängdes maximerat öppnades nästa gång med den maximerade storleken i normalläge.
+- **New** — Flerval i `TreeView` (`setMultiSelect`): Ctrl/Cmd-klick vänder, Shift-klick spänner i synlig ordning, Shift/Ctrl-pilar, Ctrl+Space och Ctrl+A (de synliga); `selectedPaths()`/`currentPath()`, och ett drag från en vald nod drar hela valet.
+- **New** — Kryssrutor i `TreeView` (`setShowChecks`, `setChecked`/`isChecked`, `onCheck`): oberoende per nod, ingen kaskad, Space kryssar.
+- **New** — Textfärg per nod (`setNodeColor`) och per rad i `ListView`/`DataGrid` (`setRowColor`, `Row::color`) — appens färg på omarkerade rader; markeringen vinner, inaktivt är dämpat.
+- **New** — Bilder ur pixlar överallt: `Picture`, `Button`, `ToolButton`, trädets noder, tabellernas rader, menyposter, `messageBox`, dragbilden, programikonen och systemfältsikonen tar ett `glaze::ImageSource` — en asset, en `glaze::Bitmap` eller en `RenderTexture`. Ändrade pixlar slår igenom med ett nytt `setImg`/`setIcon` (`AssetHandle` fungerar som förut genom konverteringen).
+- **New** — Menypostens bild, `enabled` och kryss med platta anrop på menyraden, programikonen och systemfältsikonen — `setItemIcon`/`setItemEnabled`/`setItemChecked(stig, …)` — också i `.glazeui`.
+- **New** — `ListView` med flerval väljer en redan vald rad ensam först när knappen släpps, så hela valet går att dra.
+- **New** — Ritytan: en bild på fyra fria hörn (`Shape::image(öv, öh, nh, nv, källa)` och `Painter::drawImage`) — skev och projicerad med perspektivriktig uv, också under tilt.
+- **New** — Ritytan: text med flera stilar i samma etikett (`glaze::TextSpan` — färg, fet och kursiv per del, en baslinje och radbrytning över delarna).
+- **Fix** — Tecken som UI-fonten saknar (− ≈ under Noto Sans på Linux, CJK och symboler överallt) ritas med OS:ets reservfont i stället för "�" — i UI-texten och ritytans text på alla tre (`gfx::Font::hasGlyph` säger om en riktig glyf finns); mätningen och ritningen är nu eniga också för en saknad glyf.
+- **New** — GlazeUI som delat bibliotek: `-DGLAZE_SHARED=ON` bygger libglaze och sidopaketen som DLL/.so/.dylib — EN instans av ramverket per process, delad med de DLL:er programmet laddar i körtid. `glaze_runtime_dlls(<target>)` lägger DLL:erna bredvid programmet på Windows. Statiskt är fortfarande förval, och det finns ingen versionskontroll mellan program och plugin.
+- **New** — Ritytan: `Canvas::moveLayer(från, till)` byter lagrens ordning utan att något byggs om eller laddas upp — trädets konvention (platsen räknas före flytten), också i `.glazeui`. `setLayerOrder`/`layerOrder` heter `setLayerDrawOrder`/`layerDrawOrder` (ordningen inom ett lager).
+- **New** — Ritytan: `Canvas::measureText(text|delar, stil, enhet)` → `TextMetrics` — textens mått utanför en ritning, i px, mm eller världsenheter, utan att något laddas upp; `Painter::measureText` mäter likadant.
+- **Fix** — Skärmens antagna täthet (ingen EDID) är 96 dpi i fysiska px oberoende av skalan — en millimeter ändrades förut med skalningsvalet.
+- **New** — Kryssrutor per rad i `ListView` (`setShowChecks`, `setChecked`/`isChecked`, `checkedRows`, `onCheck` med raden i `changedRow()`): rutan först i första kolumnen, oberoende av valet, följer raden genom sorteringen; Space kryssar den aktuella raden.
+- **New** — Dra och släpp: `onDrop` körs FÖRE widgetens inbyggda släpp och kan neka (`effect = None`) eller utföra släppet själv (`DragArgs::handled`), och `onDragOver` fyras också direkt efter `onDragEnter` — en regel per plats håller redan på den första.
+- **New** — `TreeView`: `draggedPaths()` (de dragna noderna, giltiga från `onDragStart`), publik `moveNodes(stigar, förälder, index)` (också i `.glazeui`) och `checkedPaths()`; släppets plats (`dropParent`/`dropIndex`) hålls vid nodernas id, så en `onDrop` som ändrar trädet aldrig flyttar till fel lucka.
+- **Fix** — En kolumnavdelare eller en kryssruta i `ListView`/`TreeView` blir aldrig ett drag, också när appen fyller lasten (`Widget::canDragFrom`, en krok också för egna widgets).
+- **New** — Standard- och avbrytknapp i varje fönster: `setAcceptButton`/`setCancelButton` (Enter och Escape när inget närmare fokus tog tangenten), `Button::setDialogResult` (ett klick stänger dialogen med svaret) och `performClick()`; standardknappen ritas på accentytan, och meddelanderutan, filväljaren och `dialogResult()` går samma väg — också i `.glazeui` (`setAcceptButton(okBtn);`).
+- **New** — `TextInput` och `TextArea`: `setMaxLength(n)` (i tecken — det man skriver och klistrar in kapas) och `setPlaceholder(text)` (en dämpad hint i det tomma fältet, översättningsbar, synlig med fokus tills man skriver).
+- **Fix** — Ett vetat `onClose` lämnade dialogens svar kvar, så ett senare kryss svarade med det gamla resultatet.
+- **Fix** — `ListView` och `TreeView` utan `onActivate` åt Enter, så en dialogs OK aldrig nåddes från listan; talfältet och datumväljaren skickar nu också Enter vidare efter commiten.
+- **New** — Enter växlar inte längre en kryssruta eller radioknapp och öppnar inte en stängd dropdown eller färgväljare — Space gör det, och Enter går till dialogens standardknapp.
+- **New** — Ritytan: text med tak — `TextStyle::maxLines`/`maxHeight` kortar etiketten med "…" efter `Draw::elideLines` regel (i den sista delens färg och stil), och `TextMetrics::truncated` säger att den kortades.
+- **New** — Ritytan: golv och tak för text och markörer på skärmen (`minSize`/`maxSize` i px, mm eller världsenheter — en världsetikett växer med zoomen men stannar vid gränserna, utan ombyggnad) och synlighet efter zoom per etikett och markör (`minZoom`/`maxZoom`, lagrets regel — en dold etikett tar ingen plats, träffas inte och tonar med `setLabelFade`).
+- **New** — `Bitmap::setKeepPixels(false)`: bilden släpper sina pixlar på CPU:n när den laddats upp hel i ett fönster — `pixels()` blir nullptr, fönstret ritar vidare, men ett NYTT fönster kan inte ladda upp den (kontraktet står i `bitmap.h`).
+- **New** — Minnesbudget per rityta: `Canvas::setMemoryBudget(byte)` (också i `.glazeui`) — bilderna och draperingarna räknas på den rityta som ritade dem senast, och `App::setCanvasMemoryBudget` är förvalet per rityta och taket för fönstrets bilder utanför ritytorna; flera ritytor med förval kan tillsammans ta mer än talet.
+- **New** — `onResize` på varje widget (`ResizeArgs` med `previous`/`first`, storleken ur `actualSize()`): upptäckt i ritningen och levererad i pumpens svans före nästa bildruta, mellanlägen sammanfogade, den första före fönstrets första synliga bildruta — under ett fönsterdrag på Windows och macOS först vid släppet.
+- **New** — Fönstret följer innehållet: `setSizeToContent(glaze::SizeToContent::Height)` (också `Width` och `WidthAndHeight`) räknar axeln ur rotens barn med bredden känd, låser den och följer när en rad visas eller döljs, en text ändras eller stilen byts — också i `.glazeui` och previewn.
+- **New** — `Widget::actualSize()`, `toWindow(punkt)` och `fromWindow(punkt)`: widgetens logiska punkt till fönstrets fysiska px och tillbaka — snabbmenyn från ett släpp är `meny.popupAt(w, p->x, p->y)` med `p = w.toWindow(e.local)`.
+- **New** — `AppWindow::isActive()`, `glaze::app().activeWindow()`, `focusedWidget()`, den publika `wantsTextInput()` och `tryShortcut(tangent, mods)` — ett eget verktygsfönster låter ägarens genvägar svara.
+- **New** — `KeyArgs::text`: texten tangenten skriver ("å", "@" med AltGr, "é" efter en död tangent), tom för kommandon och Ctrl/Alt/Cmd-kombinationer.
+- **New** — `ToolBar::setAllowedEdges({…})`: kanterna användaren får docka verktygsfältet vid (också i `.glazeui`).
+- **Fix** — En genväg utan modifierare (`M`) kördes mitt i skrivandet i ett textfält, och tecknet skrevs ändå: ett tryck som skriver text i ett fokuserat textfält når inte längre fönstrets genvägar, ägarens reserv eller standardknappen.
+- **Fix** — Linux: Alt+bokstav och Ctrl+siffra skrev tecknet i ett textfält — de är kommandon som på Windows och macOS (AltGr skriver som förut; rättat blint).
+
+## 0.1.5 — 2026-10-12
+
+- **New** — Systemfältet: `glaze::TrayIcon` — appens ikon vid klockan (Windows) och i menyraden (macOS) med vår egen meny, tooltip, animation och klick, dubbelklick, högerklick och hover; flera ikoner per app. Linux har inget fält än (`isSupported()` false).
+- **New** — `AppWindow::setShowInTaskbar(false)` (ingen knapp i aktivitetsfältet, Alt+Tab kvar) och `glaze::setShowInDock(false)` (ingen ikon i macOS-dockan).
+- **New** — Dold start: `hide()` före `run()`/`show()` öppnar fönstret dolt — `onLoad` fyras, `onShow` först när fönstret visas.
+- **New** — `Handler<Args, Sender>`: en klass som inte är en widget är sin egen avsändare (`TrayIcon` i sina events); befintliga `Handler<X>` är oförändrade.
+- **Fix** — macOS: raden under pekaren markerades inte i menyer, dropdown-listor och datum- och färgväljarnas popuper (TODO 68, rättat blint).
+- **Fix** — en dialog som stängs lyfter inte längre ett DOLT ägarfönster — på macOS tog det fram fönstret.
+- **Fix** — macOS: bygget gick inte igenom (ARC i de egna programmens PSO-cache), och länkaren varnade för dubblerade bibliotek (CMake-policyn CMP0156 avduplicerar nu länkraden).
+- **Fix** — macOS: `gfx::log` skrev varje rad två gånger på stderr, med åäö förvanskade.
+- **Fix** — macOS: PNG-bilder avkodas byte för byte som filen — halvgenomskinliga pixlar avvek ett till två steg — och `RenderStats::programSwitches` räknar som D3D11 och GL.
+- **Fix** — `buildPolygon` kunde svara false för en yta som går att triangulera där kompilatorn använder FMA (Apple silicon, ARM) — earcut kompileras nu utan.
+
+## 0.1.4 — 2026-10-12
+
+- **Fix** — Windows: menyer, dropdowns och andra popuper öppnades med 0,5–1 s fördröjning — varje nytt fönster kompilerade om alla shadrar. Nu kompileras varje shader en gång per process, och nästa fönster återanvänder bytekoden.
+
+## 0.1.3 — 2026-10-11
+
+- **New** — Programikonen: `appIcon` på varje fönster — GlazeUI-ikonen som förval, egen bild (`setIcon`, en bild räcker), egen liten (`setSmallIcon`) och `setNoIcon(true)`.
+- **New** — Stor ikon över namnlist och menyrad (`setLarge(true)`, Office 2007-knappen) med en programmeny i menyradens vokabulär; Windows/Linux till vänster, macOS till höger.
+- **New** — Ikonen i aktivitetsfältet, Alt+Tab och dockan (`gfx::Window::setIcon`), och programfilens ikon med `glaze_app_icon(app)` (`.ico`, `.icns`, `.desktop`).
+- **New** — `glazeassets icon` och `glazeassets embed`; `glaze::setAppId`.
+- **Fix** — Wayland: app_id var hårdkodad (`se.glazeui.app`) — nu appens.
+
+## 0.1.2 — 2026-10-11
+
+- **Fix** — `PropertyGrid` committar vid Enter, Tab, klick på en annan rad eller när fokus lämnar — inte per tangent; Escape avbryter. Editorn markerar allt när den öppnas.
+- **Fix** — `SpinBox`, `DatePicker`-fältet och `ColorPicker`s hexfält får sitt värde vid Enter eller när fokus lämnar (som NumberBox), inte per tangent.
+- **Fix** — en handler får riva sin widget eller sitt fönster: `Handler` håller lambdan vid liv under anropet, och fönstrets dispatch kontrollerar att fönstret lever.
+- **Fix** — `.glazeui`: den korta formen av `onCheck` round-trippar.
+- **New** — `onCommit` på alla inmatningar: användaren är klar med värdet (Enter, fokus bort, släppt reglage, val). `onChange` är kvar som förut.
+- **New** — `onFocus`/`onFocusLost` på alla widgets, med fokus-inom-semantik (WinForms `Enter`/`Leave`).
+- **New** — `selectAll()` och `setSelection()` på textfälten; `AppWindow::commitEdits()` committar det som redigeras (som WinForms `Validate()`).
+- **Fix** — brytande: `PropertyGrid::rows()` är bara läsbar (ändra via `setRows`/`addRow`/`setRow`), och kopior av en `Handler` delar sin lambda.
+
+## 0.1.1 — 2026-10-11
+
+- **Fix** — Ritytan i 3D: linor och linjer som går bakom kameran ritas inte längre som en solfjäder genom flyktpunkten ovanför horisonten.
+- **New** — MANUAL.md: manualen för agenter som bygger appar — ett avsnitt per paket och widget mellan BEGIN/END-markörer, sökbart med grep, med kompilerade exempel.
+
+## 0.1.0 — 2026-10-11
+
+Första numrerade versionen. Allt före den står i git-historiken.
+
+- **New** — Ramverket: `App`/`AppWindow`, widget-trädet med Dock/Anchors och syskonankare, ett trettiotal widgets i tre UI med teman och styles.
+- **New** — Tre native backends: D3D11 (Windows), Metal (macOS, blint skriven) och Wayland + X11 (Linux).
+- **New** — Tre-fils-modellen: `.glazeui` som genererad C++, `builder_core`/`builder_preview`, glaze-render och VS Code-extensionen; GlazeBuilder (fas 2) pågår.
+- **New** — Språkpaketet: ramverkets strängar i sv, en, nb och fi; appens ur en committad `language.bin`.
+- **New** — Ritytan `Canvas`: en scen med kamera i 2D och 3D — lager på GPU:n, mm-mått, etiketter, meshar, instanser, punktmoln, terräng, egna program, plockning och styrplattans gester.
+- **New** — Sidopaketen `Threads` och `Networking`.
+- **New** — Versionshanteringen: `glaze/version.h`, `project(VERSION …)`, `version_gate` och den här filen.

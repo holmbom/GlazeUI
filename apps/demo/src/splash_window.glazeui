@@ -1,0 +1,48 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+#include "splash_window.h"
+
+SplashWindow::SplashWindow() { initializeComponent(); }
+
+void SplashWindow::initializeComponent()
+{
+    setTitle(glaze::tr(1750));
+    setClientSize(420, 220);
+    setChrome(gfx::Chrome::None);
+    setStartPosition(glaze::StartPosition::CenterScreen);
+    setShowInTaskbar(false);
+
+    rubrik.name = "rubrik";
+    rubrik.setText(glaze::tr(1751));
+    rubrik.setRole(glaze::Label::Role::Heading);
+    rubrik.anchors = {true, true, true, false};
+    rubrik.x = 24;
+    rubrik.y = 40;
+    rubrik.right = 24;
+
+    info.name = "info";
+    info.setText(glaze::tr(1752));
+    info.setRole(glaze::Label::Role::Dim);
+    info.setWrap(true);
+    info.anchors = {true, true, true, false};
+    info.anchorTop = {"rubrik", 12};
+    info.x = 24;
+    info.right = 24;
+
+    forlopp.name = "forlopp";
+    forlopp.setIndeterminate(true);
+    forlopp.anchors = {true, false, true, true};
+    forlopp.x = 24;
+    forlopp.right = 24;
+    forlopp.bottom = 32;
+
+    stangTimer.name = "stangTimer";
+    stangTimer.setInterval(1500);
+    stangTimer.setSingleShot(true);
+    stangTimer.start();
+
+    stangTimer.onTick = [this](glaze::Timer* s, glaze::TimerArgs& e) { stangTimerTick(s, e); };
+
+    root().adopt(rubrik);
+    root().adopt(info);
+    root().adopt(forlopp);
+}

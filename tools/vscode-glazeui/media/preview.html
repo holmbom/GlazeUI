@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<!-- Webview-mallen för förhandsvisningen (delas av bildläget och
+     sidopreviewn). Platshållarna %CSP_SOURCE%/%NONCE%/%CSS_URI% ersätts av
+     PreviewSession.buildHtml. CSP: bilder bara från webview-källan
+     (planens hårda beslut), script bara med nonce. -->
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; img-src %CSP_SOURCE%; style-src %CSP_SOURCE%; script-src 'nonce-%NONCE%';">
+    <link rel="stylesheet" href="%CSS_URI%">
+    <title>GlazeUI-förhandsvisning</title>
+</head>
+<body>
+    <div class="scen">
+        <div id="status" class="status">Renderar …</div>
+
+        <img id="bild" class="bild" hidden alt="Renderat GlazeUI-fönster">
+
+        <div id="fel" class="fel" hidden>
+            <h2>Kunde inte rendera</h2>
+            <pre id="fel-diagnos"></pre>
+            <div class="fel-knappar">
+                <button id="btn-text">Öppna som text</button>
+                <button id="btn-igen">Försök igen</button>
+            </div>
+        </div>
+
+        <div id="meta" class="meta" hidden></div>
+    </div>
+
+    <script nonce="%NONCE%">
+        // Tar emot 'bild' (src + cssWidth — fysiska px / scale, HiDPI-exakt)
+        // eller 'fel' (stderr-diagnosen) från extensionen.
+        const vscode = acquireVsCodeApi();
+        const bild = document.getElementById('bild');
+        const fel = document.getElementById('fel');
+        const felDiagnos = document.getElementById('fel-diagnos');
+        const status = document.getElementById('status');
+        const meta = document.getElementById('meta');
+
+        window.addEventListener('message', (event) => {
+            const msg = event.data;
+            if (msg.type === 'bild') {
+                status.hidden = true;
+                fel.hidden = true;
+                bild.src = msg.src;
+                // HiDPI: CSS-bredden är logiska px — höjden följer
+                // proportionellt. Ingen dubbelskalning på Retina.
+                bild.style.width = msg.cssWidth + 'px';
+                bild.hidden = false;
+                meta.textContent =
+                    msg.width + '×' + msg.height + ' px · scale ' + msg.scale;
+                meta.hidden = false;
+            } else if (msg.type === 'fel') {
+                status.hidden = true;
+                bild.hidden = true;
+                meta.hidden = true;
+                felDiagnos.textContent = msg.diagnos;
+                fel.hidden = false;
+            }
+        });
+
+        document.getElementById('btn-text').addEventListener('click', () =>
+            vscode.postMessage({ type: 'oppnaText' }));
+        document.getElementById('btn-igen').addEventListener('click', () =>
+            vscode.postMessage({ type: 'igen' }));
+    </script>
+</body>
+</html>

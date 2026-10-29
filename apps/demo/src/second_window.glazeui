@@ -1,0 +1,96 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+#include "second_window.h"
+
+SecondWindow::SecondWindow() { initializeComponent(); }
+
+void SecondWindow::initializeComponent()
+{
+    setTitle(glaze::tr(1100));
+    setContentSize(420, 316);
+    setMinimumSize(420, 316);
+    setCancelButton(stang);
+
+    appIcon.setNoIcon(true);
+
+    info.name = "info";
+    info.setText(glaze::tr(1101));
+    info.x = 12;
+    info.y = 12;
+
+    tips.name = "tips";
+    tips.setText(glaze::tr(1102));
+    tips.setRole(glaze::Label::Role::Dim);
+    tips.x = 12;
+    tips.y = 40;
+
+    typLbl.name = "typLbl";
+    typLbl.setText(glaze::tr(1103));
+    typLbl.setRole(glaze::Label::Role::Dim);
+    typLbl.x = 12;
+    typLbl.y = 80;
+
+    typDd.name = "typDd";
+    typDd.setItems({"Custom", "Information", "Confirmation", "Warning", "Error"});
+    typDd.setSelectedIndex(1);
+    typDd.width = 190;
+    typDd.x = 12;
+    typDd.y = 100;
+
+    knappLbl.name = "knappLbl";
+    knappLbl.setText(glaze::tr(1104));
+    knappLbl.setRole(glaze::Label::Role::Dim);
+    knappLbl.x = 218;
+    knappLbl.y = 80;
+
+    knappDd.name = "knappDd";
+    knappDd.setItems({"OK", "OKCancel", "YesNo", "YesNoCancel", "RetryCancel", "AbortRetryIgnore"});
+    knappDd.setSelectedIndex(3);
+    knappDd.width = 190;
+    knappDd.x = 218;
+    knappDd.y = 100;
+
+    egenBild.name = "egenBild";
+    egenBild.setText(glaze::tr(1105));
+    egenBild.x = 12;
+    egenBild.y = 140;
+
+    om.name = "om";
+    om.setText(glaze::tr(1106));
+    om.anchors = {true, false, false, true};
+    om.x = 12;
+    om.bottom = 12;
+
+    fritt.name = "fritt";
+    fritt.setText(glaze::tr(1107));
+    fritt.anchors = {true, false, false, true};
+    fritt.x = 12;
+    fritt.bottom = 56;
+
+    stang.name = "stang";
+    stang.setText(glaze::tr(1040));
+    stang.anchors = {false, false, true, true};
+    stang.right = 12;
+    stang.bottom = 12;
+
+    medd.name = "medd";
+    medd.setText(glaze::tr(1108));
+    medd.x = 12;
+    medd.y = 176;
+
+    om.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { omClicked(s, e); };
+    fritt.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { frittClicked(s, e); };
+    stang.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { stangClicked(s, e); };
+    medd.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { meddClicked(s, e); };
+
+    root().adopt(info);
+    root().adopt(tips);
+    root().adopt(typLbl);
+    root().adopt(typDd);
+    root().adopt(knappLbl);
+    root().adopt(knappDd);
+    root().adopt(egenBild);
+    root().adopt(om);
+    root().adopt(fritt);
+    root().adopt(stang);
+    root().adopt(medd);
+}

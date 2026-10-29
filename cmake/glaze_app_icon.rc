@@ -1,0 +1,8 @@
+// glaze_app_icon.rc — programfilens ikonresurs. EN
+// committad fil för alla appar: glaze_app_icon() (cmake/GlazeAppIcon.cmake)
+// kopierar appens .ico till en egen katalog per target under namnet nedan och
+// kompilerar den här filen med windres --include-dir mot den katalogen.
+//
+// Resurs nr 1 är den skalet visar för exe:n, och den gfx-backenden laddar
+// för fönstret när appen kör med förvalsikonen (WindowIcon::programFirst).
+1 ICON "glaze_app_icon.ico"

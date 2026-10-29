@@ -1,0 +1,30 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+#include "terminal.h"
+
+TerminalFixture::TerminalFixture() { initializeComponent(); }
+
+void TerminalFixture::initializeComponent()
+{
+    setTitle("Terminal");
+    setClientSize(640, 400);
+
+    term.name = "term";
+    term.setProgram("pwsh");
+    term.setArguments("-NoLogo");
+    term.setWorkingDirectory("C:/src");
+    term.setColorScheme(glaze::TerminalScheme::Solarized);
+    term.setColorMode(glaze::TerminalColorMode::Dark);
+    term.setScrollback(5000);
+    term.setAltAsMeta(false);
+    term.setTextSize(glaze::px(12));
+    term.setEnvironmentVariable("LANG", "sv_SE.UTF-8");
+    term.unsetEnvironmentVariable("PROMPT");
+    term.setSchemeColor(glaze::ThemeMode::Dark, glaze::TerminalColor::Red, gfx::Color{230, 90, 80});
+    term.start();
+    term.dock = glaze::Dock::Fill;
+
+    term.onExit = [this](glaze::Widget* s, glaze::EventArgs& e) { termSlut(s, e); };
+    term.onTitleChange = [this] { visaTitel(); };
+
+    root().adopt(term);
+}

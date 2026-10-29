@@ -1,0 +1,1549 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+#include "gallery.h"
+
+WidgetGallery::WidgetGallery() { initializeComponent(); }
+
+void WidgetGallery::initializeComponent()
+{
+    setTitle("Alla widgets — normalt och inaktiverat");
+    setContentSize(4120, 700);
+    setMinimumSize(4120, 700);
+    setAcceptButton(btnN);
+
+    statusLead.setGrow(0);
+    statusLead.width = 12;
+
+    statusTxt.setText("Statusraden är en StatusBar (normal).");
+    statusTxt.setRole(glaze::Label::Role::Dim);
+
+    statusHint.setText("Byt UI/Theme/Style i startfönstret");
+    statusHint.setRole(glaze::Label::Role::Dim);
+
+    statusPad.setGrow(0);
+    statusPad.width = 12;
+
+    stangBtn.setText("Stäng");
+    stangBtn.anchors = {false, false, true, true};
+    stangBtn.right = 12;
+    stangBtn.bottom = 36;
+
+    grpText.x = 12;
+    grpText.y = 12;
+    grpText.width = 304;
+    grpText.height = 190;
+    grpText.setBorder(true);
+
+    g1Rub.setText("1 · Label, Button, Link, Separator");
+    g1Rub.x = 8;
+    g1Rub.y = 6;
+
+    g1Sep.x = 8;
+    g1Sep.y = 28;
+    g1Sep.width = 286;
+
+    lblN.setText("Label — normal");
+    lblN.x = 8;
+    lblN.y = 38;
+    lblN.setElide(true);
+
+    lblD.setText("Label — inaktiverad");
+    lblD.x = 8;
+    lblD.y = 60;
+
+    btnN.setText("Button");
+    btnN.setImg(glaze::img("toolbar", "ok"));
+    btnN.x = 8;
+    btnN.y = 84;
+    btnN.setColor(gfx::Color{200, 40, 40});
+
+    btnD.setText("Button av");
+    btnD.setImg(glaze::img("toolbar", "cancel"));
+    btnD.x = 128;
+    btnD.y = 84;
+
+    lnkN.setText("Länk — normal");
+    lnkN.setUrl("https://github.com/holmbom/GlazeUI");
+    lnkN.x = 8;
+    lnkN.y = 122;
+
+    g1SepV.setVertical(true);
+    g1SepV.x = 118;
+    g1SepV.y = 116;
+    g1SepV.height = 28;
+
+    lnkD.setText("Länk — av");
+    lnkD.x = 140;
+    lnkD.y = 122;
+
+    g1SepD.x = 8;
+    g1SepD.y = 152;
+    g1SepD.width = 286;
+
+    g1Txt.setText("Separator: normal / av / lodrät");
+    g1Txt.setRole(glaze::Label::Role::Dim);
+    g1Txt.x = 8;
+    g1Txt.y = 162;
+
+    grpVal.x = 12;
+    grpVal.y = 212;
+    grpVal.width = 304;
+    grpVal.height = 150;
+    grpVal.setBorder(true);
+
+    g2Rub.setText("2 · Checkbox, Radio");
+    g2Rub.x = 8;
+    g2Rub.y = 6;
+
+    chkN.setText("Checkbox — normal (ikryssad)");
+    chkN.setChecked(true);
+    chkN.x = 8;
+    chkN.y = 30;
+
+    chkD.setText("Checkbox — inaktiverad");
+    chkD.setChecked(true);
+    chkD.x = 8;
+    chkD.y = 54;
+
+    radA.setText("Radio A — normal");
+    radA.setGroup("val");
+    radA.setChecked(true);
+    radA.x = 8;
+    radA.y = 82;
+
+    radB.setText("Radio B — normal");
+    radB.setGroup("val");
+    radB.x = 8;
+    radB.y = 104;
+
+    radD.setText("Radio — inaktiverad");
+    radD.setGroup("valAv");
+    radD.setChecked(true);
+    radD.x = 8;
+    radD.y = 126;
+
+    grpFalt.x = 12;
+    grpFalt.y = 372;
+    grpFalt.width = 304;
+    grpFalt.height = 290;
+    grpFalt.setBorder(true);
+
+    g3Rub.setText("3 · TextInput, Dropdown, ListBox");
+    g3Rub.x = 8;
+    g3Rub.y = 6;
+
+    txtN.setText("Redigerbar text (åäö)");
+    txtN.x = 8;
+    txtN.y = 30;
+    txtN.width = 286;
+
+    txtD.setText("Inaktiverat fält");
+    txtD.x = 8;
+    txtD.y = 66;
+    txtD.width = 286;
+
+    ddN.setItems({"Alfa", "Beta", "Gamma"});
+    ddN.setSelectedIndex(0);
+    ddN.x = 8;
+    ddN.y = 104;
+    ddN.width = 286;
+
+    ddD.setItems({"Låst val", "Går ej att välja"});
+    ddD.setSelectedIndex(0);
+    ddD.x = 8;
+    ddD.y = 142;
+    ddD.width = 286;
+
+    lstN.setItems({"Alfa", "Beta", "Gamma", "Delta", "Epsilon"});
+    lstN.setSelectedIndex(1);
+    lstN.x = 8;
+    lstN.y = 176;
+    lstN.width = 90;
+    lstN.height = 80;
+
+    lstD.setItems({"Låst", "Går ej", "Av", "Inaktiv", "Slut"});
+    lstD.setSelectedIndex(0);
+    lstD.x = 106;
+    lstD.y = 176;
+    lstD.width = 90;
+    lstD.height = 80;
+
+    lstC.setItems({"Ett", "Två", "Tre", "Fyra", "Fem"});
+    lstC.setSelectedIndex(2);
+    lstC.setShowChecks(true);
+    lstC.x = 204;
+    lstC.y = 176;
+    lstC.width = 90;
+    lstC.height = 80;
+
+    g3Txt.setText("ListBox: normal / av / med kryss");
+    g3Txt.setRole(glaze::Label::Role::Dim);
+    g3Txt.x = 8;
+    g3Txt.y = 262;
+
+    grpReglage.x = 328;
+    grpReglage.y = 12;
+    grpReglage.width = 304;
+    grpReglage.height = 220;
+    grpReglage.setBorder(true);
+
+    g4Rub.setText("4 · Slider, Progress");
+    g4Rub.x = 8;
+    g4Rub.y = 6;
+
+    sldN.setMin(0);
+    sldN.setMax(100);
+    sldN.setValue(60);
+    sldN.setStep(5);
+    sldN.x = 8;
+    sldN.y = 30;
+    sldN.width = 286;
+
+    sldD.setMin(0);
+    sldD.setMax(100);
+    sldD.setValue(30);
+    sldD.x = 8;
+    sldD.y = 58;
+    sldD.width = 286;
+
+    sldV.setVertical(true);
+    sldV.setMin(0);
+    sldV.setMax(100);
+    sldV.setValue(70);
+    sldV.x = 254;
+    sldV.y = 90;
+    sldV.height = 96;
+
+    prgN.setValue(65);
+    prgN.x = 8;
+    prgN.y = 96;
+    prgN.width = 230;
+
+    prgD.setValue(40);
+    prgD.x = 8;
+    prgD.y = 124;
+    prgD.width = 230;
+
+    prgI.x = 8;
+    prgI.y = 152;
+    prgI.width = 230;
+
+    g4Txt.setText("Progress: bestämt, av, obestämt (animerar)");
+    g4Txt.setRole(glaze::Label::Role::Dim);
+    g4Txt.x = 8;
+    g4Txt.y = 186;
+
+    grpBild.x = 328;
+    grpBild.y = 242;
+    grpBild.width = 304;
+    grpBild.height = 130;
+    grpBild.setBorder(true);
+
+    g5Rub.setText("5 · Picture");
+    g5Rub.x = 8;
+    g5Rub.y = 6;
+
+    picN.setImg(glaze::img("toolbar", "gear"));
+    picN.x = 8;
+    picN.y = 30;
+    picN.width = 64;
+    picN.height = 64;
+
+    picD.setImg(glaze::img("toolbar", "info"));
+    picD.x = 84;
+    picD.y = 30;
+    picD.width = 64;
+    picD.height = 64;
+
+    g5Txt.setText("Picture: normal / inaktiverad");
+    g5Txt.setRole(glaze::Label::Role::Dim);
+    g5Txt.x = 8;
+    g5Txt.y = 100;
+
+    grpScroll.x = 328;
+    grpScroll.y = 382;
+    grpScroll.width = 304;
+    grpScroll.height = 200;
+    grpScroll.setBorder(true);
+
+    g6Rub.setText("6 · Scrollbar (fristående)");
+    g6Rub.x = 8;
+    g6Rub.y = 6;
+
+    sbV1.setValue(20);
+    sbV1.setPage(30);
+    sbV1.x = 8;
+    sbV1.y = 30;
+    sbV1.width = 12;
+    sbV1.height = 130;
+
+    sbV2.setValue(60);
+    sbV2.setPage(30);
+    sbV2.x = 30;
+    sbV2.y = 30;
+    sbV2.width = 12;
+    sbV2.height = 130;
+
+    sbH1.setOrientation(glaze::Scrollbar::Orientation::Horizontal);
+    sbH1.setValue(30);
+    sbH1.setPage(25);
+    sbH1.x = 56;
+    sbH1.y = 30;
+    sbH1.width = 230;
+    sbH1.height = 12;
+
+    sbH2.setOrientation(glaze::Scrollbar::Orientation::Horizontal);
+    sbH2.setValue(70);
+    sbH2.setPage(25);
+    sbH2.x = 56;
+    sbH2.y = 52;
+    sbH2.width = 230;
+    sbH2.height = 12;
+
+    g6Txt.setText("Lodrät + vågrät, normal och inaktiverad");
+    g6Txt.setRole(glaze::Label::Role::Dim);
+    g6Txt.x = 8;
+    g6Txt.y = 170;
+
+    grpPanel.x = 644;
+    grpPanel.y = 12;
+    grpPanel.width = 304;
+    grpPanel.height = 200;
+    grpPanel.setBorder(true);
+
+    g7Rub.setText("7 · Panel med overlay-remsor");
+    g7Rub.x = 8;
+    g7Rub.y = 6;
+
+    panScroll.x = 8;
+    panScroll.y = 28;
+    panScroll.width = 140;
+    panScroll.height = 130;
+    panScroll.setBorder(true);
+
+    psA.setText("Barn 1");
+    psA.x = 8;
+    psA.y = 8;
+
+    psB.setText("Barn 2");
+    psB.x = 8;
+    psB.y = 44;
+
+    psC.setText("Barn 3");
+    psC.x = 8;
+    psC.y = 80;
+
+    psD.setText("Barn 4");
+    psD.x = 8;
+    psD.y = 116;
+
+    psE.setText("…och en rad som svämmar över åt höger");
+    psE.setRole(glaze::Label::Role::Dim);
+    psE.x = 8;
+    psE.y = 152;
+
+    panDis.x = 156;
+    panDis.y = 28;
+    panDis.width = 140;
+    panDis.height = 130;
+    panDis.setBorder(true);
+
+    pdA.setText("Barn A");
+    pdA.x = 8;
+    pdA.y = 8;
+
+    pdB.setText("Barn B");
+    pdB.x = 8;
+    pdB.y = 44;
+
+    pdC.setText("Barn C");
+    pdC.x = 8;
+    pdC.y = 80;
+
+    pdD.setText("Barn D");
+    pdD.x = 8;
+    pdD.y = 116;
+
+    g7Txt.setText("Vänster: remsor + hjul. Höger: av.");
+    g7Txt.setRole(glaze::Label::Role::Dim);
+    g7Txt.x = 8;
+    g7Txt.y = 166;
+
+    grpGrid.x = 644;
+    grpGrid.y = 222;
+    grpGrid.width = 304;
+    grpGrid.height = 150;
+    grpGrid.setBorder(true);
+
+    g8Rub.setText("8 · PropertyGrid");
+    g8Rub.x = 8;
+    g8Rub.y = 6;
+
+    grid1.x = 8;
+    grid1.y = 28;
+    grid1.width = 140;
+    grid1.height = 92;
+    grid1.setBorder(true);
+
+    grid2.x = 156;
+    grid2.y = 28;
+    grid2.width = 140;
+    grid2.height = 92;
+    grid2.setBorder(true);
+
+    g8Txt.setText("Raderna är DATA — de sätts i onLoad.");
+    g8Txt.setRole(glaze::Label::Role::Dim);
+    g8Txt.x = 8;
+    g8Txt.y = 124;
+
+    grpBar.x = 644;
+    grpBar.y = 382;
+    grpBar.width = 304;
+    grpBar.height = 200;
+    grpBar.setBorder(true);
+
+    sdTxt.setText("StatusBar — inaktiverad");
+    sdTxt.setRole(glaze::Label::Role::Dim);
+
+    g9Rub.setText("9 · Barer, Spacer, CaptionButton");
+    g9Rub.x = 8;
+    g9Rub.y = 6;
+
+    barN.x = 8;
+    barN.y = 26;
+    barN.width = 286;
+
+    barBtn1.setText("Fil");
+
+    capMin.setShape(glaze::CaptionButton::Shape::Capsule);
+    capMin.setKind(glaze::CaptionButton::Kind::Minimize);
+
+    capMax.setShape(glaze::CaptionButton::Shape::Capsule);
+    capMax.setKind(glaze::CaptionButton::Kind::Maximize);
+
+    capClose.setShape(glaze::CaptionButton::Shape::Capsule);
+    capClose.setKind(glaze::CaptionButton::Kind::Close);
+
+    barD.x = 8;
+    barD.y = 68;
+    barD.width = 286;
+
+    barBtn2.setText("Av");
+
+    capMinD.setShape(glaze::CaptionButton::Shape::Capsule);
+    capMinD.setKind(glaze::CaptionButton::Kind::Minimize);
+
+    capMaxD.setShape(glaze::CaptionButton::Shape::Capsule);
+    capMaxD.setKind(glaze::CaptionButton::Kind::Maximize);
+
+    capCloseD.setShape(glaze::CaptionButton::Shape::Capsule);
+    capCloseD.setKind(glaze::CaptionButton::Kind::Close);
+
+    topBarD.x = 8;
+    topBarD.y = 110;
+    topBarD.right = 8;
+
+    tbTitle.setText("TopBar — inaktiverad");
+    tbTitle.setRole(glaze::Label::Role::Titlebar);
+
+    tbMin.setShape(glaze::CaptionButton::Shape::Capsule);
+    tbMin.setKind(glaze::CaptionButton::Kind::Minimize);
+
+    tbClose.setShape(glaze::CaptionButton::Shape::Capsule);
+    tbClose.setKind(glaze::CaptionButton::Kind::Close);
+
+    g9Txt.setText("Kapseln = fönsterknapparna, lika på alla tre.");
+    g9Txt.setRole(glaze::Label::Role::Dim);
+    g9Txt.x = 8;
+    g9Txt.y = 148;
+
+    grpVerktyg.x = 960;
+    grpVerktyg.y = 12;
+    grpVerktyg.width = 304;
+    grpVerktyg.height = 150;
+    grpVerktyg.setBorder(true);
+
+    g10Rub.setText("10 · ToolBar, ToolButton");
+    g10Rub.x = 8;
+    g10Rub.y = 6;
+
+    verktygN.dock = glaze::Dock::None;
+    verktygN.x = 8;
+    verktygN.y = 30;
+    verktygN.width = 286;
+
+    vkOk.setImg(glaze::img("toolbar", "ok"));
+
+    vkAvbryt.setImg(glaze::img("toolbar", "cancel"));
+
+    vkSep1.setVertical(true);
+
+    vkInfo.setImg(glaze::img("toolbar", "info"));
+    vkInfo.setCheckable(true);
+    vkInfo.setChecked(true);
+
+    vkKugg.setText("Kugg");
+    vkKugg.setImg(glaze::img("toolbar", "gear"));
+    vkKugg.setCheckable(true);
+
+    vkSep2.setVertical(true);
+
+    vkText.setText("Text");
+
+    verktygD.dock = glaze::Dock::None;
+    verktygD.x = 8;
+    verktygD.y = 70;
+    verktygD.width = 286;
+    verktygD.disable();
+
+    vkOkD.setImg(glaze::img("toolbar", "ok"));
+    vkOkD.disable();
+
+    vkSepD.setVertical(true);
+    vkSepD.disable();
+
+    vkInfoD.setImg(glaze::img("toolbar", "info"));
+    vkInfoD.setCheckable(true);
+    vkInfoD.setChecked(true);
+    vkInfoD.disable();
+
+    vkTextD.setText("Text av");
+    vkTextD.disable();
+
+    g10Txt.setText("Vanlig, läge (på/av), ikon + text — aktiv / av");
+    g10Txt.setRole(glaze::Label::Role::Dim);
+    g10Txt.x = 8;
+    g10Txt.y = 110;
+
+    grpGruppram.x = 960;
+    grpGruppram.y = 172;
+    grpGruppram.width = 304;
+    grpGruppram.height = 216;
+    grpGruppram.setBorder(true);
+
+    g11Rub.setText("11 · GroupBox");
+    g11Rub.x = 8;
+    g11Rub.y = 6;
+
+    gbN.setText("Utskrift");
+    gbN.x = 8;
+    gbN.y = 30;
+    gbN.width = 140;
+    gbN.height = 86;
+
+    gbC1.setText("Dubbelsidig");
+    gbC1.setChecked(true);
+    gbC1.x = 0;
+    gbC1.y = 0;
+
+    gbC2.setText("Svartvit");
+    gbC2.x = 0;
+    gbC2.y = 24;
+
+    gbD.setText("Inaktiv ram");
+    gbD.x = 156;
+    gbD.y = 30;
+    gbD.width = 138;
+    gbD.height = 86;
+    gbD.disable();
+
+    gbR1.setText("Stående");
+    gbR1.setChecked(true);
+    gbR1.x = 0;
+    gbR1.y = 0;
+    gbR1.disable();
+
+    gbR2.setText("Liggande");
+    gbR2.x = 0;
+    gbR2.y = 24;
+    gbR2.disable();
+
+    gbTom.x = 8;
+    gbTom.y = 124;
+    gbTom.width = 286;
+    gbTom.height = 56;
+
+    gbTomTxt.setText("Utan rubrik: ingen lucka i linjen");
+    gbTomTxt.setRole(glaze::Label::Role::Dim);
+    gbTomTxt.x = 0;
+    gbTomTxt.y = 0;
+
+    g11Txt.setText("Med rubrik / inaktiverad / utan rubrik");
+    g11Txt.setRole(glaze::Label::Role::Dim);
+    g11Txt.x = 8;
+    g11Txt.y = 188;
+
+    grpTalfalt.x = 960;
+    grpTalfalt.y = 400;
+    grpTalfalt.width = 304;
+    grpTalfalt.height = 164;
+    grpTalfalt.setBorder(true);
+
+    g12Rub.setText("12 · SpinBox");
+    g12Rub.x = 8;
+    g12Rub.y = 6;
+
+    spN.setValue(42);
+    spN.x = 8;
+    spN.y = 30;
+
+    spD.setDecimals(2);
+    spD.setStep(0.25);
+    spD.setValue(3.25);
+    spD.x = 8;
+    spD.y = 66;
+
+    spAv.setValue(7);
+    spAv.x = 8;
+    spAv.y = 102;
+    spAv.disable();
+
+    spBred.setMin(-50);
+    spBred.setDecimals(1);
+    spBred.setValue(-12.5);
+    spBred.x = 120;
+    spBred.y = 30;
+    spBred.width = 170;
+
+    g12Txt.setText("Heltal, decimaler, inaktivt, satt bredd");
+    g12Txt.setRole(glaze::Label::Role::Dim);
+    g12Txt.x = 8;
+    g12Txt.y = 138;
+
+    grpDra.x = 1276;
+    grpDra.y = 12;
+    grpDra.width = 304;
+    grpDra.height = 108;
+    grpDra.setBorder(true);
+
+    draRub.setText("13 · Dra och släpp");
+    draRub.x = 8;
+    draRub.y = 6;
+
+    draKalla.setText("Dra mig");
+    draKalla.setImg(glaze::img("toolbar", "info"));
+    draKalla.x = 8;
+    draKalla.y = 34;
+    draKalla.setAllowDrag(true);
+
+    draZon.x = 128;
+    draZon.y = 30;
+    draZon.width = 80;
+    draZon.height = 36;
+    draZon.setBorder(true);
+    draZon.setAllowDrop(true);
+
+    draZonTxt.setText("Släpp här");
+    draZonTxt.x = 6;
+    draZonTxt.y = 9;
+
+    draAv.x = 216;
+    draAv.y = 30;
+    draAv.width = 80;
+    draAv.height = 36;
+    draAv.setBorder(true);
+    draAv.setAllowDrop(true);
+    draAv.disable();
+
+    draAvTxt.setText("Av");
+    draAvTxt.x = 6;
+    draAvTxt.y = 9;
+    draAvTxt.disable();
+
+    draTxt.setText("Källa, mål och inaktivt mål");
+    draTxt.setRole(glaze::Label::Role::Dim);
+    draTxt.x = 8;
+    draTxt.y = 80;
+
+    grpTrad.x = 1592;
+    grpTrad.y = 12;
+    grpTrad.width = 304;
+    grpTrad.height = 222;
+    grpTrad.setBorder(true);
+
+    tradRub.setText("14 · TreeView");
+    tradRub.x = 8;
+    tradRub.y = 6;
+
+    tradN.x = 8;
+    tradN.y = 30;
+    tradN.width = 140;
+    tradN.height = 150;
+    tradN.setNodes({{"Dokument", {{"Rapport.pdf", {}, glaze::img("toolbar", "info"), false, false}, {"Brev.txt", {}, {}, false, false}}, {}, true}, {"Bilder", {{"Semester"}}}, {"Musik"}});
+    tradN.setSelectedPath({0, 1});
+    tradN.setAllowDrag(true);
+    tradN.setAllowDrop(true);
+    tradN.setMultiSelect(true);
+    tradN.setShowChecks(true);
+    tradN.setChecked({0, 0}, true);
+    tradN.setNodeColor({0, 0}, gfx::Color{200, 40, 40});
+    tradN.setSelected({2}, true);
+
+    tradD.x = 156;
+    tradD.y = 30;
+    tradD.width = 140;
+    tradD.height = 150;
+    tradD.setNodes({{"Dokument", {{"Rapport.pdf", {}, glaze::img("toolbar", "info")}, {"Brev.txt", {}, {}, false, true, true, gfx::Color{200, 40, 40}}}, {}, true}, {"Bilder", {{"Semester"}}}, {"Musik"}});
+    tradD.setSelectedPath({0, 1});
+    tradD.setShowChecks(true);
+    tradD.disable();
+
+    tradTxt.setText("Dra noder: före, efter, in i / inaktivt");
+    tradTxt.setRole(glaze::Label::Role::Dim);
+    tradTxt.x = 8;
+    tradTxt.y = 190;
+
+    grpTip.x = 1592;
+    grpTip.y = 246;
+    grpTip.width = 304;
+    grpTip.height = 100;
+    grpTip.setBorder(true);
+    grpTip.setToolTip("Gruppens tips — för det som saknar ett eget");
+
+    tipRub.setText("17 · Tooltip");
+    tipRub.x = 8;
+    tipRub.y = 6;
+
+    tipKnapp.setText("Spara");
+    tipKnapp.setToolTip("Spara filen — Ctrl+S");
+    tipKnapp.x = 8;
+    tipKnapp.y = 30;
+
+    tipAv.setText("Av");
+    tipAv.setToolTip("Kräver en öppen fil");
+    tipAv.x = 88;
+    tipAv.y = 30;
+    tipAv.disable();
+
+    tipVerktyg.setImg(glaze::img("toolbar", "gear"));
+    tipVerktyg.setToolTip("Inställningar");
+    tipVerktyg.x = 144;
+    tipVerktyg.y = 30;
+
+    tipTxt.setText("Knapp, inaktiv knapp, ikon — och gruppen");
+    tipTxt.setRole(glaze::Label::Role::Dim);
+    tipTxt.x = 8;
+    tipTxt.y = 70;
+
+    grpDela.x = 1908;
+    grpDela.y = 12;
+    grpDela.width = 304;
+    grpDela.height = 252;
+    grpDela.setBorder(true);
+
+    delaRub.setText("15 · Splitter");
+    delaRub.x = 8;
+    delaRub.y = 6;
+
+    delaN.x = 8;
+    delaN.y = 30;
+    delaN.width = 288;
+    delaN.height = 90;
+    delaN.setPaneSize(110);
+
+    delaNa.setBorder(true);
+
+    delaNaTxt.setText("Första (fast)");
+    delaNaTxt.x = 6;
+    delaNaTxt.y = 6;
+
+    delaNb.setBorder(true);
+
+    delaNbTxt.setText("Andra");
+    delaNbTxt.x = 6;
+    delaNbTxt.y = 6;
+
+    delaH.x = 8;
+    delaH.y = 128;
+    delaH.width = 140;
+    delaH.height = 90;
+    delaH.setVertical(false);
+    delaH.setFixedPane(glaze::Splitter::Pane::Second);
+    delaH.setPaneSize(30);
+    delaH.setSecondMin(20);
+
+    delaHa.setBorder(true);
+
+    delaHb.setBorder(true);
+
+    delaD.x = 156;
+    delaD.y = 128;
+    delaD.width = 140;
+    delaD.height = 90;
+    delaD.disable();
+
+    delaDa.setBorder(true);
+
+    delaDb.setBorder(true);
+
+    delaTxt.setText("Stående, liggande (andra fast), av");
+    delaTxt.setRole(glaze::Label::Role::Dim);
+    delaTxt.x = 8;
+    delaTxt.y = 226;
+
+    grpLista.x = 2224;
+    grpLista.y = 12;
+    grpLista.width = 304;
+    grpLista.height = 300;
+    grpLista.setBorder(true);
+
+    listaRub.setText("18 · ListView");
+    listaRub.x = 8;
+    listaRub.y = 6;
+
+    listaN.x = 8;
+    listaN.y = 30;
+    listaN.width = 288;
+    listaN.height = 140;
+    listaN.addColumn("Namn", 128);
+    listaN.addColumn("Storlek", 60, glaze::Align::Right);
+    listaN.addColumn("Ändrad", 88);
+    listaN.addRow({"Rapport.pdf", "12 kB", "2026-10-07"}, glaze::img("toolbar", "info"));
+    listaN.addRow({"Semester.png", "3 MB", "2026-09-30"}, glaze::img("toolbar", "ok"));
+    listaN.addRow({"fil10.txt", "1 kB", "2026-01-02"});
+    listaN.addRow({"fil2.txt", "2 kB", "2026-01-01"});
+    listaN.setSortKey(0, 1, 12288);
+    listaN.setSortKey(1, 1, 3145728);
+    listaN.setSortKey(2, 1, 1024);
+    listaN.setSortKey(3, 1, 2048);
+    listaN.setCell(3, 2, "2026-01-03");
+    listaN.setMultiSelect(true);
+    listaN.setSortColumn(0);
+    listaN.setSelected(0, true);
+    listaN.setSelected(2, true);
+    listaN.setRowColor(3, gfx::Color{0, 140, 0});
+    listaN.setShowChecks(true);
+    listaN.setChecked(1, true);
+    listaN.setFillColumn(0);
+
+    listaD.x = 8;
+    listaD.y = 178;
+    listaD.width = 288;
+    listaD.height = 80;
+    listaD.setColumns({{"Namn", 128}, {"Storlek", 60, glaze::Align::Right}, {"Ändrad", 88}});
+    listaD.setRows({{{"Rapport.pdf", "12 kB", "2026-10-07"}, glaze::img("toolbar", "info")}, {{"Anteckningar.txt", "900 B", "2026-08-19"}, {}, gfx::Color{200, 40, 40}}});
+    listaD.setSortColumn(1);
+    listaD.setSortAscending(false);
+    listaD.setSelectedIndex(0);
+    listaD.setShowChecks(true);
+    listaD.setChecked(0, true);
+    listaD.disable();
+
+    listaTxt.setText("Flerval, sorterad / massformen, inaktiverad");
+    listaTxt.setRole(glaze::Label::Role::Dim);
+    listaTxt.x = 8;
+    listaTxt.y = 268;
+
+    grpData.x = 2224;
+    grpData.y = 324;
+    grpData.width = 304;
+    grpData.height = 284;
+    grpData.setBorder(true);
+
+    dataRub.setText("19 · DataGrid");
+    dataRub.x = 8;
+    dataRub.y = 6;
+
+    dataN.x = 8;
+    dataN.y = 30;
+    dataN.width = 288;
+    dataN.height = 128;
+    dataN.setColumnEditor(1, glaze::DataGrid::Editor::Choice);
+    dataN.setColumnChoices(1, {"Ny", "Pågår", "Klar"});
+    dataN.addColumn("Uppgift", 132);
+    dataN.addColumn("Status", 84);
+    dataN.addColumn("Id", 52, glaze::Align::Right);
+    dataN.setColumnEditor(2, glaze::DataGrid::Editor::None);
+    dataN.addRow({"Skriv grinden", "Pågår", "24"});
+    dataN.addRow({"Rita recepten", "Klar", "17"});
+    dataN.addRow({"Uppdatera TODO", "Ny", "3"});
+    dataN.setRowColor(1, gfx::Color{0, 140, 0});
+    dataN.setCurrentCell(0, 1);
+
+    dataD.x = 8;
+    dataD.y = 166;
+    dataD.width = 288;
+    dataD.height = 82;
+    dataD.setColumns({{"Uppgift", 132}, {"Status", 84}, {"Id", 52, glaze::Align::Right}});
+    dataD.setRows({{{"Skriv grinden", "Pågår", "24"}}, {{"Rita recepten", "Klar", "17"}}});
+    dataD.setColumnEditor(2, glaze::DataGrid::Editor::None);
+    dataD.setSortColumn(2);
+    dataD.setCurrentCell(1, 0);
+    dataD.disable();
+
+    dataTxt.setText("Text, val, skrivskyddad / massformen, av");
+    dataTxt.setRole(glaze::Label::Role::Dim);
+    dataTxt.x = 8;
+    dataTxt.y = 256;
+
+    grpDock.x = 1908;
+    grpDock.y = 276;
+    grpDock.width = 304;
+    grpDock.height = 384;
+    grpDock.setBorder(true);
+
+    dockRub.setText("16 · DockHost");
+    dockRub.x = 8;
+    dockRub.y = 6;
+
+    dockVard.x = 8;
+    dockVard.y = 30;
+    dockVard.width = 288;
+    dockVard.height = 200;
+
+    dockV.setText("Verktyg");
+    dockV.width = 110;
+
+    dockVTxt.setText("Innehåll");
+    dockVTxt.x = 6;
+    dockVTxt.y = 6;
+
+    dockU.setText("Utdata");
+    dockU.dock = glaze::Dock::Bottom;
+    dockU.height = 70;
+
+    dockUTxt.setText("Rad 1");
+    dockUTxt.x = 6;
+    dockUTxt.y = 6;
+
+    dockDok.setBorder(true);
+
+    dockDokTxt.setText("Dokument");
+    dockDokTxt.x = 6;
+    dockDokTxt.y = 6;
+
+    dockVard2.x = 8;
+    dockVard2.y = 238;
+    dockVard2.width = 288;
+    dockVard2.height = 110;
+
+    dockT.setText("Hopfälld");
+    dockT.dock = glaze::Dock::Top;
+    dockT.setCollapsed(true);
+    dockT.disable();
+
+    dockR.setText("Höger");
+    dockR.dock = glaze::Dock::Right;
+    dockR.width = 110;
+    dockR.disable();
+
+    dockDok2.setBorder(true);
+
+    dockTxt.setText("Vänster, botten ytterst / hopfälld, av");
+    dockTxt.setRole(glaze::Label::Role::Dim);
+    dockTxt.x = 8;
+    dockTxt.y = 356;
+
+    grpFlik.x = 2540;
+    grpFlik.y = 12;
+    grpFlik.width = 304;
+    grpFlik.height = 300;
+    grpFlik.setBorder(true);
+
+    flikRub.setText("20 · TabControl");
+    flikRub.x = 8;
+    flikRub.y = 6;
+
+    flikN.x = 8;
+    flikN.y = 30;
+    flikN.width = 288;
+    flikN.height = 130;
+    flikN.setSelectedIndex(1);
+    flikN.setClosable(true);
+
+    flikA.setText("Allmänt");
+
+    flikATxt.setText("Första sidan");
+    flikATxt.x = 8;
+    flikATxt.y = 8;
+
+    flikB.setText("Avancerat");
+
+    flikBKnapp.setText("Knapp på sidan");
+    flikBKnapp.x = 8;
+    flikBKnapp.y = 8;
+
+    flikC.setText("Om");
+
+    flikD.x = 8;
+    flikD.y = 168;
+    flikD.width = 288;
+    flikD.height = 90;
+    flikD.disable();
+
+    flikDa.setText("Inaktiv");
+
+    flikDb.setText("Andra");
+
+    flikTxt.setText("Vald i mitten, stängbar / inaktiverad");
+    flikTxt.setRole(glaze::Label::Role::Dim);
+    flikTxt.x = 8;
+    flikTxt.y = 268;
+
+    grpFil.x = 2856;
+    grpFil.y = 12;
+    grpFil.width = 304;
+    grpFil.height = 200;
+    grpFil.setBorder(true);
+
+    filRub.setText("21 · FilePicker");
+    filRub.x = 8;
+    filRub.y = 6;
+
+    filN.x = 8;
+    filN.y = 30;
+    filN.width = 288;
+    filN.setPath("C:/Projekt/Översikt.pdf");
+    filN.addFilter("PDF", "*.pdf");
+    filN.addFilter(glaze::tr(43), "*.*");
+
+    filS.x = 8;
+    filS.y = 64;
+    filS.width = 288;
+    filS.setMode(glaze::FileDialogMode::Save);
+    filS.setFilters({{"Text", "*.txt"}, {glaze::tr(43), "*.*"}});
+    filS.setFilter(0, "Textfiler", "*.txt;*.md");
+
+    filM.x = 8;
+    filM.y = 98;
+    filM.width = 288;
+    filM.setMode(glaze::FileDialogMode::Folder);
+    filM.setPath("C:/Projekt");
+
+    filD.x = 8;
+    filD.y = 132;
+    filD.width = 288;
+    filD.setPath("C:/Projekt/inaktiverad.txt");
+    filD.disable();
+
+    filTxt.setText("Öppna / spara / mapp / inaktiverat");
+    filTxt.setRole(glaze::Label::Role::Dim);
+    filTxt.x = 8;
+    filTxt.y = 172;
+
+    grpFarg.x = 3172;
+    grpFarg.y = 12;
+    grpFarg.width = 304;
+    grpFarg.height = 160;
+    grpFarg.setBorder(true);
+
+    fargRub.setText("22 · ColorPicker");
+    fargRub.x = 8;
+    fargRub.y = 6;
+
+    fargN.x = 8;
+    fargN.y = 30;
+    fargN.setColor("#3366FF");
+
+    fargB.x = 8;
+    fargB.y = 64;
+    fargB.width = 288;
+    fargB.setColor(gfx::Color{76, 175, 80, 255});
+
+    fargD.x = 8;
+    fargD.y = 98;
+    fargD.setColor("#FF9800");
+    fargD.disable();
+
+    fargTxt.setText("Hex / gfx::Color, sträckt / inaktiverad");
+    fargTxt.setRole(glaze::Label::Role::Dim);
+    fargTxt.x = 8;
+    fargTxt.y = 132;
+
+    grpDatum.x = 3488;
+    grpDatum.y = 12;
+    grpDatum.width = 304;
+    grpDatum.height = 160;
+    grpDatum.setBorder(true);
+
+    datumRub.setText("23 · DatePicker");
+    datumRub.x = 8;
+    datumRub.y = 6;
+
+    datumN.x = 8;
+    datumN.y = 30;
+    datumN.setDate(2026, 10, 8);
+
+    datumG.x = 8;
+    datumG.y = 64;
+    datumG.width = 288;
+    datumG.setMinDate(2026, 10, 1);
+    datumG.setMaxDate(2026, 10, 31);
+    datumG.setDate(2026, 12, 24);
+
+    datumD.x = 8;
+    datumD.y = 98;
+    datumD.setDate(2026, 1, 15);
+    datumD.disable();
+
+    datumTxt.setText("Datum / bara oktober (klampat) / inaktiverat");
+    datumTxt.setRole(glaze::Label::Role::Dim);
+    datumTxt.x = 8;
+    datumTxt.y = 132;
+
+    grpAnt.x = 3804;
+    grpAnt.y = 12;
+    grpAnt.width = 304;
+    grpAnt.height = 336;
+    grpAnt.setBorder(true);
+
+    antRub.setText("24 · TextArea");
+    antRub.x = 8;
+    antRub.y = 6;
+
+    antN.x = 8;
+    antN.y = 30;
+    antN.width = 288;
+    antN.setText("Anteckningar\nRad två med åäö och \"citat\".\nEn lång rad som bryts mot fältets bredd när den inte får plats.\nFjärde raden\nFemte raden");
+    antN.setAcceptsTab(true);
+
+    antB.x = 8;
+    antB.y = 124;
+    antB.width = 288;
+    antB.setWrap(false);
+    antB.setText("Utan brytning rullar fältet i sidled när en rad inte får plats\nKort rad\nRad tre\nRad fyra");
+
+    antS.x = 8;
+    antS.y = 218;
+    antS.width = 140;
+    antS.setReadOnly(true);
+    antS.setText("Skrivskyddad:\nmarkera och\nkopiera");
+
+    antD.x = 156;
+    antD.y = 218;
+    antD.width = 140;
+    antD.setText("Inaktiverad:\ntexten dimmas\nhela vägen");
+    antD.disable();
+
+    antTxt.setText("Bryts / utan brytning / skrivskyddad / av");
+    antTxt.setRole(glaze::Label::Role::Dim);
+    antTxt.x = 8;
+    antTxt.y = 310;
+
+    grpRita.x = 3488;
+    grpRita.y = 184;
+    grpRita.width = 304;
+    grpRita.height = 236;
+    grpRita.setBorder(true);
+
+    ritaRub.setText("25 · Canvas");
+    ritaRub.x = 8;
+    ritaRub.y = 6;
+
+    ritaN.x = 8;
+    ritaN.y = 30;
+    ritaN.width = 140;
+    ritaN.height = 170;
+    ritaN.setGridSize(20);
+    ritaN.setCamera(glaze::Camera{.center = {70, 85}, .zoom = 1, .bearing = 20, .pitch = 35});
+    ritaN.addLayer("Former");
+    ritaN.addShape(glaze::Shape::rect({20, 20, 100, 60}, gfx::Color{120, 170, 220}, glaze::Stroke{.paint = gfx::Color{40, 80, 140}, .width = 2}));
+    ritaN.addShape(1, glaze::Shape::polyline({{15, 120}, {60, 100}, {125, 140}}, glaze::Stroke{.paint = gfx::Color{200, 60, 40}, .width = 4, .join = glaze::LineJoin::Miter, .dash = {8, 4}}));
+    ritaN.addShape(1, glaze::Shape::circle({100, 50}, 12, gfx::Color{240, 180, 40}));
+    ritaN.addShape(1, glaze::Shape::marker({40, 140}, {.size = 8, .fill = gfx::Color{0, 120, 0}}));
+    ritaN.addShape(1, glaze::Shape::text({70, 20}, {{.text = "Rit"}, {.text = "yta", .color = gfx::Color{200, 60, 40}, .bold = true}}, {.size = 12}));
+    ritaN.addShape(glaze::Shape::image({84, 86}, {128, 92}, {124, 122}, {88, 116}, glaze::img("toolbar", "info")));
+
+    ritaD.x = 156;
+    ritaD.y = 30;
+    ritaD.width = 140;
+    ritaD.height = 170;
+    ritaD.setGridSize(20);
+    ritaD.addLayer("Former");
+    ritaD.addShape(glaze::Shape::polygon({{20, 30}, {120, 30}, {70, 110}}, gfx::Color{120, 170, 220}));
+    ritaD.addShape(1, glaze::Shape::line({20, 140}, {120, 120}, {.paint = gfx::Color{200, 60, 40}, .width = 3, .cap = glaze::LineCap::Round}));
+    ritaD.disable();
+
+    ritaTxt.setText("Vriden och tiltad / av");
+    ritaTxt.setRole(glaze::Label::Role::Dim);
+    ritaTxt.x = 8;
+    ritaTxt.y = 208;
+
+    grpRubrik.x = 2540;
+    grpRubrik.y = 324;
+    grpRubrik.width = 304;
+    grpRubrik.height = 312;
+    grpRubrik.setBorder(true);
+
+    rubrikRub.setText("26 · Kolumnrubriker");
+    rubrikRub.x = 8;
+    rubrikRub.y = 6;
+
+    rubrikN.x = 8;
+    rubrikN.y = 30;
+    rubrikN.width = 288;
+    rubrikN.height = 160;
+    rubrikN.setHeaderLines(0);
+    rubrikN.setHeaderVAlign(glaze::VAlign::Bottom);
+    rubrikN.setColumns({{"Spann", 80}, {"Längd\na\n(m)", 56, glaze::Align::Right, glaze::Align::Center}, {"Nedhäng\nvertikal\nprojektion\nb\n(m)", 82, glaze::Align::Right, glaze::Align::Center}, {"Lastfall\nSS-EN 50341", 68, glaze::Align::Center}});
+    rubrikN.addRow({"S12–S13", "82,4", "1,92", "1a"});
+    rubrikN.addRow({"S13–S14", "64,0", "1,18", "2b"});
+    rubrikN.setSortColumn(0);
+
+    rubrikD.x = 8;
+    rubrikD.y = 198;
+    rubrikD.width = 288;
+    rubrikD.height = 82;
+    rubrikD.setHeaderLines(2);
+    rubrikD.setHeaderVAlign(glaze::VAlign::Top);
+    rubrikD.setColumns({{"Beskrivning av stolpen och dess placering", 120}, {"Antal", 64, glaze::Align::Center}, {"Höjd (m)", 102, glaze::Align::Right, glaze::Align::Left}});
+    rubrikD.addRow({"Hörnstolpe", "2", "12,0"});
+    rubrikD.disable();
+
+    rubrikTxt.setText("AUTO, nederkant / två rader, överkant, av");
+    rubrikTxt.setRole(glaze::Label::Role::Dim);
+    rubrikTxt.x = 8;
+    rubrikTxt.y = 288;
+
+    grp3D.x = 2856;
+    grp3D.y = 224;
+    grp3D.width = 304;
+    grp3D.height = 236;
+    grp3D.setBorder(true);
+
+    tredeRub.setText("27 · 3D");
+    tredeRub.x = 8;
+    tredeRub.y = 6;
+
+    tredeN.x = 8;
+    tredeN.y = 30;
+    tredeN.width = 140;
+    tredeN.height = 170;
+    tredeN.setCamera(glaze::Camera3D{.target = {0, 0, 4}, .distance = 34, .azimuth = 30, .elevation = 28});
+    tredeN.addLayer("Föremål");
+    tredeN.addLayer("Kub");
+    tredeN.addShape(1, glaze::Shape::box({{-8, -8, 0}, {-2, -2, 6}}, {.color = gfx::Color{180, 180, 190}}));
+    tredeN.addShape(1, glaze::Shape::cylinder({4, 2, 0}, 0.6, 12, {.color = gfx::Color{140, 100, 60}}));
+    tredeN.addShape(1, glaze::Shape::line3({-5, -5, 6}, {4, 2, 12}, glaze::Stroke{.paint = gfx::Color{40, 40, 40}, .width = 2}));
+    tredeN.addShape(1, glaze::Shape::text3({4, 2, 14}, "Stolpe", glaze::TextStyle{.size = 11, .halo = gfx::Color{255, 255, 255}}));
+    tredeN.addShape(1, glaze::Shape::points3({{0, -6, 0.5}, {2, -6, 0.5}, {4, -6, 0.5}, {6, -6, 0.5}, {8, -6, 0.5}}, glaze::PointStyle{.size = 5, .shape = glaze::MarkerShape::Circle, .color = gfx::Color{200, 40, 40}}));
+    tredeN.addShape(2, glaze::Shape::box({{-1, -1, -1}, {1, 1, 1}}, {.color = gfx::Color{90, 140, 220}}));
+    tredeN.addView(glaze::View{.anchor = glaze::TextAnchor::BottomRight, .offset = {-4, -4}, .width = 44, .height = 44, .camera = glaze::Camera3D{.distance = 6, .projection = glaze::Projection::Orthographic}, .followRotation = true, .background = gfx::Color{128, 128, 128, 60}});
+    tredeN.setLayerViews(2, {1});
+
+    tredeD.x = 156;
+    tredeD.y = 30;
+    tredeD.width = 140;
+    tredeD.height = 170;
+    tredeD.setCamera(glaze::Camera3D{.target = {0, 0, 2}, .distance = 26, .azimuth = 210, .elevation = 35});
+    tredeD.setLighting(glaze::Lighting{.ambient = 0.5, .diffuse = 0.6});
+    tredeD.addShape(glaze::Shape::polygon3({{-8, -8, 0}, {8, -8, 0}, {8, 8, 0}, {-8, 8, 0}}, gfx::Color{120, 170, 120}));
+    tredeD.addShape(glaze::Shape::sphere({0, 0, 3}, glaze::world(2.5), {.color = gfx::Color{220, 160, 60}}));
+    tredeD.addShape(glaze::Shape::tube({{-6, 5, 1}, {0, 6, 4}, {6, 5, 1}}, 0.6, {.color = gfx::Color{60, 60, 60}}));
+    tredeD.addShape(glaze::Shape::instances(glaze::Shape::cylinder({0, 0, 0}, 0.4, 3), {{.at = {-5, -5, 0}}, {.at = {5, -5, 0}, .color = gfx::Color{60, 140, 60}}}));
+    tredeD.addShape(glaze::Shape::mesh(glaze::Mesh::triangles({{-3, -6, 0}, {3, -6, 0}, {0, -6, 5}}, gfx::Color{200, 60, 60}), {}, {.lit = false}));
+    tredeD.disable();
+
+    tredeTxt.setText("Kamera, låda, stolpe, vy / av");
+    tredeTxt.setRole(glaze::Label::Role::Dim);
+    tredeTxt.x = 8;
+    tredeTxt.y = 208;
+
+    grpMd.x = 3172;
+    grpMd.y = 184;
+    grpMd.width = 304;
+    grpMd.height = 320;
+    grpMd.setBorder(true);
+
+    mdRub.setText("28 · MarkdownView");
+    mdRub.x = 8;
+    mdRub.y = 6;
+
+    mdN.x = 8;
+    mdN.y = 30;
+    mdN.width = 288;
+    mdN.height = 120;
+    mdN.setBorder(true);
+    mdN.setText("# Rubrik\n\n## Underrubrik\n\n### Tredje\n\nEtt stycke med **fet**, *kursiv*, ***båda***, `kod` och en [länk](https://example.com \"Titel\").\nEn mjuk brytning, en hård  \nbrytning och <https://example.com>.\n\n- punkt\n  - nästlad\n    - djupare\n\n3. tre\n4) fyra\n\n> Citat\n>> nästlat\n\n---\n\n```\nkod i block\n\tmed tabb\n```\n\n| Vänster | Mitten | Höger |\n|:--|:-:|--:|\n| a | **b** | `c` |\n\nBild: ![](toolbar/info) och saknad ![alt](saknas/bild)\n\n[referens][r] \\ escape &amp; &#228;\n\n[r]: #rubrik");
+
+    mdD.x = 8;
+    mdD.y = 158;
+    mdD.width = 288;
+    mdD.height = 48;
+    mdD.setText("Inaktiverad: **fet**, `kod` och en [länk](#rubrik).");
+    mdD.disable();
+
+    mdA.anchors = {true, true, true, false};
+    mdA.x = 8;
+    mdA.y = 214;
+    mdA.right = 8;
+    mdA.setText("AUTO-höjd: vyn **växer** med sin text.");
+
+    mdTxt.setText("Rullande / inaktiverad / AUTO-höjd");
+    mdTxt.setRole(glaze::Label::Role::Dim);
+    mdTxt.x = 8;
+    mdTxt.anchorTop = {"mdA", 6};
+
+    stangBtn.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { stangClicked(s, e); };
+    sldN.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { sldChanged(s, e); };
+    grid1.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { gridChanged(s, e); };
+    vkOk.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { vkClicked(s, e); };
+    vkInfo.onClick = [this](glaze::Widget* s, glaze::ClickArgs& e) { vkClicked(s, e); };
+    spN.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { spChanged(s, e); };
+    draKalla.onDragStart = [this](glaze::Widget* s, glaze::DragStartArgs& e) { draStart(s, e); };
+    draZon.onDragEnter = [this] { zonIn(); };
+    draZon.onDrop = [this](glaze::Widget* s, glaze::DragArgs& e) { zonSlapp(s, e); };
+    delaN.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { delaFlyttad(s, e); };
+    listaN.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { listaAndrad(s, e); };
+    listaN.onActivate = [this] { listaOppnad(); };
+    dataN.onChange = [this](glaze::Widget* s, glaze::CellChangeArgs& e) { dataAndrad(s, e); };
+    dockVard.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { dockAndrad(s, e); };
+    flikN.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { flikBytt(s, e); };
+    flikN.onTabClose = [this] { flikStangs(); };
+    filN.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { filAndrad(s, e); };
+    filS.onChange = [this] { filSparad(); };
+    fargN.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { fargAndrad(s, e); };
+    datumN.onChange = [this] { datumAndrat(); };
+    antN.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { antAndrad(s, e); };
+    glaze::AppWindow::onLoad = [this](glaze::Widget* s, glaze::EventArgs& e) { onLoad(s, e); };
+
+    root().adopt(statusRad);
+    statusRad.adopt(statusLead);
+    statusRad.adopt(statusTxt);
+    statusRad.adopt(statusSp);
+    statusRad.adopt(statusHint);
+    statusRad.adopt(statusPad);
+    root().adopt(stangBtn);
+    root().adopt(grpText);
+    grpText.adopt(g1Rub);
+    grpText.adopt(g1Sep);
+    grpText.adopt(lblN);
+    grpText.adopt(lblD);
+    grpText.adopt(btnN);
+    grpText.adopt(btnD);
+    grpText.adopt(lnkN);
+    grpText.adopt(g1SepV);
+    grpText.adopt(lnkD);
+    grpText.adopt(g1SepD);
+    grpText.adopt(g1Txt);
+    root().adopt(grpVal);
+    grpVal.adopt(g2Rub);
+    grpVal.adopt(chkN);
+    grpVal.adopt(chkD);
+    grpVal.adopt(radA);
+    grpVal.adopt(radB);
+    grpVal.adopt(radD);
+    root().adopt(grpFalt);
+    grpFalt.adopt(g3Rub);
+    grpFalt.adopt(txtN);
+    grpFalt.adopt(txtD);
+    grpFalt.adopt(ddN);
+    grpFalt.adopt(ddD);
+    grpFalt.adopt(lstN);
+    grpFalt.adopt(lstD);
+    grpFalt.adopt(lstC);
+    grpFalt.adopt(g3Txt);
+    root().adopt(grpReglage);
+    grpReglage.adopt(g4Rub);
+    grpReglage.adopt(sldN);
+    grpReglage.adopt(sldD);
+    grpReglage.adopt(sldV);
+    grpReglage.adopt(prgN);
+    grpReglage.adopt(prgD);
+    grpReglage.adopt(prgI);
+    grpReglage.adopt(g4Txt);
+    root().adopt(grpBild);
+    grpBild.adopt(g5Rub);
+    grpBild.adopt(picN);
+    grpBild.adopt(picD);
+    grpBild.adopt(g5Txt);
+    root().adopt(grpScroll);
+    grpScroll.adopt(g6Rub);
+    grpScroll.adopt(sbV1);
+    grpScroll.adopt(sbV2);
+    grpScroll.adopt(sbH1);
+    grpScroll.adopt(sbH2);
+    grpScroll.adopt(g6Txt);
+    root().adopt(grpPanel);
+    grpPanel.adopt(g7Rub);
+    grpPanel.adopt(panScroll);
+    panScroll.adopt(psA);
+    panScroll.adopt(psB);
+    panScroll.adopt(psC);
+    panScroll.adopt(psD);
+    panScroll.adopt(psE);
+    grpPanel.adopt(panDis);
+    panDis.adopt(pdA);
+    panDis.adopt(pdB);
+    panDis.adopt(pdC);
+    panDis.adopt(pdD);
+    grpPanel.adopt(g7Txt);
+    root().adopt(grpGrid);
+    grpGrid.adopt(g8Rub);
+    grpGrid.adopt(grid1);
+    grpGrid.adopt(grid2);
+    grpGrid.adopt(g8Txt);
+    root().adopt(grpBar);
+    grpBar.adopt(statusD);
+    statusD.adopt(sdTxt);
+    grpBar.adopt(g9Rub);
+    grpBar.adopt(barN);
+    barN.adopt(barBtn1);
+    barN.adopt(barSp1);
+    barN.adopt(capMin);
+    barN.adopt(capMax);
+    barN.adopt(capClose);
+    grpBar.adopt(barD);
+    barD.adopt(barBtn2);
+    barD.adopt(barSp2);
+    barD.adopt(capMinD);
+    barD.adopt(capMaxD);
+    barD.adopt(capCloseD);
+    grpBar.adopt(topBarD);
+    topBarD.adopt(tbTitle);
+    topBarD.adopt(tbSp);
+    topBarD.adopt(tbMin);
+    topBarD.adopt(tbClose);
+    grpBar.adopt(g9Txt);
+    root().adopt(grpVerktyg);
+    grpVerktyg.adopt(g10Rub);
+    grpVerktyg.adopt(verktygN);
+    verktygN.adopt(vkOk);
+    verktygN.adopt(vkAvbryt);
+    verktygN.adopt(vkSep1);
+    verktygN.adopt(vkInfo);
+    verktygN.adopt(vkKugg);
+    verktygN.adopt(vkSep2);
+    verktygN.adopt(vkText);
+    grpVerktyg.adopt(verktygD);
+    verktygD.adopt(vkOkD);
+    verktygD.adopt(vkSepD);
+    verktygD.adopt(vkInfoD);
+    verktygD.adopt(vkTextD);
+    grpVerktyg.adopt(g10Txt);
+    root().adopt(grpGruppram);
+    grpGruppram.adopt(g11Rub);
+    grpGruppram.adopt(gbN);
+    gbN.adopt(gbC1);
+    gbN.adopt(gbC2);
+    grpGruppram.adopt(gbD);
+    gbD.adopt(gbR1);
+    gbD.adopt(gbR2);
+    grpGruppram.adopt(gbTom);
+    gbTom.adopt(gbTomTxt);
+    grpGruppram.adopt(g11Txt);
+    root().adopt(grpTalfalt);
+    grpTalfalt.adopt(g12Rub);
+    grpTalfalt.adopt(spN);
+    grpTalfalt.adopt(spD);
+    grpTalfalt.adopt(spAv);
+    grpTalfalt.adopt(spBred);
+    grpTalfalt.adopt(g12Txt);
+    root().adopt(grpDra);
+    grpDra.adopt(draRub);
+    grpDra.adopt(draKalla);
+    grpDra.adopt(draZon);
+    draZon.adopt(draZonTxt);
+    grpDra.adopt(draAv);
+    draAv.adopt(draAvTxt);
+    grpDra.adopt(draTxt);
+    root().adopt(grpTrad);
+    grpTrad.adopt(tradRub);
+    grpTrad.adopt(tradN);
+    grpTrad.adopt(tradD);
+    grpTrad.adopt(tradTxt);
+    root().adopt(grpTip);
+    grpTip.adopt(tipRub);
+    grpTip.adopt(tipKnapp);
+    grpTip.adopt(tipAv);
+    grpTip.adopt(tipVerktyg);
+    grpTip.adopt(tipTxt);
+    root().adopt(grpDela);
+    grpDela.adopt(delaRub);
+    grpDela.adopt(delaN);
+    delaN.adopt(delaNa);
+    delaNa.adopt(delaNaTxt);
+    delaN.adopt(delaNb);
+    delaNb.adopt(delaNbTxt);
+    grpDela.adopt(delaH);
+    delaH.adopt(delaHa);
+    delaH.adopt(delaHb);
+    grpDela.adopt(delaD);
+    delaD.adopt(delaDa);
+    delaD.adopt(delaDb);
+    grpDela.adopt(delaTxt);
+    root().adopt(grpLista);
+    grpLista.adopt(listaRub);
+    grpLista.adopt(listaN);
+    grpLista.adopt(listaD);
+    grpLista.adopt(listaTxt);
+    root().adopt(grpData);
+    grpData.adopt(dataRub);
+    grpData.adopt(dataN);
+    grpData.adopt(dataD);
+    grpData.adopt(dataTxt);
+    root().adopt(grpDock);
+    grpDock.adopt(dockRub);
+    grpDock.adopt(dockVard);
+    dockVard.adopt(dockV);
+    dockV.adopt(dockVTxt);
+    dockVard.adopt(dockU);
+    dockU.adopt(dockUTxt);
+    dockVard.adopt(dockDok);
+    dockDok.adopt(dockDokTxt);
+    grpDock.adopt(dockVard2);
+    dockVard2.adopt(dockT);
+    dockVard2.adopt(dockR);
+    dockVard2.adopt(dockDok2);
+    grpDock.adopt(dockTxt);
+    root().adopt(grpFlik);
+    grpFlik.adopt(flikRub);
+    grpFlik.adopt(flikN);
+    flikN.adopt(flikA);
+    flikA.adopt(flikATxt);
+    flikN.adopt(flikB);
+    flikB.adopt(flikBKnapp);
+    flikN.adopt(flikC);
+    grpFlik.adopt(flikD);
+    flikD.adopt(flikDa);
+    flikD.adopt(flikDb);
+    grpFlik.adopt(flikTxt);
+    root().adopt(grpFil);
+    grpFil.adopt(filRub);
+    grpFil.adopt(filN);
+    grpFil.adopt(filS);
+    grpFil.adopt(filM);
+    grpFil.adopt(filD);
+    grpFil.adopt(filTxt);
+    root().adopt(grpFarg);
+    grpFarg.adopt(fargRub);
+    grpFarg.adopt(fargN);
+    grpFarg.adopt(fargB);
+    grpFarg.adopt(fargD);
+    grpFarg.adopt(fargTxt);
+    root().adopt(grpDatum);
+    grpDatum.adopt(datumRub);
+    grpDatum.adopt(datumN);
+    grpDatum.adopt(datumG);
+    grpDatum.adopt(datumD);
+    grpDatum.adopt(datumTxt);
+    root().adopt(grpAnt);
+    grpAnt.adopt(antRub);
+    grpAnt.adopt(antN);
+    grpAnt.adopt(antB);
+    grpAnt.adopt(antS);
+    grpAnt.adopt(antD);
+    grpAnt.adopt(antTxt);
+    root().adopt(grpRita);
+    grpRita.adopt(ritaRub);
+    grpRita.adopt(ritaN);
+    grpRita.adopt(ritaD);
+    grpRita.adopt(ritaTxt);
+    root().adopt(grpRubrik);
+    grpRubrik.adopt(rubrikRub);
+    grpRubrik.adopt(rubrikN);
+    grpRubrik.adopt(rubrikD);
+    grpRubrik.adopt(rubrikTxt);
+    root().adopt(grp3D);
+    grp3D.adopt(tredeRub);
+    grp3D.adopt(tredeN);
+    grp3D.adopt(tredeD);
+    grp3D.adopt(tredeTxt);
+    root().adopt(grpMd);
+    grpMd.adopt(mdRub);
+    grpMd.adopt(mdN);
+    grpMd.adopt(mdD);
+    grpMd.adopt(mdA);
+    grpMd.adopt(mdTxt);
+
+    dockVard.setLayout("v1;dockU=bottom,0,70,0,0;dockV=left,110,0,0,0");
+}

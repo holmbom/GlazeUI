@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=GlazeUI demo
+Name[sv]=GlazeUI-demo
+Comment=GlazeUI example application
+Comment[sv]=GlazeUI:s exempelapp
+Exec=demo
+Icon=demo
+Terminal=false
+Categories=Development;GUIDesigner;
+StartupWMClass=demo

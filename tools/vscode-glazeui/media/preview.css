@@ -1,0 +1,79 @@
+/* Förhandsvisningens utseende — följer VS Codes temavariabler. */
+
+body {
+    margin: 0;
+    padding: 0;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+}
+
+.scen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    gap: 10px;
+}
+
+.status {
+    padding: 24px;
+    opacity: 0.7;
+}
+
+/* Bilden ÄR fönstret (chrome med) — visas i logiska px via style.width,
+   skuggan skiljer den från editor-bakgrunden. */
+.bild {
+    max-width: 100%;
+    height: auto;
+    box-shadow: 0 6px 28px rgba(0, 0, 0, 0.45);
+    border-radius: 6px;
+}
+
+.meta {
+    font-size: 0.85em;
+    opacity: 0.55;
+    user-select: none;
+}
+
+.fel {
+    max-width: 720px;
+    width: 100%;
+}
+
+.fel h2 {
+    color: var(--vscode-errorForeground);
+    font-size: 1.1em;
+}
+
+/* stderr-diagnosen ordagrant — reader-fail-safen förklarar själv vad som
+   är fel (skadat stängsel, saknad syskon-.h, …). */
+.fel pre {
+    background: var(--vscode-textCodeBlock-background);
+    padding: 12px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--vscode-editor-font-family);
+}
+
+.fel-knappar {
+    display: flex;
+    gap: 8px;
+}
+
+.fel-knappar button {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 6px 14px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.fel-knappar button:hover {
+    background: var(--vscode-button-hoverBackground);
+}

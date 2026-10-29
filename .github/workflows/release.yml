@@ -1,0 +1,71 @@
+# Bygger GlazeUI i DELAT LÄGE på Windows (MSYS2 UCRT64) och lägger en zip på
+# releasen: DLL:erna + MinGW:s egna, importbiblioteken, headerfilerna,
+# CMake-hjälparna och verktygen. Körs när en tagg vX.Y.Z pushas, eller för
+# hand (Actions → Release → Run workflow) för en tagg som redan finns.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Taggen som ska byggas (t.ex. v0.2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            zip
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Bygg
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGLAZE_SHARED=ON
+          cmake --build build
+
+      - name: Packa
+        run: |
+          pkg="GlazeUI-${TAG}-windows-x64"
+          mkdir -p "$pkg"/{bin,lib,include,cmake}
+          find build -name '*.dll' -exec cp -f {} "$pkg/bin/" \;
+          for dll in libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll; do
+            cp -f "/ucrt64/bin/$dll" "$pkg/bin/"
+          done
+          for exe in GlazeBuilder glaze-render glazeassets glazelanguage demo; do
+            find build/apps -name "$exe.exe" -exec cp -f {} "$pkg/bin/" \;
+          done
+          find build -name '*.a' -not -path '*/CMakeFiles/*' -exec cp -f {} "$pkg/lib/" \;
+          for inc in Glaze/*/include Threads/include Networking/include Terminal/include; do
+            cp -r "$inc"/. "$pkg/include/"
+          done
+          cp -r cmake/. "$pkg/cmake/"
+          cp MANUAL.md UI_GUIDELINES.md "$pkg/"
+          cp LICENSE* THIRD_PARTY_NOTICES.md README*.md VERSION.md "$pkg/" 2>/dev/null || true
+          zip -qr "$pkg.zip" "$pkg"
+          echo "PKG=$pkg.zip" >> "$GITHUB_ENV"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: ${{ env.PKG }}

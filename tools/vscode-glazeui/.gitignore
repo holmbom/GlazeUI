@@ -1,0 +1,10 @@
+# Byggprodukter — buntade binärer och VSIX:er committas inte
+node_modules/
+dist/
+out/
+*.vsix
+bin/*/glaze-render
+bin/*/glaze-render.exe
+bin/*/GlazeBuilder
+bin/*/GlazeBuilder.exe
+bin/*/GlazeBuilder.app/

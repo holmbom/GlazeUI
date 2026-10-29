@@ -1,0 +1,15 @@
+# Vad som INTE följer med i VSIX:en. Paketeringsscriptet
+# (scripts/package.mjs) appendar temporärt "!bin/<target>/**" så att exakt
+# EN plattformsbinär buntas per VSIX (per-plattform-targets, planen §1/§4).
+.gitignore
+.vscode/**
+src/**
+scripts/**
+node_modules/**
+out/**
+dist/**/*.map
+tsconfig.json
+esbuild.js
+CLAUDE.md
+install-ext.bat
+bin/**

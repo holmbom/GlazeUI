@@ -1,0 +1,24 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+#include "order.h"
+
+OrderFixture::OrderFixture() { initializeComponent(); }
+
+void OrderFixture::initializeComponent()
+{
+    setTitle("Satsordning");
+    setClientSize(320, 200);
+
+    ruta.setText("Ruta");
+    ruta.x = 20;
+    ruta.disable();
+    ruta.y = 20;
+
+    chip.setText("I statusraden");
+
+    root().adopt(ruta);
+    statusBar.adopt(chip);
+
+    statusBar.show();
+
+    ruta.focus();
+}
