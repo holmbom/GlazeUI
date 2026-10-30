@@ -234,6 +234,11 @@ public:
     bool   teleportTo(Vec3 feet, std::optional<double> yawDegrees = {});
     // Byter den inbyggda förflyttningen under en körande session.
     void   setLocomotion(const Locomotion& locomotion);
+    // Tar handen från den inbyggda förflyttningen i nästa bildruta: ett grepp
+    // som börjar medan handen är tagen drar inte världen (ett som redan drar
+    // fortsätter tills det släpps). Anropas varje bildruta medan appen — eller
+    // `Interface3D`, som gör det själv — använder handens grepp.
+    void   claimHand(Hand hand);
 
     // VIBRATION i en kontroll: styrka 0 … 1, längd i sekunder (0 = runtimens
     // kortaste), frekvens i Hz (0 = runtimens). false utan session eller fokus.

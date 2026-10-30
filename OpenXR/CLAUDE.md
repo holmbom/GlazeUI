@@ -63,6 +63,11 @@ skapas i användarkoden (som `glaze::Worker`).
 | `src/actions.h/.cpp` | action set, bindningar för fyra kontrollprofiler, dödzon, avtryckarhysteres |
 | `src/canvas_bridge.h/.cpp` | UI-trådens del: `ExternalCanvasPass`, swapchain-bilderna som importerade mål, startläget ur Camera3D eller kartkameran, förankring, `teleportTo`, förflyttning, `onFrame`, plockning med `castRay` och reservmarken `groundZ`, `onPick`, ritningen av båda ögonen |
 | `src/locomotion.h/.cpp` | `Mover` (gå, flyga, vrida, teleportera med båge eller rak stråle, greppa världen) och de rena funktionerna `groundHit`/`withGround` (reservmarken), `faceYaw`, `placeFeet` (landningen som den inbyggda teleporteringen och `teleportTo` delar) |
+| `include/glaze_openxr/interface3d.h` | publik: `Interface3D` — paneler (`Panel`, `Mount`, `Visibility`, `Layout`, `Element`, stilarna), pekaren (`PointerMode`, `Pointers`, `PointerState`), `ElementEvent`, `ElementDrawer` |
+| `src/interface3d.cpp` | `Interface3D::Impl`: panelernas placering och ritning i gränssnittets lager, synligheten, pekarna (upplösning, mål, ritning), tryck, dragningar och grepp, vibrationen och `claimHand` |
+| `src/interface3d_logic.h/.cpp` | de rena delarna: layouten, spetsen, blickvinkeln, synlighetsvillkoren och toningen |
+| `src/vector_ops.h` | internt, ren std: vektorräkningen (`vadd` … `vnormalized`, `kPi`) som kärnan, förflyttningen och gränssnittet delar |
+| `src/hands.h` | internt: `handIndex` (0 vänster, 1 höger) |
 | `cmake/OpenXRLoader.cmake` | FetchContent av loadern + `glaze_openxr_runtime(<target>)` |
 
 ## Trådarna
@@ -151,6 +156,41 @@ målen och passet; den gör avvecklingen själv och släpper XR-tråden.
 - Canvas ska ha en `Camera3D` med `UpAxis::Z` eller kartkameran, och en
   världsenhet per meter. `UpAxis::Y` ger `Failed` med text. Kartkameran kräver
   en känd yta (fönstret öppet och ritytan synlig).
+
+## 3D-gränssnittet
+
+- `Interface3D` äger ETT lager i ritytan: panelernas former först och
+  sist två former per hand för pekarna (en tom form där inget ritas). Har en
+  panel ändrats byts hela lagret (`setShapes`); annars byts bara de pekare
+  som ändrats, på sina platser (`setShape`). Bakplattor och elementkroppar
+  är lådor som flyttas genom sin Placement; framsidorna är `RenderTexture`
+  på en texturerad yta, och en framsida målas bara om när något den visar
+  ändrats (`setPanel`, `setElement`, `setDrawer`, en vippa som växlar).
+- Panelens ram: x höger, z upp, framsidan mot −y.
+- **Bildrutan** (`run`): placering → händernas indata → synligheten (på
+  händernas egna lägen) → pekarna upplöses → händerna verkar, vänster först
+  → pekarnas mål → tillstånden → `claimHand` för händer som gränssnittet tar
+  → pekarnas ritning → lagret.
+- **Pekaren** är EN per hand och räknas bara här. `Auto` väljer staven när
+  spetsen är inom `wandRange` från ett element, en grepbar platta eller en
+  yta i scenen (släpper vid 1,25 × `wandRange`), annars strålen. Läget ligger
+  fast medan handen trycker eller greppar. Fingertoppen tar närläget när
+  handen spåras. En hand som bär en synlig panel har ingen pekare.
+- `consumed` = handen trycker eller greppar i gränssnittet, eller målet är
+  ett element eller en platta. Den hand som är `consumed` tas från
+  förflyttningens världsgrepp i nästa bildruta (`Session::claimHand`):
+  `CanvasBridge` avgör greppet när det börjar och håller beslutet till
+  släppet: ett som börjar medan handen är tagen drar aldrig världen, ett som
+  redan drar fortsätter.
+- Scenträffarna går genom `Session::castRay` och hoppar över gränssnittets
+  eget lager och utan ocklusion (pekaren och panelerna skymmer aldrig
+  scenen): ETT kast per hand framför spetsen räcker för både Auto-valet och
+  stavens mål. Strålen tar sin träff ur `Controller::hover` när dess närmaste
+  träff är scenens, annars kastas den förbi gränssnittet. Strålens mål i
+  gränssnittet gäller bara inom `rayLength` och framför scenens träff.
+- Utan fokus avbryts ett tryck utan klick, ett grepp släpps och inget nytt
+  börjar. Vredet lägger ihop bildrutornas vridningar, så mer än ett halvt
+  varv i ett grepp går.
 
 ## Fallgropar
 

@@ -131,3 +131,4 @@ Utanför grinden. Inte mindre viktigt — men inte villkor för släppet, och f�
   Språkpaketen byter strängar; RTL byter TEXTVÄGEN.
 - 💡 **Sidopaketet OpenXR till `main`** — [arkiverad plan](doc/plans/archive/2026-10-30_OPENXR_DIREKT.md)
   Branchen `OpenXR` mergas när hela sviten (statisk, delad och röktest) är grön; där körs i dag bara de berörda grindarna.
+  3D-gränssnittet ([arkiverad plan](doc/plans/archive/2026-10-30_OPENXR_GRANSSNITT3D.md)) är provat i headset; `interface3d_gate` är skriven men inte körd.

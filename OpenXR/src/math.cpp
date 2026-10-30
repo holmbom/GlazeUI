@@ -1,5 +1,7 @@
 #include <glaze_openxr/math.h>
 
+#include "vector_ops.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -9,7 +11,14 @@ namespace glaze::openxr {
 
 namespace {
 
-constexpr double kPi  = 3.14159265358979323846;
+using detail::kPi;
+using detail::vadd;
+using detail::vcross;
+using detail::vdot;
+using detail::vlength;
+using detail::vmul;
+using detail::vsub;
+
 constexpr double kDeg = 180.0 / kPi;
 constexpr double kRad = kPi / 180.0;
 
@@ -38,21 +47,13 @@ std::optional<Quaternion> unitQuaternion(const Quaternion& q) noexcept {
     return Quaternion{q.x / n, q.y / n, q.z / n, q.w / n};
 }
 
-Vec3 add(const Vec3& a, const Vec3& b) noexcept { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
-Vec3 sub(const Vec3& a, const Vec3& b) noexcept { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
-Vec3 scale(const Vec3& a, double s) noexcept { return {a.x * s, a.y * s, a.z * s}; }
-double dot(const Vec3& a, const Vec3& b) noexcept { return a.x * b.x + a.y * b.y + a.z * b.z; }
-Vec3 cross(const Vec3& a, const Vec3& b) noexcept {
-    return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
-}
-double length(const Vec3& a) noexcept { return std::sqrt(dot(a, a)); }
 
 // Vektorn vriden av enhetskvaternionen: v + 2w(u×v) + 2u×(u×v).
 Vec3 rotate(const Quaternion& q, const Vec3& v) noexcept {
     const Vec3 u{q.x, q.y, q.z};
-    const Vec3 uv = cross(u, v);
-    const Vec3 uuv = cross(u, uv);
-    return add(v, add(scale(uv, 2.0 * q.w), scale(uuv, 2.0)));
+    const Vec3 uv = vcross(u, v);
+    const Vec3 uuv = vcross(u, uv);
+    return vadd(v, vadd(vmul(uv, 2.0 * q.w), vmul(uuv, 2.0)));
 }
 
 // OpenXR (x höger, y upp, −z framåt) → Glaze (x öster, y norr, z upp).
@@ -110,9 +111,9 @@ Quaternion axisAngle(const Vec3& unitAxis, double radians) noexcept {
 
 // Vektorn som enhetsvektor, eller `ok == false` när den saknar riktning.
 Vec3 unit(const Vec3& v, bool& ok) noexcept {
-    const double n = length(v);
+    const double n = vlength(v);
     ok = finite(n) && n >= kDirectionEpsilon;
-    return ok ? scale(v, 1.0 / n) : Vec3{};
+    return ok ? vmul(v, 1.0 / n) : Vec3{};
 }
 
 // Minsta vridningen som för den normerade riktningen `a` till den normerade
@@ -120,14 +121,14 @@ Vec3 unit(const Vec3& v, bool& ok) noexcept {
 // `a` som ligger närmast världens upp (annars öster), så att en uppåtriktning
 // består.
 Quaternion shortestArc(const Vec3& a, const Vec3& b) noexcept {
-    const double d = dot(a, b);
+    const double d = vdot(a, b);
     if (d > -1.0 + 1e-12) {
-        const Vec3 c = cross(a, b);
+        const Vec3 c = vcross(a, b);
         return normalized({c.x, c.y, c.z, 1.0 + d});
     }
     for (const Vec3 candidate : {Vec3{0.0, 0.0, 1.0}, Vec3{1.0, 0.0, 0.0}}) {
         bool ok = false;
-        const Vec3 axis = unit(sub(candidate, scale(a, dot(candidate, a))), ok);
+        const Vec3 axis = unit(vsub(candidate, vmul(a, vdot(candidate, a))), ok);
         if (ok) return {axis.x, axis.y, axis.z, 0.0};
     }
     return Quaternion{};
@@ -199,7 +200,7 @@ std::optional<Anchor> makeAnchor(const TrackingPose& initialHead,
     anchor.scale = 1.0;
     anchor.yawDegrees = wrapDegrees(cameraYawDegrees - compassDegrees(east, north));
     const Vec3 headRotated = rotateYaw(anchor.yawDegrees, toGlaze(initialHead.position));
-    anchor.origin = sub(cameraEye, headRotated);
+    anchor.origin = vsub(cameraEye, headRotated);
     if (!finite(anchor.origin) || !finite(anchor.yawDegrees)) return std::nullopt;
     return anchor;
 }
@@ -216,7 +217,7 @@ std::optional<WorldPose> toWorldPose(const Anchor& anchor,
     // Positionen skalas relativt origo; riktningarna skalas inte.
     const auto toWorld = [&](const Vec3& v) { return rotateYaw(anchor.yawDegrees, toGlaze(v)); };
     WorldPose world;
-    world.position = add(anchor.origin, scale(toWorld(pose.position), anchor.scale));
+    world.position = vadd(anchor.origin, vmul(toWorld(pose.position), anchor.scale));
     world.right    = toWorld(rotate(*q, {1.0, 0.0, 0.0}));
     world.up       = toWorld(rotate(*q, {0.0, 1.0, 0.0}));
     world.forward  = toWorld(rotate(*q, {0.0, 0.0, -1.0}));
@@ -232,14 +233,14 @@ std::optional<CameraAngles> cameraAngles(const WorldPose& pose,
         !finite(previousYawDegrees)) {
         return std::nullopt;
     }
-    const double fl = length(pose.forward);
-    const double ul = length(pose.up);
+    const double fl = vlength(pose.forward);
+    const double ul = vlength(pose.up);
     if (fl < kHorizontalEpsilon || ul < kHorizontalEpsilon ||
-        length(pose.right) < kHorizontalEpsilon) {
+        vlength(pose.right) < kHorizontalEpsilon) {
         return std::nullopt;
     }
-    const Vec3 forward = scale(pose.forward, 1.0 / fl);
-    const Vec3 up = scale(pose.up, 1.0 / ul);
+    const Vec3 forward = vmul(pose.forward, 1.0 / fl);
+    const Vec3 up = vmul(pose.up, 1.0 / ul);
 
     const double horizontal = std::hypot(forward.x, forward.y);
     CameraAngles angles;
@@ -253,9 +254,9 @@ std::optional<CameraAngles> cameraAngles(const WorldPose& pose,
     // är vriden från den åt höger (positivt = kameran medurs).
     const double yawRad = angles.yawDegrees * kRad;
     const Vec3 baseRight{std::cos(yawRad), -std::sin(yawRad), 0.0};
-    const Vec3 baseUp = cross(baseRight, forward);
-    const double sideways = dot(up, baseRight);
-    const double upwards = dot(up, baseUp);
+    const Vec3 baseUp = vcross(baseRight, forward);
+    const double sideways = vdot(up, baseRight);
+    const double upwards = vdot(up, baseUp);
     if (std::hypot(sideways, upwards) < 1e-6) return std::nullopt;
     angles.rollDegrees = std::atan2(sideways, upwards) * kDeg;
 
@@ -279,9 +280,9 @@ Pose toPose(const WorldPose& pose) noexcept {
     const Vec3 upHint = unit(pose.up, okUp);
     if (!okForward || !okUp) return out;
     bool okRight = false;
-    const Vec3 x = unit(cross(y, upHint), okRight);
+    const Vec3 x = unit(vcross(y, upHint), okRight);
     if (!okRight) return out;
-    const Vec3 z = cross(x, y);
+    const Vec3 z = vcross(x, y);
     const Matrix3 axes{{{x.x, y.x, z.x}, {x.y, y.y, z.y}, {x.z, y.z, z.z}}};
     out.orientation = fromMatrix(axes);
     return out;
@@ -300,16 +301,16 @@ WorldPose toWorldPose(const Pose& pose) noexcept {
 Pose compose(const Pose& parent, const Pose& child) noexcept {
     const Quaternion pq = normalized(parent.orientation);
     const Quaternion cq = normalized(child.orientation);
-    return {add(parent.position, rotate(pq, child.position)), normalized(multiply(pq, cq))};
+    return {vadd(parent.position, rotate(pq, child.position)), normalized(multiply(pq, cq))};
 }
 
 Pose inverse(const Pose& pose) noexcept {
     const Quaternion inv = conjugate(normalized(pose.orientation));
-    return {scale(rotate(inv, pose.position), -1.0), inv};
+    return {vmul(rotate(inv, pose.position), -1.0), inv};
 }
 
 Vec3 transformPoint(const Pose& pose, Vec3 point) noexcept {
-    return add(pose.position, rotate(normalized(pose.orientation), point));
+    return vadd(pose.position, rotate(normalized(pose.orientation), point));
 }
 
 Vec3 transformDirection(const Pose& pose, Vec3 direction) noexcept {
@@ -338,7 +339,7 @@ Pose interpolate(const Pose& from, const Pose& to, double t) noexcept {
         q = normalized({wa * a.x + wb * b.x, wa * a.y + wb * b.y, wa * a.z + wb * b.z,
                         wa * a.w + wb * b.w});
     }
-    return {add(from.position, scale(sub(to.position, from.position), t)), q};
+    return {vadd(from.position, vmul(vsub(to.position, from.position), t)), q};
 }
 
 // Placements vridning: R = Rz(−yaw) · Rx(pitch) · Ry(roll), alltså yaw medurs
@@ -383,10 +384,10 @@ TwoHandResult twoHandManipulate(const Pose& leftAtGrab, const Pose& rightAtGrab,
                                 const Pose& objectAtGrab, double scaleAtGrab,
                                 const Pose& leftNow, const Pose& rightNow,
                                 TwoHandRotation rotation) noexcept {
-    const Vec3 midAtGrab = scale(add(leftAtGrab.position, rightAtGrab.position), 0.5);
-    const Vec3 midNow    = scale(add(leftNow.position, rightNow.position), 0.5);
-    const Vec3 lineAtGrab = sub(rightAtGrab.position, leftAtGrab.position);
-    const Vec3 lineNow    = sub(rightNow.position, leftNow.position);
+    const Vec3 midAtGrab = vmul(vadd(leftAtGrab.position, rightAtGrab.position), 0.5);
+    const Vec3 midNow    = vmul(vadd(leftNow.position, rightNow.position), 0.5);
+    const Vec3 lineAtGrab = vsub(rightAtGrab.position, leftAtGrab.position);
+    const Vec3 lineNow    = vsub(rightNow.position, leftNow.position);
 
     // Utan en linje mellan händerna (hopfallande händer) finns varken vridning
     // eller avståndskvot: bara flytten gäller.
@@ -396,7 +397,7 @@ TwoHandResult twoHandManipulate(const Pose& leftAtGrab, const Pose& rightAtGrab,
     const Vec3 dirNow    = unit(lineNow, okNow);
     const bool hasLine   = okGrab && okNow;
 
-    const double ratio = hasLine ? length(lineNow) / length(lineAtGrab) : 1.0;
+    const double ratio = hasLine ? vlength(lineNow) / vlength(lineAtGrab) : 1.0;
 
     Quaternion turn;
     if (hasLine) {
@@ -422,8 +423,8 @@ TwoHandResult twoHandManipulate(const Pose& leftAtGrab, const Pose& rightAtGrab,
     // Föremålet vrids och skalas kring greppets mittpunkt, som följer med till
     // mittpunkten nu.
     TwoHandResult result;
-    const Vec3 offset = sub(objectAtGrab.position, midAtGrab);
-    result.pose.position = add(midNow, scale(rotate(turn, offset), ratio));
+    const Vec3 offset = vsub(objectAtGrab.position, midAtGrab);
+    result.pose.position = vadd(midNow, vmul(rotate(turn, offset), ratio));
     result.pose.orientation = normalized(multiply(turn, normalized(objectAtGrab.orientation)));
     result.scale = scaleAtGrab * ratio;
     return result;
@@ -445,12 +446,12 @@ std::optional<Pose> surfaceFrame(Vec3 point, Vec3 normal, Vec3 forward) noexcept
         bool wantedOk = false;
         const Vec3 dir = unit(wanted, wantedOk);
         if (!wantedOk) continue;
-        y = unit(sub(dir, scale(z, dot(dir, z))), ok);
+        y = unit(vsub(dir, vmul(z, vdot(dir, z))), ok);
         if (ok) break;
     }
     if (!ok) return std::nullopt;
 
-    const Vec3 x = cross(y, z);
+    const Vec3 x = vcross(y, z);
     Pose frame = toPose(WorldPose{point, x, z, y});
     frame.position = point;
     return frame;

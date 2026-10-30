@@ -1,5 +1,7 @@
 #include "canvas_bridge.h"
 
+#include "hands.h"
+
 #include <algorithm>
 #include <cmath>
 #include <exception>
@@ -169,6 +171,10 @@ bool CanvasBridge::teleportTo(const Vec3& feet, const std::optional<double>& yaw
 
 void CanvasBridge::setLocomotion(const Locomotion& locomotion) {
     options_.locomotion = locomotion;
+}
+
+void CanvasBridge::claimHand(Hand hand) {
+    claimed_[handIndex(hand)] = true;
 }
 
 std::vector<glaze::HitResult> CanvasBridge::castRay(const glaze::Ray3& ray,
@@ -377,8 +383,18 @@ void CanvasBridge::applyLocomotion(const FrameRequest& request) {
         out.aim = in.aim.pose;
         out.stickX = in.stickX;
         out.stickY = in.stickY;
-        out.squeeze = in.buttons[static_cast<std::size_t>(Button::Squeeze)].pressed;
+        // Greppet avgörs när det börjar och gäller till släppet: ett som
+        // börjar medan handen är tagen drar aldrig världen, ett som redan drar
+        // fortsätter.
+        const bool squeeze = in.buttons[static_cast<std::size_t>(Button::Squeeze)].pressed;
+        if (!squeeze)
+            worldSqueeze_[hand] = false;
+        else if (!heldSqueeze_[hand])
+            worldSqueeze_[hand] = !claimed_[hand];
+        heldSqueeze_[hand] = squeeze;
+        out.squeeze        = worldSqueeze_[hand];
     }
+    claimed_ = {};
     const SegmentCast segment = [this](const glaze::Ray3& ray, double maxDistance) {
         glaze::HitOptions options = options_.hoverOptions;
         options.maxDistance = maxDistance;

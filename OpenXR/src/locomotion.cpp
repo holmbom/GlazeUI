@@ -1,5 +1,7 @@
 #include "locomotion.h"
 
+#include "vector_ops.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -7,7 +9,7 @@ namespace glaze::openxr::detail {
 
 namespace {
 
-constexpr double kRad = 3.14159265358979323846 / 180.0;
+constexpr double kRad = kPi / 180.0;
 
 // Teleporteringen: spaken framåt över `kTeleportStart` visar bågen, under
 // `kTeleportRelease` släpps den. En yta tar emot en landning när dess normal
@@ -31,10 +33,6 @@ double wrapDegrees(double d) {
     return d;
 }
 
-Vec3 add(const Vec3& a, const Vec3& b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
-Vec3 sub(const Vec3& a, const Vec3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
-Vec3 mul(const Vec3& a, double s) { return {a.x * s, a.y * s, a.z * s}; }
-double length(const Vec3& a) { return std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z); }
 
 // Vektorn vriden `yawDegrees` medurs sett uppifrån (som förankringens yaw).
 Vec3 rotateYaw(double yawDegrees, const Vec3& v) {
@@ -60,7 +58,7 @@ std::optional<Anchor> turnedAround(const Anchor& anchor, double yawDegrees, cons
     turned.yawDegrees = yawDegrees;
     const auto pivot = toWorldPose(Anchor{Vec3{}, yawDegrees, anchor.scale}, head);
     if (!pivot) return std::nullopt;
-    turned.origin = sub(headWorld, pivot->position);
+    turned.origin = vsub(headWorld, pivot->position);
     return turned;
 }
 
@@ -86,10 +84,10 @@ std::optional<Vec3> horizontalForward(const WorldPose& pose) {
 std::vector<Vec3> teleportPoints(const WorldPose& aim, const Locomotion& settings, const LocomotionInput& input,
                                  double scale) {
     if (settings.teleportPath == Locomotion::Path::Straight) {
-        const double span = length(aim.forward);
+        const double span = vlength(aim.forward);
         if (!(span > 1e-9)) return {};
         const double reach = (input.rayLengthMetres > 0.0 ? input.rayLengthMetres : kStraightMetres) * scale;
-        return {aim.position, add(aim.position, mul(aim.forward, reach / span))};
+        return {aim.position, vadd(aim.position, vmul(aim.forward, reach / span))};
     }
     return ballisticArc(aim.position, aim.forward, settings.teleportSpeed * scale, settings.teleportGravity * scale,
                         kArcStepSeconds, kArcMaxSeconds);
@@ -157,7 +155,7 @@ bool placeFeet(Anchor& anchor, const TrackingPose& head, double floorHeight, con
     if (!world) return false;
     const double feetZ = world->position.z - (head.position.y - floorHeight) * next.scale;
     const Vec3 current{world->position.x, world->position.y, feetZ};
-    next.origin = add(next.origin, sub(feet, current));
+    next.origin = vadd(next.origin, vsub(feet, current));
     anchor = next;
     return true;
 }
@@ -226,10 +224,10 @@ bool Mover::updateGrab(const LocomotionInput& input, const Locomotion& settings,
             grab_.anchor = anchor;
             grab_.rigAtGrab[static_cast<std::size_t>(hand)] = *rig[static_cast<std::size_t>(hand)];
         }
-        const Vec3 moved = sub(grab_.rigAtGrab[static_cast<std::size_t>(hand)].position,
+        const Vec3 moved = vsub(grab_.rigAtGrab[static_cast<std::size_t>(hand)].position,
                                rig[static_cast<std::size_t>(hand)]->position);
-        anchor.origin = add(grab_.anchor.origin,
-                            rotateYaw(grab_.anchor.yawDegrees, mul(moved, grab_.anchor.scale)));
+        anchor.origin = vadd(grab_.anchor.origin,
+                            rotateYaw(grab_.anchor.yawDegrees, vmul(moved, grab_.anchor.scale)));
         return true;
     }
 
@@ -238,13 +236,13 @@ bool Mover::updateGrab(const LocomotionInput& input, const Locomotion& settings,
     // emellan förblir mellan händerna.
     const Pose left = *rig[0];
     const Pose right = *rig[1];
-    const Vec3 midNow = mul(add(left.position, right.position), 0.5);
+    const Vec3 midNow = vmul(vadd(left.position, right.position), 0.5);
     if (grab_.mode != GrabMode::Two) {
         grab_ = Grab{};
         grab_.mode = GrabMode::Two;
         grab_.anchor = anchor;
         grab_.rigAtGrab = {left, right};
-        grab_.worldMid = add(anchor.origin, rotateYaw(anchor.yawDegrees, mul(midNow, anchor.scale)));
+        grab_.worldMid = vadd(anchor.origin, rotateYaw(anchor.yawDegrees, vmul(midNow, anchor.scale)));
     }
 
     // Världen som föremål i rummets ram: dess orientering är förankringens
@@ -264,7 +262,7 @@ bool Mover::updateGrab(const LocomotionInput& input, const Locomotion& settings,
 
     anchor.scale = scale;
     anchor.yawDegrees = yaw;
-    anchor.origin = sub(grab_.worldMid, rotateYaw(yaw, mul(midNow, scale)));
+    anchor.origin = vsub(grab_.worldMid, rotateYaw(yaw, vmul(midNow, scale)));
     return true;
 }
 
@@ -303,12 +301,12 @@ void Mover::updateMove(const LocomotionInput& input, const Locomotion& settings,
 
     Vec3 forward = *flat;
     if (settings.move == MoveMode::Fly) {
-        const double n = length(source->forward);
-        if (n > 1e-9) forward = mul(source->forward, 1.0 / n);
+        const double n = vlength(source->forward);
+        if (n > 1e-9) forward = vmul(source->forward, 1.0 / n);
     }
     const Vec3 right{flat->y, -flat->x, 0.0};
     const double distance = settings.moveMetresPerSecond * input.deltaSeconds * anchor.scale;
-    anchor.origin = add(anchor.origin, mul(add(mul(forward, left.stickY), mul(right, left.stickX)), distance));
+    anchor.origin = vadd(anchor.origin, vmul(vadd(vmul(forward, left.stickY), vmul(right, left.stickX)), distance));
 }
 
 void Mover::updateTeleport(const LocomotionInput& input, const Locomotion& settings, Anchor& anchor,
@@ -341,8 +339,8 @@ void Mover::updateTeleport(const LocomotionInput& input, const Locomotion& setti
 
     arc_.push_back(points.front());
     for (std::size_t i = 0; i + 1 < points.size(); ++i) {
-        const Vec3 segment = sub(points[i + 1], points[i]);
-        const double span = length(segment);
+        const Vec3 segment = vsub(points[i + 1], points[i]);
+        const double span = vlength(segment);
         if (span < 1e-12) continue;
         glaze::Ray3 ray;
         ray.origin = glaze::Point3{points[i].x, points[i].y, points[i].z};

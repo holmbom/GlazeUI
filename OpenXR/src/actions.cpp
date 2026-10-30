@@ -1,5 +1,7 @@
 #include "actions.h"
 
+#include "hands.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -51,7 +53,7 @@ void ButtonTracker::update(Hand hand, bool focused,
                            const std::array<bool, kButtonCount>& available,
                            std::array<ButtonState, kButtonCount>& out,
                            std::vector<InputEvent>& events) {
-    const std::size_t index = hand == Hand::Left ? 0 : 1;
+    const std::size_t index = handIndex(hand);
     std::array<Per, kButtonCount>& states = state_[index];
     const bool regained = focused && !wasFocused_[index];
     wasFocused_[index] = focused;
@@ -663,7 +665,7 @@ bool Actions::vibrate(Hand hand, double amplitude, double seconds, double freque
     vibration.frequency = frequencyHz > 0.0 ? static_cast<float>(frequencyHz) : XR_FREQUENCY_UNSPECIFIED;
     auto info = xrStruct<XrHapticActionInfo>(XR_TYPE_HAPTIC_ACTION_INFO);
     info.action = impl_->actions[static_cast<std::size_t>(Slot::Haptic)];
-    info.subactionPath = handPaths_[hand == Hand::Left ? 0 : 1];
+    info.subactionPath = handPaths_[handIndex(hand)];
     return context_.fn().xrApplyHapticFeedback(context_.session(), &info,
                                                reinterpret_cast<const XrHapticBaseHeader*>(&vibration)) == XR_SUCCESS;
 }
@@ -671,7 +673,7 @@ bool Actions::vibrate(Hand hand, double amplitude, double seconds, double freque
 void Actions::stopVibration(Hand hand) {
     auto info = xrStruct<XrHapticActionInfo>(XR_TYPE_HAPTIC_ACTION_INFO);
     info.action = impl_->actions[static_cast<std::size_t>(Slot::Haptic)];
-    info.subactionPath = handPaths_[hand == Hand::Left ? 0 : 1];
+    info.subactionPath = handPaths_[handIndex(hand)];
     context_.fn().xrStopHapticFeedback(context_.session(), &info);
 }
 

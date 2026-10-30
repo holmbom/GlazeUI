@@ -1529,6 +1529,15 @@ if(TARGET glaze_openxr_ui)
         WIN32_LEAN_AND_MEAN NOMINMAX)
     add_test(NAME openxr_session_gate COMMAND openxr_session_gate)
     set_tests_properties(openxr_session_gate PROPERTIES TIMEOUT 60)
+
+    # interface3d_gate  3D-GRÄNSSNITTEN: layoutens celler, speglingen för
+    #                   vänster hand, tryckdjupet och hysteresen, reglagets och
+    #                   vredets värden med steg, och `consumes`.
+    add_executable(interface3d_gate interface3d_gate.cpp)
+    target_link_libraries(interface3d_gate PRIVATE glaze_openxr_ui)
+    target_include_directories(interface3d_gate PRIVATE ${CMAKE_SOURCE_DIR}/OpenXR/src)
+    add_test(NAME interface3d_gate COMMAND interface3d_gate)
+    set_tests_properties(interface3d_gate PROPERTIES TIMEOUT 60)
 endif()
 
 # external_canvas_gate  RITYTANS SCEN I ETT EXTERNT MÅL (glaze/canvas/

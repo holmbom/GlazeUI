@@ -53,6 +53,8 @@ if(TARGET glaze AND WIN32)
         src/canvas_bridge.cpp    # förankringen, förflyttningen, strålarna och ögonens ritning
         src/locomotion.cpp       # gå, flyga, vrida, teleportera och greppa världen
         src/placement.cpp        # pose ↔ glaze::Placement
+        src/interface3d.cpp      # 3D-gränssnitten: paneler, element, pekare
+        src/interface3d_logic.cpp   # 3D-gränssnittets rena delar: layout, tryckdjup, värden
     )
     if(GLAZE_SHARED)
         _glaze_shared_library(glaze_openxr_ui glaze_openxr_ui)

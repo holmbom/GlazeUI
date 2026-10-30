@@ -733,6 +733,10 @@ void Session::setLocomotion(const Locomotion& locomotion) {
     if (detail::Run* run = impl_->shared->run.get(); run && run->bridge) run->bridge->setLocomotion(locomotion);
 }
 
+void Session::claimHand(Hand hand) {
+    if (detail::Run* run = impl_->shared->run.get(); run && run->bridge) run->bridge->claimHand(hand);
+}
+
 bool Session::vibrate(Hand hand, double amplitude, double seconds, double frequencyHz) {
     detail::Run* run = impl_->shared->run.get();
     if (!run) return false;

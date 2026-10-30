@@ -62,6 +62,8 @@ public:
     void   recenter(double yawDegrees);
     bool   teleportTo(const Vec3& feet, const std::optional<double>& yawDegrees);
     void   setLocomotion(const Locomotion& locomotion);
+    // Handen tas från förflyttningens grepp i nästa bildruta (`Session::claimHand`).
+    void   claimHand(Hand hand);
 
     // En stråle mot scenen, räknad mot headsetets vy från senaste bildrutan.
     // Tom innan första bildrutan.
@@ -115,6 +117,9 @@ private:
     };
     std::optional<PendingTeleport> pendingTeleport_;   // `teleportTo`, till nästa bildruta med ett huvud
     Mover                  mover_;
+    std::array<bool, 2>    claimed_{};        // `claimHand`, till nästa bildruta
+    std::array<bool, 2>    worldSqueeze_{};   // handens grepp drar världen (till släppet)
+    std::array<bool, 2>    heldSqueeze_{};    // handens grepp hålls (av eller på världen)
     std::optional<gfx::View3D> headView_;       // plockningens vy från senaste bildrutan
 };
 

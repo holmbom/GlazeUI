@@ -22,6 +22,7 @@ struct Vec3 {
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
+    bool operator==(const Vec3&) const = default;
 };
 
 // Enhetskvaternion (x, y, z, w) — OpenXR:s XrQuaternionf i double.
@@ -30,6 +31,7 @@ struct Quaternion {
     double y = 0.0;
     double z = 0.0;
     double w = 1.0;
+    bool operator==(const Quaternion&) const = default;
 };
 
 // En pose i OpenXR:s spårningsrum.
@@ -100,6 +102,7 @@ std::optional<CameraAngles> cameraAngles(const WorldPose& pose,
 struct Pose {
     Vec3       position;
     Quaternion orientation;
+    bool operator==(const Pose&) const = default;
 };
 
 Pose      toPose(const WorldPose& pose) noexcept;        // ur axlarna
