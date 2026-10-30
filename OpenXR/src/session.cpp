@@ -344,21 +344,29 @@ public:
         XrSessionApi& api = run_.context->api();
         LocatedViews views;
         PoseSample head;
-        std::array<ControllerSample, 2> controllers;
+        FrameRequest request;
         if (!api.locateViews(ticket.predictedDisplayTime, views, error) ||
             !api.locateHead(ticket.predictedDisplayTime, head, error) ||
-            !run_.actions->sync(ticket.predictedDisplayTime, ticket.focused, controllers, error)) {
+            !run_.actions->sync(ticket.predictedDisplayTime, ticket.focused, ticket.focusEpoch,
+                                request.controllers, request.events, error)) {
             return FillResult::Failed;
         }
+        if (run_.context->extensions().handTracking) {
+            run_.context->locateHands(ticket.predictedDisplayTime, request.hands);
+        }
+        // Uppdateringsfrekvensen appen begärt i `Options`, när sessionen kör.
+        if (!run_.refreshRateRequested) {
+            run_.refreshRateRequested = true;
+            if (run_.options.refreshRate > 0.0f) run_.context->requestRefreshRate(run_.options.refreshRate);
+        }
 
-        FrameRequest request;
         request.sequence = ticket.sequence;
         request.deltaSeconds = ticket.deltaSeconds;
         request.focused = ticket.focused;
         request.focusEpoch = ticket.focusEpoch;
         request.headValid = head.valid;
         request.head = head.pose;
-        request.controllers = controllers;
+        request.floorHeight = run_.context->floorHeight();
         request.imageIndex = ticket.imageIndex;
         for (std::size_t eye = 0; eye < 2; ++eye) {
             request.eyes[eye] = EyeView{views.valid, views.poses[eye], views.fov[eye]};
@@ -532,8 +540,13 @@ private:
     // processens slut, också enhetsreferensen) och sluttillståndet blir
     // Failed; en riven bild under pågående ritning vore värre än en läcka.
     void tearDownUi() {
-        run_->context = nullptr;
-        run_->actions = nullptr;
+        {
+            // UI-trådens anrop utanför bildrutan (vibration, frekvens) når
+            // inte objekten efter det här.
+            std::lock_guard<std::mutex> lock(run_->apiMutex);
+            run_->context = nullptr;
+            run_->actions = nullptr;
+        }
         glaze::app().post([shared = shared_, run = run_] {
             if (!shared->alive) return;
             beginUiTeardown(*run);
@@ -569,7 +582,7 @@ private:
         if (run_->gate.stopped()) return {State::Stopped, "Starten avbröts."};
 
         std::string error;
-        std::unique_ptr<XrRuntime> runtime = XrRuntime::open(error);
+        std::unique_ptr<XrRuntime> runtime = XrRuntime::open(run_->options, error);
         if (!runtime) return {State::Failed, error};
 
         // Kortet och enheten kontrolleras i UI-tråden, och enheten hämtas
@@ -587,12 +600,15 @@ private:
         case UiCall::Done:      break;
         }
 
-        context = OpenXrContext::create(std::move(runtime), device->get(), error);
+        context = OpenXrContext::create(std::move(runtime), device->get(), run_->options, error);
         if (!context) return {State::Failed, error};
         actions = Actions::create(*context, run_->options, error);
         if (!actions) return {State::Failed, error};
-        run_->context = context.get();
-        run_->actions = actions.get();
+        {
+            std::lock_guard<std::mutex> lock(run_->apiMutex);
+            run_->context = context.get();
+            run_->actions = actions.get();
+        }
 
         // Swapchain-bilderna blir mål i Canvas-renderaren (UI-tråden).
         switch (callUi([run = run_, sets = context->eyeImages()]() -> std::string {
@@ -611,7 +627,7 @@ private:
         hooks.stopRequested = [run = run_] { return run->gate.stopped(); };
         hooks.sleep = [run = run_](std::chrono::milliseconds time) { run->gate.sleepFor(time); };
         hooks.onStatus = [this](const Status& status) { postStatus(status); };
-        hooks.onFocusLost = [&actions] { actions->release(); };
+        hooks.onInteractionProfileChanged = [&actions] { actions->profileChanged(); };
         SessionLoop loop(context->api(), sink, std::move(hooks));
         return loop.run();
     }
@@ -691,5 +707,63 @@ void Session::requestStop() {
 }
 
 State Session::state() const noexcept { return impl_->shared->state; }
+
+Anchor Session::anchor() const {
+    const detail::Run* run = impl_->shared->run.get();
+    return run && run->bridge ? run->bridge->anchor() : Anchor{};
+}
+
+void Session::setAnchor(const Anchor& anchor) {
+    if (detail::Run* run = impl_->shared->run.get(); run && run->bridge) run->bridge->setAnchor(anchor);
+}
+
+void Session::recenter(double yawDegrees) {
+    if (detail::Run* run = impl_->shared->run.get(); run && run->bridge) run->bridge->recenter(yawDegrees);
+}
+
+bool Session::teleportTo(Vec3 feet, std::optional<double> yawDegrees) {
+    const detail::Shared& shared = *impl_->shared;
+    const State current = shared.state;
+    if (current == State::Stopped || current == State::Failed || current == State::Stopping) return false;
+    detail::Run* run = shared.run.get();
+    return run && run->bridge && run->bridge->teleportTo(feet, yawDegrees);
+}
+
+void Session::setLocomotion(const Locomotion& locomotion) {
+    if (detail::Run* run = impl_->shared->run.get(); run && run->bridge) run->bridge->setLocomotion(locomotion);
+}
+
+bool Session::vibrate(Hand hand, double amplitude, double seconds, double frequencyHz) {
+    detail::Run* run = impl_->shared->run.get();
+    if (!run) return false;
+    std::lock_guard<std::mutex> lock(run->apiMutex);
+    return run->actions && run->actions->vibrate(hand, amplitude, seconds, frequencyHz);
+}
+
+void Session::stopVibration(Hand hand) {
+    detail::Run* run = impl_->shared->run.get();
+    if (!run) return;
+    std::lock_guard<std::mutex> lock(run->apiMutex);
+    if (run->actions) run->actions->stopVibration(hand);
+}
+
+std::vector<float> Session::refreshRates() const {
+    detail::Run* run = impl_->shared->run.get();
+    if (!run) return {};
+    std::lock_guard<std::mutex> lock(run->apiMutex);
+    return run->context ? run->context->refreshRates() : std::vector<float>{};
+}
+
+bool Session::setRefreshRate(float hz) {
+    detail::Run* run = impl_->shared->run.get();
+    if (!run) return false;
+    std::lock_guard<std::mutex> lock(run->apiMutex);
+    return run->context && run->context->requestRefreshRate(hz);
+}
+
+std::vector<glaze::HitResult> Session::castRay(const glaze::Ray3& ray, const glaze::HitOptions& options) const {
+    const detail::Run* run = impl_->shared->run.get();
+    return run && run->bridge ? run->bridge->castRay(ray, options) : std::vector<glaze::HitResult>{};
+}
 
 } // namespace glaze::openxr

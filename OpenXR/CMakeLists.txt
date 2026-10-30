@@ -49,8 +49,10 @@ if(TARGET glaze AND WIN32)
     add_library(glaze_openxr_ui ${_glaze_lib_type}
         src/session.cpp          # Session, XR-tråden och bildloopen
         src/openxr_context.cpp   # loadern, instansen, sessionen, rummen, swapchains
-        src/actions.cpp          # action set, profilerna, spakarna, avtryckaren
-        src/canvas_bridge.cpp    # förankringen, plockningen och ögonens ritning
+        src/actions.cpp          # action set, knapparna per profil, vibrationen
+        src/canvas_bridge.cpp    # förankringen, förflyttningen, strålarna och ögonens ritning
+        src/locomotion.cpp       # gå, flyga, vrida, teleportera och greppa världen
+        src/placement.cpp        # pose ↔ glaze::Placement
     )
     if(GLAZE_SHARED)
         _glaze_shared_library(glaze_openxr_ui glaze_openxr_ui)

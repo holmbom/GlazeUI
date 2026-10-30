@@ -88,6 +88,9 @@ bool XrSessionApi::pollEvents(Events& out, std::string& error) {
         case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
             out.instanceLost = true;
             break;
+        case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED:
+            out.interactionProfileChanged = true;
+            break;
         default:
             break;
         }
@@ -172,7 +175,7 @@ bool XrSessionApi::locateViews(XrTime time, LocatedViews& out, std::string& erro
     auto locateInfo = xrStruct<XrViewLocateInfo>(XR_TYPE_VIEW_LOCATE_INFO);
     locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
     locateInfo.displayTime = time;
-    locateInfo.space = handles_.localSpace;
+    locateInfo.space = handles_.trackingSpace;
     auto viewState = xrStruct<XrViewState>(XR_TYPE_VIEW_STATE);
     std::array<XrView, 2> views;
     for (auto& v : views) v = xrStruct<XrView>(XR_TYPE_VIEW);
@@ -192,7 +195,7 @@ bool XrSessionApi::locateViews(XrTime time, LocatedViews& out, std::string& erro
 
 bool XrSessionApi::locateHead(XrTime time, PoseSample& out, std::string& error) {
     auto location = xrStruct<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
-    GLAZE_OPENXR_XR_CHECK(fn_.xrLocateSpace(handles_.viewSpace, handles_.localSpace, time, &location),
+    GLAZE_OPENXR_XR_CHECK(fn_.xrLocateSpace(handles_.viewSpace, handles_.trackingSpace, time, &location),
                           "xrLocateSpace");
     const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
     out.valid = (location.locationFlags & needed) == needed;
@@ -243,7 +246,7 @@ bool XrSessionApi::endFrameProjection(XrTime time, const std::array<EyeLayer, 2>
     }
     auto layer = xrStruct<XrCompositionLayerProjection>(XR_TYPE_COMPOSITION_LAYER_PROJECTION);
     layer.layerFlags = 0;
-    layer.space = handles_.localSpace;
+    layer.space = handles_.trackingSpace;
     layer.viewCount = 2;
     layer.views = views.data();
 
@@ -347,7 +350,10 @@ Status SessionLoop::run() {
             life_.fail("OpenXR-runtimen stängdes eller förlorades. Starta om runtimen och VR.");
         }
         if (life_.terminate()) break;
-        // Fokus försvann: avtryckarens hysteres gäller inte längre, också
+        if (events.interactionProfileChanged && hooks_.onInteractionProfileChanged) {
+            hooks_.onInteractionProfileChanged();
+        }
+        // Fokus försvann: knapparnas tillstånd gäller inte längre, också
         // om ingen bildruta ritats sedan dess.
         if (life_.focusEpoch() != releasedEpoch) {
             if (hooks_.onFocusLost) hooks_.onFocusLost();
@@ -444,11 +450,11 @@ bool SessionLoop::frame() {
 
 // ================================================================= XrRuntime
 
-std::unique_ptr<XrRuntime> XrRuntime::open(std::string& error) {
+std::unique_ptr<XrRuntime> XrRuntime::open(const Options& options, std::string& error) {
     std::unique_ptr<XrRuntime> self(new XrRuntime());
     if (!self->loadLoader(error) ||
-        !self->createInstance(error) ||
-        !self->createSystem(error)) {
+        !self->createInstance(options, error) ||
+        !self->createSystem(options, error)) {
         return nullptr;   // destruktorn avvecklar det som hunnit skapas
     }
     return self;
@@ -488,7 +494,7 @@ bool XrRuntime::loadLoader(std::string& error) {
     return true;
 }
 
-bool XrRuntime::createInstance(std::string& error) {
+bool XrRuntime::createInstance(const Options& options, std::string& error) {
     // Funktionerna som fungerar utan instans.
 #define GLAZE_OPENXR_LOAD_GLOBAL(name)                                                         \
     {                                                                                     \
@@ -518,10 +524,20 @@ bool XrRuntime::createInstance(std::string& error) {
                 " och kan inte visa bilder från en D3D11-enhet.";
         return false;
     }
-    bdControllerExtension_ = has(XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
+    extensions_.bdController = has(XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
+    extensions_.palmPose     = has(XR_EXT_PALM_POSE_EXTENSION_NAME);
+    extensions_.refreshRate  = has(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+    extensions_.localFloor   = has(XR_EXT_LOCAL_FLOOR_EXTENSION_NAME);
+    // Handspårningen aktiveras bara när appen begär den; `handTracking`
+    // sätts sedan om systemet har den.
+    const bool handExtension = options.handTracking && has(XR_EXT_HAND_TRACKING_EXTENSION_NAME);
 
     std::vector<const char*> enabled{XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
-    if (bdControllerExtension_) enabled.push_back(XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
+    if (extensions_.bdController) enabled.push_back(XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
+    if (extensions_.palmPose)     enabled.push_back(XR_EXT_PALM_POSE_EXTENSION_NAME);
+    if (extensions_.refreshRate)  enabled.push_back(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+    if (extensions_.localFloor)   enabled.push_back(XR_EXT_LOCAL_FLOOR_EXTENSION_NAME);
+    if (handExtension)            enabled.push_back(XR_EXT_HAND_TRACKING_EXTENSION_NAME);
 
     auto info = xrStruct<XrInstanceCreateInfo>(XR_TYPE_INSTANCE_CREATE_INFO);
     copyName(info.applicationInfo.applicationName, sizeof(info.applicationInfo.applicationName), "GlazeUI");
@@ -556,10 +572,28 @@ bool XrRuntime::createInstance(std::string& error) {
     }
     GLAZE_OPENXR_XR_INSTANCE_FUNCTIONS(GLAZE_OPENXR_LOAD_INSTANCE)
 #undef GLAZE_OPENXR_LOAD_INSTANCE
+
+    // Tilläggens funktioner. En som runtimen lovat men inte ger gör att
+    // tillägget räknas som saknat.
+#define GLAZE_OPENXR_LOAD_OPTIONAL(name)                                                       \
+    {                                                                                     \
+        PFN_xrVoidFunction proc_ = nullptr;                                               \
+        fn_.xrGetInstanceProcAddr(instance_, #name, &proc_);                              \
+        fn_.name = reinterpret_cast<PFN_##name>(proc_);                                   \
+    }
+    GLAZE_OPENXR_XR_OPTIONAL_FUNCTIONS(GLAZE_OPENXR_LOAD_OPTIONAL)
+#undef GLAZE_OPENXR_LOAD_OPTIONAL
+    if (!fn_.xrEnumerateDisplayRefreshRatesFB || !fn_.xrGetDisplayRefreshRateFB ||
+        !fn_.xrRequestDisplayRefreshRateFB) {
+        extensions_.refreshRate = false;
+    }
+    if (handExtension && fn_.xrCreateHandTrackerEXT && fn_.xrDestroyHandTrackerEXT && fn_.xrLocateHandJointsEXT) {
+        extensions_.handTracking = true;   // bekräftas av systemet i `createSystem`
+    }
     return true;
 }
 
-bool XrRuntime::createSystem(std::string& error) {
+bool XrRuntime::createSystem(const Options&, std::string& error) {
     auto systemInfo = xrStruct<XrSystemGetInfo>(XR_TYPE_SYSTEM_GET_INFO);
     systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
     const XrResult got = fn_.xrGetSystem(instance_, &systemInfo, &systemId_);
@@ -569,6 +603,16 @@ bool XrRuntime::createSystem(std::string& error) {
         return false;
     }
     GLAZE_OPENXR_XR_CHECK(got, "xrGetSystem");
+
+    if (extensions_.handTracking) {
+        auto hands = xrStruct<XrSystemHandTrackingPropertiesEXT>(XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT);
+        auto properties = xrStruct<XrSystemProperties>(XR_TYPE_SYSTEM_PROPERTIES);
+        properties.next = &hands;
+        if (XR_FAILED(fn_.xrGetSystemProperties(instance_, systemId_, &properties)) ||
+            hands.supportsHandTracking != XR_TRUE) {
+            extensions_.handTracking = false;
+        }
+    }
 
     // Stereo med ogenomskinlig blandning: det enda läge sessionen ritar för.
     std::uint32_t count = 0;
@@ -606,14 +650,14 @@ bool XrRuntime::createSystem(std::string& error) {
 // ============================================================== OpenXrContext
 
 std::unique_ptr<OpenXrContext> OpenXrContext::create(std::unique_ptr<XrRuntime> runtime, void* device,
-                                                     std::string& error) {
+                                                     const Options& options, std::string& error) {
     if (!runtime || !device) {
         error = "Sessionen saknar OpenXR-runtime eller grafikenhet.";
         return nullptr;
     }
     std::unique_ptr<OpenXrContext> self(new OpenXrContext());
     self->runtime_ = std::move(runtime);
-    if (!self->createSession(device, error) || !self->createSwapchains(error)) {
+    if (!self->createSession(device, options, error) || !self->createSwapchains(error)) {
         return nullptr;   // destruktorn avvecklar det som hunnit skapas
     }
     return self;
@@ -625,20 +669,24 @@ void OpenXrContext::destroy() noexcept {
     if (!runtime_) return;
     const XrFunctions& fn = runtime_->fn();
     api_.reset();
+    for (XrHandTrackerEXT& tracker : handTrackers_) {
+        if (tracker != XR_NULL_HANDLE && fn.xrDestroyHandTrackerEXT) fn.xrDestroyHandTrackerEXT(tracker);
+        tracker = XR_NULL_HANDLE;
+    }
     for (XrSwapchain& chain : swapchains_) {
         if (chain != XR_NULL_HANDLE && fn.xrDestroySwapchain) fn.xrDestroySwapchain(chain);
         chain = XR_NULL_HANDLE;
     }
     if (viewSpace_ != XR_NULL_HANDLE && fn.xrDestroySpace) fn.xrDestroySpace(viewSpace_);
-    if (localSpace_ != XR_NULL_HANDLE && fn.xrDestroySpace) fn.xrDestroySpace(localSpace_);
+    if (trackingSpace_ != XR_NULL_HANDLE && fn.xrDestroySpace) fn.xrDestroySpace(trackingSpace_);
     viewSpace_ = XR_NULL_HANDLE;
-    localSpace_ = XR_NULL_HANDLE;
+    trackingSpace_ = XR_NULL_HANDLE;
     if (session_ != XR_NULL_HANDLE && fn.xrDestroySession) fn.xrDestroySession(session_);
     session_ = XR_NULL_HANDLE;
     runtime_.reset();   // river instansen sist
 }
 
-bool OpenXrContext::createSession(void* device, std::string& error) {
+bool OpenXrContext::createSession(void* device, const Options& options, std::string& error) {
     const XrFunctions& fn = runtime_->fn();
     const auto describe = [&](const char* call, XrResult r) { return runtime_->describe(call, r); };
 
@@ -649,19 +697,166 @@ bool OpenXrContext::createSession(void* device, std::string& error) {
     info.systemId = runtime_->systemId();
     GLAZE_OPENXR_XR_CHECK(fn.xrCreateSession(runtime_->instance(), &info, &session_), "xrCreateSession");
 
-    const auto makeSpace = [&](XrReferenceSpaceType type, XrSpace& out, const char* name) {
+    const auto makeSpace = [&](XrReferenceSpaceType type, XrSpace& out) {
         auto spaceInfo = xrStruct<XrReferenceSpaceCreateInfo>(XR_TYPE_REFERENCE_SPACE_CREATE_INFO);
         spaceInfo.referenceSpaceType = type;
         spaceInfo.poseInReferenceSpace = identityPose();
-        const XrResult r = fn.xrCreateReferenceSpace(session_, &spaceInfo, &out);
-        if (XR_FAILED(r)) {
-            error = describe(name, r);
-            return false;
-        }
-        return true;
+        return fn.xrCreateReferenceSpace(session_, &spaceInfo, &out);
     };
-    return makeSpace(XR_REFERENCE_SPACE_TYPE_LOCAL, localSpace_, "xrCreateReferenceSpace(LOCAL)") &&
-           makeSpace(XR_REFERENCE_SPACE_TYPE_VIEW, viewSpace_, "xrCreateReferenceSpace(VIEW)");
+
+    // Referensrummet: det begärda, annars nästa i reservkedjan. LocalFloor
+    // kräver tillägget; saknas det tas Stage, och sist alltid Local.
+    struct Candidate {
+        ReferenceSpace       kind;
+        XrReferenceSpaceType type;
+    };
+    std::vector<Candidate> chain;
+    if (options.referenceSpace == ReferenceSpace::LocalFloor && runtime_->extensions().localFloor) {
+        chain.push_back({ReferenceSpace::LocalFloor, XR_REFERENCE_SPACE_TYPE_LOCAL_FLOOR_EXT});
+    }
+    if (options.referenceSpace != ReferenceSpace::Local) {
+        chain.push_back({ReferenceSpace::Stage, XR_REFERENCE_SPACE_TYPE_STAGE});
+    }
+    chain.push_back({ReferenceSpace::Local, XR_REFERENCE_SPACE_TYPE_LOCAL});
+    XrResult last = XR_ERROR_REFERENCE_SPACE_UNSUPPORTED;
+    for (const Candidate& candidate : chain) {
+        last = makeSpace(candidate.type, trackingSpace_);
+        if (XR_SUCCEEDED(last)) {
+            referenceSpace_ = candidate.kind;
+            break;
+        }
+        trackingSpace_ = XR_NULL_HANDLE;
+    }
+    if (trackingSpace_ == XR_NULL_HANDLE) {
+        error = describe("xrCreateReferenceSpace", last);
+        return false;
+    }
+    if (const XrResult r = makeSpace(XR_REFERENCE_SPACE_TYPE_VIEW, viewSpace_); XR_FAILED(r)) {
+        viewSpace_ = XR_NULL_HANDLE;
+        error = describe("xrCreateReferenceSpace(VIEW)", r);
+        return false;
+    }
+
+    // Handspårarna, när appen begärt dem och systemet har dem. En som inte går
+    // att skapa gör bara att den handens leder saknas.
+    if (runtime_->extensions().handTracking) {
+        for (std::size_t hand = 0; hand < 2; ++hand) {
+            auto trackerInfo = xrStruct<XrHandTrackerCreateInfoEXT>(XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT);
+            trackerInfo.hand = hand == 0 ? XR_HAND_LEFT_EXT : XR_HAND_RIGHT_EXT;
+            trackerInfo.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT;
+            if (XR_FAILED(fn.xrCreateHandTrackerEXT(session_, &trackerInfo, &handTrackers_[hand]))) {
+                handTrackers_[hand] = XR_NULL_HANDLE;
+            }
+        }
+    }
+    return true;
+}
+
+double OpenXrContext::floorHeight() const noexcept {
+    // I Local står origo i huvudhöjd där headsetet startade; golvet antas en
+    // normal ögonhöjd under det.
+    constexpr double kAssumedEyeHeight = 1.6;
+    return referenceSpace_ == ReferenceSpace::Local ? -kAssumedEyeHeight : 0.0;
+}
+
+void OpenXrContext::locateHands(XrTime time, std::array<HandSample, 2>& out) const {
+    const XrFunctions& fn = runtime_->fn();
+    for (std::size_t hand = 0; hand < 2; ++hand) {
+        HandSample& sample = out[hand];
+        sample = HandSample{};
+        if (handTrackers_[hand] == XR_NULL_HANDLE) continue;
+
+        std::array<XrHandJointLocationEXT, XR_HAND_JOINT_COUNT_EXT> joints{};
+        auto locations = xrStruct<XrHandJointLocationsEXT>(XR_TYPE_HAND_JOINT_LOCATIONS_EXT);
+        locations.jointCount = XR_HAND_JOINT_COUNT_EXT;
+        locations.jointLocations = joints.data();
+        auto locateInfo = xrStruct<XrHandJointsLocateInfoEXT>(XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT);
+        locateInfo.baseSpace = trackingSpace_;
+        locateInfo.time = time;
+        if (XR_FAILED(fn.xrLocateHandJointsEXT(handTrackers_[hand], &locateInfo, &locations)) ||
+            locations.isActive != XR_TRUE) {
+            continue;
+        }
+        sample.active = true;
+        const XrSpaceLocationFlags needed =
+            XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+        for (std::size_t joint = 0; joint < sample.joints.size(); ++joint) {
+            JointSample& target = sample.joints[joint];
+            target.valid = (joints[joint].locationFlags & needed) == needed;
+            target.pose = fromXr(joints[joint].pose);
+            target.radius = joints[joint].radius;
+        }
+        computeHandMetrics(sample);
+    }
+}
+
+std::vector<float> OpenXrContext::refreshRates() const {
+    const XrFunctions& fn = runtime_->fn();
+    if (!runtime_->extensions().refreshRate || session_ == XR_NULL_HANDLE) return {};
+    std::uint32_t count = 0;
+    if (XR_FAILED(fn.xrEnumerateDisplayRefreshRatesFB(session_, 0, &count, nullptr)) || count == 0) return {};
+    std::vector<float> rates(count);
+    if (XR_FAILED(fn.xrEnumerateDisplayRefreshRatesFB(session_, count, &count, rates.data()))) return {};
+    rates.resize(std::min<std::size_t>(count, rates.size()));
+    return rates;
+}
+
+bool OpenXrContext::requestRefreshRate(float hz) {
+    if (!runtime_->extensions().refreshRate || session_ == XR_NULL_HANDLE) return false;
+    return XR_SUCCEEDED(runtime_->fn().xrRequestDisplayRefreshRateFB(session_, hz));
+}
+
+// ================================================================ HANDMÅTT
+
+namespace {
+
+double distance(const TrackingPose& a, const TrackingPose& b) {
+    return std::hypot(a.position.x - b.position.x, a.position.y - b.position.y, a.position.z - b.position.z);
+}
+
+double saturate(double v) { return std::clamp(v, 0.0, 1.0); }
+
+} // namespace
+
+void computeHandMetrics(HandSample& hand) noexcept {
+    hand.pinch = 0.0;
+    hand.grab = 0.0;
+    const auto joint = [&](int index) -> const JointSample& { return hand.joints[static_cast<std::size_t>(index)]; };
+    const auto ok = [&](int index) { return joint(index).valid; };
+
+    // Handens storlek: handleden till mellanfingrets grundled, ungefär 9,5 cm
+    // på en vuxen. Måtten nedan gäller den storleken och följer med den.
+    constexpr double kReferenceSize = 0.095;
+    double size = 1.0;
+    if (ok(XR_HAND_JOINT_WRIST_EXT) && ok(XR_HAND_JOINT_MIDDLE_PROXIMAL_EXT)) {
+        const double measured = distance(joint(XR_HAND_JOINT_WRIST_EXT).pose, joint(XR_HAND_JOINT_MIDDLE_PROXIMAL_EXT).pose);
+        if (measured > 0.02) size = measured / kReferenceSize;
+    }
+
+    // Nyp: avståndet mellan tummens och pekfingrets toppar. Under 2 cm är
+    // topparna ihop, över 10 cm är handen öppen.
+    if (ok(XR_HAND_JOINT_THUMB_TIP_EXT) && ok(XR_HAND_JOINT_INDEX_TIP_EXT)) {
+        const double d = distance(joint(XR_HAND_JOINT_THUMB_TIP_EXT).pose, joint(XR_HAND_JOINT_INDEX_TIP_EXT).pose) / size;
+        hand.pinch = saturate((0.10 - d) / (0.10 - 0.02));
+    }
+
+    // Grepp: medelavståndet från pek-, lång-, ring- och lillfingrets topp till
+    // handflatan. Utsträckt ligger de 10 cm bort, knutna 5 cm.
+    if (ok(XR_HAND_JOINT_PALM_EXT)) {
+        const int tips[] = {XR_HAND_JOINT_INDEX_TIP_EXT, XR_HAND_JOINT_MIDDLE_TIP_EXT,
+                            XR_HAND_JOINT_RING_TIP_EXT, XR_HAND_JOINT_LITTLE_TIP_EXT};
+        double sum = 0.0;
+        int count = 0;
+        for (const int tip : tips) {
+            if (!ok(tip)) continue;
+            sum += distance(joint(tip).pose, joint(XR_HAND_JOINT_PALM_EXT).pose);
+            ++count;
+        }
+        if (count > 0) {
+            const double mean = sum / count / size;
+            hand.grab = saturate((0.10 - mean) / (0.10 - 0.05));
+        }
+    }
 }
 
 bool OpenXrContext::createSwapchains(std::string& error) {
@@ -709,7 +904,7 @@ bool OpenXrContext::createSwapchains(std::string& error) {
     XrSessionApi::Handles handles;
     handles.instance = instance;
     handles.session = session_;
-    handles.localSpace = localSpace_;
+    handles.trackingSpace = trackingSpace_;
     handles.viewSpace = viewSpace_;
 
     for (std::size_t eye = 0; eye < 2; ++eye) {

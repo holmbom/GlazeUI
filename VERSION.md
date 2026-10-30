@@ -22,6 +22,7 @@ versionen sätts.
 - **New** — Integration med ett annat grafik-API (`gfx/native.h`, bara D3D11): `Renderer::nativeDevice`, `importRenderTarget` (ett mål runt en extern bild, med MSAA och djup), `setExternalFramePacing` och `insertCompletion` (en GPU-markör som pollas utan väntan), samt `GpuAdapter::localAdapterId`. Offscreen-block får GPU-tid på D3D11.
 - **New** — Asymmetriskt frustum: `View3D::frustum` (`FrustumTangents`) i perspektiv, och `rayCenter` sist i `FrameUniforms` (256 byte; strålen i ett eget program är `rayCenter + x·right + y·up`).
 - **New** — Pumpens externa bildkälla (`registerExternalFrameSource`/`postExternalFrame`): en annan klocka än skärmens driver bildrutor i UI-tråden, och skrivbordet ritas osynkat och högst den lägsta källans takt medan en källa finns.
+- **New** — OpenXR-interaktion: alla knappar med beröring och analoga värden (`Button`, `onInput`), grip-, sikte- och handflatsposer, hastigheter, handspårning, strålar mot scenen varje bildruta med en reservmark (`Options::groundZ`), vibration och uppdateringsfrekvens; förflyttningen (gå, flyga, mjuk eller stegvis vridning, teleportering längs båge eller rak stråle, greppa och skala världen) går att styra helt med `setAnchor`/`recenter`/`teleportTo`; `math.h` ger stela transformer, grepp med en och två händer, ytramar, snäpp och kastbanor, och `toPlacement` flyttar föremål utan att bygga om dem. Startläget tas också ur kartkameran.
 
 ## 0.2.0 — 2026-10-21
 

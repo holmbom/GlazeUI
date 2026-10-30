@@ -14,14 +14,25 @@
 //   - stopp mitt i en bildruta, stopp före sessionen börjat, runtime som aldrig
 //     svarar på exit, sessionsförlust och förlorad instans
 //   - överlämningen mellan trådarna (JobGate) och sessionens tillståndsmaskin
+//   - indatan: hysteres på analoga knappar, flanker till händelser (ordning,
+//     spärr efter fokusförlust), dödzon
+//   - den inbyggda förflyttningen mot en yta: gå, flyga, mjuk och stegvis
+//     vridning, teleportering (båge, landning, för brant yta, skala) och
+//     greppa världen med en och två händer (flytt, skala, vridning, klämning)
+//   - reservmarken (groundZ) för strålar och teleportering, den raka teleportvägen
+//     och landningen som `Session::teleportTo` delar med den inbyggda
+//   - handmåtten (nyp, grepp) och `toPlacement`/`fromPlacement`
 //
 // Varje kontroll skriver vad som föll; programmet returnerar 1 om något föll.
 
+#include "actions.h"
+#include "locomotion.h"
 #include "openxr_context.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <deque>
 #include <functional>
 #include <iostream>
@@ -298,7 +309,7 @@ struct Rig {
         XrSessionApi::Handles handles;
         handles.instance = handle<XrInstance>(0x10);
         handles.session = handle<XrSession>(0x20);
-        handles.localSpace = handle<XrSpace>(0x30);
+        handles.trackingSpace = handle<XrSpace>(0x30);
         handles.viewSpace = handle<XrSpace>(0x31);
         handles.swapchains = {handle<XrSwapchain>(0x1000), handle<XrSwapchain>(0x1001)};
         handles.imageCounts = {3, 3};
@@ -851,6 +862,629 @@ void testLifeCycle()
     }
 }
 
+// ----------------------------------------------------------------- indatan
+
+bool closeTo(double a, double b, double eps = 1e-6) { return std::fabs(a - b) <= eps; }
+
+bool closeTo(const Vec3& a, const Vec3& b, double eps = 1e-6)
+{
+    return closeTo(a.x, b.x, eps) && closeTo(a.y, b.y, eps) && closeTo(a.z, b.z, eps);
+}
+
+void testAnalogHysteresis()
+{
+    check(!analogPressed(0.30, false), "0,30 från släppt: släppt");
+    check(analogPressed(0.60, false), "0,60: nedtryckt");
+    check(analogPressed(0.50, true), "0,50 från nedtryckt: fortfarande nedtryckt");
+    check(!analogPressed(0.50, false), "0,50 från släppt: fortfarande släppt");
+    check(!analogPressed(0.40, true), "0,40: släppt");
+
+    // Klicket går före det analoga värdet; värdet följer med.
+    RawButton raw;
+    raw.hasValue = true;
+    raw.value = 0.2;
+    raw.hasClick = true;
+    raw.click = true;
+    ButtonState state = resolveButton(raw, false, true);
+    check(state.pressed && closeTo(state.value, 0.2), "klick: nedtryckt, analogt värde kvar");
+
+    // Utan klick avgör det analoga värdet, med hysteres; utan värde är värdet 0/1.
+    raw = RawButton{};
+    raw.hasValue = true;
+    raw.value = 0.5;
+    check(resolveButton(raw, true, true).pressed, "analogt 0,5 efter nedtryckt: nedtryckt");
+    check(!resolveButton(raw, false, true).pressed, "analogt 0,5 efter släppt: släppt");
+    raw = RawButton{};
+    raw.hasClick = true;
+    raw.click = true;
+    state = resolveButton(raw, false, true);
+    check(state.pressed && closeTo(state.value, 1.0), "bara klick: värdet 1");
+
+    // Beröring bara där profilen har den; en saknad knapp är helt noll.
+    raw = RawButton{};
+    raw.hasClick = true;
+    raw.click = true;
+    check(!resolveButton(raw, false, true).touched, "ingen beröringsaction: inte berörd");
+    raw.hasTouch = true;
+    raw.touch = true;
+    check(resolveButton(raw, false, true).touched, "beröring");
+    state = resolveButton(raw, false, false);
+    check(!state.available && !state.pressed && !state.touched && state.value == 0.0, "saknad knapp: noll");
+}
+
+void testDeadzone()
+{
+    double x = 0.1, y = 0.1;
+    applyDeadzone(x, y, 0.2);
+    check(x == 0.0 && y == 0.0, "innanför dödzonen: noll");
+    x = 1.0;
+    y = 0.0;
+    applyDeadzone(x, y, 0.2);
+    check(closeTo(x, 1.0) && closeTo(y, 0.0), "fullt utslag: 1");
+    x = 0.6;
+    y = 0.0;
+    applyDeadzone(x, y, 0.2);
+    check(closeTo(x, 0.5), "0,6 med dödzon 0,2 blir 0,5");
+}
+
+std::array<RawButton, kButtonCount> rawWith(Button button, double value)
+{
+    std::array<RawButton, kButtonCount> raw{};
+    raw[static_cast<std::size_t>(button)].hasValue = true;
+    raw[static_cast<std::size_t>(button)].value = value;
+    raw[static_cast<std::size_t>(button)].hasTouch = true;
+    raw[static_cast<std::size_t>(button)].touch = value > 0.0;
+    return raw;
+}
+
+std::array<bool, kButtonCount> allAvailable()
+{
+    std::array<bool, kButtonCount> available{};
+    available.fill(true);
+    return available;
+}
+
+void testButtonTrackerFlanks()
+{
+    ButtonTracker tracker;
+    std::array<ButtonState, kButtonCount> out{};
+    std::vector<InputEvent> events;
+    const auto step = [&](bool focused, double value) {
+        events.clear();
+        tracker.update(Hand::Right, focused, rawWith(Button::Trigger, value), allAvailable(), out, events);
+    };
+
+    step(true, 0.0);
+    check(events.empty(), "vilande: inga händelser");
+
+    step(true, 0.7);
+    check(events.size() == 2 && events[0].kind == InputKind::Touched && events[1].kind == InputKind::Pressed &&
+              events[0].button == Button::Trigger && events[0].hand == Hand::Right,
+          "tryck: berörd, sedan nedtryckt, i den ordningen");
+    check(out[static_cast<std::size_t>(Button::Trigger)].pressed, "tillståndet är nedtryckt");
+
+    step(true, 0.5);
+    check(events.empty(), "i hysteresbandet: ingen flank");
+    check(out[static_cast<std::size_t>(Button::Trigger)].pressed, "i hysteresbandet: fortfarande nedtryckt");
+
+    step(true, 0.0);
+    check(events.size() == 2 && events[0].kind == InputKind::Released && events[1].kind == InputKind::Untouched,
+          "släpp: släppt, sedan inte längre berörd");
+
+    // Fokus går förlorat med trigger nere: släppt-händelser, och när fokus
+    // kommer tillbaka med triggern kvar nere ger det varken flank eller tryck.
+    step(true, 0.9);
+    step(false, 0.9);
+    check(events.size() == 2 && events[0].kind == InputKind::Released, "fokusförlust: släpps");
+    check(!out[static_cast<std::size_t>(Button::Trigger)].pressed, "fokusförlust: släppt");
+    check(out[static_cast<std::size_t>(Button::Trigger)].available, "fokusförlust: knappen finns kvar");
+    tracker.reset();
+    step(true, 0.9);
+    check(events.empty(), "fokus tillbaka med triggern nere: ingen flank");
+    check(!out[static_cast<std::size_t>(Button::Trigger)].pressed, "fokus tillbaka: spärrad tills den släpps");
+    step(true, 0.0);
+    check(events.empty() || events[0].kind != InputKind::Pressed, "släppet av en spärrad knapp ger inget tryck");
+    step(true, 0.9);
+    check(!events.empty() && events.back().kind == InputKind::Pressed, "nytt tryck efter släppet räknas");
+}
+
+// ------------------------------------------------------------- förflyttning
+
+LocomotionInput standing()
+{
+    LocomotionInput input;
+    input.deltaSeconds = 0.5;
+    input.focused = true;
+    input.headValid = true;
+    input.head.position = {0.0, 1.7, 0.0};   // huvudet 1,7 m över golvet, blicken mot −z (norr)
+    for (LocomotionHand& hand : input.hands) {
+        hand.gripValid = true;
+        hand.aimValid = true;
+        hand.grip.position = {0.0, 1.2, -0.4};
+        hand.aim.position = {0.0, 1.2, -0.4};
+    }
+    return input;
+}
+
+Vec3 headWorld(const Anchor& anchor, const LocomotionInput& input)
+{
+    const auto head = toWorldPose(anchor, input.head);
+    return head ? head->position : Vec3{};
+}
+
+// Ett golv i z = 0 som strålarna träffar uppifrån.
+SegmentCast floorAt(double normalZ = 1.0)
+{
+    return [normalZ](const glaze::Ray3& ray, double maxDistance) {
+        std::vector<glaze::HitResult> hits;
+        if (ray.direction.z >= 0.0 || ray.origin.z < 0.0) return hits;
+        const double t = ray.origin.z / -ray.direction.z;
+        if (t > maxDistance) return hits;
+        glaze::HitResult hit;
+        hit.kind = glaze::HitKind::Surface;
+        hit.point = glaze::Point3{ray.origin.x + ray.direction.x * t, ray.origin.y + ray.direction.y * t, 0.0};
+        hit.normal = glaze::Vec3{0.0, 0.0, normalZ};
+        hit.distance = t;
+        hits.push_back(hit);
+        return hits;
+    };
+}
+
+void testWalkAndFly()
+{
+    {
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        input.hands[0].stickY = 1.0;
+        mover.update(input, Locomotion{}, anchor, floorAt());
+        check(closeTo(anchor.origin, Vec3{0.0, 0.75, 0.0}), "gå framåt: 1,5 m/s i 0,5 s åt norr");
+    }
+    {
+        Mover mover;
+        Anchor anchor;
+        anchor.scale = 2.0;
+        LocomotionInput input = standing();
+        input.hands[0].stickX = 1.0;
+        mover.update(input, Locomotion{}, anchor, floorAt());
+        check(closeTo(anchor.origin, Vec3{1.5, 0.0, 0.0}), "sidosteg åt öster; farten skalas med förankringens skala");
+    }
+    {
+        // Flyga längs blicken: huvudet lutat 45° uppåt (rotation kring x).
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        const double half = 0.5 * 3.14159265358979323846 / 4.0;
+        input.head.orientation = {std::sin(half), 0.0, 0.0, std::cos(half)};
+        input.hands[0].stickY = 1.0;
+        Locomotion locomotion;
+        locomotion.move = MoveMode::Fly;
+        mover.update(input, locomotion, anchor, floorAt());
+        check(anchor.origin.z > 0.4 && anchor.origin.y > 0.4, "flyga: uppåt och framåt längs blicken");
+        Anchor walking;
+        Mover walker;
+        walker.update(input, Locomotion{}, walking, floorAt());
+        check(closeTo(walking.origin.z, 0.0), "gå: aldrig uppåt, också med blicken uppåt");
+    }
+    {
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        input.focused = false;
+        input.hands[0].stickY = 1.0;
+        mover.update(input, Locomotion{}, anchor, floorAt());
+        check(closeTo(anchor.origin, Vec3{}), "utan fokus står förankringen still");
+    }
+}
+
+void testTurning()
+{
+    {
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        input.hands[1].stickX = 1.0;
+        const Vec3 before = headWorld(anchor, input);
+        mover.update(input, Locomotion{}, anchor, floorAt());
+        check(closeTo(anchor.yawDegrees, 45.0), "mjuk vridning: 90°/s i 0,5 s");
+        check(closeTo(headWorld(anchor, input), before, 1e-9), "vridningen sker kring huvudet");
+    }
+    {
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        Locomotion locomotion;
+        locomotion.turn = TurnMode::Snap;
+        input.hands[1].stickX = 1.0;
+        mover.update(input, locomotion, anchor, floorAt());
+        check(closeTo(anchor.yawDegrees, 30.0), "stegvis vridning: ett steg på flanken");
+        mover.update(input, locomotion, anchor, floorAt());
+        check(closeTo(anchor.yawDegrees, 30.0), "spaken hålls: inget nytt steg");
+        input.hands[1].stickX = 0.5;
+        mover.update(input, locomotion, anchor, floorAt());
+        input.hands[1].stickX = 1.0;
+        mover.update(input, locomotion, anchor, floorAt());
+        check(closeTo(anchor.yawDegrees, 30.0), "inte återställd över återställningströskeln: inget steg");
+        input.hands[1].stickX = 0.0;
+        mover.update(input, locomotion, anchor, floorAt());
+        input.hands[1].stickX = -1.0;
+        mover.update(input, locomotion, anchor, floorAt());
+        check(closeTo(anchor.yawDegrees, 0.0), "efter återställning: ett steg åt andra hållet");
+    }
+}
+
+void testTeleport()
+{
+    Locomotion locomotion;
+    locomotion.teleport = true;
+    const auto aimDown = [](LocomotionInput& input) {
+        // Sikte 20° under horisonten (rotation kring x), händerna 1,2 m upp.
+        const double half = -0.5 * 20.0 * 3.14159265358979323846 / 180.0;
+        input.hands[1].aim.orientation = {std::sin(half), 0.0, 0.0, std::cos(half)};
+    };
+    {
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        aimDown(input);
+        input.hands[1].stickY = 1.0;
+        mover.update(input, locomotion, anchor, floorAt());
+        check(mover.arc().size() >= 2, "bågen visas när spaken är framåt");
+        check(mover.arcHit().has_value(), "bågen landar på golvet");
+        check(closeTo(anchor.origin, Vec3{}), "ingenting flyttas medan bågen visas");
+        const glaze::Point3 landing = mover.arcHit() && mover.arcHit()->point ? *mover.arcHit()->point : glaze::Point3{};
+        check(closeTo(landing.z, 0.0) && landing.y > 1.0, "landningen ligger framför på golvet");
+
+        input.hands[1].stickY = 0.0;
+        mover.update(input, locomotion, anchor, floorAt());
+        check(mover.arc().empty() && !mover.arcHit(), "släppt: bågen är borta");
+        const Vec3 head = headWorld(anchor, input);
+        check(closeTo(head.x, landing.x, 1e-6) && closeTo(head.y, landing.y, 1e-6), "släppt: fötterna står där bågen landade");
+        check(closeTo(head.z, 1.7, 1e-6), "släppt: huvudet står kvar 1,7 m över golvet");
+    }
+    {
+        // En yta som lutar för mycket tar inte emot landningen.
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        aimDown(input);
+        input.hands[1].stickY = 1.0;
+        mover.update(input, locomotion, anchor, floorAt(0.2));
+        check(!mover.arcHit(), "för brant yta: ingen landning");
+        input.hands[1].stickY = 0.0;
+        mover.update(input, locomotion, anchor, floorAt(0.2));
+        check(closeTo(anchor.origin, Vec3{}), "för brant yta: ingen teleportering");
+    }
+    {
+        // Skalan: samma sikte i en förstorad värld landar proportionellt längre bort.
+        Mover mover;
+        Anchor anchor;
+        anchor.scale = 10.0;
+        LocomotionInput input = standing();
+        aimDown(input);
+        input.hands[1].stickY = 1.0;
+        mover.update(input, locomotion, anchor, floorAt());
+        const double scaled = mover.arcHit() && mover.arcHit()->point ? mover.arcHit()->point->y : 0.0;
+        Mover reference;
+        Anchor unit;
+        reference.update(input, locomotion, unit, floorAt());
+        const double plain = reference.arcHit() && reference.arcHit()->point ? reference.arcHit()->point->y : 1.0;
+        check(closeTo(scaled, plain * 10.0, 1e-6 * std::fabs(scaled) + 1e-9), "bågen skalas med förankringen");
+    }
+}
+
+// Sikte 20° under horisonten (rotation kring x), händerna 1,2 m upp.
+void aimDownTwenty(LocomotionInput& input)
+{
+    const double half = -0.5 * 20.0 * 3.14159265358979323846 / 180.0;
+    input.hands[1].aim.orientation = {std::sin(half), 0.0, 0.0, std::cos(half)};
+}
+
+// En scen utan någon yta: strålarna träffar bara reservmarken (om den är satt).
+SegmentCast emptySceneWithGround(std::optional<double> groundZ)
+{
+    return [groundZ](const glaze::Ray3& ray, double maxDistance) {
+        return withGround({}, ray, maxDistance, groundZ);
+    };
+}
+
+void testGroundFallback()
+{
+    {
+        // En icke-enhetlig riktning: avståndet räknas längs den normerade strålen.
+        glaze::Ray3 ray;
+        ray.origin = glaze::Point3{1.0, 2.0, 2.0};
+        ray.direction = glaze::Vec3{0.0, 3.0, -4.0};
+        const auto hit = groundHit(ray, 0.0, 0.0);
+        check(hit.has_value(), "reservmarken: strålen nedåt träffar planet");
+        if (hit) {
+            check(hit->layer == -1 && hit->index == -1 && hit->kind == glaze::HitKind::Surface,
+                  "reservmarken: lager −1, index −1, yta");
+            check(hit->point && closeTo(hit->point->x, 1.0) && closeTo(hit->point->y, 3.5) && closeTo(hit->point->z, 0.0),
+                  "reservmarken: träffpunkten i planet");
+            check(closeTo(hit->normal.x, 0.0) && closeTo(hit->normal.y, 0.0) && closeTo(hit->normal.z, 1.0),
+                  "reservmarken: normalen rakt upp");
+            check(closeTo(hit->distance, 2.5), "reservmarken: avståndet längs strålen");
+        }
+        check(!groundHit(ray, 2.0, 0.0), "reservmarken: längre bort än strålens längd ger ingen träff");
+        check(groundHit(ray, 3.0, 0.0).has_value(), "reservmarken: inom strålens längd träffar");
+
+        ray.direction = glaze::Vec3{0.0, 3.0, 4.0};
+        check(!groundHit(ray, 0.0, 0.0), "reservmarken: strålen uppåt från ovan pekar inte mot planet");
+        ray.direction = glaze::Vec3{1.0, 0.0, 0.0};
+        check(!groundHit(ray, 0.0, 0.0), "reservmarken: vågrät stråle är parallell med planet");
+
+        ray.origin = glaze::Point3{0.0, 0.0, -1.0};
+        ray.direction = glaze::Vec3{0.0, 0.0, 1.0};
+        const auto below = groundHit(ray, 0.0, 4.0);
+        check(below && below->point && closeTo(below->point->z, 4.0) && closeTo(below->distance, 5.0),
+              "reservmarken: från under planet uppåt är det mot planet");
+    }
+    {
+        glaze::Ray3 ray;
+        ray.origin = glaze::Point3{0.0, 0.0, 1.0};
+        ray.direction = glaze::Vec3{0.0, 0.0, -1.0};
+        glaze::HitResult scene;
+        scene.kind = glaze::HitKind::Surface;
+        scene.distance = 0.5;
+        const auto kept = withGround({scene}, ray, 0.0, 0.0);
+        check(kept.size() == 1 && closeTo(kept[0].distance, 0.5), "reservmarken: en träff i scenen lämnas som den är");
+        check(withGround({}, ray, 0.0, std::nullopt).empty(), "reservmarken: utan groundZ förblir träffarna tomma");
+        const auto only = withGround({}, ray, 0.0, 0.0);
+        check(only.size() == 1 && only[0].layer == -1 && closeTo(only[0].distance, 1.0),
+              "reservmarken: ingen träff i scenen ger marken som enda träff");
+    }
+    {
+        // Teleporteringens båge landar på reservmarken där scenen är tom.
+        Locomotion locomotion;
+        locomotion.teleport = true;
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        aimDownTwenty(input);
+        input.hands[1].stickY = 1.0;
+        mover.update(input, locomotion, anchor, emptySceneWithGround(0.0));
+        check(mover.arcHit() && mover.arcHit()->layer == -1 && mover.arcHit()->point &&
+                  closeTo(mover.arcHit()->point->z, 0.0),
+              "båge: landar på reservmarken");
+        const glaze::Point3 landing = mover.arcHit() && mover.arcHit()->point ? *mover.arcHit()->point : glaze::Point3{};
+        input.hands[1].stickY = 0.0;
+        mover.update(input, locomotion, anchor, emptySceneWithGround(0.0));
+        const Vec3 head = headWorld(anchor, input);
+        check(closeTo(head.x, landing.x) && closeTo(head.y, landing.y) && closeTo(head.z, 1.7),
+              "båge: släppt flyttar fötterna till reservmarken");
+
+        Mover without;
+        Anchor untouched;
+        input.hands[1].stickY = 1.0;
+        without.update(input, locomotion, untouched, emptySceneWithGround(std::nullopt));
+        check(!without.arcHit(), "båge: utan reservmark och scen ingen landning");
+    }
+}
+
+void testStraightTeleport()
+{
+    Locomotion locomotion;
+    locomotion.teleport = true;
+    locomotion.teleportPath = Locomotion::Path::Straight;
+    {
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        aimDownTwenty(input);
+        input.hands[1].stickY = 1.0;
+        mover.update(input, locomotion, anchor, floorAt());
+        check(mover.arc().size() == 2, "rak teleportering: två punkter (start och träff)");
+        check(mover.arcHit().has_value(), "rak teleportering: strålen landar på golvet");
+        if (mover.arc().size() == 2 && mover.arcHit() && mover.arcHit()->point) {
+            const glaze::Point3 hit = *mover.arcHit()->point;
+            check(closeTo(mover.arc()[0], Vec3{0.0, 0.4, 1.2}), "rak teleportering: början i siktet");
+            check(closeTo(mover.arc()[1], Vec3{hit.x, hit.y, hit.z}), "rak teleportering: slutet i träffen");
+            // Siktet 20° under horisonten från 1,2 m: golvet 1,2 / tan 20° framför.
+            check(closeTo(hit.y, 0.4 + 1.2 / std::tan(20.0 * 3.14159265358979323846 / 180.0), 1e-6),
+                  "rak teleportering: träffen längs den raka strålen");
+            input.hands[1].stickY = 0.0;
+            mover.update(input, locomotion, anchor, floorAt());
+            const Vec3 head = headWorld(anchor, input);
+            check(closeTo(head.x, hit.x, 1e-6) && closeTo(head.y, hit.y, 1e-6) && closeTo(head.z, 1.7, 1e-6),
+                  "rak teleportering: släppt flyttar fötterna till träffen");
+        }
+    }
+    {
+        // Utan träff slutar strålen på sin längd (10 m, skalad), och ingen landning sker.
+        Mover mover;
+        Anchor anchor;
+        anchor.scale = 2.0;
+        LocomotionInput input = standing();
+        input.rayLengthMetres = 10.0;
+        input.hands[1].stickY = 1.0;
+        mover.update(input, locomotion, anchor, emptySceneWithGround(std::nullopt));
+        check(mover.arc().size() == 2 && !mover.arcHit(), "rak teleportering: utan träff två punkter och ingen landning");
+        if (mover.arc().size() == 2) {
+            const double length = std::hypot(mover.arc()[1].x - mover.arc()[0].x, mover.arc()[1].y - mover.arc()[0].y);
+            check(closeTo(length, 20.0, 1e-6), "rak teleportering: längden är rayLengthMetres gånger skalan");
+        }
+        input.hands[1].stickY = 0.0;
+        mover.update(input, locomotion, anchor, emptySceneWithGround(std::nullopt));
+        check(closeTo(anchor.origin, Vec3{}), "rak teleportering: utan landning flyttas ingenting");
+    }
+    {
+        // Ytan måste ta emot landningen också här.
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        aimDownTwenty(input);
+        input.hands[1].stickY = 1.0;
+        mover.update(input, locomotion, anchor, floorAt(0.2));
+        check(mover.arc().size() == 2 && !mover.arcHit(), "rak teleportering: för brant yta ger ingen landning");
+    }
+    {
+        // Reservmarken tar emot den raka strålen.
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        aimDownTwenty(input);
+        input.hands[1].stickY = 1.0;
+        mover.update(input, locomotion, anchor, emptySceneWithGround(0.0));
+        check(mover.arcHit() && mover.arcHit()->layer == -1, "rak teleportering: landar på reservmarken");
+    }
+}
+
+// `Session::teleportTo` går genom `placeFeet`, samma räkning som den inbyggda landningen.
+void testPlaceFeet()
+{
+    const LocomotionInput stand = standing();
+    {
+        Anchor anchor;
+        check(placeFeet(anchor, stand.head, 0.0, Vec3{3.0, 4.0, 5.0}, std::nullopt), "teleportTo: lyckas");
+        check(closeTo(headWorld(anchor, stand), Vec3{3.0, 4.0, 6.7}), "teleportTo: fötterna på punkten, huvudet 1,7 m över");
+        check(closeTo(anchor.yawDegrees, 0.0) && closeTo(anchor.scale, 1.0), "teleportTo: yaw och skala oförändrade");
+    }
+    {
+        Anchor anchor;
+        anchor.scale = 2.0;
+        check(placeFeet(anchor, stand.head, 0.0, Vec3{3.0, 4.0, 5.0}, std::nullopt), "teleportTo med skala: lyckas");
+        check(closeTo(headWorld(anchor, stand), Vec3{3.0, 4.0, 8.4}), "teleportTo med skala: huvudhöjden skalas");
+    }
+    {
+        // Golvet 0,3 m upp i rummet: huvudet är 1,4 m över det.
+        Anchor anchor;
+        check(placeFeet(anchor, stand.head, 0.3, Vec3{}, std::nullopt), "teleportTo med golvhöjd: lyckas");
+        check(closeTo(headWorld(anchor, stand).z, 1.4), "teleportTo med golvhöjd: huvudet över golvet");
+    }
+    {
+        // Med yaw vrids rummet kring huvudet så att blicken pekar åt öster.
+        Anchor anchor;
+        anchor.scale = 3.0;
+        check(placeFeet(anchor, stand.head, 0.0, Vec3{10.0, 20.0, 0.0}, 90.0), "teleportTo med yaw: lyckas");
+        const auto head = toWorldPose(anchor, stand.head);
+        check(head && closeTo(head->position, Vec3{10.0, 20.0, 5.1}), "teleportTo med yaw: fötterna på punkten");
+        check(head && closeTo(head->forward, Vec3{1.0, 0.0, 0.0}, 1e-9), "teleportTo med yaw: blicken mot öster");
+        check(closeTo(anchor.scale, 3.0), "teleportTo med yaw: skalan behålls");
+    }
+    {
+        Anchor anchor;
+        anchor.origin = Vec3{1.0, 2.0, 3.0};
+        const double nan = std::nan("");
+        check(!placeFeet(anchor, stand.head, 0.0, Vec3{nan, 0.0, 0.0}, std::nullopt), "teleportTo: ogiltig punkt nekas");
+        check(!placeFeet(anchor, stand.head, 0.0, Vec3{}, nan), "teleportTo: ogiltig yaw nekas");
+        check(closeTo(anchor.origin, Vec3{1.0, 2.0, 3.0}), "teleportTo: förankringen orörd vid nekad flytt");
+    }
+}
+
+void testGrabWorld()
+{
+    Locomotion locomotion;
+    locomotion.grabWorld = true;
+    {
+        Mover mover;
+        Anchor anchor;
+        LocomotionInput input = standing();
+        input.hands[1].squeeze = true;
+        mover.update(input, locomotion, anchor, floorAt());
+        check(mover.grabbing() && closeTo(anchor.origin, Vec3{}), "greppet börjar utan att flytta");
+        input.hands[1].grip.position = {0.0, 1.2, -0.6};   // handen 0,2 m framåt
+        mover.update(input, locomotion, anchor, floorAt());
+        check(closeTo(anchor.origin, Vec3{0.0, -0.2, 0.0}), "en hand: världen följer handen, rummet flyttas åt andra hållet");
+        input.hands[1].squeeze = false;
+        mover.update(input, locomotion, anchor, floorAt());
+        check(!mover.grabbing(), "släppt");
+    }
+    const auto twoHands = [&](double half, double depthLeft, double depthRight) {
+        LocomotionInput input = standing();
+        input.hands[0].squeeze = true;
+        input.hands[1].squeeze = true;
+        input.hands[0].grip.position = {-half, 1.2, depthLeft};
+        input.hands[1].grip.position = {half, 1.2, depthRight};
+        return input;
+    };
+    {
+        // Händerna isär till dubbla avståndet: världen blir dubbelt så stor,
+        // alltså halv skala, och mitten mellan händerna står kvar.
+        Mover mover;
+        Anchor anchor;
+        mover.update(twoHands(0.2, -0.4, -0.4), locomotion, anchor, floorAt());
+        const Vec3 mid = {0.0, 1.2, -0.4};
+        const auto before = toWorldPose(anchor, TrackingPose{mid, Quaternion{}});
+        mover.update(twoHands(0.4, -0.4, -0.4), locomotion, anchor, floorAt());
+        const auto after = toWorldPose(anchor, TrackingPose{mid, Quaternion{}});
+        check(closeTo(anchor.scale, 0.5, 1e-9), "två händer isär: halv skala");
+        check(before && after && closeTo(before->position, after->position, 1e-9), "mitten mellan händerna står kvar");
+    }
+    {
+        Locomotion clamped = locomotion;
+        clamped.minScale = 0.8;
+        Mover mover;
+        Anchor anchor;
+        mover.update(twoHands(0.2, -0.4, -0.4), clamped, anchor, floorAt());
+        mover.update(twoHands(0.4, -0.4, -0.4), clamped, anchor, floorAt());
+        check(closeTo(anchor.scale, 0.8, 1e-9), "skalan klämd till minsta skalan");
+    }
+    {
+        // Linjen mellan händerna vrids från öst mot nord (moturs sett uppifrån):
+        // världen följer med, så rummet pekar nu mot det som var öster.
+        Mover mover;
+        Anchor anchor;
+        mover.update(twoHands(0.2, -0.4, -0.4), locomotion, anchor, floorAt());
+        LocomotionInput turned = standing();
+        turned.hands[0].squeeze = true;
+        turned.hands[1].squeeze = true;
+        turned.hands[0].grip.position = {0.0, 1.2, 0.2};
+        turned.hands[1].grip.position = {0.0, 1.2, -0.2};
+        mover.update(turned, locomotion, anchor, floorAt());
+        check(closeTo(anchor.yawDegrees, 90.0, 1e-6), "linjen vriden 90° moturs: förankringens yaw +90°");
+        check(closeTo(anchor.scale, 1.0, 1e-9), "oförändrat avstånd: oförändrad skala");
+    }
+}
+
+TrackingPose at(double x, double y, double z) { return TrackingPose{{x, y, z}, Quaternion{}}; }
+
+void testHandMetrics()
+{
+    const auto make = [](double thumbToIndex, double tipToPalm) {
+        HandSample hand;
+        hand.active = true;
+        for (JointSample& joint : hand.joints) {
+            joint.valid = true;
+            joint.pose = at(0.0, 0.0, 0.0);
+        }
+        const auto set = [&](int joint, TrackingPose pose) { hand.joints[static_cast<std::size_t>(joint)].pose = pose; };
+        set(XR_HAND_JOINT_WRIST_EXT, at(0.0, 0.0, 0.0));
+        set(XR_HAND_JOINT_MIDDLE_PROXIMAL_EXT, at(0.095, 0.0, 0.0));
+        set(XR_HAND_JOINT_PALM_EXT, at(0.05, 0.0, 0.0));
+        // Fingertopparna ligger `tipToPalm` från handflatan åt var sitt håll;
+        // tummen `thumbToIndex` från pekfingret.
+        set(XR_HAND_JOINT_INDEX_TIP_EXT, at(0.05, tipToPalm, 0.0));
+        set(XR_HAND_JOINT_THUMB_TIP_EXT, at(0.05, tipToPalm + thumbToIndex, 0.0));
+        set(XR_HAND_JOINT_MIDDLE_TIP_EXT, at(0.05 + tipToPalm, 0.0, 0.0));
+        set(XR_HAND_JOINT_RING_TIP_EXT, at(0.05, 0.0, -tipToPalm));
+        set(XR_HAND_JOINT_LITTLE_TIP_EXT, at(0.05, 0.0, tipToPalm));
+        computeHandMetrics(hand);
+        return hand;
+    };
+    check(make(0.01, 0.11).pinch > 0.9, "tumme och pekfinger 1 cm isär: nyp");
+    check(make(0.12, 0.11).pinch == 0.0, "12 cm isär: ingen nyp");
+    check(make(0.12, 0.04).grab > 0.9, "fingertopparna 4 cm från handflatan: grepp");
+    check(make(0.12, 0.11).grab < 0.1, "fingertopparna 11 cm från handflatan: öppen hand");
+}
+
+void testPlacement()
+{
+    Pose pose;
+    pose.position = {1.0, 2.0, 3.0};
+    pose.orientation = fromYawPitchRoll(YawPitchRoll{30.0, 10.0, -5.0});
+    const glaze::Placement placement = toPlacement(pose, 2.0);
+    check(closeTo(placement.at.x, 1.0) && closeTo(placement.at.y, 2.0) && closeTo(placement.at.z, 3.0), "Placement: läget");
+    check(closeTo(placement.yaw, 30.0f, 1e-3) && closeTo(placement.pitch, 10.0f, 1e-3) && closeTo(placement.roll, -5.0f, 1e-3),
+          "Placement: vinklarna");
+    check(placement.scale.x == 2.0f && placement.scale.y == 2.0f && placement.scale.z == 2.0f, "Placement: skalan");
+    const Pose back = fromPlacement(placement);
+    check(closeTo(back.position, pose.position), "fromPlacement: läget");
+    const double dot = back.orientation.x * pose.orientation.x + back.orientation.y * pose.orientation.y +
+                       back.orientation.z * pose.orientation.z + back.orientation.w * pose.orientation.w;
+    check(std::fabs(dot) > 1.0 - 1e-5, "fromPlacement: orienteringen");
+}
+
 void testPackLuid()
 {
     LUID luid{};
@@ -885,6 +1519,18 @@ int main()
     testJobGateStopWhileRunning();
     testJobGateStopWakesSleep();
     testLifeCycle();
+    testAnalogHysteresis();
+    testDeadzone();
+    testButtonTrackerFlanks();
+    testWalkAndFly();
+    testTurning();
+    testTeleport();
+    testGroundFallback();
+    testStraightTeleport();
+    testPlaceFeet();
+    testGrabWorld();
+    testHandMetrics();
+    testPlacement();
     testPackLuid();
 
     if (g_failures != 0) {

@@ -75,13 +75,28 @@ namespace glaze::openxr::detail {
     X(xrGetActionStateFloat) \
     X(xrGetActionStateVector2f) \
     X(xrSyncActions) \
+    X(xrPathToString) \
+    X(xrGetCurrentInteractionProfile) \
+    X(xrApplyHapticFeedback) \
+    X(xrStopHapticFeedback) \
     X(xrGetD3D11GraphicsRequirementsKHR)
+
+// Tilläggens funktioner: hämtas bara när tillägget är aktiverat, och saknas
+// (nullptr) annars.
+#define GLAZE_OPENXR_XR_OPTIONAL_FUNCTIONS(X) \
+    X(xrCreateHandTrackerEXT) \
+    X(xrDestroyHandTrackerEXT) \
+    X(xrLocateHandJointsEXT) \
+    X(xrEnumerateDisplayRefreshRatesFB) \
+    X(xrGetDisplayRefreshRateFB) \
+    X(xrRequestDisplayRefreshRateFB)
 
 struct XrFunctions {
     PFN_xrGetInstanceProcAddr xrGetInstanceProcAddr = nullptr;
 #define GLAZE_OPENXR_DECLARE(name) PFN_##name name = nullptr;
     GLAZE_OPENXR_XR_GLOBAL_FUNCTIONS(GLAZE_OPENXR_DECLARE)
     GLAZE_OPENXR_XR_INSTANCE_FUNCTIONS(GLAZE_OPENXR_DECLARE)
+    GLAZE_OPENXR_XR_OPTIONAL_FUNCTIONS(GLAZE_OPENXR_DECLARE)
 #undef GLAZE_OPENXR_DECLARE
 };
 
@@ -127,7 +142,7 @@ struct EyeLayer {
     Fov          fov;
 };
 
-// Ögonen i LOCAL vid en tid. `valid` när båda ögonens läge och riktning är
+// Ögonen i referensrummet vid en tid. `valid` när båda ögonens läge och riktning är
 // giltiga.
 struct LocatedViews {
     bool valid = false;
@@ -138,8 +153,9 @@ struct LocatedViews {
 // Händelserna som väntar. Sessionens tillståndsbyte läggs i `phases`.
 struct Events {
     std::vector<Phase> phases;
-    bool referenceSpaceChanged = false;
-    bool instanceLost          = false;
+    bool referenceSpaceChanged     = false;
+    bool instanceLost              = false;
+    bool interactionProfileChanged = false;   // någon hands aktiva profil byttes
 };
 
 struct FrameTiming {
@@ -172,8 +188,8 @@ public:
     struct Handles {
         XrInstance instance   = XR_NULL_HANDLE;
         XrSession  session    = XR_NULL_HANDLE;
-        XrSpace    localSpace = XR_NULL_HANDLE;
-        XrSpace    viewSpace  = XR_NULL_HANDLE;
+        XrSpace    trackingSpace = XR_NULL_HANDLE;   // referensrummet allt räknas i
+        XrSpace    viewSpace     = XR_NULL_HANDLE;
         std::array<XrSwapchain, 2>    swapchains{};
         std::array<std::uint32_t, 2>  imageCounts{};   // bilder per swapchain
         std::array<std::int32_t, 2>   widths{};        // swapchainens mått i px
@@ -190,7 +206,7 @@ public:
     const XrFunctions& fn() const noexcept { return fn_; }
     XrInstance instance() const noexcept { return handles_.instance; }
     XrSession  session() const noexcept { return handles_.session; }
-    XrSpace    localSpace() const noexcept { return handles_.localSpace; }
+    XrSpace    trackingSpace() const noexcept { return handles_.trackingSpace; }
     std::string describe(const char* call, XrResult result) const {
         return describeResult(fn_, handles_.instance, call, result);
     }
@@ -209,7 +225,7 @@ public:
     // Den tråd som äger bildrutan.
     bool beginFrame(std::string& error);
     bool locateViews(XrTime time, LocatedViews& out, std::string& error);
-    // Huvudet (VIEW) i LOCAL vid `time`.
+    // Huvudet (VIEW) i referensrummet vid `time`.
     bool locateHead(XrTime time, PoseSample& out, std::string& error);
     // Släpper de väntade bilderna (också sådana som inte ritats). Alla släpps
     // också om en av dem ger fel; det första felet lämnas.
@@ -289,8 +305,11 @@ struct LoopHooks {
     std::function<void(std::chrono::milliseconds time)> sleep;
     // Det aktuella läget, vid varje varv. Får saknas.
     std::function<void(const Status&)> onStatus;
-    // Fokus lämnade headsetet: reglagens hysteres ska släppas. Får saknas.
+    // Fokus lämnade headsetet. Får saknas.
     std::function<void()> onFocusLost;
+    // En hands aktiva interaktionsprofil byttes (anropas i XR-tråden, så den
+    // får bara sätta en flagga). Får saknas.
+    std::function<void()> onInteractionProfileChanged;
     // Tid utan svar från runtimen efter xrRequestExitSession innan sessionen
     // rivs ned ändå.
     std::chrono::milliseconds exitTimeout{5000};
@@ -322,13 +341,24 @@ private:
 
 // ------------------------------------------------------------ LOADERN, INSTANSEN
 
+// Tilläggen som är aktiverade i instansen.
+struct XrExtensions {
+    bool bdController = false;   // XR_BD_controller_interaction
+    bool palmPose     = false;   // XR_EXT_palm_pose
+    bool handTracking = false;   // XR_EXT_hand_tracking: aktiverad och systemet har handspårning
+    bool refreshRate  = false;   // XR_FB_display_refresh_rate
+    bool localFloor   = false;   // XR_EXT_local_floor
+};
+
 // Loadern, instansen och headsetets system — sessionens, och lika långlivade
 // som den: runtimen kontaktas först när en session startas.
 class XrRuntime {
 public:
-    // Laddar loadern och skapar instans och system. Fel lämnas som svensk
-    // text i `error`; då är allt redan avvecklat.
-    static std::unique_ptr<XrRuntime> open(std::string& error);
+    // Laddar loadern och skapar instans och system. Tilläggen som `options`
+    // begär (handspårning, uppdateringsfrekvens) aktiveras bara om runtimen
+    // har dem. Fel lämnas som svensk text i `error`; då är allt redan
+    // avvecklat.
+    static std::unique_ptr<XrRuntime> open(const Options& options, std::string& error);
     ~XrRuntime();
 
     XrRuntime(const XrRuntime&)            = delete;
@@ -337,8 +367,7 @@ public:
     const XrFunctions& fn() const noexcept { return fn_; }
     XrInstance instance() const noexcept { return instance_; }
     XrSystemId systemId() const noexcept { return systemId_; }
-    // XR_BD_controller_interaction finns och är aktiverad.
-    bool bdControllerExtension() const noexcept { return bdControllerExtension_; }
+    const XrExtensions& extensions() const noexcept { return extensions_; }
     const XrGraphicsRequirementsD3D11KHR& graphicsRequirements() const noexcept { return graphicsRequirements_; }
     std::string describe(const char* call, XrResult result) const {
         return describeResult(fn_, instance_, call, result);
@@ -347,27 +376,33 @@ public:
 private:
     XrRuntime() = default;
     bool loadLoader(std::string& error);
-    bool createInstance(std::string& error);
-    bool createSystem(std::string& error);
+    bool createInstance(const Options& options, std::string& error);
+    bool createSystem(const Options& options, std::string& error);
 
     HMODULE                  loader_ = nullptr;   // lämnas laddad: runtimen kan ha trådar kvar
     XrFunctions              fn_;
     XrInstance               instance_ = XR_NULL_HANDLE;
     XrSystemId               systemId_ = XR_NULL_SYSTEM_ID;
-    bool                     bdControllerExtension_ = false;
+    XrExtensions             extensions_;
     XrGraphicsRequirementsD3D11KHR graphicsRequirements_{};
 };
+
+// Nypen och greppet ur handens leder (spårningsrummets mått i meter, skalat
+// efter handens storlek): `pinch` är tumme mot pekfinger, `grab` är fyra
+// fingertoppar mot handflatan. Leder som saknas ger 0.
+void computeHandMetrics(HandSample& hand) noexcept;
 
 // Sessionen på Canvas-renderarens D3D11-enhet, rummen och ett swapchain per
 // öga i runtimens fulla rekommenderade storlek. Äger runtimen (instansen).
 class OpenXrContext {
 public:
-    // Skapar session, rum och swapchains på `device` (en `ID3D11Device*` som
-    // ägs av Canvas-renderaren). Kortet och funktionsnivån ska redan vara
-    // kontrollerade mot `runtime->graphicsRequirements()`. Fel lämnas som
-    // svensk text i `error`; då är allt redan avvecklat.
+    // Skapar session, rum, handspårare och swapchains på `device` (en
+    // `ID3D11Device*` som ägs av Canvas-renderaren). Kortet och funktionsnivån
+    // ska redan vara kontrollerade mot `runtime->graphicsRequirements()`.
+    // Referensrummet väljs efter `options.referenceSpace` med reserv. Fel
+    // lämnas som svensk text i `error`; då är allt redan avvecklat.
     static std::unique_ptr<OpenXrContext> create(std::unique_ptr<XrRuntime> runtime, void* device,
-                                                 std::string& error);
+                                                 const Options& options, std::string& error);
     ~OpenXrContext();
 
     OpenXrContext(const OpenXrContext&)            = delete;
@@ -376,24 +411,41 @@ public:
     const XrFunctions& fn() const noexcept { return runtime_->fn(); }
     XrInstance instance() const noexcept { return runtime_->instance(); }
     XrSession  session() const noexcept { return session_; }
-    XrSpace    localSpace() const noexcept { return localSpace_; }
-    bool bdControllerExtension() const noexcept { return runtime_->bdControllerExtension(); }
+    // Referensrummet som lägen och ögon räknas i.
+    XrSpace    trackingSpace() const noexcept { return trackingSpace_; }
+    // Rummet som blev valt (`Options::referenceSpace` med reserv).
+    ReferenceSpace referenceSpace() const noexcept { return referenceSpace_; }
+    // Golvets höjd (y) i referensrummet: 0 i LocalFloor och Stage; i Local en
+    // antagen ögonhöjd under origo.
+    double floorHeight() const noexcept;
+    const XrExtensions& extensions() const noexcept { return runtime_->extensions(); }
     std::string describe(const char* call, XrResult result) const { return runtime_->describe(call, result); }
 
     XrSessionApi& api() noexcept { return *api_; }
     const std::array<EyeImageSet, 2>& eyeImages() const noexcept { return eyeImages_; }
 
+    // Handlederna vid `time` i referensrummet. `out[i].active` false för en
+    // hand som inte spåras eller när handspårningen saknas.
+    void locateHands(XrTime time, std::array<HandSample, 2>& out) const;
+
+    // Uppdateringsfrekvenserna headsetet erbjuder; tomt utan tillägget.
+    std::vector<float> refreshRates() const;
+    // Begär en av dem. false utan tillägget eller om runtimen avvisar den.
+    bool requestRefreshRate(float hz);
+
 private:
     OpenXrContext() = default;
 
-    bool createSession(void* device, std::string& error);
+    bool createSession(void* device, const Options& options, std::string& error);
     bool createSwapchains(std::string& error);
     void destroy() noexcept;
 
     std::unique_ptr<XrRuntime> runtime_;
-    XrSession                  session_    = XR_NULL_HANDLE;
-    XrSpace                    localSpace_ = XR_NULL_HANDLE;
-    XrSpace                    viewSpace_  = XR_NULL_HANDLE;
+    XrSession                  session_       = XR_NULL_HANDLE;
+    XrSpace                    trackingSpace_ = XR_NULL_HANDLE;
+    XrSpace                    viewSpace_     = XR_NULL_HANDLE;
+    ReferenceSpace             referenceSpace_ = ReferenceSpace::Local;
+    std::array<XrHandTrackerEXT, 2> handTrackers_{};
     std::array<XrSwapchain, 2> swapchains_{};
     std::array<EyeImageSet, 2> eyeImages_;
     std::unique_ptr<XrSessionApi> api_;

@@ -61,7 +61,8 @@ skapas i användarkoden (som `glaze::Worker`).
 | `src/session.cpp` | `Session::Impl`, XR-tråden (`Worker`), bildkällan mot pumpen (`UiFrameSink`), UI-trådens bildrutejobb (`UiFrameContent`), enhetskontrollen och avvecklingen |
 | `src/openxr_context.h/.cpp` | `XrRuntime` (loader, instans, system, grafikkrav), `OpenXrContext` (session, rum, swapchains), `XrSessionApi` (anropen mot funktionstabellen, bildägandet), `SessionLoop` (XR-trådens tillståndsmaskin), `completeFrame` (UI-trådens del av en bildruta) |
 | `src/actions.h/.cpp` | action set, bindningar för fyra kontrollprofiler, dödzon, avtryckarhysteres |
-| `src/canvas_bridge.h/.cpp` | UI-trådens del: `ExternalCanvasPass`, swapchain-bilderna som importerade mål, förankring, förflyttning, `onFrame`, plockning med `castRay`, `onPick`, ritningen av båda ögonen |
+| `src/canvas_bridge.h/.cpp` | UI-trådens del: `ExternalCanvasPass`, swapchain-bilderna som importerade mål, startläget ur Camera3D eller kartkameran, förankring, `teleportTo`, förflyttning, `onFrame`, plockning med `castRay` och reservmarken `groundZ`, `onPick`, ritningen av båda ögonen |
+| `src/locomotion.h/.cpp` | `Mover` (gå, flyga, vrida, teleportera med båge eller rak stråle, greppa världen) och de rena funktionerna `groundHit`/`withGround` (reservmarken), `faceYaw`, `placeFeet` (landningen som den inbyggda teleporteringen och `teleportTo` delar) |
 | `cmake/OpenXRLoader.cmake` | FetchContent av loadern + `glaze_openxr_runtime(<target>)` |
 
 ## Trådarna
@@ -128,15 +129,28 @@ målen och passet; den gör avvecklingen själv och släpper XR-tråden.
 
 - OpenXR: x höger, y upp, −z framåt. Glaze: x öster, y norr, z upp.
   Översättningen är `M(x, y, z) = (x, −z, y)`, roterad med förankringens yaw.
-- Förankringen tas ur canvasens kamera vid start (huvudet hamnar i `eye()`,
-  blicken mot `azimuth`) och flyttas bara av spakarna.
+- Förankringen tas ur canvasens kamera vid start och flyttas bara av
+  spakarna, `setAnchor`, `recenter` och `teleportTo`. En `Camera3D` ger ögat
+  `eye()` och blicken `azimuth`. Utan den används kartkameran som 3D-vy via
+  `Canvas::rayAt`: lutad karta har ögat där strålarna utgår, rakt uppifrån
+  (ortografiskt) står ögat på kartans perspektivavstånd (3 × halva synliga
+  höjden) över mittpunkten i z = 0; riktningen är blickens vågräta, rakt
+  uppifrån skärmens uppåt.
+- Reservmarken `Options::groundZ`: ger `cast` en tom träfflista läggs planet
+  z = `groundZ` dit (lager/index −1, Surface, normal (0,0,1)) — för hover,
+  `castRay` och teleportens segment. Landar teleporteringen på den.
+- `teleportTo` och den inbyggda landningen går båda genom `placeFeet`
+  (fötterna = huvudet rakt ned på golvet, med skalan; `faceYaw` vrider kring
+  huvudet). `Locomotion::teleportPath` `Straight` ger två punkter i `arc`.
 - Kameran per öga är en `gfx::View3D`: ögats läge i världen, runtimens
   ASYMMETRISKA frustum som `FrustumTangents` (tangenterna av fov-vinklarna,
   ingen symmetrisering) och klipplanen `nearMetres`/`farMetres`. `box` är hela
   målet i fysiska px.
 - Plockningens vy är huvudet med ett frustum som rymmer båda ögonens; den
   styr skärmstorlekar och toleranser i `ExternalCanvasPass::castRay`.
-- Canvas ska ha en `Camera3D` med `UpAxis::Z` och en världsenhet per meter.
+- Canvas ska ha en `Camera3D` med `UpAxis::Z` eller kartkameran, och en
+  världsenhet per meter. `UpAxis::Y` ger `Failed` med text. Kartkameran kräver
+  en känd yta (fönstret öppet och ritytan synlig).
 
 ## Fallgropar
 

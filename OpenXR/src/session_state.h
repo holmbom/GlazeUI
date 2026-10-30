@@ -154,15 +154,35 @@ struct PoseSample {
     bool orientationTracked = false;
 };
 
-// Handkontrollens läge och reglage, så som de lästs.
+// Handkontrollens läge och reglage, så som de lästs. Lägena och hastigheterna
+// ligger i spårningsrummet (OpenXR:s axlar); knapparna är redan lösta efter
+// dödzon, hysteres och profilens tillgängliga knappar.
 struct ControllerSample {
     PoseSample grip;
     PoseSample aim;
-    double stickX      = 0.0;
-    double stickY      = 0.0;
-    double trigger     = 0.0;
-    bool   selectDown  = false;
-    bool   stickActive = false;
+    PoseSample palm;
+    // Handens hastighet (grip) i spårningsrummet: m/s och rad/s.
+    bool velocityValid = false;
+    Vec3 linearVelocity;
+    Vec3 angularVelocity;
+    std::array<ButtonState, kButtonCount> buttons{};
+    double stickX = 0.0, stickY = 0.0;   // efter dödzonen
+    double padX   = 0.0, padY   = 0.0;
+    std::string profile;                 // den aktiva interaktionsprofilen, tom utan kontroll
+};
+
+// En handleds läge så som handspårningen gav det, i spårningsrummet.
+struct JointSample {
+    TrackingPose pose;
+    double       radius = 0.0;   // meter
+    bool         valid  = false;
+};
+
+struct HandSample {
+    bool active = false;
+    std::array<JointSample, 26> joints{};
+    double pinch = 0.0;
+    double grab  = 0.0;
 };
 
 // Ett ögas läge och synfält så som runtimen gav dem.
@@ -182,6 +202,9 @@ struct FrameRequest {
     TrackingPose  head;
     std::array<EyeView, 2>          eyes;
     std::array<ControllerSample, 2> controllers;
+    std::array<HandSample, 2>       hands;
+    std::vector<InputEvent>         events;         // knappflankerna sedan förra bildrutan
+    double floorHeight = 0.0;                       // golvets höjd i spårningsrummet (y), meter
     std::array<std::uint32_t, 2>    imageIndex{};   // bilden att rita i, per öga
 };
 
@@ -243,6 +266,11 @@ struct Run {
     // körs bara mellan `JobGate::begin` och `finish`, då XR-tråden väntar.
     OpenXrContext* context = nullptr;
     Actions*       actions = nullptr;
+    // Skyddar `context` och `actions` mot UI-trådens anrop utanför bildrutan
+    // (vibration, uppdateringsfrekvens): XR-tråden sätter och nollar pekarna
+    // under låset, och anropen använder dem under det.
+    std::mutex     apiMutex;
+    bool           refreshRateRequested = false;   // bara UI-tråden: `Options::refreshRate` begärd
 
     // Kvittot för det senaste bildrutejobbet; skrivs före `finish`, läses efter
     // `await`.

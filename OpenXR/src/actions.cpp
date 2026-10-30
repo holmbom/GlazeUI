@@ -3,49 +3,32 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <vector>
 
 namespace glaze::openxr::detail {
 
-namespace {
+// ----------------------------------------------------------- INDATALOGIKEN
 
-constexpr double kTriggerPress   = 0.55;   // över: nedtryckt
-constexpr double kTriggerRelease = 0.45;   // under: släppt
-
-const char* const kHandName[2] = {"/user/hand/left", "/user/hand/right"};
-
-enum class Input { Trigger, Select, Stick };
-
-struct Binding {
-    Input       input;
-    const char* path;   // efter handen
-};
-
-// En kontrollerprofil: dess sökväg och reglagen utöver poserna.
-struct Profile {
-    const char*          path;
-    bool                 needsBdExtension;
-    std::vector<Binding> inputs;
-};
-
-std::vector<Profile> profiles() {
-    return {
-        {"/interaction_profiles/khr/simple_controller", false,
-         {{Input::Select, "/input/select/click"}}},
-        {"/interaction_profiles/oculus/touch_controller", false,
-         {{Input::Trigger, "/input/trigger/value"}, {Input::Stick, "/input/thumbstick"}}},
-        {"/interaction_profiles/valve/index_controller", false,
-         {{Input::Trigger, "/input/trigger/value"}, {Input::Select, "/input/trigger/click"},
-          {Input::Stick, "/input/thumbstick"}}},
-        {"/interaction_profiles/bytedance/pico4_controller", true,
-         {{Input::Trigger, "/input/trigger/value"}, {Input::Select, "/input/trigger/click"},
-          {Input::Stick, "/input/thumbstick"}}},
-    };
+bool analogPressed(double value, bool wasPressed) noexcept {
+    if (value >= kPressThreshold) return true;
+    if (value <= kReleaseThreshold) return false;
+    return wasPressed;
 }
 
-// Spaken efter en radiell dödzon: noll innanför, annars skalad så att kanten
-// av dödzonen blir 0 och full utslag blir 1.
-void applyDeadzone(double& x, double& y, double deadzone) {
+ButtonState resolveButton(const RawButton& raw, bool wasPressed, bool available) noexcept {
+    ButtonState state;
+    state.available = available;
+    if (!available) return state;
+    if (raw.hasClick) {
+        state.pressed = raw.click;
+    } else if (raw.hasValue) {
+        state.pressed = analogPressed(raw.value, wasPressed);
+    }
+    state.value = raw.hasValue ? std::clamp(raw.value, 0.0, 1.0) : (state.pressed ? 1.0 : 0.0);
+    state.touched = raw.hasTouch && raw.touch;
+    return state;
+}
+
+void applyDeadzone(double& x, double& y, double deadzone) noexcept {
     const double magnitude = std::hypot(x, y);
     if (magnitude <= deadzone || magnitude <= 0.0) {
         x = 0.0;
@@ -58,14 +41,287 @@ void applyDeadzone(double& x, double& y, double deadzone) {
     y = y / magnitude * scaled;
 }
 
+void ButtonTracker::reset() noexcept {
+    state_ = {};
+    wasFocused_ = {};
+}
+
+void ButtonTracker::update(Hand hand, bool focused,
+                           const std::array<RawButton, kButtonCount>& raw,
+                           const std::array<bool, kButtonCount>& available,
+                           std::array<ButtonState, kButtonCount>& out,
+                           std::vector<InputEvent>& events) {
+    const std::size_t index = hand == Hand::Left ? 0 : 1;
+    std::array<Per, kButtonCount>& states = state_[index];
+    const bool regained = focused && !wasFocused_[index];
+    wasFocused_[index] = focused;
+
+    for (std::size_t b = 0; b < kButtonCount; ++b) {
+        Per& per = states[b];
+        ButtonState next;
+        next.available = available[b];
+        if (focused && available[b]) next = resolveButton(raw[b], per.rawPressed, true);
+
+        const bool rawPressed = next.pressed;
+        const bool rawTouched = next.touched;
+        if (regained) {
+            per.blockPressed = rawPressed;
+            per.blockTouched = rawTouched;
+        }
+        per.rawPressed = rawPressed;
+        per.rawTouched = rawTouched;
+        if (per.blockPressed) {
+            if (rawPressed) next.pressed = false;
+            else per.blockPressed = false;
+        }
+        if (per.blockTouched) {
+            if (rawTouched) next.touched = false;
+            else per.blockTouched = false;
+        }
+
+        const auto event = [&](InputKind kind) {
+            events.push_back(InputEvent{hand, static_cast<Button>(b), kind});
+        };
+        if (next.touched && !per.touched) event(InputKind::Touched);
+        if (next.pressed && !per.pressed) event(InputKind::Pressed);
+        if (!next.pressed && per.pressed) event(InputKind::Released);
+        if (!next.touched && per.touched) event(InputKind::Untouched);
+        per.pressed = next.pressed;
+        per.touched = next.touched;
+        out[b] = next;
+    }
+}
+
+// --------------------------------------------------------------- BINDNINGAR
+
+namespace {
+
+const char* const kHandName[2] = {"/user/hand/left", "/user/hand/right"};
+
+// Allt en kontroll kan ge, en action var. Namnen på knapparnas actions följer
+// `Button`; ett värde (analogt), ett klick och en beröring per knapp där
+// profilerna har dem.
+enum class Slot : std::uint8_t {
+    TriggerValue, TriggerClick, TriggerTouch,
+    SqueezeValue, SqueezeClick,
+    PrimaryClick, PrimaryTouch,
+    SecondaryClick, SecondaryTouch,
+    StickClick, StickTouch, StickAxes,
+    MenuClick,
+    ThumbrestTouch,
+    PadForce, PadClick, PadTouch, PadAxes,
+    GripPose, AimPose, PalmPose,
+    Haptic,
+    Count
+};
+constexpr std::size_t kSlotCount = static_cast<std::size_t>(Slot::Count);
+
+enum class Role : std::uint8_t { Value, Click, Touch, Axes, Pose, Haptic };
+
+struct SlotDef {
+    Slot           slot;
+    XrActionType   type;
+    const char*    name;
+    const char*    localized;
+    Button         button;   // knappen en Value/Click/Touch/Axes hör till
+    Role           role;
+};
+
+constexpr XrActionType kFloat   = XR_ACTION_TYPE_FLOAT_INPUT;
+constexpr XrActionType kBoolean = XR_ACTION_TYPE_BOOLEAN_INPUT;
+constexpr XrActionType kVector  = XR_ACTION_TYPE_VECTOR2F_INPUT;
+constexpr XrActionType kPose    = XR_ACTION_TYPE_POSE_INPUT;
+constexpr XrActionType kOutput  = XR_ACTION_TYPE_VIBRATION_OUTPUT;
+
+const SlotDef kSlots[kSlotCount] = {
+    {Slot::TriggerValue,   kFloat,   "trigger_value",   "Trigger value",    Button::Trigger,    Role::Value},
+    {Slot::TriggerClick,   kBoolean, "trigger_click",   "Trigger click",    Button::Trigger,    Role::Click},
+    {Slot::TriggerTouch,   kBoolean, "trigger_touch",   "Trigger touch",    Button::Trigger,    Role::Touch},
+    {Slot::SqueezeValue,   kFloat,   "squeeze_value",   "Squeeze value",    Button::Squeeze,    Role::Value},
+    {Slot::SqueezeClick,   kBoolean, "squeeze_click",   "Squeeze click",    Button::Squeeze,    Role::Click},
+    {Slot::PrimaryClick,   kBoolean, "primary_click",   "Primary click",    Button::Primary,    Role::Click},
+    {Slot::PrimaryTouch,   kBoolean, "primary_touch",   "Primary touch",    Button::Primary,    Role::Touch},
+    {Slot::SecondaryClick, kBoolean, "secondary_click", "Secondary click",  Button::Secondary,  Role::Click},
+    {Slot::SecondaryTouch, kBoolean, "secondary_touch", "Secondary touch",  Button::Secondary,  Role::Touch},
+    {Slot::StickClick,     kBoolean, "stick_click",     "Thumbstick click", Button::Thumbstick, Role::Click},
+    {Slot::StickTouch,     kBoolean, "stick_touch",     "Thumbstick touch", Button::Thumbstick, Role::Touch},
+    {Slot::StickAxes,      kVector,  "stick_axes",      "Thumbstick",       Button::Thumbstick, Role::Axes},
+    {Slot::MenuClick,      kBoolean, "menu_click",      "Menu click",       Button::Menu,       Role::Click},
+    {Slot::ThumbrestTouch, kBoolean, "thumbrest_touch", "Thumbrest touch",  Button::Thumbrest,  Role::Touch},
+    {Slot::PadForce,       kFloat,   "pad_force",       "Trackpad force",   Button::Trackpad,   Role::Value},
+    {Slot::PadClick,       kBoolean, "pad_click",       "Trackpad click",   Button::Trackpad,   Role::Click},
+    {Slot::PadTouch,       kBoolean, "pad_touch",       "Trackpad touch",   Button::Trackpad,   Role::Touch},
+    {Slot::PadAxes,        kVector,  "pad_axes",        "Trackpad",         Button::Trackpad,   Role::Axes},
+    {Slot::GripPose,       kPose,    "grip_pose",       "Grip",             Button::Count,      Role::Pose},
+    {Slot::AimPose,        kPose,    "aim_pose",        "Aim",              Button::Count,      Role::Pose},
+    {Slot::PalmPose,       kPose,    "palm_pose",       "Palm",             Button::Count,      Role::Pose},
+    {Slot::Haptic,         kOutput,  "haptic",          "Haptic",           Button::Count,      Role::Haptic},
+};
+
+enum class Side : std::uint8_t { Both, Left, Right };
+
+struct Binding {
+    Slot        slot;
+    Side        side;
+    const char* path;   // efter handens sökväg
+};
+
+constexpr Side LR = Side::Both;
+constexpr Side L  = Side::Left;
+constexpr Side R  = Side::Right;
+
+// Bara sökvägar som respektive profil definierar. Vänster och höger skiljer
+// sig åt där profilen döper knapparna olika (x/y mot a/b) eller bara har
+// menyknappen på ena handen.
+constexpr Binding kSimple[] = {
+    {Slot::TriggerClick, LR, "/input/select/click"},
+    {Slot::MenuClick,    LR, "/input/menu/click"},
+};
+
+constexpr Binding kTouch[] = {
+    {Slot::TriggerValue,    LR, "/input/trigger/value"},
+    {Slot::TriggerTouch,    LR, "/input/trigger/touch"},
+    {Slot::SqueezeValue,    LR, "/input/squeeze/value"},
+    {Slot::StickAxes,       LR, "/input/thumbstick"},
+    {Slot::StickClick,      LR, "/input/thumbstick/click"},
+    {Slot::StickTouch,      LR, "/input/thumbstick/touch"},
+    {Slot::ThumbrestTouch,  LR, "/input/thumbrest/touch"},
+    {Slot::PrimaryClick,    L,  "/input/x/click"},
+    {Slot::PrimaryClick,    R,  "/input/a/click"},
+    {Slot::PrimaryTouch,    L,  "/input/x/touch"},
+    {Slot::PrimaryTouch,    R,  "/input/a/touch"},
+    {Slot::SecondaryClick,  L,  "/input/y/click"},
+    {Slot::SecondaryClick,  R,  "/input/b/click"},
+    {Slot::SecondaryTouch,  L,  "/input/y/touch"},
+    {Slot::SecondaryTouch,  R,  "/input/b/touch"},
+    {Slot::MenuClick,       L,  "/input/menu/click"},
+};
+
+constexpr Binding kIndex[] = {
+    {Slot::TriggerValue,    LR, "/input/trigger/value"},
+    {Slot::TriggerClick,    LR, "/input/trigger/click"},
+    {Slot::TriggerTouch,    LR, "/input/trigger/touch"},
+    {Slot::SqueezeValue,    LR, "/input/squeeze/value"},
+    {Slot::PrimaryClick,    LR, "/input/a/click"},
+    {Slot::PrimaryTouch,    LR, "/input/a/touch"},
+    {Slot::SecondaryClick,  LR, "/input/b/click"},
+    {Slot::SecondaryTouch,  LR, "/input/b/touch"},
+    {Slot::StickAxes,       LR, "/input/thumbstick"},
+    {Slot::StickClick,      LR, "/input/thumbstick/click"},
+    {Slot::StickTouch,      LR, "/input/thumbstick/touch"},
+    {Slot::PadAxes,         LR, "/input/trackpad"},
+    {Slot::PadForce,        LR, "/input/trackpad/force"},
+    {Slot::PadTouch,        LR, "/input/trackpad/touch"},
+};
+
+constexpr Binding kPico4[] = {
+    {Slot::TriggerValue,    LR, "/input/trigger/value"},
+    {Slot::TriggerClick,    LR, "/input/trigger/click"},
+    {Slot::TriggerTouch,    LR, "/input/trigger/touch"},
+    {Slot::SqueezeValue,    LR, "/input/squeeze/value"},
+    {Slot::SqueezeClick,    LR, "/input/squeeze/click"},
+    {Slot::StickAxes,       LR, "/input/thumbstick"},
+    {Slot::StickClick,      LR, "/input/thumbstick/click"},
+    {Slot::StickTouch,      LR, "/input/thumbstick/touch"},
+    {Slot::ThumbrestTouch,  LR, "/input/thumbrest/touch"},
+    {Slot::PrimaryClick,    L,  "/input/x/click"},
+    {Slot::PrimaryClick,    R,  "/input/a/click"},
+    {Slot::PrimaryTouch,    L,  "/input/x/touch"},
+    {Slot::PrimaryTouch,    R,  "/input/a/touch"},
+    {Slot::SecondaryClick,  L,  "/input/y/click"},
+    {Slot::SecondaryClick,  R,  "/input/b/click"},
+    {Slot::SecondaryTouch,  L,  "/input/y/touch"},
+    {Slot::SecondaryTouch,  R,  "/input/b/touch"},
+    {Slot::MenuClick,       L,  "/input/menu/click"},
+};
+
+constexpr Binding kVive[] = {
+    {Slot::TriggerValue, LR, "/input/trigger/value"},
+    {Slot::TriggerClick, LR, "/input/trigger/click"},
+    {Slot::SqueezeClick, LR, "/input/squeeze/click"},
+    {Slot::MenuClick,    LR, "/input/menu/click"},
+    {Slot::PadAxes,      LR, "/input/trackpad"},
+    {Slot::PadClick,     LR, "/input/trackpad/click"},
+    {Slot::PadTouch,     LR, "/input/trackpad/touch"},
+};
+
+constexpr Binding kMotion[] = {
+    {Slot::TriggerValue, LR, "/input/trigger/value"},
+    {Slot::SqueezeClick, LR, "/input/squeeze/click"},
+    {Slot::MenuClick,    LR, "/input/menu/click"},
+    {Slot::StickAxes,    LR, "/input/thumbstick"},
+    {Slot::StickClick,   LR, "/input/thumbstick/click"},
+    {Slot::PadAxes,      LR, "/input/trackpad"},
+    {Slot::PadClick,     LR, "/input/trackpad/click"},
+    {Slot::PadTouch,     LR, "/input/trackpad/touch"},
+};
+
+// Posernas och haptikens sökvägar, gemensamma för alla profiler.
+constexpr Binding kCommon[] = {
+    {Slot::GripPose, LR, "/input/grip/pose"},
+    {Slot::AimPose,  LR, "/input/aim/pose"},
+    {Slot::Haptic,   LR, "/output/haptic"},
+};
+constexpr Binding kPalm = {Slot::PalmPose, LR, "/input/palm_ext/pose"};
+
+struct ProfileDef {
+    const char*    path;
+    bool           needsBdExtension;
+    const Binding* bindings;
+    std::size_t    count;
+};
+
+template <std::size_t N>
+constexpr ProfileDef profileDef(const char* path, bool needsBd, const Binding (&bindings)[N]) {
+    return ProfileDef{path, needsBd, bindings, N};
+}
+
+const ProfileDef kProfiles[] = {
+    profileDef("/interaction_profiles/khr/simple_controller", false, kSimple),
+    profileDef("/interaction_profiles/oculus/touch_controller", false, kTouch),
+    profileDef("/interaction_profiles/valve/index_controller", false, kIndex),
+    profileDef("/interaction_profiles/bytedance/pico4_controller", true, kPico4),
+    profileDef("/interaction_profiles/htc/vive_controller", false, kVive),
+    profileDef("/interaction_profiles/microsoft/motion_controller", false, kMotion),
+};
+constexpr std::size_t kProfileCount = sizeof(kProfiles) / sizeof(kProfiles[0]);
+
+bool appliesTo(Side side, int hand) {
+    return side == Side::Both || (side == Side::Left && hand == 0) || (side == Side::Right && hand == 1);
+}
+
 } // namespace
+
+// Allt Actions håller som kräver typerna ovan.
+struct Actions::ProfileInfo {
+    std::string path;
+    XrPath      xrPath = XR_NULL_PATH;
+    bool        accepted = false;
+    // Knapparna profilen har per hand, ur bindningarna runtimen tog emot.
+    std::array<std::array<bool, kButtonCount>, 2> available{};
+};
+
+struct Actions::Impl {
+    std::array<XrAction, kSlotCount> actions{};
+    std::vector<ProfileInfo>         profiles;
+    std::array<int, 2>               current{-1, -1};   // index i `profiles`, −1 = okänd eller ingen
+    std::array<std::string, 2>       currentPath;       // profilens sökväg, tom utan kontroll
+};
+
+// ---------------------------------------------------------------- SKAPANDET
+
+Actions::Actions(const OpenXrContext& context, const Options& options)
+    : context_(context), options_(options) {}
 
 std::unique_ptr<Actions> Actions::create(const OpenXrContext& context, const Options& options,
                                          std::string& error) {
     std::unique_ptr<Actions> self(new Actions(context, options));
+    self->impl_ = std::make_unique<Impl>();
+    Impl& impl = *self->impl_;
     const XrFunctions& fn = context.fn();
     const XrInstance instance = context.instance();
     const XrSession session = context.session();
+    const bool palm = context.extensions().palmPose;
 
     const auto fail = [&](const char* call, XrResult r) {
         error = context.describe(call, r);
@@ -90,70 +346,109 @@ std::unique_ptr<Actions> Actions::create(const OpenXrContext& context, const Opt
         return fail("xrCreateActionSet", r);
     }
 
-    const auto makeAction = [&](XrActionType type, const char* name, const char* localized, XrAction& out) {
+    for (const SlotDef& def : kSlots) {
+        if (def.slot == Slot::PalmPose && !palm) continue;
         auto info = xrStruct<XrActionCreateInfo>(XR_TYPE_ACTION_CREATE_INFO);
-        info.actionType = type;
-        std::snprintf(info.actionName, sizeof(info.actionName), "%s", name);
-        std::snprintf(info.localizedActionName, sizeof(info.localizedActionName), "%s", localized);
+        info.actionType = def.type;
+        std::snprintf(info.actionName, sizeof(info.actionName), "%s", def.name);
+        std::snprintf(info.localizedActionName, sizeof(info.localizedActionName), "%s", def.localized);
         info.countSubactionPaths = 2;
         info.subactionPaths = self->handPaths_.data();
-        const XrResult r = fn.xrCreateAction(self->actionSet_, &info, &out);
-        if (XR_FAILED(r)) {
-            out = XR_NULL_HANDLE;
-            error = context.describe("xrCreateAction", r);
-            return false;
+        XrAction& action = impl.actions[static_cast<std::size_t>(def.slot)];
+        if (const XrResult r = fn.xrCreateAction(self->actionSet_, &info, &action); XR_FAILED(r)) {
+            action = XR_NULL_HANDLE;
+            return fail("xrCreateAction", r);
         }
-        return true;
-    };
-    if (!makeAction(XR_ACTION_TYPE_POSE_INPUT, "grip_pose", "Grip", self->gripPose_) ||
-        !makeAction(XR_ACTION_TYPE_POSE_INPUT, "aim_pose", "Aim", self->aimPose_) ||
-        !makeAction(XR_ACTION_TYPE_FLOAT_INPUT, "trigger", "Trigger", self->trigger_) ||
-        !makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "select", "Select", self->select_) ||
-        !makeAction(XR_ACTION_TYPE_VECTOR2F_INPUT, "stick", "Stick", self->stick_)) {
-        return nullptr;
     }
 
-    // Föreslagna bindningar per profil. En avvisad profil stoppar inte sessionen.
-    for (const Profile& profile : profiles()) {
-        if (profile.needsBdExtension && !context.bdControllerExtension()) continue;
-        XrPath profilePath = XR_NULL_PATH;
-        if (!path(profile.path, profilePath)) {
-            self->skipped_ += std::string(profile.path) + " (okänd sökväg); ";
+    // Föreslagna bindningar per profil. En avvisad profil stoppar inte
+    // sessionen: tas alla bindningar emot på en gång är det klart; annars
+    // provas de en och en ovanpå posernas, så att det runtimen godtar blir kvar
+    // (en profil tar bara emot hela uppsättningar, och den senaste lyckade
+    // gäller).
+    struct Entry {
+        Slot     slot;
+        int      hand;
+        XrAction action;
+        XrPath   path;
+    };
+    for (const ProfileDef& def : kProfiles) {
+        ProfileInfo info;
+        info.path = def.path;
+        if (def.needsBdExtension && !context.extensions().bdController) {
+            impl.profiles.push_back(std::move(info));
             continue;
         }
-        std::vector<XrActionSuggestedBinding> bindings;
-        const auto add = [&](XrAction action, const std::string& text) {
-            XrPath p = XR_NULL_PATH;
-            if (path(text, p)) bindings.push_back(XrActionSuggestedBinding{action, p});
+        if (!path(def.path, info.xrPath)) {
+            self->skipped_ += std::string(def.path) + " (okänd sökväg); ";
+            impl.profiles.push_back(std::move(info));
+            continue;
+        }
+
+        const auto makeEntries = [&](const Binding& b, std::vector<Entry>& into) {
+            const XrAction action = impl.actions[static_cast<std::size_t>(b.slot)];
+            if (action == XR_NULL_HANDLE) return;
+            for (int hand = 0; hand < 2; ++hand) {
+                if (!appliesTo(b.side, hand)) continue;
+                XrPath xr = XR_NULL_PATH;
+                if (path(std::string(kHandName[hand]) + b.path, xr)) into.push_back({b.slot, hand, action, xr});
+            }
         };
-        for (int hand = 0; hand < 2; ++hand) {
-            const std::string prefix = kHandName[hand];
-            add(self->gripPose_, prefix + "/input/grip/pose");
-            add(self->aimPose_, prefix + "/input/aim/pose");
-            for (const Binding& b : profile.inputs) {
-                const XrAction action = b.input == Input::Trigger ? self->trigger_
-                                      : b.input == Input::Select  ? self->select_
-                                                                  : self->stick_;
-                add(action, prefix + b.path);
+        // Poserna är kärnan; resten kan avvisas av en enskild runtime.
+        std::vector<Entry> core;
+        std::vector<Entry> optional;
+        for (const Binding& b : kCommon) makeEntries(b, b.slot == Slot::Haptic ? optional : core);
+        if (palm) makeEntries(kPalm, optional);
+        for (std::size_t i = 0; i < def.count; ++i) makeEntries(def.bindings[i], optional);
+
+        const auto suggest = [&](const std::vector<Entry>& entries) {
+            std::vector<XrActionSuggestedBinding> bindings;
+            bindings.reserve(entries.size());
+            for (const Entry& e : entries) bindings.push_back(XrActionSuggestedBinding{e.action, e.path});
+            auto suggestion = xrStruct<XrInteractionProfileSuggestedBinding>(XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING);
+            suggestion.interactionProfile = info.xrPath;
+            suggestion.countSuggestedBindings = static_cast<std::uint32_t>(bindings.size());
+            suggestion.suggestedBindings = bindings.data();
+            return XR_SUCCEEDED(fn.xrSuggestInteractionProfileBindings(instance, &suggestion));
+        };
+
+        std::vector<Entry> accepted = core;
+        accepted.insert(accepted.end(), optional.begin(), optional.end());
+        if (suggest(accepted)) {
+            info.accepted = true;
+        } else if (suggest(core)) {
+            // Något i uppsättningen avvisades: behåll bara det som godtas.
+            info.accepted = true;
+            accepted = core;
+            for (const Entry& e : optional) {
+                std::vector<Entry> trial = accepted;
+                trial.push_back(e);
+                if (suggest(trial)) accepted = std::move(trial);
+            }
+        } else {
+            self->skipped_ += std::string(def.path) + " (avvisad av runtimen); ";
+            accepted.clear();
+        }
+
+        for (const Entry& e : accepted) {
+            const SlotDef& slotDef = kSlots[static_cast<std::size_t>(e.slot)];
+            if (slotDef.button != Button::Count) {
+                info.available[static_cast<std::size_t>(e.hand)][static_cast<std::size_t>(slotDef.button)] = true;
             }
         }
-        auto suggest = xrStruct<XrInteractionProfileSuggestedBinding>(XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING);
-        suggest.interactionProfile = profilePath;
-        suggest.countSuggestedBindings = static_cast<std::uint32_t>(bindings.size());
-        suggest.suggestedBindings = bindings.data();
-        if (XR_FAILED(fn.xrSuggestInteractionProfileBindings(instance, &suggest))) {
-            self->skipped_ += std::string(profile.path) + " (avvisad av runtimen); ";
-        }
+        impl.profiles.push_back(std::move(info));
     }
 
     // Rummen för poserna, per hand.
-    for (int hand = 0; hand < 2; ++hand) {
-        for (int kind = 0; kind < 2; ++kind) {
+    const Slot poseSlots[3] = {Slot::GripPose, Slot::AimPose, Slot::PalmPose};
+    for (std::size_t kind = 0; kind < 3; ++kind) {
+        if (poseSlots[kind] == Slot::PalmPose && !palm) continue;
+        for (std::size_t hand = 0; hand < 2; ++hand) {
             auto info = xrStruct<XrActionSpaceCreateInfo>(XR_TYPE_ACTION_SPACE_CREATE_INFO);
-            info.action = kind == 0 ? self->gripPose_ : self->aimPose_;
+            info.action = impl.actions[static_cast<std::size_t>(poseSlots[kind])];
             info.subactionPath = self->handPaths_[hand];
             info.poseInActionSpace.orientation.w = 1.0f;
-            XrSpace& space = kind == 0 ? self->gripSpaces_[hand] : self->aimSpaces_[hand];
+            XrSpace& space = self->spaces_[kind][hand];
             if (const XrResult r = fn.xrCreateActionSpace(session, &info, &space); XR_FAILED(r)) {
                 space = XR_NULL_HANDLE;
                 return fail("xrCreateActionSpace", r);
@@ -172,22 +467,28 @@ std::unique_ptr<Actions> Actions::create(const OpenXrContext& context, const Opt
 
 Actions::~Actions() {
     const XrFunctions& fn = context_.fn();
-    for (XrSpace space : gripSpaces_) {
-        if (space != XR_NULL_HANDLE) fn.xrDestroySpace(space);
+    for (auto& kind : spaces_) {
+        for (XrSpace space : kind) {
+            if (space != XR_NULL_HANDLE) fn.xrDestroySpace(space);
+        }
     }
-    for (XrSpace space : aimSpaces_) {
-        if (space != XR_NULL_HANDLE) fn.xrDestroySpace(space);
-    }
-    for (XrAction action : {gripPose_, aimPose_, trigger_, select_, stick_}) {
-        if (action != XR_NULL_HANDLE) fn.xrDestroyAction(action);
+    if (impl_) {
+        for (XrAction action : impl_->actions) {
+            if (action != XR_NULL_HANDLE) fn.xrDestroyAction(action);
+        }
     }
     if (actionSet_ != XR_NULL_HANDLE) fn.xrDestroyActionSet(actionSet_);
 }
 
-bool Actions::locate(XrSpace space, XrTime time, PoseSample& out) const {
+// ------------------------------------------------------------------- LÄSNING
+
+bool Actions::locate(XrSpace space, XrTime time, PoseSample& out, ControllerSample* velocity) const {
     out = PoseSample{};
+    if (space == XR_NULL_HANDLE) return true;
+    auto velocityState = xrStruct<XrSpaceVelocity>(XR_TYPE_SPACE_VELOCITY);
     auto location = xrStruct<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
-    if (XR_FAILED(context_.fn().xrLocateSpace(space, context_.localSpace(), time, &location))) {
+    if (velocity) location.next = &velocityState;
+    if (XR_FAILED(context_.fn().xrLocateSpace(space, context_.trackingSpace(), time, &location))) {
         return true;   // ett läge som saknas är ingen felsituation
     }
     const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
@@ -195,12 +496,62 @@ bool Actions::locate(XrSpace space, XrTime time, PoseSample& out) const {
     out.positionTracked = (location.locationFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) != 0;
     out.orientationTracked = (location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT) != 0;
     out.pose = fromXr(location.pose);
+    if (velocity) {
+        const XrSpaceVelocityFlags both = XR_SPACE_VELOCITY_LINEAR_VALID_BIT | XR_SPACE_VELOCITY_ANGULAR_VALID_BIT;
+        velocity->velocityValid = out.valid && (velocityState.velocityFlags & both) == both;
+        if (velocity->velocityValid) {
+            velocity->linearVelocity = Vec3{velocityState.linearVelocity.x, velocityState.linearVelocity.y,
+                                            velocityState.linearVelocity.z};
+            velocity->angularVelocity = Vec3{velocityState.angularVelocity.x, velocityState.angularVelocity.y,
+                                             velocityState.angularVelocity.z};
+        }
+    }
     return true;
 }
 
-bool Actions::sync(XrTime time, bool focused, std::array<ControllerSample, 2>& out, std::string& error) {
+void Actions::refreshProfiles() {
+    const XrFunctions& fn = context_.fn();
+    Impl& impl = *impl_;
+    for (std::size_t hand = 0; hand < 2; ++hand) {
+        auto state = xrStruct<XrInteractionProfileState>(XR_TYPE_INTERACTION_PROFILE_STATE);
+        impl.current[hand] = -1;
+        impl.currentPath[hand].clear();
+        if (XR_FAILED(fn.xrGetCurrentInteractionProfile(context_.session(), handPaths_[hand], &state)) ||
+            state.interactionProfile == XR_NULL_PATH) {
+            continue;
+        }
+        for (std::size_t i = 0; i < impl.profiles.size(); ++i) {
+            if (impl.profiles[i].xrPath == state.interactionProfile) {
+                impl.current[hand] = static_cast<int>(i);
+                impl.currentPath[hand] = impl.profiles[i].path;
+                break;
+            }
+        }
+        if (impl.current[hand] < 0) {
+            // En profil vi inte föreslagit bindningar för (runtimen har valt
+            // den ändå): bara namnet.
+            std::uint32_t count = 0;
+            char text[XR_MAX_PATH_LENGTH] = {};
+            if (XR_SUCCEEDED(fn.xrPathToString(context_.instance(), state.interactionProfile,
+                                               XR_MAX_PATH_LENGTH, &count, text))) {
+                impl.currentPath[hand] = text;
+            }
+        }
+    }
+}
+
+bool Actions::sync(XrTime time, bool focused, std::uint64_t focusEpoch,
+                   std::array<ControllerSample, 2>& out, std::vector<InputEvent>& events,
+                   std::string& error) {
     const XrFunctions& fn = context_.fn();
     const XrSession session = context_.session();
+    Impl& impl = *impl_;
+    events.clear();
+
+    if (focusEpoch != epoch_) {
+        epoch_ = focusEpoch;
+        tracker_.reset();
+    }
 
     if (focused) {
         XrActiveActionSet active{actionSet_, XR_NULL_PATH};
@@ -213,55 +564,115 @@ bool Actions::sync(XrTime time, bool focused, std::array<ControllerSample, 2>& o
             return false;
         }
         // XR_SESSION_NOT_FOCUSED: fokus gick förlorat mellan tillståndsbytet
-        // och anropet; reglagen läses som släppta.
+        // och anropet; knapparna läses som släppta.
         if (r == XR_SESSION_NOT_FOCUSED) focused = false;
     }
+    focused_ = focused;
+
+    // Profilerna frågas när runtimen sagt att de bytts, och tills varje hand
+    // fått en (den kommer först när kontrollen börjat användas).
+    if (profileDirty_.exchange(false) || impl.currentPath[0].empty() || impl.currentPath[1].empty()) {
+        refreshProfiles();
+    }
+
+    const auto actionOf = [&](Slot slot) { return impl.actions[static_cast<std::size_t>(slot)]; };
 
     for (std::size_t hand = 0; hand < 2; ++hand) {
         ControllerSample sample;
-        locate(gripSpaces_[hand], time, sample.grip);
-        locate(aimSpaces_[hand], time, sample.aim);
+        locate(spaces_[0][hand], time, sample.grip, &sample);
+        locate(spaces_[1][hand], time, sample.aim, nullptr);
+        locate(spaces_[2][hand], time, sample.palm, nullptr);
+        sample.profile = impl.currentPath[hand];
 
-        if (!focused) {
-            triggerDown_[hand] = false;
-            out[hand] = sample;
-            continue;
+        std::array<RawButton, kButtonCount> raw{};
+        std::array<bool, kButtonCount> available{};
+        const int profile = impl.current[hand];
+        if (profile >= 0) available = impl.profiles[static_cast<std::size_t>(profile)].available[hand];
+
+        if (focused) {
+            auto getInfo = xrStruct<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO);
+            getInfo.subactionPath = handPaths_[hand];
+            for (const SlotDef& def : kSlots) {
+                if (def.role == Role::Pose || def.role == Role::Haptic) continue;
+                const XrAction action = actionOf(def.slot);
+                if (action == XR_NULL_HANDLE) continue;
+                getInfo.action = action;
+                const std::size_t b = static_cast<std::size_t>(def.button);
+                switch (def.type) {
+                case XR_ACTION_TYPE_FLOAT_INPUT: {
+                    auto state = xrStruct<XrActionStateFloat>(XR_TYPE_ACTION_STATE_FLOAT);
+                    if (XR_SUCCEEDED(fn.xrGetActionStateFloat(session, &getInfo, &state)) && state.isActive) {
+                        raw[b].hasValue = true;
+                        raw[b].value = state.currentState;
+                        available[b] = true;
+                    }
+                    break;
+                }
+                case XR_ACTION_TYPE_BOOLEAN_INPUT: {
+                    auto state = xrStruct<XrActionStateBoolean>(XR_TYPE_ACTION_STATE_BOOLEAN);
+                    if (XR_SUCCEEDED(fn.xrGetActionStateBoolean(session, &getInfo, &state)) && state.isActive) {
+                        const bool value = state.currentState == XR_TRUE;
+                        if (def.role == Role::Click) {
+                            raw[b].hasClick = true;
+                            raw[b].click = value;
+                        } else {
+                            raw[b].hasTouch = true;
+                            raw[b].touch = value;
+                        }
+                        available[b] = true;
+                    }
+                    break;
+                }
+                case XR_ACTION_TYPE_VECTOR2F_INPUT: {
+                    auto state = xrStruct<XrActionStateVector2f>(XR_TYPE_ACTION_STATE_VECTOR2F);
+                    if (XR_SUCCEEDED(fn.xrGetActionStateVector2f(session, &getInfo, &state)) && state.isActive) {
+                        double x = state.currentState.x;
+                        double y = state.currentState.y;
+                        if (def.slot == Slot::StickAxes) {
+                            applyDeadzone(x, y, options_.stickDeadzone);
+                            sample.stickX = x;
+                            sample.stickY = y;
+                        } else {
+                            sample.padX = std::clamp(x, -1.0, 1.0);
+                            sample.padY = std::clamp(y, -1.0, 1.0);
+                        }
+                        available[b] = true;
+                    }
+                    break;
+                }
+                default:
+                    break;
+                }
+            }
         }
 
-        auto getInfo = xrStruct<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO);
-        getInfo.subactionPath = handPaths_[hand];
-
-        double triggerValue = 0.0;
-        getInfo.action = trigger_;
-        auto triggerState = xrStruct<XrActionStateFloat>(XR_TYPE_ACTION_STATE_FLOAT);
-        if (XR_SUCCEEDED(fn.xrGetActionStateFloat(session, &getInfo, &triggerState)) && triggerState.isActive) {
-            triggerValue = std::clamp(static_cast<double>(triggerState.currentState), 0.0, 1.0);
-        }
-        sample.trigger = triggerValue;
-        if (triggerValue >= kTriggerPress) triggerDown_[hand] = true;
-        else if (triggerValue <= kTriggerRelease) triggerDown_[hand] = false;
-
-        bool selectValue = false;
-        getInfo.action = select_;
-        auto selectState = xrStruct<XrActionStateBoolean>(XR_TYPE_ACTION_STATE_BOOLEAN);
-        if (XR_SUCCEEDED(fn.xrGetActionStateBoolean(session, &getInfo, &selectState)) && selectState.isActive) {
-            selectValue = selectState.currentState == XR_TRUE;
-        }
-        sample.selectDown = triggerDown_[hand] || selectValue;
-
-        getInfo.action = stick_;
-        auto stickState = xrStruct<XrActionStateVector2f>(XR_TYPE_ACTION_STATE_VECTOR2F);
-        if (XR_SUCCEEDED(fn.xrGetActionStateVector2f(session, &getInfo, &stickState)) && stickState.isActive) {
-            sample.stickActive = true;
-            double x = stickState.currentState.x;
-            double y = stickState.currentState.y;
-            applyDeadzone(x, y, options_.stickDeadzone);
-            sample.stickX = x;
-            sample.stickY = y;
-        }
-        out[hand] = sample;
+        tracker_.update(hand == 0 ? Hand::Left : Hand::Right, focused, raw, available, sample.buttons, events);
+        out[hand] = std::move(sample);
     }
     return true;
+}
+
+// ----------------------------------------------------------------- VIBRATION
+
+bool Actions::vibrate(Hand hand, double amplitude, double seconds, double frequencyHz) {
+    if (!focused_) return false;
+    if (!std::isfinite(amplitude) || !std::isfinite(seconds) || !std::isfinite(frequencyHz)) return false;
+    auto vibration = xrStruct<XrHapticVibration>(XR_TYPE_HAPTIC_VIBRATION);
+    vibration.amplitude = static_cast<float>(std::clamp(amplitude, 0.0, 1.0));
+    vibration.duration = seconds > 0.0 ? static_cast<XrDuration>(seconds * 1e9) : XR_MIN_HAPTIC_DURATION;
+    vibration.frequency = frequencyHz > 0.0 ? static_cast<float>(frequencyHz) : XR_FREQUENCY_UNSPECIFIED;
+    auto info = xrStruct<XrHapticActionInfo>(XR_TYPE_HAPTIC_ACTION_INFO);
+    info.action = impl_->actions[static_cast<std::size_t>(Slot::Haptic)];
+    info.subactionPath = handPaths_[hand == Hand::Left ? 0 : 1];
+    return context_.fn().xrApplyHapticFeedback(context_.session(), &info,
+                                               reinterpret_cast<const XrHapticBaseHeader*>(&vibration)) == XR_SUCCESS;
+}
+
+void Actions::stopVibration(Hand hand) {
+    auto info = xrStruct<XrHapticActionInfo>(XR_TYPE_HAPTIC_ACTION_INFO);
+    info.action = impl_->actions[static_cast<std::size_t>(Slot::Haptic)];
+    info.subactionPath = handPaths_[hand == Hand::Left ? 0 : 1];
+    context_.fn().xrStopHapticFeedback(context_.session(), &info);
 }
 
 } // namespace glaze::openxr::detail

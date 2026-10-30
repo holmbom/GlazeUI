@@ -6404,26 +6404,43 @@ Previewn (glaze-render, GlazeBuilder) visar en TOM terminal i rätt färger och 
 
 <!-- END:terminal -->
 
-<!-- BEGIN:openxr | openxr vr xr headset virtual-reality pc-vr stereo huvudspårning head-tracking handkontroller controllers stråle ray castray förflyttning locomotion glaze_openxr glaze_openxr_ui session -->
+<!-- BEGIN:openxr | openxr vr xr headset virtual-reality pc-vr stereo huvudspårning head-tracking handkontroller controllers stråle ray castray hover förflyttning locomotion teleport teleportering grepp greppa grip grab followgrab twohandmanipulate haptik vibration handspårning hand-tracking trackedhand placement toplacement fromplacement anchor förankring referensrum referencespace snapp snaptogrid surfaceframe ballisticarc groundz glaze_openxr glaze_openxr_ui session -->
 ## OpenXR — en Canvas-scen i ett PC-VR-headset (`openxr`)
 
-**Alias:** openxr, vr, xr, headset, virtual-reality, pc-vr, stereo, huvudspårning, head-tracking, handkontroller, controllers, stråle, ray, castray, förflyttning, locomotion, glaze_openxr, glaze_openxr_ui, session
-**Include:** `#include <glaze_openxr/session.h>` · **CMake:** `glaze_openxr_ui` (med `-DGLAZE_OPENXR=ON`) · **Källa:** [session.h](OpenXR/include/glaze_openxr/session.h), [math.h](OpenXR/include/glaze_openxr/math.h), [CLAUDE.md](OpenXR/CLAUDE.md)
+**Alias:** openxr, vr, xr, headset, virtual-reality, pc-vr, stereo, huvudspårning, head-tracking, handkontroller, controllers, stråle, ray, castray, hover, förflyttning, locomotion, teleport, teleportering, grepp, greppa, grip, grab, followgrab, twohandmanipulate, haptik, vibration, handspårning, hand-tracking, trackedhand, placement, toplacement, fromplacement, anchor, förankring, referensrum, referencespace, snapp, snaptogrid, surfaceframe, ballisticarc, groundz, glaze_openxr, glaze_openxr_ui, session
+**Include:** `#include <glaze_openxr/session.h>` (matematiken: `<glaze_openxr/math.h>`) · **CMake:** `glaze_openxr_ui` (med `-DGLAZE_OPENXR=ON`) · **Källa:** [session.h](OpenXR/include/glaze_openxr/session.h), [math.h](OpenXR/include/glaze_openxr/math.h), [CLAUDE.md](OpenXR/CLAUDE.md)
 
-`glaze::openxr::Session` visar en befintlig `glaze::Canvas`-scen med `Camera3D` i ett PC-VR-headset genom OpenXR — den runtime som är aktiv på datorn, oftast registrerad av headsetets PC-programvara. Huvudet spåras i stereo och världen står still, vänster spak går och sidstegar, höger spak vrider, och avtryckaren skjuter en stråle genom `Canvas::castRay` till appens `onPick`. Canvas ritar scenen DIREKT i headsetets bilder: på fönstrets egen D3D11-enhet, med varje ögas asymmetriska frustum, i runtimens fulla rekommenderade upplösning (aldrig nedskalad) och med MSAA. Paketet har ingen egen 3D-motor och ingen CPU-kopia av bilderna. OpenXR-anropen för väntan och bildinhämtning sköts i en egen tråd; allt som rör Canvas och grafikenheten sker i UI-tråden. Medan en session kör ritas skrivbordet osynkat och högst 30 gånger per sekund, så att fönstrets present aldrig blockerar headsetets takt. Sidopaketet `OpenXR/` — `glaze` länkar det aldrig, och det finns bara på Windows.
+`glaze::openxr::Session` visar en befintlig `glaze::Canvas`-scen i ett PC-VR-headset genom OpenXR — den runtime som är aktiv på datorn. Huvudet och händerna spåras, och appen får alla knappar, kontrollernas poser och hastigheter, strålar som varje bildruta träffar scenen, handleder om runtimen har handspårning, vibration och uppdateringsfrekvensen. Förflyttningen är inbyggd (gå, flyga, vrida, teleportera, greppa världen) men kan stängas av helt och göras av appen. Canvas ritar scenen DIREKT i headsetets bilder: på fönstrets egen D3D11-enhet, med varje ögas asymmetriska frustum, i runtimens fulla rekommenderade upplösning (aldrig nedskalad) och med MSAA. Paketet har ingen egen 3D-motor och ingen CPU-kopia av bilderna. Väntan på bildrutorna sköts i en egen tråd; allt som rör Canvas, grafikenheten och alla callbacks sker i UI-tråden. Medan en session kör ritas skrivbordet osynkat och högst 30 gånger per sekund. Sidopaketet `OpenXR/` — `glaze` länkar det aldrig, och det finns bara på Windows.
+
+Scenen har en världsenhet per meter och z upp. Startläget tas ur ritytans kamera: en `Camera3D` (`UpAxis::Z`) ger ögat och blicken, annars används kartkameran (kräver ett öppet fönster med synlig rityta). Huvudet börjar där skärmens öga står, vänt dit det tittar.
 
 ### API
-- `Session(glaze::Canvas& canvas, Callbacks callbacks)` · `~Session()` (stoppar och väntar in sin tråd) — ej kopierbar eller flyttbar.
-- `void start(const Options& options = {})` — asynkront; förankringen tas ur canvasens kamera (huvudet i `eye()`, blicken mot `azimuth`) · `void requestStop()` — blockerar inte · `State state() const` — `Stopped`, `Starting`, `Waiting`, `Running`, `Stopping`, `Failed`.
-- `Options` i fältordning: `msaaSamples` (4; 4, 2 eller 1 — kantutjämningen i ögonen; bilderna har alltid runtimens rekommenderade mått), `moveMetresPerSecond` (1), `turnDegreesPerSecond` (60), `stickDeadzone` (0,2), `rayLengthMetres` (20), `nearMetres` (0,05), `farMetres` (1000).
-- `Callbacks`: `onStatus(const Status&)` (`state` + `message` — felen som text) · `onFrame(const FrameInfo&)` (före ritningen: `controllers[0]` vänster, `[1]` höger, med `grip`/`aim` som `WorldPose` i världen, spak och avtryckare) · `onPick(const PickEvent&)` (en gång per nytt avtryck: `hand`, `ray`, `hits` närmast först). Alla i UI-tråden.
-- Kärnan (`glaze_openxr`, `<glaze_openxr/math.h>`) är ren std: `makeAnchor`, `toWorldPose`, `cameraAngles`.
+- `Session(glaze::Canvas& canvas, Callbacks callbacks)` · `~Session()` (stoppar och väntar in sin tråd) — ej kopierbar eller flyttbar. Canvas lever längre än sessionen.
+- `void start(const Options& = {})` — asynkront · `void requestStop()` — blockerar inte · `State state() const` — `Stopped`, `Starting`, `Waiting`, `Running`, `Stopping`, `Failed`.
+- `Callbacks` (UI-tråden; får anropa sessionens metoder men inte förstöra sessionen): `onStatus(const Status&)` (`state` + `message`) · `onFrame(const FrameInfo&)` (före ritningen av båda ögonen) · `onInput(const InputEvent&, const FrameInfo&)` (en gång per knapphändelse, före `onFrame` i samma bildruta).
+- `FrameInfo`: `sequence`, `deltaSeconds` (högst 0,1), `focused`, `anchor` (efter den inbyggda förflyttningen), `head` och `eyes[2]` (`TrackedPose`), `controllers[2]`, `hands[2]` (`TrackedHand`), `events` (bildrutans `InputEvent`). Index 0 är vänster, 1 höger.
+- `TrackedPose`: `pose` (`std::optional<WorldPose>`, tom när runtimen saknar den), `positionTracked`, `orientationTracked`.
+- `InputEvent`: `hand` (`Hand::Left`/`Right`), `button`, `kind` (`InputKind::Pressed`, `Released`, `Touched`, `Untouched`).
+- `Button`: `Trigger`, `Squeeze`, `Primary` (A/X), `Secondary` (B/Y), `Thumbstick`, `Menu`, `Thumbrest`, `Trackpad` (`kButtonCount` antal). `ButtonState`: `available` (profilen har knappen), `pressed`, `touched`, `value` (0 … 1 för analoga).
+- `Controller`: `grip`, `aim` (strålens origo och forward) och `palm` som `TrackedPose` · `linearVelocity`, `angularVelocity`, `velocityValid` (för kast och tröghet) · `buttons[kButtonCount]` · `stickX/stickY` och `padX/padY` (−1 … 1, spaken efter dödzonen) · `profile` (interaktionsprofilens OpenXR-sökväg, tom utan kontroll) · `ray` (`std::optional<Ray3>` ur `aim`) och `hover` (`std::vector<HitResult>`, närmast först) · `arc` (teleporteringens punkter medan den visas) och `arcHit` (var den landar).
+- `TrackedHand` (`Options::handTracking`): `active`, `joints[26]` i OpenXR:s ordning (`HandJoint`: `pose`, `radius`, `valid`), `pinch` och `grab` (0 … 1).
+- `Options` i fältordning: `msaaSamples` (4; 4, 2 eller 1) · `referenceSpace` (`ReferenceSpace::LocalFloor`; `Local` sittande, `Stage` rummet med gränser; en som runtimen saknar ger `Local`) · `locomotion` · `stickDeadzone` (0,2) · `hover` (true) · `hoverOptions` (`defaultHoverOptions()`: `occlusion` på) · `rayLengthMetres` (20) · `groundZ` (`std::optional<double>`, reservmarken) · `handTracking` (false) · `refreshRate` (Hz; 0 = runtimens förval) · `nearMetres` (0,05) · `farMetres` (1000). Bilderna har alltid runtimens rekommenderade mått.
+- `Locomotion` (inbyggd förflyttning; farter i meter i rummet, `Anchor::scale` gör dem till världsenheter): `move` (`MoveMode::Walk` i planet, `Fly` längs blicken, `None`; vänster spak) · `turn` (`TurnMode::Smooth`, `Snap`, `None`; höger spak i sidled) · `moveAlongHand` (riktningen ur vänster hands sikte) · `moveMetresPerSecond` (1,5) · `turnDegreesPerSecond` (90) · `snapDegrees` (30) · `teleport` (false; höger spak framåt visar vägen, släppt flyttas användaren dit den landar på en yta) · `teleportPath` (`Locomotion::Path::Arc` eller `Straight`) · `teleportSpeed` (8) · `teleportGravity` (9,81) · `grabWorld` (false; greppknappen på en hand drar världen, på båda händerna vrids den kring vertikalen och skalas) · `minScale` (0,01) · `maxScale` (1000).
+- `Anchor anchor() const` · `void setAnchor(const Anchor&)` (gäller från nästa bildruta) · `void recenter(double yawDegrees)` (huvudet där det står, vänt mot yaw, samma skala) · `bool teleportTo(Vec3 feet, std::optional<double> yawDegrees = {})` (fötterna på `feet`, huvudet på sin höjd, skalan oförändrad; direkt i nästa bildruta; false utan körande session) · `void setLocomotion(const Locomotion&)`.
+- `Anchor`: `origin`, `yawDegrees` (kompassriktning, 0 = norr, medurs) och `scale` — världsenheter per meter i rummet: 1 naturlig storlek, 10 ses världen som en modell, 0,1 förstorad.
+- `bool vibrate(Hand, double amplitude, double seconds, double frequencyHz = 0.0)` (styrka 0 … 1; 0 sekunder = runtimens kortaste; false utan session eller fokus) · `void stopVibration(Hand)`.
+- `std::vector<float> refreshRates() const` · `bool setRefreshRate(float hz)` — tomt respektive false när runtimen inte kan byta.
+- `std::vector<glaze::HitResult> castRay(const glaze::Ray3&, const glaze::HitOptions& = {}) const` — en egen stråle (blick, pekare, kast), räknad mot headsetets vy; tom utan körande session.
+- `glaze::Placement toPlacement(const Pose&, double scale = 1.0)` · `Pose fromPlacement(const glaze::Placement&)` — att flytta ett föremål är att byta dess `Placement` (`Canvas::setShape` med `Shape::mesh(old->mesh(), placement, old->meshStyle())`), så meshen byggs aldrig om.
+- Matematiken (`<glaze_openxr/math.h>`, ren std, `glaze_openxr`): `Vec3`, `Quaternion`, `TrackingPose`, `WorldPose` (position och axlarna `right`/`up`/`forward`), `Fov`, `CameraAngles` · `makeAnchor`, `toWorldPose(Anchor, TrackingPose)`, `cameraAngles` · `Pose` (position + orientation; lokala axlar som Glazes: x höger, y framåt, z upp) med `toPose(WorldPose)`, `toWorldPose(Pose)`, `compose`, `inverse`, `transformPoint`, `transformDirection`, `interpolate` · `YawPitchRoll` med `fromYawPitchRoll`/`toYawPitchRoll` (`Placement`s vinklar) · `followGrab(handAtGrab, objectAtGrab, handNow)` (ett föremål som hålls följer handen stelt) · `twoHandManipulate(leftAtGrab, rightAtGrab, objectAtGrab, scaleAtGrab, leftNow, rightNow, TwoHandRotation::Full/YawOnly/None)` → `TwoHandResult{pose, scale}` (flytt efter mittpunkten, vridning efter linjen mellan händerna, skala efter avståndet) · `surfaceFrame(point, normal, forward)` (ram på en yta: z längs normalen) · `snapToGrid(point, step, origin)` · `snapAngle(degrees, stepDegrees)` · `ballisticArc(origin, direction, speed, gravity, stepSeconds, maxSeconds)` (kastbana, punkter med `origin` först).
 - Kortet väljs av APPEN före första fönstret, med `gfx::setGpuPreference(gfx::GpuPreference::HighPerformance)` eller `gfx::setGpuAdapter(id)` (`gfx`). Paketet kontaktar runtimen först när `start()` körs; då kontrolleras att fönstrets renderare ritar med D3D11 på det kort runtimen kräver och med tillräcklig funktionsnivå.
 
 ### Exempel
 ```cpp
 #include <glaze/glaze.h>
 #include <glaze_openxr/session.h>   // UTANFÖR GlazeBuilder-regionen
+
+namespace xr = glaze::openxr;
 
 class Vr : public glaze::AppWindow {
 public:
@@ -6432,35 +6449,80 @@ public:
         vrKnapp.name = "vrKnapp";
         vrKnapp.setText("Starta VR");
         vrKnapp.onClick = [this] {
-            if (session_->state() == glaze::openxr::State::Stopped ||
-                session_->state() == glaze::openxr::State::Failed)
+            if (session_->state() == xr::State::Stopped || session_->state() == xr::State::Failed)
                 session_->start();
             else
                 session_->requestStop();
         };
         verktyg.adopt(vrKnapp);
 
+        hoppKnapp.name = "hoppKnapp";
+        hoppKnapp.setText("Hoppa");
+        hoppKnapp.onClick = [this] { session_->teleportTo({0.0, -3.0, 0.0}, 0.0); };   // fötterna, norrut
+        verktyg.adopt(hoppKnapp);
+
         scen.name = "scen";
         scen.dock = glaze::Dock::Fill;
         scen.setCamera(glaze::Camera3D::lookFrom({0, -6, 1.7}, 0, -5));   // meter, z upp
-        scen.addShape(glaze::Shape::box({{-0.5, -0.5, 0}, {0.5, 0.5, 1}}));
+        scen.addShape(glaze::Shape::box({{-0.2, -0.2, 0.8}, {0.2, 0.2, 1.2}}));   // form 0: föremålet
 
-        glaze::openxr::Callbacks cb;
-        cb.onStatus = [this](const glaze::openxr::Status& s) { setTitle("VR — " + s.message); };
-        cb.onPick   = [this](const glaze::openxr::PickEvent& p) {
-            if (!p.hits.empty()) setTitle("Träff i lager " + std::to_string(p.hits.front().layer));
-        };
-        session_ = std::make_unique<glaze::openxr::Session>(scen, std::move(cb));
+        xr::Callbacks cb;
+        cb.onStatus = [this](const xr::Status& s) { setTitle("VR — " + s.message); };
+        cb.onInput  = [this](const xr::InputEvent& e, const xr::FrameInfo& f) { onInput(e, f); };
+        cb.onFrame  = [this](const xr::FrameInfo& f) { onFrame(f); };
+        session_ = std::make_unique<xr::Session>(scen, std::move(cb));
 
         root().adopt(verktyg);
         root().adopt(scen);
     }
 
 private:
+    struct Grab {
+        xr::Hand hand;
+        xr::Pose handAtGrab;
+        xr::Pose objectAtGrab;
+    };
+
+    void onInput(const xr::InputEvent& e, const xr::FrameInfo& f)
+    {
+        if (e.button != xr::Button::Squeeze) return;
+        if (e.kind == xr::InputKind::Released) {
+            if (grab_ && grab_->hand == e.hand) grab_.reset();
+            return;
+        }
+        if (e.kind != xr::InputKind::Pressed || grab_) return;
+
+        const auto& c = f.controllers[e.hand == xr::Hand::Left ? 0 : 1];
+        if (!c.grip.pose) return;
+        for (const auto& hit : c.hover)               // närmast först
+            if (hit.layer == 0 && hit.index == 0) {   // träffade föremålet
+                grab_ = Grab{e.hand, xr::toPose(*c.grip.pose),
+                             xr::fromPlacement(scen.shape(0, 0)->placement())};
+                session_->vibrate(e.hand, 0.5, 0.05);
+                break;
+            }
+    }
+
+    void onFrame(const xr::FrameInfo& f)
+    {
+        if (!grab_) return;
+        const auto& c = f.controllers[grab_->hand == xr::Hand::Left ? 0 : 1];
+        if (!c.grip.pose) return;
+        const xr::Pose now = xr::followGrab(grab_->handAtGrab, grab_->objectAtGrab,
+                                            xr::toPose(*c.grip.pose));
+        const glaze::Shape* old = scen.shape(0, 0);
+        const double scale = old->placement().scale.x;
+        // Att flytta är att byta Placement — meshen byggs inte om.
+        scen.setShape(0, 0, glaze::Shape::mesh(old->mesh(), xr::toPlacement(now, scale),
+                                               old->meshStyle()));
+    }
+
     glaze::ToolBar    verktyg;
     glaze::ToolButton vrKnapp;
-    glaze::Canvas     scen;                               // FÖRE sessionen
-    std::unique_ptr<glaze::openxr::Session> session_;    // förstörs först
+    glaze::ToolButton hoppKnapp;
+    glaze::Canvas     scen;                       // FÖRE sessionen
+    std::unique_ptr<xr::Session> session_;        // förstörs först
+    std::optional<Grab> grab_;
 };
 
 void valjKort()   // först i main, före det första fönstret
@@ -6478,17 +6540,24 @@ glaze_openxr_runtime(vr)                   # openxr_loader.dll bredvid programme
 Ingen — sessionen är varken widget eller komponent och skapas i användarkoden (som `glaze::Worker`). Canvas och dess scen har sina vanliga former (`canvas-3d`).
 
 ### Fallgropar
-- Canvas ska ha en `Camera3D` med `UpAxis::Z` och en världsenhet per METER — annars `Failed` med skälet.
+- Canvas ska ha en `Camera3D` med `UpAxis::Z` (eller kartkameran) och en världsenhet per METER — annars `Failed` med skälet.
 - Deklarera Canvas FÖRE sessionen: medlemmarna förstörs baklänges, och sessionen ska dö först.
-- Stäng inte fönstret medan VR går: veta `onClose` (`e.cancel = true`), anropa `requestStop()` och stäng när `onStatus` säger `Stopped` eller `Failed`.
+- Stäng inte fönstret medan VR går: fånga `onClose` (`e.cancel = true`), anropa `requestStop()` och stäng när `onStatus` säger `Stopped` eller `Failed`.
+- Den inbyggda förflyttningen kan stängas av helt: `MoveMode::None`, `TurnMode::None`, `teleport = false` och `grabWorld = false`. Då flyttar appen användaren själv med `setAnchor`, `recenter` och `teleportTo` (en knapp och en träffpunkt räcker). `setLocomotion` byter inställningarna under körning.
+- Att flytta ett föremål är att byta dess `Placement` — bygg inte om meshen. `fromPlacement` ger bara läge och orientering; skalan (`Placement::scale`) hålls av appen och ges till `toPlacement`.
+- En scen utan ytor under strålen (en platt karta, ett tomt rum) ger tomma träfflistor och ingen landning. Sätt `Options::groundZ`: ett vågrätt plan på den höjden träffas då där scenen saknar yta, för `hover`, `castRay` och teleporteringen. Reservmarkens träff har lager −1 (och index −1), `HitKind::Surface` och normalen (0, 0, 1) — filtrera bort den när appen bara vill ha sina egna föremål.
+- `hover` görs varje bildruta för båda strålarna; stäng av `Options::hover` när appen bara använder `castRay`. `defaultHoverOptions()` har `occlusion` på, så det som skyms inte träffas.
+- `Controller::ray`, `hover` och `arc` är tomma när kontrollen saknar spårad `aim`. Kontrollera `pose` innan den används; en kontroll som saknar en knapp svarar `available == false` för den.
+- `Controller::hover`, `arc` och `FrameInfo::events` gäller bara under anropet — kopiera det som ska sparas.
+- Handspårning kräver `Options::handTracking = true` och en runtime som har den; annars är `TrackedHand::active` false och lederna ogiltiga.
 - `GLAZE_OPENXR` är AV som förval och hämtar OpenXR-loadern med FetchContent; på annat OS än Windows stoppar den konfigureringen.
-- Runtimen är den som är registrerad som aktiv i Windows (`HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime`) — paketet väljer ingen själv. Khronos `openxr_runtime_list.exe` och `hello_xr.exe -g D3D11` (i loader-zipen, `_deps/openxrloader-src/x64/bin/`) visar vilken runtime som är aktiv och om headsetet svarar, innan appens kod är inblandad.
+- Runtimen är den som är registrerad som aktiv i Windows (`HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime`) — paketet väljer ingen själv. `openxr_runtime_list.exe` och `hello_xr.exe -g D3D11` (i loader-zipen, `_deps/openxrloader-src/x64/bin/`) visar vilken runtime som är aktiv och om headsetet svarar, innan appens kod är inblandad.
 - Fel kort: sessionen går till `Failed` med det förväntade och det faktiska kortets namn och id. Välj kortet före första fönstret (`gfx::setGpuPreference`/`setGpuAdapter`); enheten byggs aldrig om automatiskt.
 - Skrivbordet ritas högst 30 gånger per sekund medan sessionen kör och går tillbaka till full takt efter stopp. En ändring som väntar ritas vid nästa tillåtna tillfälle.
-- Ritningen kör huvudvyns lager med appens `onPaint`/`onPaintLayer` en gång per öga och bildruta — de får inte ändra tillstånd per anrop. Del-vyerna, kantlinjen och fokusringen hör till fönstret och ritas inte i headsetet. `castRay` träffar ytor, inte linjer eller etiketter, så strålar och markeringar i egna linjelager blir aldrig träffar.
+- Ritningen kör huvudvyns lager med appens `onPaint`/`onPaintLayer` en gång per öga och bildruta — de får inte ändra tillstånd per anrop. Del-vyerna, kantlinjen och fokusringen hör till fönstret och ritas inte i headsetet. `castRay` och `hover` träffar ytor, inte linjer eller etiketter, så strålar och markeringar i egna linjelager blir aldrig träffar.
 - `msaaSamples` kostar GPU-tid: 4 är förvalet, och 2 eller 1 kan behövas om runtimen missar sina bildperioder. Antalet begränsas av vad kortet stöder.
 - Stoppet tar några bildrutor: GPU:n blir först klar med det som skickats, sedan släpps bilderna. `Stopped` eller `Failed` kommer i `onStatus` när allt är avvecklat.
-- Efter en fokusförlust (en meny i headsetet) ger avtryckaren ett val först efter ett släpp.
+- Utan fokus (en meny i headsetet) läses reglagen som släppta, och efter en fokusförlust ger avtryckaren ett val först efter ett släpp.
 
 <!-- END:openxr -->
 
