@@ -56,6 +56,7 @@ struct GlazeFrameData
     float4   target;
     float4   scale;
     float4   pixelSize;
+    float4   rayCenter;   // strålens mitt: sist i blocket
 };
 cbuffer GlazeFrame : register(b3)
 {
@@ -346,7 +347,7 @@ bool layoutReads(const VertexLayout& l, unsigned stream)
 bool D3dRenderer::initProgramSupport()
 {
     // GlazeFrame (b3): en DYNAMIC buffert för alla egna program, skriven per
-    // rit-anrop — 240 byte, redan en multipel av 16.
+    // rit-anrop — 256 byte, en multipel av 16.
     D3D11_BUFFER_DESC bd{};
     bd.ByteWidth      = sizeof(FrameUniforms);
     bd.Usage          = D3D11_USAGE_DYNAMIC;

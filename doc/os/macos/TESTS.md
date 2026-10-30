@@ -147,3 +147,27 @@ byggs och körs den aldrig. Shared-vägen (Apple silicon) grindas av sviten.
   (panorera, zooma, vrid). *Rätt utfall:* fallen gröna; kartan utan
   artefakter — inga linjer eller bilder med gammalt eller halvt innehåll
   efter en ändring.
+
+### Externa mål och GPU-markör — "stöds inte" i Metal, BLINT skrivet (OpenXR direkt)
+
+Koden: `MetalRenderer::nativeDevice`, `importRenderTarget`, `setExternalFramePacing` och
+`insertCompletion` i `Glaze/gfx/src/backend_metal/metal_renderer.mm` (efter `endOffscreen`) har
+aldrig kompilerats. De svarar "stöds inte" enligt kontraktet i `gfx/renderer.h`: `api == None`,
+ett ogiltigt mål (`MetalRenderTarget`) med text i `error`, ingenting, respektive nullptr med text.
+
+- **Bygget och sviten** — *Gör:* bygg och kör den kompletta sviten på macOS. *Rätt utfall:* 0 varningar
+  i `metal_renderer.mm` (de namnlösa parametrarna får inte ge `-Wunused-parameter`); sviten grön.
+
+### GlazeFrame med `rayCenter` — förspelet i Metal, BLINT skrivet (OpenXR direkt)
+
+Koden: `struct GlazeFrame` i `kMslPrelude` (`Glaze/gfx/src/backend_metal/metal_program.mm`) har
+`float4 rayCenter` SIST (offset 240, blocket 256 byte) — samma form som `gfx::FrameUniforms`.
+Blocket skickas som `sizeof f` med `setVertexBytes`/`setFragmentBytes`, så storleken följer med.
+Ingenting kompilerat eller kört på Metal.
+
+- **GlazeFrame, 256 byte** — *Gör:* bygg och kör `mesh_program_gate` (fall G1 ritar strålen
+  `rayCenter + ndc.x · right + ndc.y · up` genom varje pixel i ett eget MSL-program, för ett
+  asymmetriskt, ett förskjutet och ett symmetriskt frustum) och `scene_math_gate`, med
+  `MTL_DEBUG_LAYER=1`. *Rätt utfall:* MSL:en kompilerar utan fel, G1 grönt (färgen i varje provad
+  pixel = hålkamerans riktning ±3, `forward` = (128, 255, 128)); inga valideringsfel om en för liten
+  buffert; 0 varningar.

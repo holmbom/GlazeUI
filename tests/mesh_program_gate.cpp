@@ -61,6 +61,12 @@
 //       6,4 px).
 //   F8  en punkt bakom kameran och en bortom det bortre planet
 //       ritas inte; punkterna överlever Cull::Back (quaden är moturs).
+//   G1  GlazeFrame är 256 byte med fälten på sina platser (static_assert,
+//       rayCenter sist på 240), och förspelet läser dem därifrån: ett eget
+//       program ritar strålen normalize(rayCenter + ndc.x · right + ndc.y ·
+//       up) genom varje pixel, för ett asymmetriskt, ett förskjutet och ett
+//       symmetriskt frustum, mot grindens hålkamera med tangenter — och
+//       forward som blickens riktning.
 //
 // INTE MÄTT här: Metal (MSL:en provas på macOS — raden i
 // doc/os/macos/TESTS.md); DRAPED i ritytan (draperingsmålen, belysningen av
@@ -1708,6 +1714,185 @@ void fallFFärg(Fönster& f)
     }
 }
 
+
+// --------------------------------------------------------------------- G1
+//
+// GLAZEFRAME-BLOCKET I FÖRSPELET: 256 byte med fälten på de platser
+// `gfx/camera.h` säger (kontrollerat vid kompilering nedan), och att
+// förspelet i backendens språk LÄSER dem därifrån — ett eget program med
+// tre vertex ritar strålen genom varje pixel som
+// normalize(rayCenter + ndc.x · right + ndc.y · up) till färgen (rgb = riktning
+// · 0,5 + 0,5), och ett annat blickens riktning (forward). Förväntat värde:
+// grindens egen hålkamera med tangenter — pixelns sidovinklar a = vänster +
+// (x + ½)/128 · (höger − vänster) och b = upp − (y + ½)/128 · (upp − ned)
+// ger riktningen (a, 1, b)/|…| — för ett asymmetriskt och ett symmetriskt
+// frustum. `rayCenter` sist i blocket (offset 240) är det som skiljer dem.
+static_assert(sizeof(gfx::FrameUniforms) == 256, "GlazeFrame är 256 byte");
+static_assert(offsetof(gfx::FrameUniforms, viewProj) == 0 &&
+                  offsetof(gfx::FrameUniforms, invViewProj) == 64 &&
+                  offsetof(gfx::FrameUniforms, eye) == 128 &&
+                  offsetof(gfx::FrameUniforms, forward) == 144 &&
+                  offsetof(gfx::FrameUniforms, right) == 160 &&
+                  offsetof(gfx::FrameUniforms, up) == 176 &&
+                  offsetof(gfx::FrameUniforms, target) == 192 &&
+                  offsetof(gfx::FrameUniforms, scale) == 208 &&
+                  offsetof(gfx::FrameUniforms, pixelSize) == 224 &&
+                  offsetof(gfx::FrameUniforms, rayCenter) == 240,
+              "GlazeFrame: fälten på sina platser, rayCenter sist");
+
+// Helskärmstriangeln med NDC i en varying; `SHOW_FORWARD` väljer blickens
+// riktning i stället för strålen.
+gfx::ProgramDesc rayProgramDesc(bool visaBlick)
+{
+    gfx::ProgramDesc d;
+    d.name = visaBlick ? "ramriktning" : "ramstråle";
+    d.hlsl = R"hlsl(
+struct VsOut { float4 pos : SV_Position; float2 ndc : TEXCOORD0; };
+VsOut vsMain(uint id : SV_VertexID)
+{
+    VsOut  o;
+    float2 p = float2((id << 1) & 2, id & 2);
+    o.ndc = p * float2(2.0, -2.0) + float2(-1.0, 1.0);
+    o.pos = float4(o.ndc, 0.0, 1.0);
+    return o;
+}
+float4 fsMain(VsOut i) : SV_Target
+{
+#ifdef SHOW_FORWARD
+    float3 d = normalize(glaze.forward.xyz);
+#else
+    float3 d = normalize(glaze.rayCenter.xyz + i.ndc.x * glaze.right.xyz +
+                         i.ndc.y * glaze.up.xyz);
+#endif
+    return float4(d * 0.5 + 0.5, 1.0);
+}
+)hlsl";
+    d.glslVertex = R"glsl(
+out vec2 vNdc;
+void main()
+{
+    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+    vNdc        = p * vec2(2.0, -2.0) + vec2(-1.0, 1.0);
+    gl_Position = vec4(vNdc, 0.0, 1.0);
+}
+)glsl";
+    d.glslFragment = R"glsl(
+in vec2 vNdc;
+out vec4 frag;
+void main()
+{
+#ifdef SHOW_FORWARD
+    vec3 d = normalize(glaze.forward.xyz);
+#else
+    vec3 d = normalize(glaze.rayCenter.xyz + vNdc.x * glaze.right.xyz +
+                       vNdc.y * glaze.up.xyz);
+#endif
+    frag = vec4(d * 0.5 + 0.5, 1.0);
+}
+)glsl";
+    d.msl = R"msl(
+struct VsOut { float4 pos [[position]]; float2 ndc; };
+vertex VsOut vsMain(uint id [[vertex_id]])
+{
+    VsOut  o;
+    float2 p = float2((id << 1) & 2, id & 2);
+    o.ndc = p * float2(2.0, -2.0) + float2(-1.0, 1.0);
+    o.pos = float4(o.ndc, 0.0, 1.0);
+    return o;
+}
+fragment float4 fsMain(VsOut i [[stage_in]],
+                       constant GlazeFrame& glaze [[buffer(2)]])
+{
+#ifdef SHOW_FORWARD
+    float3 d = normalize(glaze.forward.xyz);
+#else
+    float3 d = normalize(glaze.rayCenter.xyz + i.ndc.x * glaze.right.xyz +
+                         i.ndc.y * glaze.up.xyz);
+#endif
+    return float4(d * 0.5 + 0.5, 1.0);
+}
+)msl";
+    if (visaBlick)
+        d.defines.emplace_back("SHOW_FORWARD", "");
+    return d;
+}
+
+void fallG1(Fönster& f)
+{
+    gfx::Renderer& r = f.window().renderer();
+    const auto     blick = r.createProgram(rayProgramDesc(true));
+    const auto     stråle = r.createProgram(rayProgramDesc(false));
+    check(blick->valid() && stråle->valid(),
+          "G1 förspelets rayCenter, right, up och forward läses av ett eget "
+          "program i backendens språk",
+          kort(blick->valid() ? stråle->error() : blick->error()));
+    if (!blick->valid() || !stråle->valid())
+        return;
+
+    struct Frustum {
+        const char*          namn;
+        gfx::FrustumTangents t;
+    };
+    const Frustum frustum[] = {
+        {"asymmetriskt (−0,9, 0,5, −0,4, 0,8)", {-0.9, 0.5, -0.4, 0.8}},
+        {"förskjutet (0,1, 0,9, 0,2, 0,6)", {0.1, 0.9, 0.2, 0.6}},
+        {"symmetriskt (±0,8)", {-0.8, 0.8, -0.8, 0.8}},
+    };
+    const gfx::VertexLayout ingen;
+    for (const Frustum& fr : frustum) {
+        gfx::View3D v = hålkamera();
+        v.frustum     = fr.t;
+        const gfx::FrameUniforms ram3 = ram(v);
+        const auto rita3 = [&](const gfx::ShaderProgram& p, gfx::Renderer& rr) {
+            gfx::MeshDraw d;
+            d.program     = gfx::MeshProgram::Custom;
+            d.shader      = &p;
+            d.layout      = &ingen;
+            d.vertexCount = 3;
+            d.frame       = ram3;
+            d.state       = läge(gfx::DepthTest::Off);
+            rr.drawMesh(d);
+        };
+        auto tS = målMed(f, [&](gfx::Renderer& rr) { rita3(*stråle, rr); });
+        if (g_ritfel)
+            return;
+        auto tB = målMed(f, [&](gfx::Renderer& rr) { rita3(*blick, rr); });
+        if (g_ritfel)
+            return;
+        const Bild bs = läs(r, *tS, std::string("G1 strålen, ") + fr.namn);
+        const Bild bb = läs(r, *tB, std::string("G1 blicken, ") + fr.namn);
+
+        int         fel = 0;
+        std::string första;
+        const int   prov[][2] = {{2, 2},   {125, 2}, {2, 125}, {125, 125},
+                                 {64, 64}, {10, 100}, {97, 31}};
+        for (const auto& pp : prov) {
+            const double a = fr.t.left + (pp[0] + 0.5) / kSida * (fr.t.right - fr.t.left);
+            const double b = fr.t.up - (pp[1] + 0.5) / kSida * (fr.t.up - fr.t.down);
+            const V3     d = enhet({a, 1.0, b});
+            const gfx::Color vänta{kanal((d.x * 0.5 + 0.5) * 255.0),
+                                   kanal((d.y * 0.5 + 0.5) * 255.0),
+                                   kanal((d.z * 0.5 + 0.5) * 255.0), 255};
+            if (!ärFärg(bs.at(pp[0], pp[1]), vänta, 3)) {
+                ++fel;
+                if (första.empty())
+                    första = "(" + std::to_string(pp[0]) + ", " +
+                             std::to_string(pp[1]) + ") " + px(bs.at(pp[0], pp[1])) +
+                             " väntat " + färg(vänta);
+            }
+        }
+        check(fel == 0,
+              std::string("G1 strålen rayCenter + ndc · (right, up) genom varje "
+                          "pixel, frustum ") + fr.namn,
+              std::to_string(fel) + " fel — " + första);
+
+        // forward står kvar som den optiska axeln: (0, 1, 0) → (128, 255, 128).
+        const gfx::Color axel{128, 255, 128, 255};
+        check(ärFärg(bb.at(64, 64), axel, 3) && ärFärg(bb.at(5, 120), axel, 3),
+              std::string("G1 forward är blickens riktning, frustum ") + fr.namn,
+              px(bb.at(64, 64)));
+    }
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -1744,6 +1929,7 @@ int main(int argc, char** argv)
         if (!g_ritfel) fallE11(f);
         if (!g_ritfel) fallFStorlek(f);
         if (!g_ritfel) fallFFärg(f);
+        if (!g_ritfel) fallG1(f);
         g_prog = nullptr;
     }
 

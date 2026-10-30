@@ -38,6 +38,16 @@ bool sameVec(const gfx::Vec3d& a, const gfx::Vec3d& b)
     return a.x == b.x && a.y == b.y && a.z == b.z;
 }
 
+// Ett frustum — båda tomma (synfältet i `fovY`), eller samma tangenter.
+bool sameFrustum(const std::optional<gfx::FrustumTangents>& a,
+                 const std::optional<gfx::FrustumTangents>& b)
+{
+    if (!a || !b)
+        return !a && !b;
+    return a->left == b->left && a->right == b->right && a->down == b->down &&
+           a->up == b->up;
+}
+
 // 3D-målets vy — båda tomma, eller samma vy.
 bool sameView3D(const std::optional<gfx::View3D>& a,
                 const std::optional<gfx::View3D>& b)
@@ -46,7 +56,8 @@ bool sameView3D(const std::optional<gfx::View3D>& a,
         return !a && !b;
     return sameVec(a->eye, b->eye) && sameVec(a->forward, b->forward) &&
            sameVec(a->up, b->up) && a->projection == b->projection &&
-           a->fovY == b->fovY && a->orthoHalfHeight == b->orthoHalfHeight &&
+           a->fovY == b->fovY && sameFrustum(a->frustum, b->frustum) &&
+           a->orthoHalfHeight == b->orthoHalfHeight &&
            a->nearZ == b->nearZ && a->farZ == b->farZ && a->box.x == b->box.x &&
            a->box.y == b->box.y && a->box.w == b->box.w && a->box.h == b->box.h;
 }

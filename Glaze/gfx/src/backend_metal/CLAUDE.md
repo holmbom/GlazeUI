@@ -425,6 +425,10 @@ grindat av G9 på macOS sedan 2026-10-12; det som kräver ögon står i raderna.
   eget mål (`frameTarget_` nil). Ringslotten väntas inte in: blocket skriver
   efter förra framens del av slotten, och `endOffscreen` committar och
   väntar in arbetet innan slotten kan återanvändas.
+- **Integrationen med ett annat grafik-API (`gfx/native.h`) stöds inte här:**
+  `nativeDevice` svarar `api == None`, `importRenderTarget` ett ogiltigt mål
+  med feltext, `setExternalFramePacing` gör ingenting och `insertCompletion`
+  ger `nullptr` med feltext. `GpuAdapter::localAdapterId` är tomt.
 - **GRAFIKKORTEN OCH GPU-PREFERENSEN — `metal_gpu.mm`** (REQ9_GRAFIKKORTET,
   BLINT; `preferredMetalDevice` och `logDevice` flyttade ur
   metal_renderer.mm): GlazeView:s `makeBackingLayer` sätter lagrets enhet med
@@ -467,7 +471,7 @@ Kompilerat och grindat (G9 del C, `mesh_program_gate`) på macOS sedan 2026-10-1
 
 - **`createProgram`**: `newLibraryWithSource` med källan FÖRSPELET (`struct
   GlazeFrame` och `glaze_toClip(c, glaze)` — MSL har inga globala block, så
-  funktionen tar blocket som argument) + `kMslAdjustSrc` (`glaze_colorAdjust`,
+  funktionen tar blocket som argument; 256 byte med `rayCenter` sist) + `kMslAdjustSrc` (`glaze_colorAdjust`,
   REQ8 3) + `#line 1 "<namn>"` + appens MSL, och
   definitionerna som `MTLCompileOptions.preprocessorMacros` (NSString-värden;
   tomt värde = definierat utan värde). Saknas källan: "saknar MSL-källa

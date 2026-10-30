@@ -28,10 +28,15 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 
 ### Resten av fas 1
 
+- 🐛 **Windows: samma grafikkort två gånger i `gpuAdapters()` ger två lika id** — [d3d11_gpu.cpp](Glaze/gfx/src/backend_d3d11/d3d11_gpu.cpp)
+  DXGI kan räkna upp ett kort två gånger med samma PCI-adress och olika LUID (en virtuell skärmdrivrutin bredvid); `scene3d_pixel_gate` K2 fäller då, också på `main`.
+  Öppet: ska dubbletten slås ihop, eller id:t skiljas utan att tappa stabiliteten över omstart.
 - 🐛 **macOS: en utloggning avbryts av appen också när den inte vetar** — [metal_platform.mm](Glaze/gfx/src/backend_metal/metal_platform.mm)
   `applicationShouldTerminate` svarar `NSTerminateCancel` och köar `Quit`, så systemet ser ett avbrott. Rättelsen: `NSTerminateLater` och `replyToApplicationShouldTerminate:` när App stängt allt (eller fått ett veto).
 - 💡 **`DockHost::placeChild` räknar hela dockningslayouten en gång per barn** — [dock_host.cpp](Glaze/widgets/src/widgets/dock_host.cpp)
   Varje anrop kopierar och normaliserar modellen (`synced()`) och kör `computeLayout` med verktygsfältens mätning — O(barn × layout) flera gånger per bildruta. Rättelsen: ett minne per layoutpass (som `ResolveScope`) med en säker nyckel för modellen, `DockLive` och Ctx.
+- 💡 📚 **Gallra fyra `CLAUDE.md` som står vid taket på 1000 rader**
+  `Glaze/gfx/include/gfx`, `Glaze/widgets/include/glaze`, `Glaze/widgets/src` och `Glaze/widgets/src/canvas`. Efter gallringen saknas: `native.h`, `View3D::frustum`, `GpuAdapter::localAdapterId` och GPU-tiden för offscreen-block (gfx/include), och pumpens externa bildkälla (widgets/include/glaze och widgets/src).
 - 🔴 **Simplify över kodbasen och hela sviten på Linux**
   `/simplify` över det som tillkommit utan genomgång, och sviten (statisk + delad + röktest) på Linux; bara de fallerande om efter rättning.
   Ändrade shaders (HLSL/GLSL/MSL) kompileras först i körning — röktestet och `scene_pixel_gate`/`scene3d_pixel_gate` avgör.
@@ -124,3 +129,5 @@ Utanför grinden. Inte mindre viktigt — men inte villkor för släppet, och f�
 - 💡 **Bidi/RTL saknas i textvägen**
   Träffar där de tre backendarna skiljer sig MEST: DirectWrite och Core Text gör bidi och shaping åt en, FreeType inte alls.
   Språkpaketen byter strängar; RTL byter TEXTVÄGEN.
+- 💡 **Sidopaketet OpenXR till `main`** — [arkiverad plan](doc/plans/archive/2026-10-30_OPENXR_DIREKT.md)
+  Branchen `OpenXR` mergas när hela sviten (statisk, delad och röktest) är grön; där körs i dag bara de berörda grindarna.

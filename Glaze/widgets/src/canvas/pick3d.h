@@ -197,6 +197,26 @@ double occlusionSlack(double d);
 // svara med det synliga behöver inte gå längre (`castRay`).
 double occlusionReach(double d);
 
+// Plockas formen i rymden (`pickShape3D`)? Meshar, ytor i rymden, instanser,
+// punkter och linjer i rymden.
+bool isObject3D(const Shape& s);
+
+// En enhetlig riktning, eller tom för en stråle som inte går att räkna på
+// (riktning noll, inte ändlig, eller en början som inte är ändlig).
+std::optional<Ray3> unitRay(const Ray3& r);
+
+struct SceneData;   // scene.h
+
+// `Canvas::castRay` över scenens lager, med den VY som skärmstorlekar,
+// detaljnivå och skärmkonstanta meshar räknas mot: `view` (nullptr = ingen
+// känd vy, finaste nivån och inga skärmkonstanta) och tätheterna
+// `pxPerPx`/`pxPerMm` (0 = okända, förvalet 1). Fönstrets kamera eller en
+// uttrycklig (ett headsets öga) — ritytan väljer.
+std::vector<HitResult> castRayInScene(const SceneData& scene, const Ray3& ray,
+                                      const HitOptions& options,
+                                      const gfx::View3D* view, double pxPerPx,
+                                      double pxPerMm);
+
 // HÖJDENS STRÅLE (`Canvas::heightAt`): lodrätt NEDÅT genom (x, y), med
 // början en bit ovanför lådan, så den första ytan den möter är den översta.
 Ray3 verticalRayDown(double x, double y, const Box3& box);

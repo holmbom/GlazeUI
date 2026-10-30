@@ -526,72 +526,6 @@ void testLargeCoordinates()
     }
 }
 
-// Alla kontroller av en symmetrisk bild mot de ursprungliga synfältet.
-void checkSymmetric(const std::string& tag, const Fov& fov, const ViewSize& size, double scale)
-{
-    const auto result = makeSymmetricView(fov, size, scale);
-    const SymmetricView* v = require(result, tag);
-    if (!v)
-        return;
-
-    // Måtten: skalan × det rekommenderade (högst en pixel avrundning), högst
-    // runtimens största, och aldrig noll.
-    const double wantW = std::min(scale * size.recommendedWidth, static_cast<double>(size.maxWidth));
-    const double wantH = std::min(scale * size.recommendedHeight, static_cast<double>(size.maxHeight));
-    check(v->width >= 1 && v->height >= 1, tag + ": måtten är minst 1 px");
-    check(v->width <= size.maxWidth && v->height <= size.maxHeight, tag + ": inom runtimens största");
-    checkNear(v->width, wantW, 1.0, tag + ": bredd", std::source_location::current());
-    checkNear(v->height, wantH, 1.0, tag + ": höjd", std::source_location::current());
-
-    const double aspect = static_cast<double>(v->width) / v->height;
-    const double vfov   = static_cast<double>(v->verticalFovDegrees);
-    const Fov& s        = v->submittedFov;
-
-    // Symmetrisk bild: vänster = −höger, ned = −upp.
-    checkNear(s.left, -s.right, 1e-12, tag + ": symmetri i sidled");
-    checkNear(s.down, -s.up, 1e-12, tag + ": symmetri i höjd");
-    check(s.right > 0 && s.up > 0, tag + ": positiva halvvinklar");
-
-    // Skickad fov = det som ritas: vertikalen ur det returnerade float-värdet,
-    // horisontellen ur bildens aspekt.
-    checkNear(s.up, vfov * kDeg / 2.0, 1e-6, tag + ": skickad uppvinkel = ritad vertikal fov");
-    checkNear(std::tan(s.right), aspect * std::tan(s.up), 1e-6 * std::tan(s.right),
-              tag + ": skickad sidvinkel = atan(aspekt · tan(vfov/2))");
-
-    // Alla ursprungliga kanter ryms, utan marginal åt fel håll.
-    check(s.left <= fov.left + 1e-12, tag + ": vänsterkanten ryms");
-    check(s.right >= fov.right - 1e-12, tag + ": högerkanten ryms");
-    check(s.up >= fov.up - 1e-12, tag + ": överkanten ryms");
-    check(s.down <= fov.down + 1e-12, tag + ": underkanten ryms");
-
-    // Inte större än nödvändigt: den snävaste kanten, räknad med den faktiska
-    // aspekten, avrundad utåt till float-grader (högst ett par float-steg över).
-    const double tx = std::max(std::abs(std::tan(fov.left)), std::abs(std::tan(fov.right)));
-    const double ty = std::max(std::abs(std::tan(fov.up)), std::abs(std::tan(fov.down)));
-    const double needed = 2.0 * std::atan(std::max(ty, tx / aspect)) / kDeg;
-    check(vfov >= needed - 1e-9, tag + ": vertikal fov täcker behovet");
-    check(vfov <= needed + 1e-4, tag + ": vertikal fov är inte onödigt stor");
-}
-
-void testSymmetricView()
-{
-    const Fov asym{-0.90, 0.75, 0.80, -0.85};
-    checkSymmetric("fov A (hög bild, sidan styr)", asym, {1832, 1920, 4096, 4096}, 0.5);
-    checkSymmetric("fov B (bred bild, höjden styr)", asym, {1000, 500, 2000, 2000}, 1.0);
-    checkSymmetric("fov C (klampad)", asym, {4000, 4000, 3000, 2000}, 2.0);
-    checkSymmetric("fov D (udda avrundning)", Fov{-0.7, 0.9, 0.6, -0.5}, {1000, 1400, 4096, 4096}, 0.37);
-    checkSymmetric("fov E (symmetriskt synfält)", Fov{-0.8, 0.8, 0.7, -0.7}, {1440, 1600, 4096, 4096}, 0.5);
-    checkSymmetric("fov F (liten skala)", asym, {1832, 1920, 4096, 4096}, 0.01);
-    checkSymmetric("fov G (spegelvänt asymmetriskt)", Fov{-0.75, 0.90, 0.85, -0.80}, {1700, 1700, 4096, 4096}, 0.73);
-
-    // Klampningen ger exakt runtimens största.
-    const auto clamped = makeSymmetricView(asym, {4000, 4000, 3000, 2000}, 2.0);
-    if (const SymmetricView* v = require(clamped, "klampad bild")) {
-        check(v->width == 3000, "klampad bredd = största bredd");
-        check(v->height == 2000, "klampad höjd = största höjd");
-    }
-}
-
 // ------------------------------------------------------------- avvisningar
 
 void testRejections()
@@ -638,23 +572,6 @@ void testRejections()
     bad = level;
     bad.forward = {0, 0, 0};
     check(!cameraAngles(bad, 0.0), "cameraAngles: nollängd på framåt");
-
-    // makeSymmetricView
-    const Fov fov{-0.9, 0.75, 0.8, -0.85};
-    const ViewSize size{1000, 1000, 4096, 4096};
-    check(makeSymmetricView(fov, size, 0.5).has_value(), "makeSymmetricView: giltiga värden godtas");
-    check(!makeSymmetricView(fov, size, 0.0), "makeSymmetricView: skala 0");
-    check(!makeSymmetricView(fov, size, -1.0), "makeSymmetricView: negativ skala");
-    check(!makeSymmetricView(fov, size, kNaN), "makeSymmetricView: NaN-skala");
-    check(!makeSymmetricView(fov, size, kInf), "makeSymmetricView: ∞-skala");
-    check(!makeSymmetricView(fov, {0, 1000, 4096, 4096}, 0.5), "makeSymmetricView: rekommenderad bredd 0");
-    check(!makeSymmetricView(fov, {1000, 0, 4096, 4096}, 0.5), "makeSymmetricView: rekommenderad höjd 0");
-    check(!makeSymmetricView(fov, {1000, 1000, 0, 0}, 0.5), "makeSymmetricView: största mått 0");
-    check(!makeSymmetricView(Fov{kNaN, 0.75, 0.8, -0.85}, size, 0.5), "makeSymmetricView: NaN i fov");
-    check(!makeSymmetricView(Fov{-0.9, kInf, 0.8, -0.85}, size, 0.5), "makeSymmetricView: ∞ i fov");
-    check(!makeSymmetricView(Fov{0, 0, 0, 0}, size, 0.5), "makeSymmetricView: synfält utan utsträckning");
-    check(!makeSymmetricView(Fov{-kPi / 2.0, 0.75, 0.8, -0.85}, size, 0.5),
-          "makeSymmetricView: halvvinkel på 90° eller mer (omöjligt synfält)");
 }
 
 } // namespace
@@ -670,7 +587,6 @@ int main()
     testPitchAndRoll();
     testStraightUpAndDown();
     testLargeCoordinates();
-    testSymmetricView();
     testRejections();
 
     if (g_failures != 0) {

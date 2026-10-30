@@ -1,18 +1,19 @@
 #include "canvas_bridge.h"
 
+#include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <exception>
+#include <utility>
+
+#include <glaze/canvas/external_pass.h>
 
 namespace glaze::openxr::detail {
 
 namespace {
 
 constexpr double kRad = 3.14159265358979323846 / 180.0;
-
-// Bildrutor i följd utan bild som tolereras innan Canvas anses oförmöget att
-// rita (renderToBitmap kan lämna tomt medan bildcachen laddar upp).
-constexpr int kMaxEmptyFrames = 60;
+// Halvvinklar nära eller över 90° ger ingen perspektivprojektion.
+constexpr double kMaxHalfAngle = 3.14159265358979323846 / 2.0 - 1e-3;
 
 double wrapDegrees(double d) {
     d = std::fmod(d, 360.0);
@@ -30,13 +31,109 @@ TrackedPose toTracked(const Anchor& anchor, const PoseSample& sample) {
     return tracked;
 }
 
+gfx::Vec3d toVec3d(const Vec3& v) { return gfx::Vec3d{v.x, v.y, v.z}; }
+
+// Synfältets vinklar som tangenter till ytans kanter, eller tomt när synfältet
+// inte är en användbar perspektivprojektion.
+std::optional<gfx::FrustumTangents> tangentsOf(const Fov& fov) {
+    const double angles[4] = {fov.left, fov.right, fov.up, fov.down};
+    for (const double a : angles) {
+        if (!std::isfinite(a) || std::fabs(a) >= kMaxHalfAngle) return std::nullopt;
+    }
+    gfx::FrustumTangents t;
+    t.left = std::tan(fov.left);
+    t.right = std::tan(fov.right);
+    t.down = std::tan(fov.down);
+    t.up = std::tan(fov.up);
+    if (!(t.left < t.right) || !(t.down < t.up)) return std::nullopt;
+    return t;
+}
+
+// Perspektivvyn ur en pose i världen med frustumet, klipplanen ur `options`
+// och en ruta som är hela bilden (`size` i px).
+gfx::View3D viewFrom(const WorldPose& pose, const gfx::FrustumTangents& frustum,
+                     std::pair<int, int> size, const Options& options) {
+    gfx::View3D view;
+    view.eye = toVec3d(pose.position);
+    view.forward = toVec3d(pose.forward);
+    view.up = toVec3d(pose.up);
+    view.projection = gfx::Projection3D::Perspective;
+    view.frustum = frustum;
+    view.nearZ = options.nearMetres;
+    view.farZ = options.farMetres;
+    view.box = gfx::Rectf{0.0f, 0.0f, static_cast<float>(size.first), static_cast<float>(size.second)};
+    return view;
+}
+
 } // namespace
 
 CanvasBridge::CanvasBridge(glaze::Canvas& canvas, const Options& options)
     : canvas_(canvas), options_(options) {}
 
+CanvasBridge::~CanvasBridge() { release(); }
+
+std::unique_ptr<CanvasBridge> CanvasBridge::create(glaze::Canvas& canvas, const Options& options,
+                                                   std::string& error) {
+    std::unique_ptr<glaze::detail::ExternalCanvasPass> pass =
+        glaze::detail::ExternalCanvasPass::create(canvas, error);
+    if (!pass) {
+        if (error.empty()) error = "Canvas går inte att rita i ett externt mål (kräver ett öppet fönster).";
+        return nullptr;
+    }
+    std::unique_ptr<CanvasBridge> bridge(new CanvasBridge(canvas, options));
+    bridge->pass_ = std::move(pass);
+    return bridge;
+}
+
+gfx::NativeDevice CanvasBridge::nativeDevice() const {
+    return pass_ && pass_->current() ? pass_->renderer().nativeDevice() : gfx::NativeDevice{};
+}
+
+bool CanvasBridge::importImages(const std::array<EyeImageSet, 2>& eyes, std::string& error) {
+    if (!pass_) {
+        error = "Passet är redan avvecklat.";
+        return false;
+    }
+    if (!pass_->current()) {
+        error = "Ritytans fönster stängdes medan VR startade.";
+        return false;
+    }
+    gfx::Renderer& renderer = pass_->renderer();
+    const int samples = renderer.supportedSamples(std::clamp(options_.msaaSamples, 1, 8));
+
+    for (std::size_t eye = 0; eye < 2; ++eye) {
+        gfx::RenderTarget* shared = nullptr;   // ögats första bild äger de delade ytorna
+        sizes_[eye] = {eyes[eye].width, eyes[eye].height};
+        for (void* image : eyes[eye].images) {
+            gfx::ExternalTargetDesc desc;
+            desc.api = gfx::NativeGraphicsApi::D3D11;
+            desc.image = image;
+            desc.width = eyes[eye].width;
+            desc.height = eyes[eye].height;
+            desc.color = eyes[eye].bgra ? gfx::TargetColorFormat::Bgra8Unorm : gfx::TargetColorFormat::Rgba8Unorm;
+            desc.target.samples = samples;
+            desc.target.depth = true;
+
+            std::string importError;
+            std::unique_ptr<gfx::RenderTarget> target = renderer.importRenderTarget(desc, shared, importError);
+            if (!target || !target->image().valid()) {
+                error = "En swapchain-bild gick inte att importera som rit-mål" +
+                        (importError.empty() ? std::string(".") : ": " + importError);
+                return false;
+            }
+            if (!shared) shared = target.get();
+            targets_[eye].push_back(std::move(target));
+        }
+    }
+    return true;
+}
+
 FrameResult CanvasBridge::runFrame(const FrameRequest& request, const Callbacks& callbacks) {
     FrameResult result;
+    if (!pass_) {
+        result.error = "Passet är redan avvecklat.";
+        return result;
+    }
 
     if (!anchor_) {
         if (!request.headValid) return result;   // väntar på en giltig huvudpose
@@ -58,16 +155,7 @@ FrameResult CanvasBridge::runFrame(const FrameRequest& request, const Callbacks&
     }
 
     if (request.eyes[0].valid && request.eyes[1].valid) {
-        result.hasImages = renderEyes(request, result);
-        if (!result.hasImages) {
-            result.images = {};
-            if (++emptyFrames_ > kMaxEmptyFrames) {
-                result.error = "Canvas ger ingen bild (renderToBitmap lämnade tomt "
-                               "i följd; kräver ett öppet fönster och en giltig kamera).";
-            }
-        } else {
-            emptyFrames_ = 0;
-        }
+        result.rendered = renderEyes(request, result.error);
     }
     return result;
 }
@@ -90,7 +178,6 @@ bool CanvasBridge::createAnchor(const FrameRequest& request, std::string& error)
     }
     anchor_ = *anchor;
     headYaw_ = camera.azimuth;
-    eyeYaw_ = {camera.azimuth, camera.azimuth};
     return true;
 }
 
@@ -161,6 +248,27 @@ void CanvasBridge::pick(const FrameRequest& request, const FrameInfo& info, cons
         focusEpoch_ = request.focusEpoch;
         previousSelect_ = {true, true};
     }
+
+    // Plockningens vy: huvudet, med ett synfält som rymmer båda ögonens. Den
+    // styr skärmstorlekarna och toleranserna i castRay.
+    std::optional<gfx::View3D> headView;
+    const auto buildHeadView = [&]() -> const std::optional<gfx::View3D>& {
+        if (headView) return headView;
+        const auto world = toWorldPose(*anchor_, request.head);
+        if (!world || !request.headValid) return headView;
+        gfx::FrustumTangents merged;   // ±1 när ögonens synfält saknas
+        const auto left = tangentsOf(request.eyes[0].fov);
+        const auto right = tangentsOf(request.eyes[1].fov);
+        if (request.eyes[0].valid && request.eyes[1].valid && left && right) {
+            merged.left = std::min(left->left, right->left);
+            merged.right = std::max(left->right, right->right);
+            merged.down = std::min(left->down, right->down);
+            merged.up = std::max(left->up, right->up);
+        }
+        headView = viewFrom(*world, merged, sizes_[0], options_);
+        return headView;
+    };
+
     for (std::size_t hand = 0; hand < 2; ++hand) {
         const bool down = request.focused && request.controllers[hand].selectDown;
         const bool pressed = down && !previousSelect_[hand];
@@ -169,6 +277,8 @@ void CanvasBridge::pick(const FrameRequest& request, const FrameInfo& info, cons
 
         const TrackedPose& aim = info.controllers[hand].aim;
         if (!aim.pose) continue;
+        const std::optional<gfx::View3D>& view = buildHeadView();
+        if (!view) continue;
 
         PickEvent event;
         event.hand = hand == 0 ? Hand::Left : Hand::Right;
@@ -177,43 +287,63 @@ void CanvasBridge::pick(const FrameRequest& request, const FrameInfo& info, cons
         glaze::HitOptions hitOptions;
         hitOptions.occlusion = true;
         hitOptions.maxDistance = options_.rayLengthMetres;
-        event.hits = canvas_.castRay(event.ray, hitOptions);
+        event.hits = pass_->castRay(event.ray, hitOptions, *view);
         if (callbacks.onPick) callbacks.onPick(event);
     }
 }
 
-bool CanvasBridge::renderEyes(const FrameRequest& request, FrameResult& result) {
+bool CanvasBridge::renderEyes(const FrameRequest& request, std::string& error) {
+    std::array<glaze::detail::ExternalCanvasView, 2> views;
     for (std::size_t eye = 0; eye < 2; ++eye) {
-        const EyeRequest& in = request.eyes[eye];
+        const EyeView& in = request.eyes[eye];
         const auto world = toWorldPose(*anchor_, in.pose);
-        if (!world) return false;
-        const auto angles = cameraAngles(*world, eyeYaw_[eye]);
-        if (!angles) return false;
-        eyeYaw_[eye] = angles->yawDegrees;
+        const auto tangents = tangentsOf(in.fov);
+        if (!world || !tangents) return false;   // en ogiltig pose: ingen ritning den här bildrutan
 
-        glaze::Camera3D camera = glaze::Camera3D::lookFrom(
-            glaze::Point3{world->position.x, world->position.y, world->position.z},
-            static_cast<float>(angles->yawDegrees), static_cast<float>(angles->pitchDegrees),
-            in.view.verticalFovDegrees, glaze::UpAxis::Z);
-        camera.roll = static_cast<float>(angles->rollDegrees);
-        camera.nearPlane = options_.nearMetres;
-        camera.farPlane = options_.farMetres;
-
-        const int width = static_cast<int>(in.view.width);
-        const int height = static_cast<int>(in.view.height);
-        const std::optional<glaze::Bitmap> bitmap = canvas_.renderToBitmap(width, height, camera);
-        if (!bitmap || !bitmap->valid() || bitmap->width() != width || bitmap->height() != height ||
-            bitmap->pixels() == nullptr) {
+        const std::uint32_t index = request.imageIndex[eye];
+        if (index >= targets_[eye].size()) {
+            error = "Runtimen gav en bild som inte importerats.";
             return false;
         }
-        // Egna pixlar: Bitmap är ett handtag som bara UI-tråden får röra.
-        EyeImage& image = result.images[eye];
-        image.width = width;
-        image.height = height;
-        image.pixels.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
-        std::memcpy(image.pixels.data(), bitmap->pixels(), image.pixels.size());
+        views[eye] = glaze::detail::ExternalCanvasView{
+            targets_[eye][index].get(), viewFrom(*world, *tangents, sizes_[eye], options_)};
+    }
+    std::string renderError;
+    if (!pass_->render(std::span<const glaze::detail::ExternalCanvasView>(views), renderError)) {
+        error = "Canvas kunde inte rita ögonen" +
+                (renderError.empty() ? std::string(".") : ": " + renderError);
+        return false;
     }
     return true;
+}
+
+void CanvasBridge::beginRelease() {
+    if (!pass_ || completion_ || !releaseError_.empty()) return;
+    // Ett stängt fönster har rivit sin renderare: ingen markör går att lägga,
+    // och avvecklingen går felvägen.
+    if (!pass_->current()) {
+        releaseError_ = "ritytans fönster stängdes medan VR kördes";
+        return;
+    }
+    completion_ = pass_->renderer().insertCompletion(releaseError_);
+    if (!completion_ && releaseError_.empty()) releaseError_ = "renderaren gav ingen markör";
+}
+
+gfx::GpuCompletionState CanvasBridge::pollRelease(std::string& error) {
+    if (!releaseError_.empty()) {
+        error = releaseError_;
+        return gfx::GpuCompletionState::Failed;
+    }
+    if (!completion_) return gfx::GpuCompletionState::Complete;
+    return completion_->poll(error);
+}
+
+void CanvasBridge::release() {
+    completion_.reset();
+    for (auto& eye : targets_) {
+        while (!eye.empty()) eye.pop_back();
+    }
+    pass_.reset();
 }
 
 } // namespace glaze::openxr::detail

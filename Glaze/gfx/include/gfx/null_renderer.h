@@ -193,6 +193,20 @@ public:
     }
     bool beginOffscreen() override { return false; }
     void endOffscreen() override {}
+    NativeDevice nativeDevice() const override { return {}; }
+    std::unique_ptr<RenderTarget> importRenderTarget(const ExternalTargetDesc&,
+                                                     RenderTarget*,
+                                                     std::string& error) override
+    {
+        error = "renderaren har ingen GPU";
+        return std::make_unique<NullRenderTarget>();
+    }
+    void setExternalFramePacing(bool) override {}
+    std::unique_ptr<GpuCompletion> insertCompletion(std::string& error) override
+    {
+        error = "renderaren har ingen GPU";
+        return nullptr;
+    }
 
 protected:
     void applyClip(const Rectf*, const RoundedClip*, std::size_t) override {}

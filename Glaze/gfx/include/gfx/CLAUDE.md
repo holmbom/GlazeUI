@@ -72,11 +72,12 @@ bor i `src/backend_*/` — läcker en typ hit är abstraktionen bruten.
     djupet ur z-spannet ∪ 0 (perspektivets bortre plan där översta
     bildradens stråle når spannets bortersta plan × 1,01, MapLibres furthest
     distance; ortografiskt omsluter klipplanen spannet). **`FrameUniforms`** —
-    GlazeFrame, std140, 240 byte med offseten `static_assert`ade, KONTRAKT
-    mot tre språk (`program.h` tar det härifrån); **`frameUniforms(vy, ox,
-    oy, oz)`** fyller det vyn vet — matriserna, ögat chunk-lokalt, strålbasen
-    och världen per px — medan `target` skrivs av BACKENDEN (det bundna målets
-    storlek) och `scale` av ritytan. Grind: `scene_math_gate` del 3D.
+    GlazeFrame, std140, 256 byte med offseten `static_assert`ade, KONTRAKT
+    mot tre språk (`program.h`); **`frameUniforms(vy, ox, oy, oz)`** fyller
+    det vyn vet — matriserna, ögat chunk-lokalt, strålbasen, `rayCenter`
+    (strålen = `rayCenter + ndc.x·right + ndc.y·up`; = `forward` i ett
+    symmetriskt frustum) och världen per px — medan `target` skrivs av
+    BACKENDEN och `scale` av ritytan. Grind: `scene_math_gate` del 3D.
   - **`scene.h`** — VERTEXFORMATEN ÄR KONTRAKT (`static_assert` på storlek
     och offset): **`LineVertex`** (40 byte: punkt, föregående, nästa,
     `dist`, bredd, färg, sida, slag, ändar — punkterna CHUNK-LOKALA, en

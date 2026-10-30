@@ -847,6 +847,15 @@ void D3dWindow::renderFrame()
     if (overlayCb_)
         overlayCb_(*this);          // informativt topplager — självstädande
     gfxRenderer_.present();
+    // Skrivbordet nekade presenten (extern bildtakt): samma väg som en
+    // WM_PAINT ber om en ny ritning, så att bilden visas nästa gång
+    // pumpen får rita. Pumpens takt styr — ingen loop väntar här.
+    if (gfxRenderer_.takePresentDenied()) {
+        Event e;
+        e.type     = EventType::WindowExposed;
+        e.windowId = windowId_;
+        pushEvent(e);
+    }
 }
 
 void D3dWindow::onResize()

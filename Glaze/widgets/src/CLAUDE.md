@@ -34,7 +34,7 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   pump-SVANSEN FÖRE `flushPendingCloses()`; `hasPosted` frågar båda och
   `shutDown` stänger båda. Ramkön tas av `stepTick`, `postCameraChange` och
   `AppWindow::scheduleResizes` — övriga ramverksposter följer appens budget.
-  En postad lambda får posta nya och öppna en modal dialog. `post` väcker med `gfx::postWakeup()`
+  En postad lambda får posta nya och öppna en modal dialog. **EXTERN BILDKÄLLA** (`registerExternalFrameSource(desktopHz)`/`postExternalFrame`/`unregisterExternalFrameSource` i app.h, registret i app.cpp, pumpens och fönstrets sida i `external_frames.h`): källans EN väntande jobb körs i pump-svansen FÖRE ramkön, helt och utan budget (`externalRunJobs`); medan en källa finns presenterar alla fönster osynkat (`setExternalFramePacing`, också ett fönster som öppnas under tiden) och skrivbordet ritas högst den LÄGSTA källans `desktopHz` (0 räknas som 1) — pumpen sover till periodens slut på en intern timer (`kExternalWakeTimer`), ett väntande jobb håller den vaken, ett jobb körs aldrig efter avregistreringen och `externalClose` i `shutDown` släpper resten. `post` väcker med `gfx::postWakeup()`
   utanför låset; `EventType::Wakeup` har en egen gren i `dispatch` som varken
   loggar eller invaliderar — `windowId` är 0; `EventType::Tray`, också med
   windowId 0, går till systemfältets register med modalstackens topp,

@@ -3,13 +3,14 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 
 namespace glaze::openxr::detail {
 
 namespace {
 
 // Kör ett OpenXR-anrop; vid fel läggs texten i `error` och funktionen
-// returnerar false.
+// returnerar false. Kräver en medlem `describe` och en variabel `error`.
 #define GLAZE_OPENXR_XR_CHECK(call, name)                 \
     do {                                             \
         const XrResult openxrResult_ = (call);      \
@@ -53,58 +54,412 @@ Phase toPhase(XrSessionState state) {
     }
 }
 
-constexpr int kFormatRgbaSrgb = 29;   // DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
-constexpr int kFormatBgraSrgb = 91;   // DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
-
 } // namespace
 
-std::unique_ptr<OpenXrContext> OpenXrContext::create(double resolutionScale, std::string& error) {
-    std::unique_ptr<OpenXrContext> self(new OpenXrContext());
-    if (!self->loadLoader(error) ||
-        !self->createInstance(error) ||
-        !self->createSystem(error) ||
-        !self->createSession(error) ||
-        !self->createSwapchains(resolutionScale, error)) {
-        return nullptr;   // destruktorn avvecklar det som hunnit skapas
-    }
-    return self;
-}
-
-OpenXrContext::~OpenXrContext() { destroy(); }
-
-void OpenXrContext::destroy() noexcept {
-    // Uppladdningarna till swapchain-bilderna ska vara körda på grafikkortet
-    // innan swapchains förstörs.
-    if (d3d_) d3d_->waitIdle(2000);
-    for (EyeSwapchain& chain : swapchains_) {
-        if (chain.handle != XR_NULL_HANDLE && fn_.xrDestroySwapchain) {
-            fn_.xrDestroySwapchain(chain.handle);
-        }
-        chain = EyeSwapchain{};
-    }
-    if (viewSpace_ != XR_NULL_HANDLE && fn_.xrDestroySpace) fn_.xrDestroySpace(viewSpace_);
-    if (localSpace_ != XR_NULL_HANDLE && fn_.xrDestroySpace) fn_.xrDestroySpace(localSpace_);
-    viewSpace_ = XR_NULL_HANDLE;
-    localSpace_ = XR_NULL_HANDLE;
-    if (session_ != XR_NULL_HANDLE && fn_.xrDestroySession) fn_.xrDestroySession(session_);
-    session_ = XR_NULL_HANDLE;
-    d3d_.reset();
-    if (instance_ != XR_NULL_HANDLE && fn_.xrDestroyInstance) fn_.xrDestroyInstance(instance_);
-    instance_ = XR_NULL_HANDLE;
-}
-
-std::string OpenXrContext::describe(const char* call, XrResult result) const {
+std::string describeResult(const XrFunctions& fn, XrInstance instance, const char* call, XrResult result) {
     char name[XR_MAX_RESULT_STRING_SIZE] = {};
-    if (instance_ != XR_NULL_HANDLE && fn_.xrResultToString &&
-        XR_SUCCEEDED(fn_.xrResultToString(instance_, result, name))) {
+    if (instance != XR_NULL_HANDLE && fn.xrResultToString &&
+        XR_SUCCEEDED(fn.xrResultToString(instance, result, name))) {
         return std::string(call) + " misslyckades: " + name + " (" + std::to_string(static_cast<int>(result)) + ")";
     }
     return std::string(call) + " misslyckades med OpenXR-koden " + std::to_string(static_cast<int>(result));
 }
 
-// ----------------------------------------------------------------- SKAPANDET
+// ============================================================== XrSessionApi
 
-bool OpenXrContext::loadLoader(std::string& error) {
+XrSessionApi::XrSessionApi(const XrFunctions& fn, const Handles& handles, const Limits& limits)
+    : fn_(fn), handles_(handles), limits_(limits) {}
+
+bool XrSessionApi::pollEvents(Events& out, std::string& error) {
+    for (;;) {
+        auto buffer = xrStruct<XrEventDataBuffer>(XR_TYPE_EVENT_DATA_BUFFER);
+        const XrResult r = fn_.xrPollEvent(handles_.instance, &buffer);
+        if (r == XR_EVENT_UNAVAILABLE) return true;
+        GLAZE_OPENXR_XR_CHECK(r, "xrPollEvent");
+        switch (buffer.type) {
+        case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED: {
+            const auto* changed = reinterpret_cast<const XrEventDataSessionStateChanged*>(&buffer);
+            out.phases.push_back(toPhase(changed->state));
+            break;
+        }
+        case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:
+            out.referenceSpaceChanged = true;
+            break;
+        case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
+            out.instanceLost = true;
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+bool XrSessionApi::beginSession(std::string& error) {
+    auto info = xrStruct<XrSessionBeginInfo>(XR_TYPE_SESSION_BEGIN_INFO);
+    info.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    GLAZE_OPENXR_XR_CHECK(fn_.xrBeginSession(handles_.session, &info), "xrBeginSession");
+    return true;
+}
+
+bool XrSessionApi::endSession(std::string& error) {
+    GLAZE_OPENXR_XR_CHECK(fn_.xrEndSession(handles_.session), "xrEndSession");
+    return true;
+}
+
+bool XrSessionApi::requestExitSession(std::string& error) {
+    GLAZE_OPENXR_XR_CHECK(fn_.xrRequestExitSession(handles_.session), "xrRequestExitSession");
+    return true;
+}
+
+bool XrSessionApi::waitFrame(FrameTiming& out, std::string& error) {
+    const auto waitInfo = xrStruct<XrFrameWaitInfo>(XR_TYPE_FRAME_WAIT_INFO);
+    auto state = xrStruct<XrFrameState>(XR_TYPE_FRAME_STATE);
+    GLAZE_OPENXR_XR_CHECK(fn_.xrWaitFrame(handles_.session, &waitInfo, &state), "xrWaitFrame");
+    out.predictedDisplayTime = state.predictedDisplayTime;
+    out.predictedDisplayPeriod = state.predictedDisplayPeriod;
+    out.shouldRender = state.shouldRender == XR_TRUE;
+    return true;
+}
+
+AcquireOutcome XrSessionApi::acquireImages(std::array<std::uint32_t, 2>& index, std::string& error) {
+    for (std::size_t eye = 0; eye < 2; ++eye) {
+        if (state_[eye] == ImageState::Free) {
+            const auto acquireInfo = xrStruct<XrSwapchainImageAcquireInfo>(XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO);
+            std::uint32_t acquired = 0;
+            const XrResult r = fn_.xrAcquireSwapchainImage(handles_.swapchains[eye], &acquireInfo, &acquired);
+            if (XR_FAILED(r)) {
+                error = describe("xrAcquireSwapchainImage", r);
+                return AcquireOutcome::Failed;
+            }
+            if (acquired >= handles_.imageCounts[eye]) {
+                error = "Runtimen gav ett swapchain-index utanför bildlistan.";
+                return AcquireOutcome::Failed;
+            }
+            index_[eye] = acquired;
+            state_[eye] = ImageState::Acquired;
+        }
+        if (state_[eye] == ImageState::Acquired) {
+            auto waitInfo = xrStruct<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO);
+            waitInfo.timeout = limits_.imageWaitTimeout;
+            const XrResult r = fn_.xrWaitSwapchainImage(handles_.swapchains[eye], &waitInfo);
+            if (r == XR_TIMEOUT_EXPIRED) {
+                // Bilden förblir förvärvad och väntas om i nästa bildruta.
+                if (++notReadyFrames_ > limits_.maxNotReadyFrames) {
+                    error = "Runtimen släppte aldrig swapchain-bilden (tidsgräns).";
+                    return AcquireOutcome::Failed;
+                }
+                return AcquireOutcome::NotReady;
+            }
+            if (XR_FAILED(r)) {
+                error = describe("xrWaitSwapchainImage", r);
+                return AcquireOutcome::Failed;
+            }
+            state_[eye] = ImageState::Waited;
+        }
+    }
+    notReadyFrames_ = 0;
+    index = index_;
+    return AcquireOutcome::Ready;
+}
+
+bool XrSessionApi::beginFrame(std::string& error) {
+    const auto beginInfo = xrStruct<XrFrameBeginInfo>(XR_TYPE_FRAME_BEGIN_INFO);
+    GLAZE_OPENXR_XR_CHECK(fn_.xrBeginFrame(handles_.session, &beginInfo), "xrBeginFrame");
+    return true;
+}
+
+bool XrSessionApi::locateViews(XrTime time, LocatedViews& out, std::string& error) {
+    auto locateInfo = xrStruct<XrViewLocateInfo>(XR_TYPE_VIEW_LOCATE_INFO);
+    locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    locateInfo.displayTime = time;
+    locateInfo.space = handles_.localSpace;
+    auto viewState = xrStruct<XrViewState>(XR_TYPE_VIEW_STATE);
+    std::array<XrView, 2> views;
+    for (auto& v : views) v = xrStruct<XrView>(XR_TYPE_VIEW);
+    std::uint32_t count = 0;
+    GLAZE_OPENXR_XR_CHECK(fn_.xrLocateViews(handles_.session, &locateInfo, &viewState, 2, &count, views.data()),
+                          "xrLocateViews");
+
+    const XrViewStateFlags needed = XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
+    out.valid = count == 2 && (viewState.viewStateFlags & needed) == needed;
+    for (std::size_t eye = 0; eye < 2 && eye < count; ++eye) {
+        out.poses[eye] = fromXr(views[eye].pose);
+        out.fov[eye] = Fov{views[eye].fov.angleLeft, views[eye].fov.angleRight,
+                           views[eye].fov.angleUp, views[eye].fov.angleDown};
+    }
+    return true;
+}
+
+bool XrSessionApi::locateHead(XrTime time, PoseSample& out, std::string& error) {
+    auto location = xrStruct<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
+    GLAZE_OPENXR_XR_CHECK(fn_.xrLocateSpace(handles_.viewSpace, handles_.localSpace, time, &location),
+                          "xrLocateSpace");
+    const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+    out.valid = (location.locationFlags & needed) == needed;
+    out.positionTracked = (location.locationFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) != 0;
+    out.orientationTracked = (location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT) != 0;
+    out.pose = fromXr(location.pose);
+    return true;
+}
+
+bool XrSessionApi::releaseImages(std::string& error) {
+    std::string first;
+    for (std::size_t eye = 0; eye < 2; ++eye) {
+        if (state_[eye] != ImageState::Waited) continue;
+        state_[eye] = ImageState::Free;   // släppt eller ej: bilden är inte längre vår
+        const auto releaseInfo = xrStruct<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO);
+        const XrResult r = fn_.xrReleaseSwapchainImage(handles_.swapchains[eye], &releaseInfo);
+        if (XR_FAILED(r) && first.empty()) first = describe("xrReleaseSwapchainImage", r);
+    }
+    if (!first.empty()) {
+        error = first;
+        return false;
+    }
+    return true;
+}
+
+bool XrSessionApi::endFrameEmpty(XrTime time, std::string& error) {
+    auto endInfo = xrStruct<XrFrameEndInfo>(XR_TYPE_FRAME_END_INFO);
+    endInfo.displayTime = time;
+    endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    endInfo.layerCount = 0;
+    endInfo.layers = nullptr;
+    GLAZE_OPENXR_XR_CHECK(fn_.xrEndFrame(handles_.session, &endInfo), "xrEndFrame");
+    return true;
+}
+
+bool XrSessionApi::endFrameProjection(XrTime time, const std::array<EyeLayer, 2>& eyes, std::string& error) {
+    std::array<XrCompositionLayerProjectionView, 2> views;
+    for (std::size_t eye = 0; eye < 2; ++eye) {
+        auto view = xrStruct<XrCompositionLayerProjectionView>(XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW);
+        view.pose = toXr(eyes[eye].pose);
+        view.fov = XrFovf{static_cast<float>(eyes[eye].fov.left), static_cast<float>(eyes[eye].fov.right),
+                          static_cast<float>(eyes[eye].fov.up), static_cast<float>(eyes[eye].fov.down)};
+        view.subImage.swapchain = handles_.swapchains[eye];
+        view.subImage.imageRect.offset = XrOffset2Di{0, 0};
+        view.subImage.imageRect.extent = XrExtent2Di{handles_.widths[eye], handles_.heights[eye]};
+        view.subImage.imageArrayIndex = 0;
+        views[eye] = view;
+    }
+    auto layer = xrStruct<XrCompositionLayerProjection>(XR_TYPE_COMPOSITION_LAYER_PROJECTION);
+    layer.layerFlags = 0;
+    layer.space = handles_.localSpace;
+    layer.viewCount = 2;
+    layer.views = views.data();
+
+    const XrCompositionLayerBaseHeader* layers[] = {reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)};
+    auto endInfo = xrStruct<XrFrameEndInfo>(XR_TYPE_FRAME_END_INFO);
+    endInfo.displayTime = time;
+    endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    endInfo.layerCount = 1;
+    endInfo.layers = layers;
+    GLAZE_OPENXR_XR_CHECK(fn_.xrEndFrame(handles_.session, &endInfo), "xrEndFrame");
+    return true;
+}
+
+int XrSessionApi::waitedImages() const noexcept {
+    return static_cast<int>(std::count(state_.begin(), state_.end(), ImageState::Waited));
+}
+
+int XrSessionApi::acquiredImages() const noexcept {
+    return static_cast<int>(std::count(state_.begin(), state_.end(), ImageState::Acquired));
+}
+
+// ================================================================ BILDRUTAN
+
+SubmitResult completeFrame(XrSessionApi& api, const FrameTicket& ticket, FrameContent& content,
+                           std::string& error) {
+    std::string ignored;
+    if (!api.beginFrame(error)) {
+        api.releaseImages(ignored);   // bildrutan började aldrig; bilderna ska ändå släppas
+        return SubmitResult::Failed;
+    }
+    // Från och med nu måste bildrutan avslutas, hur det än går.
+    std::array<EyeLayer, 2> layers;
+    FillResult filled = FillResult::Failed;
+    try {
+        filled = content.fill(ticket, layers, error);
+    } catch (const std::exception& e) {
+        error = std::string("Bildrutan kastade ett undantag: ") + e.what();
+        filled = FillResult::Failed;
+    } catch (...) {
+        error = "Bildrutan kastade ett undantag.";
+        filled = FillResult::Failed;
+    }
+    if (filled == FillResult::Failed && error.empty()) error = "Bildrutan kunde inte fyllas.";
+
+    std::string releaseError;
+    const bool released = api.releaseImages(releaseError);
+    if (filled == FillResult::Failed) {
+        api.endFrameEmpty(ticket.predictedDisplayTime, ignored);
+        return SubmitResult::Failed;
+    }
+    if (!released) {
+        error = releaseError;
+        api.endFrameEmpty(ticket.predictedDisplayTime, ignored);
+        return SubmitResult::Failed;
+    }
+    const bool ended = filled == FillResult::Layer
+        ? api.endFrameProjection(ticket.predictedDisplayTime, layers, error)
+        : api.endFrameEmpty(ticket.predictedDisplayTime, error);
+    return ended ? SubmitResult::Done : SubmitResult::Failed;
+}
+
+// ================================================================ SessionLoop
+
+SessionLoop::SessionLoop(XrSessionApi& api, FrameSink& sink, LoopHooks hooks)
+    : api_(api), sink_(sink), hooks_(std::move(hooks)) {}
+
+Status SessionLoop::run() {
+    std::string error;
+    std::chrono::steady_clock::time_point exitDeadline{};
+    bool exitSent = false;
+    std::uint64_t releasedEpoch = 0;
+
+    const auto publish = [&] {
+        if (hooks_.onStatus) hooks_.onStatus(life_.status());
+    };
+    publish();
+
+    while (!life_.terminate()) {
+        if (!life_.stopRequested() && hooks_.stopRequested()) life_.requestStop();
+
+        Events events;
+        if (!api_.pollEvents(events, error)) {
+            life_.fail(error);
+            break;
+        }
+        for (const Phase phase : events.phases) {
+            const Step step = life_.onPhase(phase);
+            if (step == Step::BeginSession) {
+                if (!api_.beginSession(error)) { life_.fail(error); break; }
+                life_.sessionBegun();
+            } else if (step == Step::EndSession) {
+                if (!api_.endSession(error)) { life_.fail(error); break; }
+                life_.sessionEnded();
+            }
+        }
+        if (events.referenceSpaceChanged) {
+            life_.requestStop("Referensrummet ändrades (till exempel efter en ny rumsinställning). "
+                              "Starta VR igen.");
+        }
+        if (events.instanceLost) {
+            life_.fail("OpenXR-runtimen stängdes eller förlorades. Starta om runtimen och VR.");
+        }
+        if (life_.terminate()) break;
+        // Fokus försvann: avtryckarens hysteres gäller inte längre, också
+        // om ingen bildruta ritats sedan dess.
+        if (life_.focusEpoch() != releasedEpoch) {
+            if (hooks_.onFocusLost) hooks_.onFocusLost();
+            releasedEpoch = life_.focusEpoch();
+        }
+
+        if (life_.takeExitRequest()) {
+            if (!api_.requestExitSession(error)) { life_.fail(error); break; }
+            exitSent = true;
+            exitDeadline = std::chrono::steady_clock::now() + hooks_.exitTimeout;
+        }
+        if (exitSent && life_.running() && std::chrono::steady_clock::now() > exitDeadline) {
+            life_.giveUp();   // runtimen avslutar inte; riv ned sessionen ändå
+            break;
+        }
+        publish();
+
+        if (!life_.running()) {
+            hooks_.sleep(hooks_.idlePoll);
+            continue;
+        }
+        if (!frame()) break;
+    }
+    return life_.finalStatus();
+}
+
+bool SessionLoop::emptyFrame(XrTime time) {
+    std::string error;
+    if (!api_.beginFrame(error) || !api_.endFrameEmpty(time, error)) {
+        life_.fail(error);
+        return false;
+    }
+    return true;
+}
+
+bool SessionLoop::frame() {
+    std::string error;
+    FrameTiming timing;
+    if (!api_.waitFrame(timing, error)) {
+        life_.fail(error);
+        return false;
+    }
+    const double delta = previousTime_ == 0
+        ? 0.0
+        : std::clamp(static_cast<double>(timing.predictedDisplayTime - previousTime_) * 1e-9,
+                     0.0, hooks_.maxDeltaSeconds);
+    previousTime_ = timing.predictedDisplayTime;
+
+    // Ingen bild och inget uppdrag till UI-tråden: bildrutan begränsas till
+    // begin och end utan lager.
+    if (!timing.shouldRender || !life_.rendering() || hooks_.stopRequested()) {
+        return emptyFrame(timing.predictedDisplayTime);
+    }
+
+    FrameTicket ticket;
+    switch (api_.acquireImages(ticket.imageIndex, error)) {
+    case AcquireOutcome::Failed:
+        life_.fail(error);
+        return false;
+    case AcquireOutcome::NotReady:
+        return emptyFrame(timing.predictedDisplayTime);
+    case AcquireOutcome::Ready:
+        break;
+    }
+    ticket.sequence = ++sequence_;
+    ticket.deltaSeconds = delta;
+    ticket.focused = life_.focused();
+    ticket.focusEpoch = life_.focusEpoch();
+    ticket.predictedDisplayTime = timing.predictedDisplayTime;
+
+    switch (sink_.submit(ticket, error)) {
+    case SubmitResult::Done:
+        return true;
+    case SubmitResult::Failed: {
+        std::string released;
+        api_.releaseImages(released);   // no-op när UI-tråden redan släppt dem
+        life_.fail(error);
+        return false;
+    }
+    case SubmitResult::Cancelled: {
+        // UI-tråden började aldrig: bilderna är våra att släppa.
+        std::string released;
+        const bool ok = api_.beginFrame(error);
+        api_.releaseImages(released);
+        if (!ok || !api_.endFrameEmpty(timing.predictedDisplayTime, error)) {
+            life_.fail(error);
+            return false;
+        }
+        return true;
+    }
+    }
+    return true;
+}
+
+// ================================================================= XrRuntime
+
+std::unique_ptr<XrRuntime> XrRuntime::open(std::string& error) {
+    std::unique_ptr<XrRuntime> self(new XrRuntime());
+    if (!self->loadLoader(error) ||
+        !self->createInstance(error) ||
+        !self->createSystem(error)) {
+        return nullptr;   // destruktorn avvecklar det som hunnit skapas
+    }
+    return self;
+}
+
+XrRuntime::~XrRuntime() {
+    if (instance_ != XR_NULL_HANDLE && fn_.xrDestroyInstance) fn_.xrDestroyInstance(instance_);
+    instance_ = XR_NULL_HANDLE;
+}
+
+bool XrRuntime::loadLoader(std::string& error) {
     std::wstring path(32768, L'\0');
     const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
     if (length == 0 || length >= path.size()) {
@@ -133,7 +488,7 @@ bool OpenXrContext::loadLoader(std::string& error) {
     return true;
 }
 
-bool OpenXrContext::createInstance(std::string& error) {
+bool XrRuntime::createInstance(std::string& error) {
     // Funktionerna som fungerar utan instans.
 #define GLAZE_OPENXR_LOAD_GLOBAL(name)                                                         \
     {                                                                                     \
@@ -150,10 +505,10 @@ bool OpenXrContext::createInstance(std::string& error) {
 
     std::uint32_t count = 0;
     GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateInstanceExtensionProperties(nullptr, 0, &count, nullptr),
-                     "xrEnumerateInstanceExtensionProperties");
+                          "xrEnumerateInstanceExtensionProperties");
     std::vector<XrExtensionProperties> extensions(count, xrStruct<XrExtensionProperties>(XR_TYPE_EXTENSION_PROPERTIES));
     GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateInstanceExtensionProperties(nullptr, count, &count, extensions.data()),
-                     "xrEnumerateInstanceExtensionProperties");
+                          "xrEnumerateInstanceExtensionProperties");
     const auto has = [&](const char* name) {
         return std::any_of(extensions.begin(), extensions.begin() + count,
                            [&](const XrExtensionProperties& e) { return std::strcmp(e.extensionName, name) == 0; });
@@ -204,7 +559,7 @@ bool OpenXrContext::createInstance(std::string& error) {
     return true;
 }
 
-bool OpenXrContext::createSystem(std::string& error) {
+bool XrRuntime::createSystem(std::string& error) {
     auto systemInfo = xrStruct<XrSystemGetInfo>(XR_TYPE_SYSTEM_GET_INFO);
     systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
     const XrResult got = fn_.xrGetSystem(instance_, &systemInfo, &systemId_);
@@ -218,10 +573,10 @@ bool OpenXrContext::createSystem(std::string& error) {
     // Stereo med ogenomskinlig blandning: det enda läge sessionen ritar för.
     std::uint32_t count = 0;
     GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateViewConfigurations(instance_, systemId_, 0, &count, nullptr),
-                     "xrEnumerateViewConfigurations");
+                          "xrEnumerateViewConfigurations");
     std::vector<XrViewConfigurationType> configs(count);
     GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateViewConfigurations(instance_, systemId_, count, &count, configs.data()),
-                     "xrEnumerateViewConfigurations");
+                          "xrEnumerateViewConfigurations");
     if (std::find(configs.begin(), configs.begin() + count, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO) ==
         configs.begin() + count) {
         error = "Headsetet saknar stereovisning (PRIMARY_STEREO).";
@@ -230,12 +585,12 @@ bool OpenXrContext::createSystem(std::string& error) {
 
     count = 0;
     GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateEnvironmentBlendModes(instance_, systemId_, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
-                                                          0, &count, nullptr),
-                     "xrEnumerateEnvironmentBlendModes");
+                                                               0, &count, nullptr),
+                          "xrEnumerateEnvironmentBlendModes");
     std::vector<XrEnvironmentBlendMode> modes(count);
     GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateEnvironmentBlendModes(instance_, systemId_, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
-                                                          count, &count, modes.data()),
-                     "xrEnumerateEnvironmentBlendModes");
+                                                               count, &count, modes.data()),
+                          "xrEnumerateEnvironmentBlendModes");
     if (std::find(modes.begin(), modes.begin() + count, XR_ENVIRONMENT_BLEND_MODE_OPAQUE) == modes.begin() + count) {
         error = "Headsetet saknar ogenomskinlig blandning (OPAQUE).";
         return false;
@@ -244,26 +599,61 @@ bool OpenXrContext::createSystem(std::string& error) {
     // Grafikkravet måste hämtas innan sessionen skapas.
     graphicsRequirements_ = xrStruct<XrGraphicsRequirementsD3D11KHR>(XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR);
     GLAZE_OPENXR_XR_CHECK(fn_.xrGetD3D11GraphicsRequirementsKHR(instance_, systemId_, &graphicsRequirements_),
-                     "xrGetD3D11GraphicsRequirementsKHR");
+                          "xrGetD3D11GraphicsRequirementsKHR");
     return true;
 }
 
-bool OpenXrContext::createSession(std::string& error) {
-    d3d_ = D3D11Upload::create(graphicsRequirements_.adapterLuid, graphicsRequirements_.minFeatureLevel, error);
-    if (!d3d_) return false;
+// ============================================================== OpenXrContext
+
+std::unique_ptr<OpenXrContext> OpenXrContext::create(std::unique_ptr<XrRuntime> runtime, void* device,
+                                                     std::string& error) {
+    if (!runtime || !device) {
+        error = "Sessionen saknar OpenXR-runtime eller grafikenhet.";
+        return nullptr;
+    }
+    std::unique_ptr<OpenXrContext> self(new OpenXrContext());
+    self->runtime_ = std::move(runtime);
+    if (!self->createSession(device, error) || !self->createSwapchains(error)) {
+        return nullptr;   // destruktorn avvecklar det som hunnit skapas
+    }
+    return self;
+}
+
+OpenXrContext::~OpenXrContext() { destroy(); }
+
+void OpenXrContext::destroy() noexcept {
+    if (!runtime_) return;
+    const XrFunctions& fn = runtime_->fn();
+    api_.reset();
+    for (XrSwapchain& chain : swapchains_) {
+        if (chain != XR_NULL_HANDLE && fn.xrDestroySwapchain) fn.xrDestroySwapchain(chain);
+        chain = XR_NULL_HANDLE;
+    }
+    if (viewSpace_ != XR_NULL_HANDLE && fn.xrDestroySpace) fn.xrDestroySpace(viewSpace_);
+    if (localSpace_ != XR_NULL_HANDLE && fn.xrDestroySpace) fn.xrDestroySpace(localSpace_);
+    viewSpace_ = XR_NULL_HANDLE;
+    localSpace_ = XR_NULL_HANDLE;
+    if (session_ != XR_NULL_HANDLE && fn.xrDestroySession) fn.xrDestroySession(session_);
+    session_ = XR_NULL_HANDLE;
+    runtime_.reset();   // river instansen sist
+}
+
+bool OpenXrContext::createSession(void* device, std::string& error) {
+    const XrFunctions& fn = runtime_->fn();
+    const auto describe = [&](const char* call, XrResult r) { return runtime_->describe(call, r); };
 
     auto binding = xrStruct<XrGraphicsBindingD3D11KHR>(XR_TYPE_GRAPHICS_BINDING_D3D11_KHR);
-    binding.device = d3d_->device();
+    binding.device = static_cast<ID3D11Device*>(device);
     auto info = xrStruct<XrSessionCreateInfo>(XR_TYPE_SESSION_CREATE_INFO);
     info.next = &binding;
-    info.systemId = systemId_;
-    GLAZE_OPENXR_XR_CHECK(fn_.xrCreateSession(instance_, &info, &session_), "xrCreateSession");
+    info.systemId = runtime_->systemId();
+    GLAZE_OPENXR_XR_CHECK(fn.xrCreateSession(runtime_->instance(), &info, &session_), "xrCreateSession");
 
     const auto makeSpace = [&](XrReferenceSpaceType type, XrSpace& out, const char* name) {
         auto spaceInfo = xrStruct<XrReferenceSpaceCreateInfo>(XR_TYPE_REFERENCE_SPACE_CREATE_INFO);
         spaceInfo.referenceSpaceType = type;
         spaceInfo.poseInReferenceSpace = identityPose();
-        const XrResult r = fn_.xrCreateReferenceSpace(session_, &spaceInfo, &out);
+        const XrResult r = fn.xrCreateReferenceSpace(session_, &spaceInfo, &out);
         if (XR_FAILED(r)) {
             error = describe(name, r);
             return false;
@@ -274,256 +664,99 @@ bool OpenXrContext::createSession(std::string& error) {
            makeSpace(XR_REFERENCE_SPACE_TYPE_VIEW, viewSpace_, "xrCreateReferenceSpace(VIEW)");
 }
 
-bool OpenXrContext::createSwapchains(double resolutionScale, std::string& error) {
+bool OpenXrContext::createSwapchains(std::string& error) {
+    const XrFunctions& fn = runtime_->fn();
+    const XrInstance instance = runtime_->instance();
+    const XrSystemId systemId = runtime_->systemId();
+    const auto describe = [&](const char* call, XrResult r) { return runtime_->describe(call, r); };
+
     std::uint32_t count = 0;
-    GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateViewConfigurationViews(instance_, systemId_, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
-                                                           0, &count, nullptr),
-                     "xrEnumerateViewConfigurationViews");
+    GLAZE_OPENXR_XR_CHECK(fn.xrEnumerateViewConfigurationViews(instance, systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                                                               0, &count, nullptr),
+                          "xrEnumerateViewConfigurationViews");
     if (count != 2) {
         error = "Headsetet ger " + std::to_string(count) + " vyer i stället för två.";
         return false;
     }
     std::array<XrViewConfigurationView, 2> views;
     for (auto& v : views) v = xrStruct<XrViewConfigurationView>(XR_TYPE_VIEW_CONFIGURATION_VIEW);
-    GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateViewConfigurationViews(instance_, systemId_, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
-                                                           2, &count, views.data()),
-                     "xrEnumerateViewConfigurationViews");
+    GLAZE_OPENXR_XR_CHECK(fn.xrEnumerateViewConfigurationViews(instance, systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                                                               2, &count, views.data()),
+                          "xrEnumerateViewConfigurationViews");
 
-    // Swapchainens format: sRGB, eftersom Canvas pixlar är sRGB-kodade och
-    // runtimen då inte gammakodar dem en gång till.
-    GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateSwapchainFormats(session_, 0, &count, nullptr), "xrEnumerateSwapchainFormats");
+    // Swapchainens format: sRGB, så att kompositorn läser bilden som sRGB.
+    // Canvas skriver samma bytes genom en UNORM-vy; färgerna är redan
+    // sRGB-kodade och ska inte kodas en gång till.
+    GLAZE_OPENXR_XR_CHECK(fn.xrEnumerateSwapchainFormats(session_, 0, &count, nullptr), "xrEnumerateSwapchainFormats");
     std::vector<std::int64_t> formats(count);
-    GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateSwapchainFormats(session_, count, &count, formats.data()), "xrEnumerateSwapchainFormats");
-    const auto supported = [&](int format) {
-        return std::find(formats.begin(), formats.begin() + count, static_cast<std::int64_t>(format)) !=
-               formats.begin() + count;
+    GLAZE_OPENXR_XR_CHECK(fn.xrEnumerateSwapchainFormats(session_, count, &count, formats.data()),
+                          "xrEnumerateSwapchainFormats");
+    const auto supported = [&](std::int64_t format) {
+        return std::find(formats.begin(), formats.begin() + count, format) != formats.begin() + count;
     };
     std::int64_t format = 0;
-    if (supported(kFormatRgbaSrgb)) {
-        format = kFormatRgbaSrgb;
-        swapRedBlue_ = false;
-    } else if (supported(kFormatBgraSrgb)) {
-        format = kFormatBgraSrgb;
-        swapRedBlue_ = true;
+    bool bgra = false;
+    if (supported(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)) {
+        format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    } else if (supported(DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)) {
+        format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        bgra = true;
     } else {
         error = "Runtimen erbjuder varken R8G8B8A8_UNORM_SRGB eller B8G8R8A8_UNORM_SRGB som swapchain-format.";
         return false;
     }
 
+    XrSessionApi::Handles handles;
+    handles.instance = instance;
+    handles.session = session_;
+    handles.localSpace = localSpace_;
+    handles.viewSpace = viewSpace_;
+
     for (std::size_t eye = 0; eye < 2; ++eye) {
         const XrViewConfigurationView& v = views[eye];
-        viewSizes_[eye] = ViewSize{v.recommendedImageRectWidth, v.recommendedImageRectHeight,
-                                   v.maxImageRectWidth, v.maxImageRectHeight};
-        // Bildens mått beror bara på storlekarna och skalan, inte på synfältet;
-        // ett vanligt synfält räcker för att få dem.
-        const auto size = makeSymmetricView(Fov{-0.8, 0.8, 0.8, -0.8}, viewSizes_[eye], resolutionScale);
-        if (!size) {
-            error = "Bildmåtten för ögat gick inte att räkna ut (skala " + std::to_string(resolutionScale) + ").";
+        // Runtimens fulla rekommenderade mått; aldrig nedskalat.
+        if (v.recommendedImageRectWidth == 0 || v.recommendedImageRectHeight == 0) {
+            error = "Runtimen gav ögat måttet 0 som rekommenderad bildstorlek.";
             return false;
         }
 
         auto info = xrStruct<XrSwapchainCreateInfo>(XR_TYPE_SWAPCHAIN_CREATE_INFO);
-        info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT |
-                          XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+        info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
         info.format = format;
-        info.sampleCount = 1;
-        info.width = size->width;
-        info.height = size->height;
+        info.sampleCount = 1;   // kantutjämningen sker i Canvas eget mål
+        info.width = v.recommendedImageRectWidth;
+        info.height = v.recommendedImageRectHeight;
         info.faceCount = 1;
         info.arraySize = 1;
         info.mipCount = 1;
-        EyeSwapchain& chain = swapchains_[eye];
-        GLAZE_OPENXR_XR_CHECK(fn_.xrCreateSwapchain(session_, &info, &chain.handle), "xrCreateSwapchain");
-        chain.width = size->width;
-        chain.height = size->height;
+        GLAZE_OPENXR_XR_CHECK(fn.xrCreateSwapchain(session_, &info, &swapchains_[eye]), "xrCreateSwapchain");
 
         std::uint32_t imageCount = 0;
-        GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateSwapchainImages(chain.handle, 0, &imageCount, nullptr),
-                         "xrEnumerateSwapchainImages");
-        chain.images.assign(imageCount, xrStruct<XrSwapchainImageD3D11KHR>(XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR));
-        GLAZE_OPENXR_XR_CHECK(fn_.xrEnumerateSwapchainImages(
-                             chain.handle, imageCount, &imageCount,
-                             reinterpret_cast<XrSwapchainImageBaseHeader*>(chain.images.data())),
-                         "xrEnumerateSwapchainImages");
-    }
-    return true;
-}
-
-// ------------------------------------------------------------- HÄNDELSER OCH SESSION
-
-bool OpenXrContext::pollEvents(Events& out, std::string& error) {
-    for (;;) {
-        auto buffer = xrStruct<XrEventDataBuffer>(XR_TYPE_EVENT_DATA_BUFFER);
-        const XrResult r = fn_.xrPollEvent(instance_, &buffer);
-        if (r == XR_EVENT_UNAVAILABLE) return true;
-        GLAZE_OPENXR_XR_CHECK(r, "xrPollEvent");
-        switch (buffer.type) {
-        case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED: {
-            const auto* changed = reinterpret_cast<const XrEventDataSessionStateChanged*>(&buffer);
-            out.phases.push_back(toPhase(changed->state));
-            break;
-        }
-        case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:
-            out.referenceSpaceChanged = true;
-            break;
-        case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
-            out.instanceLost = true;
-            break;
-        default:
-            break;
-        }
-    }
-}
-
-bool OpenXrContext::beginSession(std::string& error) {
-    auto info = xrStruct<XrSessionBeginInfo>(XR_TYPE_SESSION_BEGIN_INFO);
-    info.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-    GLAZE_OPENXR_XR_CHECK(fn_.xrBeginSession(session_, &info), "xrBeginSession");
-    return true;
-}
-
-bool OpenXrContext::endSession(std::string& error) {
-    GLAZE_OPENXR_XR_CHECK(fn_.xrEndSession(session_), "xrEndSession");
-    return true;
-}
-
-bool OpenXrContext::requestExitSession(std::string& error) {
-    GLAZE_OPENXR_XR_CHECK(fn_.xrRequestExitSession(session_), "xrRequestExitSession");
-    return true;
-}
-
-// ------------------------------------------------------------------- BILDRUTAN
-
-bool OpenXrContext::waitFrame(FrameTiming& out, std::string& error) {
-    const auto waitInfo = xrStruct<XrFrameWaitInfo>(XR_TYPE_FRAME_WAIT_INFO);
-    auto state = xrStruct<XrFrameState>(XR_TYPE_FRAME_STATE);
-    GLAZE_OPENXR_XR_CHECK(fn_.xrWaitFrame(session_, &waitInfo, &state), "xrWaitFrame");
-    out.predictedDisplayTime = state.predictedDisplayTime;
-    out.predictedDisplayPeriod = state.predictedDisplayPeriod;
-    out.shouldRender = state.shouldRender == XR_TRUE;
-    return true;
-}
-
-bool OpenXrContext::beginFrame(std::string& error) {
-    const auto beginInfo = xrStruct<XrFrameBeginInfo>(XR_TYPE_FRAME_BEGIN_INFO);
-    GLAZE_OPENXR_XR_CHECK(fn_.xrBeginFrame(session_, &beginInfo), "xrBeginFrame");
-    return true;
-}
-
-bool OpenXrContext::locateViews(XrTime time, EyePoses& out, std::string& error) {
-    auto locateInfo = xrStruct<XrViewLocateInfo>(XR_TYPE_VIEW_LOCATE_INFO);
-    locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-    locateInfo.displayTime = time;
-    locateInfo.space = localSpace_;
-    auto viewState = xrStruct<XrViewState>(XR_TYPE_VIEW_STATE);
-    std::array<XrView, 2> views;
-    for (auto& v : views) v = xrStruct<XrView>(XR_TYPE_VIEW);
-    std::uint32_t count = 0;
-    GLAZE_OPENXR_XR_CHECK(fn_.xrLocateViews(session_, &locateInfo, &viewState, 2, &count, views.data()), "xrLocateViews");
-
-    const XrViewStateFlags needed = XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
-    out.valid = count == 2 && (viewState.viewStateFlags & needed) == needed;
-    for (std::size_t eye = 0; eye < 2 && eye < count; ++eye) {
-        out.poses[eye] = fromXr(views[eye].pose);
-        out.fov[eye] = Fov{views[eye].fov.angleLeft, views[eye].fov.angleRight,
-                           views[eye].fov.angleUp, views[eye].fov.angleDown};
-    }
-    return true;
-}
-
-bool OpenXrContext::locateHead(XrTime time, PoseSample& out, std::string& error) {
-    auto location = xrStruct<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
-    GLAZE_OPENXR_XR_CHECK(fn_.xrLocateSpace(viewSpace_, localSpace_, time, &location), "xrLocateSpace");
-    const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
-    out.valid = (location.locationFlags & needed) == needed;
-    out.positionTracked = (location.locationFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) != 0;
-    out.orientationTracked = (location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT) != 0;
-    out.pose = fromXr(location.pose);
-    return true;
-}
-
-bool OpenXrContext::endFrameEmpty(XrTime time, std::string& error) {
-    auto endInfo = xrStruct<XrFrameEndInfo>(XR_TYPE_FRAME_END_INFO);
-    endInfo.displayTime = time;
-    endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-    endInfo.layerCount = 0;
-    endInfo.layers = nullptr;
-    GLAZE_OPENXR_XR_CHECK(fn_.xrEndFrame(session_, &endInfo), "xrEndFrame");
-    return true;
-}
-
-bool OpenXrContext::uploadEye(std::size_t eye, const EyeSubmission& submission, std::string& error) {
-    EyeSwapchain& chain = swapchains_[eye];
-    if (submission.width != static_cast<int>(chain.width) || submission.height != static_cast<int>(chain.height)) {
-        error = "Ögats bild har fel mått för swapchain (" + std::to_string(submission.width) + "x" +
-                std::to_string(submission.height) + " mot " + std::to_string(chain.width) + "x" +
-                std::to_string(chain.height) + ").";
-        return false;
-    }
-
-    std::uint32_t index = 0;
-    const auto acquireInfo = xrStruct<XrSwapchainImageAcquireInfo>(XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO);
-    GLAZE_OPENXR_XR_CHECK(fn_.xrAcquireSwapchainImage(chain.handle, &acquireInfo, &index), "xrAcquireSwapchainImage");
-
-    // Väntar högst en sekund på att runtimen släpper bilden.
-    auto waitInfo = xrStruct<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO);
-    waitInfo.timeout = 200'000'000;
-    XrResult waited = XR_TIMEOUT_EXPIRED;
-    for (int attempt = 0; attempt < 5 && waited == XR_TIMEOUT_EXPIRED; ++attempt) {
-        waited = fn_.xrWaitSwapchainImage(chain.handle, &waitInfo);
-    }
-    if (XR_FAILED(waited) || waited == XR_TIMEOUT_EXPIRED) {
-        error = waited == XR_TIMEOUT_EXPIRED ? "Runtimen släppte aldrig swapchain-bilden (tidsgräns)."
-                                             : describe("xrWaitSwapchainImage", waited);
-        return false;
-    }
-
-    const bool uploaded = index < chain.images.size() &&
-                          d3d_->upload(chain.images[index].texture, submission.rgba, submission.width,
-                                       submission.height, swapRedBlue_, error);
-    if (index >= chain.images.size()) error = "Runtimen gav ett swapchain-index utanför bildlistan.";
-
-    const auto releaseInfo = xrStruct<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO);
-    const XrResult released = fn_.xrReleaseSwapchainImage(chain.handle, &releaseInfo);
-    if (!uploaded) return false;
-    GLAZE_OPENXR_XR_CHECK(released, "xrReleaseSwapchainImage");
-    return true;
-}
-
-bool OpenXrContext::endFrameProjection(XrTime time, const std::array<EyeSubmission, 2>& eyes, std::string& error) {
-    for (std::size_t eye = 0; eye < 2; ++eye) {
-        if (!uploadEye(eye, eyes[eye], error)) {
-            std::string ignored;
-            endFrameEmpty(time, ignored);   // bildrutan som börjats ska alltid avslutas
+        GLAZE_OPENXR_XR_CHECK(fn.xrEnumerateSwapchainImages(swapchains_[eye], 0, &imageCount, nullptr),
+                              "xrEnumerateSwapchainImages");
+        std::vector<XrSwapchainImageD3D11KHR> images(imageCount, xrStruct<XrSwapchainImageD3D11KHR>(XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR));
+        GLAZE_OPENXR_XR_CHECK(fn.xrEnumerateSwapchainImages(
+                                  swapchains_[eye], imageCount, &imageCount,
+                                  reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())),
+                              "xrEnumerateSwapchainImages");
+        if (imageCount == 0) {
+            error = "Runtimen gav ett swapchain utan bilder.";
             return false;
         }
-    }
 
-    std::array<XrCompositionLayerProjectionView, 2> views;
-    for (std::size_t eye = 0; eye < 2; ++eye) {
-        auto view = xrStruct<XrCompositionLayerProjectionView>(XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW);
-        view.pose = toXr(eyes[eye].pose);
-        view.fov = XrFovf{static_cast<float>(eyes[eye].fov.left), static_cast<float>(eyes[eye].fov.right),
-                          static_cast<float>(eyes[eye].fov.up), static_cast<float>(eyes[eye].fov.down)};
-        view.subImage.swapchain = swapchains_[eye].handle;
-        view.subImage.imageRect.offset = XrOffset2Di{0, 0};
-        view.subImage.imageRect.extent = XrExtent2Di{eyes[eye].width, eyes[eye].height};
-        view.subImage.imageArrayIndex = 0;
-        views[eye] = view;
-    }
-    auto layer = xrStruct<XrCompositionLayerProjection>(XR_TYPE_COMPOSITION_LAYER_PROJECTION);
-    layer.layerFlags = 0;
-    layer.space = localSpace_;
-    layer.viewCount = 2;
-    layer.views = views.data();
+        EyeImageSet& eyeImages = eyeImages_[eye];
+        eyeImages.width = static_cast<int>(info.width);
+        eyeImages.height = static_cast<int>(info.height);
+        eyeImages.bgra = bgra;
+        eyeImages.images.clear();
+        for (std::uint32_t i = 0; i < imageCount; ++i) eyeImages.images.push_back(images[i].texture);
 
-    const XrCompositionLayerBaseHeader* layers[] = {reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)};
-    auto endInfo = xrStruct<XrFrameEndInfo>(XR_TYPE_FRAME_END_INFO);
-    endInfo.displayTime = time;
-    endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-    endInfo.layerCount = 1;
-    endInfo.layers = layers;
-    GLAZE_OPENXR_XR_CHECK(fn_.xrEndFrame(session_, &endInfo), "xrEndFrame");
+        handles.swapchains[eye] = swapchains_[eye];
+        handles.imageCounts[eye] = imageCount;
+        handles.widths[eye] = static_cast<std::int32_t>(info.width);
+        handles.heights[eye] = static_cast<std::int32_t>(info.height);
+    }
+    api_ = std::make_unique<XrSessionApi>(fn, handles);
     return true;
 }
 

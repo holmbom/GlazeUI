@@ -80,6 +80,15 @@ utanför sin mapp (metal_backend.h bär ObjC-typer — BARA .mm-filer).
   sin renderare (D3D11 `chosenAdapter`, Metal `preferredMetalDevice`) och
   Linux EN gång i `gfx::init` (`applyGpuEnvironment`). Kontraktet står i
   `platform.h`; `gpuAdapters`/`childEnvironmentRemovals` bor i backendarna.
+  `GpuAdapter::localAdapterId` fylls bara av D3D11 (LUID:en); Metal och Linux
+  lämnar det tomt.
+  **INTEGRATION MED ETT ANNAT GRAFIK-API** (`gfx/native.h`): `nativeDevice`,
+  `importRenderTarget`, `setExternalFramePacing` och `insertCompletion` är
+  rena virtuella i `Renderer`; bara D3D11 implementerar dem
+  ([backend_d3d11](backend_d3d11/CLAUDE.md)). Metal och GL svarar "stöds
+  inte" (`api == None`, ogiltigt mål med feltext, ingen åtgärd, `nullptr` med
+  feltext) och `NullRenderer` likadant. `rayCenter` ligger sist i
+  GlazeFrame-blocket i alla tre förspelen (256 byte).
   **APPENS ID** (PROGRAMIKON): `setAppId`/`appId` — lagringen, valideringen
   (`[A-Za-z0-9._-]`, ≤ 255, ogiltigt loggas och ignoreras) och förvalet:
   `programName()` normaliserat (varje annan byte blir '_', "glazeui" om
@@ -234,7 +243,16 @@ utanför sin mapp (metal_backend.h bär ObjC-typer — BARA .mm-filer).
   `lookAt` → `perspective`/`ortho` → ytans NDC till målets px — det sista
   steget är kartkamerans (camera.cpp steg 5), skrivet två gånger, och
   likheten i scene_math_gate håller dem ihop. Strålarna och skalan räknas
-  ANALYTISKT ur basen och halvmåtten, inte genom en invers. `visiblePlane-
+  ANALYTISKT ur basen och halvmåtten, inte genom en invers. ETT ASYMMETRISKT
+  FRUSTUM (`View3D::frustum`) går genom `Extents` (halva spannet + mittens
+  förskjutning i bildplanet): `offAxisPerspective` lägger förskjutningen i
+  matrisens z-kolumn, `rayThrough` räknar kanterna på `cx ± hx`/`cy ± hy`,
+  `pxPerUnitAt` bygger på det halva höjdspannet `hy`, och utan frustum går
+  perspektivet genom
+  `Mat4d::perspective` (`fovY`). `usable` kräver ändliga tangenter i ordning.
+  `frameUniforms` fyller `rayCenter` = blicken + mittens förskjutning längs
+  höger och upp (ortografiskt och utan frustum = `forward`) och skalar
+  `right`/`up` med halvspannen. `visiblePlane-
   Region`: synpyramidens åtta hörn RELATIVT ögat, punkterna där kanterna
   byter sida om planet, sorterade kring tyngdpunkten; ett polygon utan
   area är tomt. `toView3D`: tre punkter ur kartmatrisens invers (mitt-

@@ -5179,6 +5179,7 @@ scen.setMultisample(4);
 - En form i rymden gör sitt lager till World (`Auto`); etiketter i ett World-lager djuptestas och kan skymmas. Lägg etiketter som ska synas överst i ett `Ground`-lager.
 - Verktygen och `easeTo` fyrar aldrig `onCameraChange`; de kräver en `Camera3D` (annars logg).
 - Med en `Camera3D` räknar `toWorld(lokal)`, `unitsPerPixelAt` och musens `e.world` mot marken z = 0.
+- Sidopaketet `openxr` ritar huvudvyns lager i headsetets bilder med ett asymmetriskt frustum per öga (`View3D::frustum`) i stället för kameran; `Camera3D` själv har inget frustum. Skrivbordets kamera, mål och cache rörs inte.
 
 <!-- END:canvas-3d -->
 
@@ -5384,7 +5385,7 @@ scen.addShape(1, glaze::Shape::box(glaze::Box3{{674000, 6580000, 0}, {674001, 65
 **Alias:** shaders, shader-källa, hlsl, glsl, msl, glazeframe, glazeuser, vsmain, fsmain, sv_vertexid, gl_vertexid, vertex_id, attribut, attributes, location, register, d3d11, metal
 **Include:** `#include <glaze/glaze.h>` · **CMake:** `glaze` · **Källa:** [gfx/program.h](Glaze/gfx/include/gfx/program.h), [style3d.h](Glaze/widgets/include/glaze/canvas/style3d.h)
 
-Ett program bär källan per backend: HLSL (D3D11, Windows), GLSL 330 med två `main()` (GL, Linux) och MSL (Metal, macOS) — bara den som kör behöver sin, men saknas den blir det reserven. Förspelet ger blocket `GlazeFrame` som `glaze`: `viewProj`, `invViewProj`, `eye`, strålbasen `forward`/`right`/`up` (strålen genom NDC (x, y) är `forward + x·right + y·up`), `target`, `scale` (`.z` = lagrets opacitet) och `pixelSize`. Ett helskärmspass gör sina tre vertex själv ur vertex-id.
+Ett program bär källan per backend: HLSL (D3D11, Windows), GLSL 330 med två `main()` (GL, Linux) och MSL (Metal, macOS) — bara den som kör behöver sin, men saknas den blir det reserven. Förspelet ger blocket `GlazeFrame` som `glaze`: `viewProj`, `invViewProj`, `eye`, strålbasen `forward`/`right`/`up`, `target`, `scale` (`.z` = lagrets opacitet), `pixelSize` och `rayCenter`. Blocket är std140 och 256 byte, med `rayCenter` sist. Strålen genom NDC (x, y) har riktningen `rayCenter + x·right + y·up`: `rayCenter` är lika med `forward` för ett symmetriskt frustum men förskjuten för ett asymmetriskt (ett headsets öga), så bygg alltid strålen ur `rayCenter`. `forward` är den optiska axeln — djupet längs blicken och `pixelSize`. Ett helskärmspass gör sina tre vertex själv ur vertex-id.
 
 ### API
 - GlazeFrame: `register(b3)` · GL bindningspunkt 3 · Metal `constant GlazeFrame& glaze [[buffer(2)]]`.
@@ -5413,7 +5414,7 @@ VsOut vsMain(uint id : SV_VertexID)
 }
 float4 fsMain(VsOut i) : SV_Target
 {
-    float3 dir = normalize(glaze.forward.xyz + i.ndc.x * glaze.right.xyz +
+    float3 dir = normalize(glaze.rayCenter.xyz + i.ndc.x * glaze.right.xyz +
                            i.ndc.y * glaze.up.xyz);
     return float4(lerp(uNere.rgb, uUppe.rgb, saturate(dir.z)), glaze.scale.z);
 }
@@ -5433,7 +5434,7 @@ in vec2 vNdc;
 out vec4 frag;
 void main()
 {
-    vec3 dir = normalize(glaze.forward.xyz + vNdc.x * glaze.right.xyz +
+    vec3 dir = normalize(glaze.rayCenter.xyz + vNdc.x * glaze.right.xyz +
                          vNdc.y * glaze.up.xyz);
     frag = vec4(mix(uNere.rgb, uUppe.rgb, clamp(dir.z, 0.0, 1.0)), glaze.scale.z);
 }
@@ -5453,7 +5454,7 @@ fragment float4 fsMain(VsOut i [[stage_in]],
                        constant GlazeFrame& glaze [[buffer(2)]],
                        constant User& user [[buffer(3)]])
 {
-    float3 dir = normalize(glaze.forward.xyz + i.ndc.x * glaze.right.xyz +
+    float3 dir = normalize(glaze.rayCenter.xyz + i.ndc.x * glaze.right.xyz +
                            i.ndc.y * glaze.up.xyz);
     return float4(mix(user.nere.rgb, user.uppe.rgb, saturate(dir.z)), glaze.scale.z);
 }
@@ -5465,6 +5466,7 @@ fragment float4 fsMain(VsOut i [[stage_in]],
 
 ### Fallgropar
 - Ett fel rapporteras med raden i appens EGEN källa (förspelet räknas inte) — läs `programError(namn)`.
+- En stråle byggd som `forward + x·right + y·up` stämmer bara för ett symmetriskt frustum; i ett asymmetriskt (ett externt mål med eget frustum) blir riktningen fel. Använd `rayCenter`.
 - I GLSL: läs aldrig fragmentets läge ur `gl_FragCoord.y` (målen är y-vända); ta det ur en varying.
 - Läser programmet en plats meshen saknar ritas anropet med reserven.
 
@@ -5539,6 +5541,7 @@ scen.removeView(1);
 - Ett lager som läggs i `{1}` försvinner ur huvudvyn — skriv `{0, 1}` för båda.
 - `removeView` flyttar senare vyer ett nummer ned, och lagrens vylistor följer med.
 - Rutnätet och `onPaint` hör till huvudvyn. `renderToBitmap` tar inte med del-vyerna och får inte anropas inifrån en ritning — anropa den i en handler (fönstret får vara dolt men måste vara öppet).
+- Sidopaketet `openxr` ritar bara HUVUDVYNS lager (rutnätet, terrängen, djupet, världen, etiketterna och `onPaint`/`onPaintLayer`) i headsetets bilder; del-vyerna, kanten och fokusringen hör till fönstret och följer inte med. Etiketterna placeras per öga utan att röra skärmens eller bitmappens placering.
 
 <!-- END:canvas-views -->
 
@@ -6407,14 +6410,15 @@ Previewn (glaze-render, GlazeBuilder) visar en TOM terminal i rätt färger och 
 **Alias:** openxr, vr, xr, headset, virtual-reality, pc-vr, stereo, huvudspårning, head-tracking, handkontroller, controllers, stråle, ray, castray, förflyttning, locomotion, glaze_openxr, glaze_openxr_ui, session
 **Include:** `#include <glaze_openxr/session.h>` · **CMake:** `glaze_openxr_ui` (med `-DGLAZE_OPENXR=ON`) · **Källa:** [session.h](OpenXR/include/glaze_openxr/session.h), [math.h](OpenXR/include/glaze_openxr/math.h), [CLAUDE.md](OpenXR/CLAUDE.md)
 
-`glaze::openxr::Session` visar en befintlig `glaze::Canvas`-scen med `Camera3D` i ett PC-VR-headset genom OpenXR — den runtime som är aktiv på datorn, oftast registrerad av headsetets PC-programvara. Huvudet spåras i stereo och världen står still, vänster spak går och sidstegar, höger spak vrider, och avtryckaren skjuter en stråle genom `Canvas::castRay` till appens `onPick`. Varje öga ritas av Canvas själv (`renderToBitmap`) — paketet har ingen egen 3D-motor, och OpenXR sköts i en egen tråd. Sidopaketet `OpenXR/` — `glaze` länkar det aldrig, och det finns bara på Windows.
+`glaze::openxr::Session` visar en befintlig `glaze::Canvas`-scen med `Camera3D` i ett PC-VR-headset genom OpenXR — den runtime som är aktiv på datorn, oftast registrerad av headsetets PC-programvara. Huvudet spåras i stereo och världen står still, vänster spak går och sidstegar, höger spak vrider, och avtryckaren skjuter en stråle genom `Canvas::castRay` till appens `onPick`. Canvas ritar scenen DIREKT i headsetets bilder: på fönstrets egen D3D11-enhet, med varje ögas asymmetriska frustum, i runtimens fulla rekommenderade upplösning (aldrig nedskalad) och med MSAA. Paketet har ingen egen 3D-motor och ingen CPU-kopia av bilderna. OpenXR-anropen för väntan och bildinhämtning sköts i en egen tråd; allt som rör Canvas och grafikenheten sker i UI-tråden. Medan en session kör ritas skrivbordet osynkat och högst 30 gånger per sekund, så att fönstrets present aldrig blockerar headsetets takt. Sidopaketet `OpenXR/` — `glaze` länkar det aldrig, och det finns bara på Windows.
 
 ### API
 - `Session(glaze::Canvas& canvas, Callbacks callbacks)` · `~Session()` (stoppar och väntar in sin tråd) — ej kopierbar eller flyttbar.
 - `void start(const Options& options = {})` — asynkront; förankringen tas ur canvasens kamera (huvudet i `eye()`, blicken mot `azimuth`) · `void requestStop()` — blockerar inte · `State state() const` — `Stopped`, `Starting`, `Waiting`, `Running`, `Stopping`, `Failed`.
-- `Options` i fältordning: `resolutionScale` (0,5 × runtimens rekommenderade mått), `moveMetresPerSecond` (1), `turnDegreesPerSecond` (60), `stickDeadzone` (0,2), `rayLengthMetres` (20), `nearMetres` (0,05), `farMetres` (1000).
+- `Options` i fältordning: `msaaSamples` (4; 4, 2 eller 1 — kantutjämningen i ögonen; bilderna har alltid runtimens rekommenderade mått), `moveMetresPerSecond` (1), `turnDegreesPerSecond` (60), `stickDeadzone` (0,2), `rayLengthMetres` (20), `nearMetres` (0,05), `farMetres` (1000).
 - `Callbacks`: `onStatus(const Status&)` (`state` + `message` — felen som text) · `onFrame(const FrameInfo&)` (före ritningen: `controllers[0]` vänster, `[1]` höger, med `grip`/`aim` som `WorldPose` i världen, spak och avtryckare) · `onPick(const PickEvent&)` (en gång per nytt avtryck: `hand`, `ray`, `hits` närmast först). Alla i UI-tråden.
-- Kärnan (`glaze_openxr`, `<glaze_openxr/math.h>`) är ren std: `makeAnchor`, `toWorldPose`, `cameraAngles`, `makeSymmetricView`.
+- Kärnan (`glaze_openxr`, `<glaze_openxr/math.h>`) är ren std: `makeAnchor`, `toWorldPose`, `cameraAngles`.
+- Kortet väljs av APPEN före första fönstret, med `gfx::setGpuPreference(gfx::GpuPreference::HighPerformance)` eller `gfx::setGpuAdapter(id)` (`gfx`). Paketet kontaktar runtimen först när `start()` körs; då kontrolleras att fönstrets renderare ritar med D3D11 på det kort runtimen kräver och med tillräcklig funktionsnivå.
 
 ### Exempel
 ```cpp
@@ -6458,6 +6462,11 @@ private:
     glaze::Canvas     scen;                               // FÖRE sessionen
     std::unique_ptr<glaze::openxr::Session> session_;    // förstörs först
 };
+
+void valjKort()   // först i main, före det första fönstret
+{
+    gfx::setGpuPreference(gfx::GpuPreference::HighPerformance);
+}
 ```
 ```cmake
 set(GLAZE_OPENXR ON CACHE BOOL "" FORCE)   # före FetchContent_MakeAvailable(GlazeUI)
@@ -6474,8 +6483,11 @@ Ingen — sessionen är varken widget eller komponent och skapas i användarkode
 - Stäng inte fönstret medan VR går: veta `onClose` (`e.cancel = true`), anropa `requestStop()` och stäng när `onStatus` säger `Stopped` eller `Failed`.
 - `GLAZE_OPENXR` är AV som förval och hämtar OpenXR-loadern med FetchContent; på annat OS än Windows stoppar den konfigureringen.
 - Runtimen är den som är registrerad som aktiv i Windows (`HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime`) — paketet väljer ingen själv. Khronos `openxr_runtime_list.exe` och `hello_xr.exe -g D3D11` (i loader-zipen, `_deps/openxrloader-src/x64/bin/`) visar vilken runtime som är aktiv och om headsetet svarar, innan appens kod är inblandad.
-- Bildtakten är låg: två `renderToBitmap` med synkron readback per bildruta. `resolutionScale` byter skärpa mot fart.
-- `renderToBitmap` kör appens `onPaint`/`onPaintLayer` en gång per öga — de får inte ändra tillstånd per anrop. `castRay` träffar ytor, inte linjer eller etiketter, så strålar och markeringar i egna linjelager blir aldrig träffar.
+- Fel kort: sessionen går till `Failed` med det förväntade och det faktiska kortets namn och id. Välj kortet före första fönstret (`gfx::setGpuPreference`/`setGpuAdapter`); enheten byggs aldrig om automatiskt.
+- Skrivbordet ritas högst 30 gånger per sekund medan sessionen kör och går tillbaka till full takt efter stopp. En ändring som väntar ritas vid nästa tillåtna tillfälle.
+- Ritningen kör huvudvyns lager med appens `onPaint`/`onPaintLayer` en gång per öga och bildruta — de får inte ändra tillstånd per anrop. Del-vyerna, kantlinjen och fokusringen hör till fönstret och ritas inte i headsetet. `castRay` träffar ytor, inte linjer eller etiketter, så strålar och markeringar i egna linjelager blir aldrig träffar.
+- `msaaSamples` kostar GPU-tid: 4 är förvalet, och 2 eller 1 kan behövas om runtimen missar sina bildperioder. Antalet begränsas av vad kortet stöder.
+- Stoppet tar några bildrutor: GPU:n blir först klar med det som skickats, sedan släpps bilderna. `Stopped` eller `Failed` kommer i `onStatus` när allt är avvecklat.
 - Efter en fokusförlust (en meny i headsetet) ger avtryckaren ett val först efter ett släpp.
 
 <!-- END:openxr -->
@@ -6484,7 +6496,7 @@ Ingen — sessionen är varken widget eller komponent och skapas i användarkode
 ## `gfx::` — det en app rör i fasaden (`gfx`)
 
 **Alias:** gfx, fasad, facade, color, färg, key, tangent, keyboard, kmodctrl, modifierare, event, log, openurl, gfx-openfile, standardprogram, knownplaces, displaymetrics, setgpupreference, gpuadapters, setgpuadapter, grafikkort, decodeimage, encodepng, urklipp, clipboard, keydown-text, tangentens-text, devicename, gpu, adapter, renderstats, gputime
-**Include:** `#include <glaze/glaze.h>` (drar in `gfx::`-typerna — inkludera aldrig `gfx/` direkt) · **CMake:** `glaze` · **Källa:** [events.h](Glaze/gfx/include/gfx/events.h), [platform.h](Glaze/gfx/include/gfx/platform.h), [window.h](Glaze/gfx/include/gfx/window.h), [renderer.h](Glaze/gfx/include/gfx/renderer.h), [image.h](Glaze/gfx/include/gfx/image.h), [color.h](Glaze/gfx/include/gfx/color.h)
+**Include:** `#include <glaze/glaze.h>` (drar in `gfx::`-typerna — inkludera aldrig `gfx/` direkt) · **CMake:** `glaze` · **Källa:** [events.h](Glaze/gfx/include/gfx/events.h), [platform.h](Glaze/gfx/include/gfx/platform.h), [window.h](Glaze/gfx/include/gfx/window.h), [renderer.h](Glaze/gfx/include/gfx/renderer.h), [native.h](Glaze/gfx/include/gfx/native.h), [image.h](Glaze/gfx/include/gfx/image.h), [color.h](Glaze/gfx/include/gfx/color.h)
 
 `gfx::` är render-fasaden under `glaze::`: egna POD-typer och fria plattformsfunktioner som varje backend implementerar. En app använder en handfull — färgen, tangenterna, loggen, URL:er, urklippet, kända platser, skärmens mått och PNG — och aldrig några backend-typer (Win32, AppKit, Wayland, X11).
 
@@ -6497,13 +6509,14 @@ Ingen — sessionen är varken widget eller komponent och skapas i användarkode
 - `void log(const char* fmt, ...);` · `bool openUrl(const std::string& url);` · `bool openFile(const std::string& path);` — en lokal UTF-8-sökväg i standardprogrammet (ingen URL-kodning i appen) · `std::string clipboardText();` · `void setClipboardText(const std::string& utf8);` · `std::uint64_t ticksMs();` · `std::string basePath();` · `SystemTheme systemTheme();` · `std::string systemLocale();`
 - `std::vector<Place> knownPlaces();` (`Place { PlaceKind kind; std::string path; std::string label; }`) · `bool isHiddenFile(const std::string& utf8Path);`
 - `void setGpuPreference(GpuPreference p);` — `Default`/`HighPerformance`/`LowPower`, FÖRST i `main`: före första fönstret, före appens egna trådar och före andra EGL-användare (på Linux sätts valet som miljövariabler i `gfx::init`, och `setenv` är inte trådsäkert). Windows och macOS: vid varje ny renderare; Linux: bara i `gfx::init`.
-- GRAFIKKORTEN (sedan 0.1.10): `std::vector<GpuAdapter> gpuAdapters();` — `GpuAdapter { std::string id, name, vendor; std::uint32_t vendorId, deviceId; GpuKind kind; std::uint64_t memoryBytes; bool selectable, isDefault; }` och `enum class GpuKind { Unknown, Integrated, Discrete, External, Software }`. Listan har inga sidoeffekter och är säker före första fönstret. `id` HÅLLER ÖVER OMSTART och är det appen sparar: `pci:vvvv:dddd:ssssssss:rr` (samma på Windows och Linux; `@bb:dd.f` bara när två kort annars får samma id), på macOS `metal:<namn>`. `selectable` = kortet kan väljas här; `isDefault` = det `Default` ritar med (UPPSKATTAT på macOS och Linux).
+- GRAFIKKORTEN (sedan 0.1.10): `std::vector<GpuAdapter> gpuAdapters();` — `GpuAdapter { std::string id, name, vendor; std::uint32_t vendorId, deviceId; GpuKind kind; std::uint64_t memoryBytes; bool selectable, isDefault; std::optional<std::uint64_t> localAdapterId; }` och `enum class GpuKind { Unknown, Integrated, Discrete, External, Software }`. Listan har inga sidoeffekter och är säker före första fönstret. `id` HÅLLER ÖVER OMSTART och är det appen sparar: `pci:vvvv:dddd:ssssssss:rr` (samma på Windows och Linux; `@bb:dd.f` bara när två kort annars får samma id), på macOS `metal:<namn>`. `selectable` = kortet kan väljas här; `isDefault` = det `Default` ritar med (UPPSKATTAT på macOS och Linux). `localAdapterId` är kortets id för DEN HÄR körningen, så som ett annat grafik-API anger det (D3D11: LUID:ens två halvor, HighPart i de övre 32 bitarna); tomt där det saknas, och det byter värde mellan körningar — det som sparas är `id`.
 - `void setGpuAdapter(const std::string& id);` · `std::string gpuAdapter();` — det uttryckliga kortet ("" = inget), samma tidpunkt och trådförkrav som preferensen. Ett id som finns och är valbart vinner; ett som saknas eller inte går att välja loggas en gång, och då väljer preferensen bland de valbara. `gpuAdapter()` svarar med BEGÄRAN.
 - `std::vector<std::string> childEnvironmentRemovals();` — miljövariablerna GlazeUI själv satt (Linux: `DRI_PRIME`/`__NV_PRIME_RENDER_OFFLOAD`), som en barnprocess inte ska ärva. `openUrl`/`openFile` och terminalen tar redan bort dem; en app som startar processer själv gör det också. Tom på Windows och macOS.
 - `const std::string& Renderer::deviceName() const` — GPU:n som FAKTISKT ritar fönstret, nådd som `win.window().renderer().deviceName()`: DXGI-adapterns beskrivning, `MTLDevice.name` eller `GL_RENDERER`. Backenden skriver det också i loggen: D3D11 en gång per process varje adapter (id, namn, slag, tillverkare, eget minne), och alla tre en rad `D3D11:`/`Metal:`/`GL: ritar med <GPU> [<id>] (preferensen <val>, kortet <id>)` när en enhet skapas på en ANNAN GPU än den förra — en popup på samma GPU loggar ingenting.
 - `const std::string& Renderer::adapterId() const` — `GpuAdapter::id` för kortet som FAKTISKT ritar. Tomt när det inte går att avgöra: mjukvarurendering (llvmpipe, WARP utan träff) och EGL utan `EGL_EXT_device_query`.
 - `const RenderStats& Renderer::stats() const` — renderarens räknare sedan start (`drawCalls`, `programSwitches`, `buffersCreated`, `bytesUploaded`, `vertices`, `instances`, `programsBuilt`, `uploadBreaks`) och sedan 0.1.9 `presentNs` (presentationens väntan — vsync, en ledig drawable; nära 0 i ett dolt fönster), `compileNs` (tiden att kompilera program) och `targetsCreated`. `std::uint64_t frameSerial() const` — framens löpnummer.
-- GPU-TIDEN per frame: `void setGpuTiming(bool on)` · `bool gpuTiming() const` · `bool gpuTimingSupported() const` · `void takeGpuTimes(std::vector<GpuTime>& out)` (`GpuTime { std::uint64_t serial; std::uint64_t ns; }`, svaret 2–3 frames senare, högst `Renderer::kMaxGpuTimes` i brevlådan). Profileraren gör allt detta åt appen (`profiler`).
+- GPU-TIDEN per frame: `void setGpuTiming(bool on)` · `bool gpuTiming() const` · `bool gpuTimingSupported() const` · `void takeGpuTimes(std::vector<GpuTime>& out)` (`GpuTime { std::uint64_t serial; std::uint64_t ns; }`, svaret 2–3 frames senare, högst `Renderer::kMaxGpuTimes` i brevlådan). Profileraren gör allt detta åt appen (`profiler`). Ett offscreen-block (`beginOffscreen`/`endOffscreen`) mäts på D3D11 som en egen post under sitt `frameSerial`; Metal och GL mäter bara frames.
+- INTEGRATION MED ETT ANNAT GRAFIK-API (`gfx/native.h`, för ett bibliotek som tar emot bildrutor på appens egen enhet; alla anrop i UI-tråden, bara D3D11): `NativeDevice Renderer::nativeDevice() const` — `{ NativeGraphicsApi api; void* device; std::uint64_t localAdapterId; std::uint32_t featureLevel; }`, där `device` är LÅNAD (D3D11: en `ID3D11Device*`, giltig lika länge som renderern) och `api == None` i en renderare utan stöd; renderarens kontext lämnas aldrig ut. `std::unique_ptr<RenderTarget> importRenderTarget(const ExternalTargetDesc&, RenderTarget* sharedAttachments, std::string& error)` — ett mål runt en bild som anroparen äger (`ExternalTargetDesc { api, image, width, height, TargetColorFormat color, TargetDesc target }`; D3D11: en `ID3D11Texture2D*` på renderarens enhet med en RGBA8- eller BGRA8-familj som matchar `color`, bindbar som render target och shaderresurs), med MSAA och djup enligt `target`. Värdena skrivs utan sRGB-kodning (färgerna är redan kodade), bilden rensas inte vid importen och målet binds med `pushTarget`/`popTarget` som ett vanligt. Fel enhet, mått eller format ger ett ogiltigt mål (`image().valid()` false) och skälet i `error`. `sharedAttachments` är ett tidigare importerat mål med samma mått och `target`; det nya delar då dess provtagna färgyta och djup. `void setExternalFramePacing(bool on)` — presenterar fönstret osynkat och utan att vänta (en present som inte hinner hoppas över), för en annan klocka än skärmens. `std::unique_ptr<GpuCompletion> insertCompletion(std::string& error)` — en GPU-markör efter allt som skickats; `GpuCompletion::poll(error)` svarar `Pending`, `Complete` eller `Failed` utan att vänta. Metal, Linux/GL och `NullRenderer` svarar "stöds inte": `api == None`, ett ogiltigt mål med feltext, ingen åtgärd respektive `nullptr` med feltext.
 - `std::vector<ScreenInfo> screens();` — skärmarna i placeringsrymden (`bounds`, `work`, `scale`, `primary`; tom på Wayland och före första fönstret) · `enum class WindowState { Normal, Minimized, Maximized };` · `enum class PointerShape` med `ClosedHand`, `Hidden` och `Wait` sist (`window-placement`, `cursors`). Appens timer i fasaden (`gfx/timer.h`, `EventType::Timer` med windowId 0) är `glaze::Timer`s maskineri — använd `glaze::Timer` (`timer`).
 - `bool encodePng(const std::string& path, const std::vector<std::uint8_t>& rgba, int w, int h);` · `bool decodeImage(const void* data, std::size_t size, std::vector<std::uint8_t>& rgba, int& w, int& h);` — RGBA8, rad 0 överst; BARA PNG; `decodeImage` är trådsäker.
 - `struct DisplayMetrics { float pxPerMm; DisplaySource source; int widthMm; int heightMm; std::string id; std::string reason; }` — läs `AppWindow::display()` (med appens kalibrering).
@@ -6611,6 +6624,8 @@ Glaze ritar varje pixel självt — widgets, namnlisten och dialogerna — så a
 | Start minimerad (`setWindowState`) | ja | ja | ja | **nej** — loggas, normal start |
 | `PointerShape::Wait` | timglaset | **pilen** | klockan | temats `wait` |
 | Avbrutet tryck (`onMouseCancel`) | fokusförlust, och när OS:et tar musen (`WM_CAPTURECHANGED`) | fokusförlust | fokusförlust (`FocusOut`) | fokusförlust, och när pekaren lämnar fönstret under trycket (inte till egen popup) |
+| Integration med ett annat grafik-API (`gfx/native.h`: `nativeDevice`, `importRenderTarget`, `setExternalFramePacing`, `insertCompletion`) | ja (D3D11) | **nej** — `api == None`, ogiltigt mål med feltext, `nullptr` med feltext | **nej** — som macOS | **nej** — som macOS |
+| `GpuAdapter::localAdapterId` | ja — LUID:en | tomt | tomt | tomt |
 
 ### Exempel
 ```cpp

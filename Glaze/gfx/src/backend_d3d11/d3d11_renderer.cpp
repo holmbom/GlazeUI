@@ -403,8 +403,9 @@ bool D3dRenderer::init(HWND hwnd, int w, int h, bool transparent)
     // listan), och i loggen när den är en annan än förra enhetens.
     DXGI_ADAPTER_DESC adapterDesc{};
     if (SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
-        deviceName_ = toUtf8(adapterDesc.Description);
-        adapterId_  = adapterIdOf(kort, adapterDesc.AdapterLuid);
+        deviceName_  = toUtf8(adapterDesc.Description);
+        adapterId_   = adapterIdOf(kort, adapterDesc.AdapterLuid);
+        adapterLuid_ = packLuid(adapterDesc.AdapterLuid);
         logAdapter(kort, adapterDesc, adapterId_);
     }
 
@@ -800,19 +801,23 @@ void D3dRenderer::present()
 {
     flush();
     // Framens GPU-tid tar slut här — efter dess sista rit-anrop.
-    if (gpuQueryOpen_ >= 0) {
-        const GpuQuery& q = gpuQueries_[gpuQueryOpen_];
-        context_->End(q.end.Get());
-        context_->End(q.disjoint.Get());
-        gpuQueryOpen_ = -1;
-    }
+    endGpuQuery();
     // Vsync — utom under den modala resize-
     // loopen: där presenteras osynkat (SyncInterval 0) så framen med NY
     // storlek hinner ut innan DWM visar den gamla uppskalad.
+    // EXTERN BILDTAKT (`setExternalFramePacing`): osynkat och utan att vänta;
+    // en present som inte hinner (`DXGI_ERROR_WAS_STILL_DRAWING`) hoppas över
+    // och noteras i `presentDenied_`: fönstret begär då en ny ritning
+    // (`takePresentDenied`), så att ändringen visas nästa gång skrivbordet
+    // får presentera — annars blir den liggande osynlig tills något annat
+    // väcker fönstret. Ingenting väntar in den.
     // Väntan i `Present` är presentationens (`RenderStats::presentNs`).
     if (swapchain_) {
         const StatTimer klocka(stats_.presentNs);
-        swapchain_->Present(unsyncedPresent_ ? 0 : 1, 0);
+        const HRESULT   hr =
+            swapchain_->Present(unsyncedPresent_ || externalPacing_ ? 0 : 1,
+                                externalPacing_ ? DXGI_PRESENT_DO_NOT_WAIT : 0);
+        presentDenied_ = hr == DXGI_ERROR_WAS_STILL_DRAWING;
     }
     if (transparent_)
         updateAlphaMirror();   // hit-testens CPU-spegel — BARA transparenta
@@ -876,8 +881,19 @@ void D3dRenderer::collectGpuQueries()
     }
 }
 
-// Framens fråga börjar — när tidtagningen är på och en plats är ledig (alla
-// fyra väntar annars på svar, och framen mäts inte).
+void D3dRenderer::endGpuQuery()
+{
+    if (gpuQueryOpen_ < 0)
+        return;
+    const GpuQuery& q = gpuQueries_[gpuQueryOpen_];
+    context_->End(q.end.Get());
+    context_->End(q.disjoint.Get());
+    gpuQueryOpen_ = -1;
+}
+
+// Framens (eller ett offscreen-blocks) fråga börjar — när tidtagningen är på
+// och en plats är ledig (alla fyra väntar annars på svar, och framen mäts
+// inte).
 void D3dRenderer::startGpuQuery()
 {
     gpuQueryOpen_ = -1;
@@ -913,6 +929,10 @@ bool D3dRenderer::beginOffscreen()
     }
     offscreen_ = true;
     ++frameSerial_;         // blocket har ett eget löpnummer (renderer.h)
+    // GPU-tiden: blocket mäts som en frame — från hit till endOffscreen, med
+    // upplösningen av målen som lämnas inuti.
+    collectGpuQueries();
+    startGpuQuery();
     bound_     = nullptr;
     activeDsv_ = nullptr;
     activeRtv_ = nullptr;   // inget eget mål — bara render-målen
@@ -929,11 +949,34 @@ void D3dRenderer::endOffscreen()
         return;
     }
     flush();
+    endGpuQuery();
+    // Blockets arbete skickas till GPU:n direkt: ett externt mål lämnas till
+    // en annan konsument (en kompositor) strax efter, och readTarget:s Map
+    // väntar ändå in det. Framens eget mål binds igen av nästa beginFrame.
+    context_->Flush();
     offscreen_ = false;
     bound_     = nullptr;
     activeDsv_ = nullptr;
-    // Kontexten är omedelbar: readTarget:s Map väntar in arbetet. Framens
-    // eget mål binds igen av nästa beginFrame.
+}
+
+// ------------------------------------------- integration med ett annat API
+//
+// Se gfx/native.h. Enheten är lånad; kontexten lämnas aldrig ut.
+NativeDevice D3dRenderer::nativeDevice() const
+{
+    NativeDevice n;
+    if (!device_)
+        return n;
+    n.api            = NativeGraphicsApi::D3D11;
+    n.device         = device_.Get();
+    n.localAdapterId = adapterLuid_;
+    n.featureLevel   = static_cast<std::uint32_t>(device_->GetFeatureLevel());
+    return n;
+}
+
+void D3dRenderer::setExternalFramePacing(bool on)
+{
+    externalPacing_ = on;
 }
 
 // CPU-spegel av retained-RT:ns alfa (transparent-vägens hit-test): kopiera

@@ -749,6 +749,47 @@ gfx::MapView mapViewAt(const Camera3D& cam, const gfx::Rectf& box, bool yUp)
     return m;
 }
 
+gfx::MapView mapViewAtView(const gfx::View3D& v, const std::optional<Box3>& scene,
+                           bool yUp)
+{
+    const double fl = std::sqrt(v.forward.x * v.forward.x + v.forward.y * v.forward.y +
+                                v.forward.z * v.forward.z);
+    gfx::MapView m;
+    m.yUp = yUp;
+    m.box = v.box;
+    if (!(fl > 0.0))
+        return m;   // en oanvändbar vy: skalan 0
+    const gfx::Vec3d dir{v.forward.x / fl, v.forward.y / fl, v.forward.z / fl};
+    // Djupet längs blicken: klipplanens mitt, eller lådans mitt när den ligger
+    // mellan dem.
+    double depth = v.nearZ > 0.0 && v.farZ > v.nearZ
+                       ? std::sqrt(v.nearZ * v.farZ)
+                       : (v.nearZ + v.farZ) / 2.0;
+    if (scene && scene->min.x <= scene->max.x && scene->min.y <= scene->max.y &&
+        scene->min.z <= scene->max.z) {
+        const double d = ((scene->min.x + scene->max.x) / 2.0 - v.eye.x) * dir.x +
+                         ((scene->min.y + scene->max.y) / 2.0 - v.eye.y) * dir.y +
+                         ((scene->min.z + scene->max.z) / 2.0 - v.eye.z) * dir.z;
+        if (d >= v.nearZ && d <= v.farZ)
+            depth = d;
+    }
+    const gfx::Vec3d p{v.eye.x + dir.x * depth, v.eye.y + dir.y * depth,
+                       v.eye.z + dir.z * depth};
+    m.cx        = p.x;
+    m.cy        = p.y;
+    m.pxPerUnit = gfx::pxPerUnitAt(v, p);
+    return m;
+}
+
+gfx::Vec3d axisPoint(const gfx::View3D& v, double depth)
+{
+    const double fl = std::sqrt(v.forward.x * v.forward.x + v.forward.y * v.forward.y +
+                                v.forward.z * v.forward.z);
+    const double k  = fl > 0.0 ? depth / fl : 0.0;
+    return {v.eye.x + v.forward.x * k, v.eye.y + v.forward.y * k,
+            v.eye.z + v.forward.z * k};
+}
+
 Camera3D orbitCamera3D(const Camera3D& cam, float dAzimuth, float dElevation,
                        bool tumble, float minElevation, float maxElevation)
 {

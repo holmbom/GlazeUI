@@ -5672,7 +5672,7 @@ fragment float4 fsMain(VsOut i [[stage_in]], constant User& user [[buffer(3)]],
 )msl"};
 
 // HIMMELN (C2d): helskärmstriangeln med NDC i en varying, och strålen ur
-// GlazeFrame:s bas — dir = forward + x · right + y · up — tonad efter dess
+// GlazeFrame:s bas — dir = rayCenter + x · right + y · up — tonad efter dess
 // normerade z från horisontens färg (GlazeUser:s första float4) till
 // zenitens (den andra).
 const Källor kHimmel = {
@@ -5689,7 +5689,7 @@ VsOut vsMain(uint id : SV_VertexID)
 }
 float4 fsMain(VsOut i) : SV_Target
 {
-    float3 dir = glaze.forward.xyz + i.ndc.x * glaze.right.xyz +
+    float3 dir = glaze.rayCenter.xyz + i.ndc.x * glaze.right.xyz +
                  i.ndc.y * glaze.up.xyz;
     float  t   = saturate(normalize(dir).z);
     return float4(lerp(uHorisont.rgb, uZenit.rgb, t), 1.0);
@@ -5710,7 +5710,7 @@ in vec2 vNdc;
 out vec4 frag;
 void main()
 {
-    vec3  dir = glaze.forward.xyz + vNdc.x * glaze.right.xyz + vNdc.y * glaze.up.xyz;
+    vec3  dir = glaze.rayCenter.xyz + vNdc.x * glaze.right.xyz + vNdc.y * glaze.up.xyz;
     float t   = clamp(normalize(dir).z, 0.0, 1.0);
     frag = vec4(mix(uHorisont.rgb, uZenit.rgb, t), 1.0);
 }
@@ -5730,7 +5730,7 @@ fragment float4 fsMain(VsOut i [[stage_in]],
                        constant GlazeFrame& glaze [[buffer(2)]],
                        constant User& user [[buffer(3)]])
 {
-    float3 dir = glaze.forward.xyz + i.ndc.x * glaze.right.xyz +
+    float3 dir = glaze.rayCenter.xyz + i.ndc.x * glaze.right.xyz +
                  i.ndc.y * glaze.up.xyz;
     float  t   = saturate(normalize(dir).z);
     return float4(mix(user.horisont.rgb, user.zenit.rgb, t), 1.0);

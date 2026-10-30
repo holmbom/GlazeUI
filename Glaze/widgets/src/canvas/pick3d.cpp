@@ -11,6 +11,7 @@
 #include <gfx/camera.h>
 
 #include "gfx/platform.h"
+#include "camera_math.h"
 #include "instances.h"
 #include "mesh_data.h"
 #include "scene.h"
@@ -289,13 +290,15 @@ bool segmentNear(const Projection& proj, Point3 a, Point3 b, double px, double p
 // HUR LÅNGT FRÅN STRÅLEN en punkt kan ligga och ändå vara inom `tolPx`
 // fysiska px på skärmen (+ `tolWorld` världsenheter), på avståndet r från
 // strålens början: perspektivets världsenheter per px växer med djupet, som
-// är högst r; ortografiskt är de lika överallt.
+// är högst r; ortografiskt är de lika överallt. Skalan är fasadens
+// (`pxPerUnitAt`, också för ett asymmetriskt frustum) vid djupet r längs
+// blicken — en definition av px per världsenhet, inte en egen formel ur
+// synfältet. Ett djup utan skala (i eller bakom ögats plan) ger 0 världsenheter
+// per px.
 double reachWorld(const gfx::View3D& v, double tolPx, double tolWorld, double r)
 {
-    const double h = std::max(static_cast<double>(v.box.h), 1.0);
-    const double perPx = v.projection == gfx::Projection3D::Orthographic
-                             ? 2.0 * v.orthoHalfHeight / h
-                             : 2.0 * std::tan(v.fovY / 2.0) * r / h;
+    const double pxPerUnit = gfx::pxPerUnitAt(v, axisPoint(v, r));
+    const double perPx     = pxPerUnit > 0.0 ? 1.0 / pxPerUnit : 0.0;
     return tolPx * perPx + tolWorld;
 }
 
@@ -882,6 +885,108 @@ Ray3 verticalRayDown(double x, double y, const Box3& box)
     // ingen höjd att räkna med.
     const double topp = box.max.z + std::max(1.0, box.max.z - box.min.z);
     return Ray3{{x, y, topp}, {0.0, 0.0, -1.0}};
+}
+
+bool isObject3D(const Shape& s)
+{
+    switch (s.kind()) {
+    case Shape::Kind::Mesh:
+    case Shape::Kind::Area3:
+    case Shape::Kind::Instances:
+    case Shape::Kind::Points3:
+    case Shape::Kind::Lines3: return true;
+    default:                  return false;
+    }
+}
+
+std::optional<Ray3> unitRay(const Ray3& r)
+{
+    const double l = std::sqrt(r.direction.x * r.direction.x +
+                               r.direction.y * r.direction.y +
+                               r.direction.z * r.direction.z);
+    if (!(l > 0.0) || !std::isfinite(l) || !std::isfinite(r.origin.x) ||
+        !std::isfinite(r.origin.y) || !std::isfinite(r.origin.z))
+        return std::nullopt;
+    return Ray3{r.origin, {r.direction.x / l, r.direction.y / l, r.direction.z / l}};
+}
+
+std::vector<HitResult> castRayInScene(const SceneData& scene, const Ray3& ray,
+                                      const HitOptions& options,
+                                      const gfx::View3D* view, double pxPerPx,
+                                      double pxPerMm)
+{
+    std::vector<HitResult>    out;
+    const std::optional<Ray3> r = unitRay(ray);
+    if (!r)
+        return out;
+    // Vyn som ritar ger detaljnivån och de skärmkonstanta meshernas storlek;
+    // utan en känd vy den finaste nivån (och inga skärmkonstanta).
+    PickContext pk;
+    pk.ray         = *r;
+    pk.view        = view;
+    pk.finest      = !view;
+    pk.opaqueOnly  = options.opaqueOnly;
+    pk.maxDistance = options.maxDistance;
+    pk.occluder    = true;   // längs en fri stråle skymmer varje ogenomskinlig yta
+    if (pxPerPx > 0.0)
+        pk.pxPerPx = pxPerPx;
+    if (pxPerMm > 0.0)
+        pk.pxPerMm = pxPerMm;
+    // SKYMNINGEN FÖRST (`occlusion`): den närmaste
+    // ogenomskinliga ytan längs strålen — och det som ligger bortom den med
+    // skymningens marginal plockas inte alls (`occlusionReach`), så en mesh
+    // bakom en vägg varken prövas eller bygger sin BVH.
+    std::optional<double> närmast;
+    if (options.occlusion) {
+        std::vector<Occluder> skymmare;
+        for (const std::shared_ptr<LayerData>& Lp : scene.layers) {
+            if (!Lp->visible || !(Lp->opacity > 0.0f))
+                continue;
+            for (const ShapeSlot& slot : Lp->slots)
+                if (isObject3D(slot.entry->shape))
+                    skymmare.push_back(occluder(*slot.entry, Lp->opacity));
+        }
+        närmast = nearestOccluder(skymmare, *r, pk.view);
+        if (närmast) {
+            const double tak = occlusionReach(*närmast);
+            pk.maxDistance   = pk.maxDistance > 0.0 ? std::min(pk.maxDistance, tak) : tak;
+        }
+    }
+    std::vector<SceneHit> träffar;
+    for (int li = static_cast<int>(scene.layers.size()) - 1; li >= 0; --li) {
+        const LayerData& L = *scene.layers[static_cast<std::size_t>(li)];
+        if (!L.visible || !(L.opacity > 0.0f))
+            continue;
+        pk.layerOpacity = L.opacity;
+        for (std::size_t i = 0; i < L.slots.size(); ++i) {
+            const Shape& s = L.slots[i].entry->shape;
+            if (!isObject3D(s))
+                continue;
+            träffar.clear();
+            pickShape3D(*L.slots[i].entry, pk, träffar);
+            for (const SceneHit& t : träffar) {
+                HitResult h;
+                h.layer    = li;
+                h.index    = static_cast<int>(i);
+                h.instance = t.instance;
+                h.element  = t.element;
+                h.kind     = t.kind;
+                h.point    = t.point;
+                h.normal   = t.normal;
+                h.distance = t.distance;
+                out.push_back(h);
+            }
+        }
+    }
+    // Taket ovan är en aning längre än skymningen — provet är det här.
+    if (närmast)
+        std::erase_if(out, [&](const HitResult& h) {
+            return *närmast < h.distance - occlusionSlack(h.distance);
+        });
+    std::stable_sort(out.begin(), out.end(), [](const HitResult& a, const HitResult& b) {
+        return a.distance < b.distance;
+    });
+    return out;
 }
 
 } // namespace glaze::detail

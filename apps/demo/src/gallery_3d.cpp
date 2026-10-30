@@ -354,7 +354,7 @@ glaze::ColorRamp hojdRamp()
 }
 
 // HIMLEN — ett EGET program: helskärmstriangeln och, per
-// pixel, strålen ur GlazeFrame:s bas (forward + x · right + y · up) tonad
+// pixel, strålen ur GlazeFrame:s bas (rayCenter + x · right + y · up) tonad
 // från horisonten mot zenit — och under horisonten mot markens dis. Färgerna
 // är GlazeUser: horisonten, zenit och diset. Appens kod i tre språk: HLSL
 // (D3D11), GLSL (GL) och MSL (Metal).
@@ -375,7 +375,7 @@ VsOut vsMain(uint id : SV_VertexID)
 }
 float4 fsMain(VsOut i) : SV_Target
 {
-    float3 dir = normalize(glaze.forward.xyz + i.ndc.x * glaze.right.xyz +
+    float3 dir = normalize(glaze.rayCenter.xyz + i.ndc.x * glaze.right.xyz +
                            i.ndc.y * glaze.up.xyz);
     float3 c   = dir.z >= 0.0
                      ? lerp(uHorisont.rgb, uZenit.rgb, pow(saturate(dir.z), 0.55))
@@ -398,7 +398,7 @@ in vec2 vNdc;
 out vec4 frag;
 void main()
 {
-    vec3 dir = normalize(glaze.forward.xyz + vNdc.x * glaze.right.xyz +
+    vec3 dir = normalize(glaze.rayCenter.xyz + vNdc.x * glaze.right.xyz +
                          vNdc.y * glaze.up.xyz);
     vec3 c   = dir.z >= 0.0
                    ? mix(uHorisont.rgb, uZenit.rgb, pow(clamp(dir.z, 0.0, 1.0), 0.55))
@@ -421,7 +421,7 @@ fragment float4 fsMain(VsOut i [[stage_in]],
                        constant GlazeFrame& glaze [[buffer(2)]],
                        constant User& user [[buffer(3)]])
 {
-    float3 dir = normalize(glaze.forward.xyz + i.ndc.x * glaze.right.xyz +
+    float3 dir = normalize(glaze.rayCenter.xyz + i.ndc.x * glaze.right.xyz +
                            i.ndc.y * glaze.up.xyz);
     float3 c   = dir.z >= 0.0
                      ? mix(user.horisont.rgb, user.zenit.rgb, pow(saturate(dir.z), 0.55))

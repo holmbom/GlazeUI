@@ -622,6 +622,10 @@ grind: G9 `tests/scene3d_pixel_gate.cpp` (Wayland och X11).
   är bundna sedan init); när sista målet poppas binds standard-FBO:n, och
   `clear` rensar ingenting utan ett mål. `endOffscreen` flushar och kör
   `glFlush`.
+- **Integrationen med ett annat grafik-API (`gfx/native.h`) stöds inte här:**
+  `nativeDevice` svarar `api == None`, `importRenderTarget` ett ogiltigt mål
+  med feltext, `setExternalFramePacing` gör ingenting och `insertCompletion`
+  ger `nullptr` med feltext. `GpuAdapter::localAdapterId` är tomt.
 - **GRAFIKKORTET — `linux_gpu.cpp`** (REQ9_GRAFIKKORTET, BLINT): valet görs
   BARA i `gfx::init`, där `applyGpuEnvironment` körs FÖRST, före
   protokollvalet och därmed före första EGL-anropet (libglvnd väljer
@@ -667,7 +671,7 @@ Wayland och X11.
   `log` (ett eget program loggas EN gång, i createProgram).
 - **`createProgram`**: källorna i delar — `#version 330 core`, definitionerna
   som `#define`-rader, FÖRSPELET (`layout(std140) uniform GlazeFrame { … }
-  glaze;` + `glaze_toClip`, som räknar om z till [−w, w]), `kGlslAdjustSrc`
+  glaze;` — 256 byte med `rayCenter` sist — + `glaze_toClip`, som räknar om z till [−w, w]), `kGlslAdjustSrc`
   (`glaze_colorAdjust`, REQ8 3 — i båda stegen), `#line 1` och appens källa. Mesa (glcpp) följer GLSL 3.30:s regel att raden EFTER
   `#line 1` är rad 1 — uppmätt: "0:7(12): error". Saknas glslVertex ELLER
   glslFragment: "saknar GLSL-källa (Linux)". Länkas UTAN

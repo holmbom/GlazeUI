@@ -50,6 +50,7 @@ layout(std140) uniform GlazeFrame
     vec4 target;
     vec4 scale;
     vec4 pixelSize;
+    vec4 rayCenter;   // strålens mitt: sist i blocket
 } glaze;
 // Kamerans pixelklipp (x/w och y/w i målets px, z/w i [0, 1]) → GL:s
 // klipprymd: x och y som D3D:s, z ur [0, w] till [−w, w]. Linjär — w går

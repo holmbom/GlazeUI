@@ -67,6 +67,24 @@ const Theme::Colors& osIconColors();
 // bara från UI-tråden och aldrig en apps väg: appen postar med `app().post`.
 void postFrameWork(std::function<void()> fn);
 
+// EN EXTERN BILDKÄLLA — en annan klocka än skärmens som
+// driver bildrutor i UI-tråden (ett VR-headsets runtime). Medan en källa är
+// registrerad presenterar alla fönster osynkat (`Renderer::
+// setExternalFramePacing`) och ritas högst `desktopHz` gånger per sekund;
+// en ändring som väntar ritas vid nästa tillåtna tillfälle. Med flera källor
+// gäller den lägsta takten; 0 räknas som 1. Källans jobb
+// körs i pump-svansen FÖRE ramverkets och appens poster, hela och utan
+// budget. Ingenting väcks när ingen källa finns: källan driver bildrutorna.
+//
+// `register…` och `unregister…` i UI-tråden; id 0 är aldrig giltigt.
+// `postExternalFrame` från VILKEN tråd som helst: false om källan inte finns
+// (avregistrerad, appen nedstängd) eller redan har ett jobb som väntar — högst
+// ett åt gången. Ett väntande jobb körs aldrig efter `unregister…`.
+using ExternalFrameSourceId = std::uint64_t;
+ExternalFrameSourceId registerExternalFrameSource(unsigned desktopHz);
+bool postExternalFrame(ExternalFrameSourceId source, std::function<void()> job);
+void unregisterExternalFrameSource(ExternalFrameSourceId source);
+
 // APPENS BINDNINGSTABELL FÖR RITYTORNA — det ritytan
 // ärver det den inte satt själv från (src/canvas/input_map.h). En LÄSFRÅGA:
 // den skapar ALDRIG App (och kör alltså aldrig `gfx::init`) — finns ingen App

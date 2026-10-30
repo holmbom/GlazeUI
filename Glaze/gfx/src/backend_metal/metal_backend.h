@@ -446,6 +446,15 @@ public:
     bool beginOffscreen() override;
     void endOffscreen() override;
 
+    // Integrationen med ett annat grafik-API (gfx/native.h) — stöds inte på
+    // Metal (metal_renderer.mm).
+    NativeDevice nativeDevice() const override;
+    std::unique_ptr<RenderTarget> importRenderTarget(
+        const ExternalTargetDesc& desc, RenderTarget* sharedAttachments,
+        std::string& error) override;
+    void setExternalFramePacing(bool on) override;
+    std::unique_ptr<GpuCompletion> insertCompletion(std::string& error) override;
+
     // Intern ritväg för glyf-/bild-quads — batchar mot texturen.
     void texturedQuad(id<MTLTexture> tex, const Rectf& dst, const Rectf& uv,
                       Color c);

@@ -5,7 +5,8 @@
 // plockar i scenen.
 //
 // TRÅDARNA: alla publika anrop och alla callbacks sker i UI-tråden. Sessionen
-// har en egen tråd för OpenXR och sin D3D11-enhet; den rör aldrig Canvas.
+// väntar på headsetets bildrutor i en egen tråd, som aldrig rör Canvas; varje
+// bildruta ritas i UI-tråden på ritytans fönsters egen D3D11-enhet.
 //
 // LIVSTIDEN: Canvas ägs av appen och lever längre än sessionen. Sessionen
 // förstörs före Canvas; destruktorn stoppar och väntar in sin tråd.
@@ -37,8 +38,9 @@ enum class State {
     Failed      // start eller drift misslyckades; allt avvecklat
 };
 
+// Bilderna har alltid runtimens rekommenderade mått per öga.
 struct Options {
-    double resolutionScale      = 0.5;    // × runtimens rekommenderade bildmått
+    int    msaaSamples          = 4;      // 4, 2 eller 1 — kantutjämningen i ögonen
     double moveMetresPerSecond  = 1.0;    // vänster spak
     double turnDegreesPerSecond = 60.0;   // höger spak, i sidled
     double stickDeadzone        = 0.2;

@@ -1354,3 +1354,26 @@ med taket `POINT_STAND_K` (fyra radier i världen).
 - [ ] **Demon**: 3D-fliken, ett punktmoln i ögonhöjd bakom en mesh (gå ned
   till markhöjd i förstapersonen). *Rätt utfall:* ingen linje av punkter som
   lyser igenom meshen eller molnet.
+
+## Externa mål och GPU-markör — "stöds inte" i GL, BLINT skrivet, Wayland OCH X11 (OpenXR direkt)
+
+Koden: `GlRenderer::nativeDevice`, `importRenderTarget`, `setExternalFramePacing` och
+`insertCompletion` i `Glaze/gfx/src/backend_linux/linux_renderer.cpp` (efter `endOffscreen`) har
+aldrig kompilerats. De svarar "stöds inte" enligt kontraktet i `gfx/renderer.h`: `api == None`,
+ett ogiltigt mål (`GlRenderTarget`) med text i `error`, ingenting, respektive nullptr med text.
+
+- [ ] **Bygget och sviten**: bygg och kör den kompletta sviten under Wayland och X11. *Rätt utfall:*
+  0 varningar i `linux_renderer.cpp`; sviten grön.
+
+## GlazeFrame med `rayCenter` — förspelet i GLSL, BLINT skrivet, Wayland OCH X11 (OpenXR direkt)
+
+Koden: blocket `GlazeFrame` i `kGlslPrelude` (`Glaze/gfx/src/backend_linux/linux_program.cpp`) har
+`vec4 rayCenter` SIST (offset 240, std140, 256 byte) — samma form som `gfx::FrameUniforms`, som
+laddas upp med `sizeof f`. Aldrig kompilerat eller kört på Linux.
+
+- [ ] **GlazeFrame, 256 byte**: bygg och kör `mesh_program_gate` (fall G1 ritar strålen
+  `rayCenter + ndc.x · right + ndc.y · up` genom varje pixel i ett eget GLSL-program, för ett
+  asymmetriskt, ett förskjutet och ett symmetriskt frustum) och `scene_math_gate`, under Wayland och
+  X11. *Rätt utfall:* GLSL:en länkar utan fel (blocket matchar `FrameUniforms`), G1 grönt (färgen i
+  varje provad pixel = hålkamerans riktning ±3, `forward` = (128, 255, 128), raden uppåt rätt väg i
+  målet); 0 varningar.

@@ -18,7 +18,10 @@ versionen sätts.
 
 ## Nästa
 
-- **New** — sidopaketet `OpenXR` (`glaze_openxr`, `glaze_openxr_ui`, `-DGLAZE_OPENXR=ON`, bara Windows): `glaze::openxr::Session` visar en `Canvas`-scen i ett PC-VR-headset genom den aktiva OpenXR-runtimen — huvudspårning i stereo, handkontroller, spakförflyttning och en stråle som plockar med `castRay`.
+- **New** — sidopaketet `OpenXR` (`glaze_openxr`, `glaze_openxr_ui`, `-DGLAZE_OPENXR=ON`, bara Windows): `glaze::openxr::Session` visar en `Canvas`-scen i ett PC-VR-headset genom den aktiva OpenXR-runtimen — Canvas ritar direkt i headsetets bilder på fönstrets egen D3D11-enhet, med ett asymmetriskt frustum per öga, runtimens fulla rekommenderade upplösning och MSAA (`Options::msaaSamples`); huvudspårning i stereo, handkontroller, spakförflyttning och en stråle som plockar med `castRay`. Appen väljer grafikkortet före första fönstret med `gfx::setGpuPreference`/`setGpuAdapter`.
+- **New** — Integration med ett annat grafik-API (`gfx/native.h`, bara D3D11): `Renderer::nativeDevice`, `importRenderTarget` (ett mål runt en extern bild, med MSAA och djup), `setExternalFramePacing` och `insertCompletion` (en GPU-markör som pollas utan väntan), samt `GpuAdapter::localAdapterId`. Offscreen-block får GPU-tid på D3D11.
+- **New** — Asymmetriskt frustum: `View3D::frustum` (`FrustumTangents`) i perspektiv, och `rayCenter` sist i `FrameUniforms` (256 byte; strålen i ett eget program är `rayCenter + x·right + y·up`).
+- **New** — Pumpens externa bildkälla (`registerExternalFrameSource`/`postExternalFrame`): en annan klocka än skärmens driver bildrutor i UI-tråden, och skrivbordet ritas osynkat och högst den lägsta källans takt medan en källa finns.
 
 ## 0.2.0 — 2026-10-21
 

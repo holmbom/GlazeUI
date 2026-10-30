@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -188,6 +189,11 @@ struct GpuAdapter {
     std::uint64_t memoryBytes = 0; // 0 = okänt
     bool          selectable  = false;
     bool          isDefault   = false;
+    // Kortets id för den HÄR körningen, som ett annat grafik-API anger det
+    // (D3D11: LUID:ens två halvor, HighPart i de övre 32 bitarna — samma form
+    // som `NativeDevice::localAdapterId`). Tomt där det saknas. Byter värde
+    // mellan körningar; det stabila id:t är `id`.
+    std::optional<std::uint64_t> localAdapterId;
 };
 
 // Listan i systemets ordning, utan sidoeffekter: Windows skapar en enhet utan

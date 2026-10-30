@@ -732,6 +732,32 @@ void GlRenderer::endOffscreen()
     bound_     = nullptr;
 }
 
+// ------------------------------------------- integration med ett annat API
+//
+// Se gfx/native.h. GL delar ingen enhet och tar inga externa bilder: de fyra
+// anropen svarar "stöds inte" enligt kontraktet i renderer.h.
+NativeDevice GlRenderer::nativeDevice() const
+{
+    return NativeDevice{};   // api == None
+}
+
+std::unique_ptr<RenderTarget> GlRenderer::importRenderTarget(
+    const ExternalTargetDesc&, RenderTarget*, std::string& error)
+{
+    error = "externa mål stöds inte av GL-backenden";
+    return std::make_unique<GlRenderTarget>();   // ogiltigt mål
+}
+
+void GlRenderer::setExternalFramePacing(bool)
+{
+}
+
+std::unique_ptr<GpuCompletion> GlRenderer::insertCompletion(std::string& error)
+{
+    error = "GPU-markörer stöds inte av GL-backenden";
+    return nullptr;
+}
+
 // Readback (glaze-render): retained-FBO:n → rå RGBA8 med rad 0 ÖVERST —
 // glReadPixels läser nerifrån (y-flipp nr 2), raderna vänds här.
 bool GlRenderer::captureRetained(std::vector<std::uint8_t>& rgba,

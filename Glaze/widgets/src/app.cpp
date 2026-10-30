@@ -8,10 +8,18 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <iterator>
 #include <limits>
+#include <map>
+#include <mutex>
+#include <utility>
+#include <vector>
 
 #include <gfx/platform.h>
+#include <gfx/renderer.h>
+#include <gfx/timer.h>
 
 #include "glaze/app_window.h"
 #include "glaze/language.h"
@@ -19,6 +27,7 @@
 #include "canvas/image_data.h"  // releaseQueuedPixels — pumpens släpp
 #include "canvas/input_map.h"   // ritytornas bindningstabell
 #include "canvas/resources.h"   // komplett typ för canvas_.reset()
+#include "external_frames.h"    // externa bildkällor — pumpens och fönstrets sida
 #include "font_set.h"           // komplett typ för fontSet_.reset()
 #include "image_cache.h"        // komplett typ för images_.reset()
 #include "profiler_hooks.h"     // profileraren — pumpens och bildens krokar
@@ -220,6 +229,10 @@ App::~App()
 
 void App::shutDown()
 {
+    // De externa bildkällorna först: ingen källa tas emot och inget väntande
+    // jobb körs mer (jobben bär handtag som ska släppas medan trådarna lever).
+    detail::externalClose();
+
     // Säkerhetsnät: fönster som fortfarande är öppna när App dör (appfel —
     // run() ska ha stängt dem) rivs så OS-fönster inte läcker. Objekten
     // ägs av användaren och raderas aldrig här.
@@ -473,9 +486,27 @@ void App::pumpUntilClosed(AppWindow& w)
         // Och för en KÖAD STÄNGNING: `close()` i `onLoad` köar den
         // medan fönstret ännu är dolt, och ett dolt fönster ger på Linux inga
         // händelser alls — pumpen hade sovit för evigt med stängningen i kön.
-        if (!anyWantsFrame() && !hasPosted() && !detail::timerHasDue() &&
-            pendingClose_.empty()) {
-            const bool fick = gfx::waitEvent(e);   // sover — ~0 % CPU i vila
+        //
+        // En extern bildkälla (app.h) stryper skrivbordsritningen: ett fönster
+        // som vill ha en frame före sin period väntar, och pumpen sover till
+        // periodens slut på appens timer — aldrig en snurrande loop. Ett
+        // väntande källjobb håller pumpen vaken som en post.
+        std::uint32_t väntanMs = 0;
+        const bool    vill     = anyWantsFrame();
+        const bool    stryps =
+            vill && !detail::externalDesktopAllowed(detail::ExternalClock::now(),
+                                                    väntanMs);
+        bool släppFri = false;   // timern gick inte att starta: rita hellre än somna
+        if ((!vill || stryps) && !hasPosted() && !detail::timerHasDue() &&
+            pendingClose_.empty() && !detail::externalJobPending()) {
+            const bool vaknaPåTid =
+                stryps &&
+                gfx::startAppTimer(detail::kExternalWakeTimer, väntanMs);
+            släppFri = stryps && !vaknaPåTid;
+            const bool fick =
+                !släppFri && gfx::waitEvent(e);   // sover — ~0 % CPU i vila
+            if (vaknaPåTid)
+                gfx::stopAppTimer(detail::kExternalWakeTimer);
             detail::profilePumpLap(detail::PumpPart::Wait);
             if (fick) {
                 dispatch(e);
@@ -510,8 +541,16 @@ void App::pumpUntilClosed(AppWindow& w)
             break;
         }
 
+        // Skrivbordets period (en extern bildkälla): ett varv ritar alla
+        // fönster som vill, eller inga.
+        const detail::ExternalClock::time_point varv = detail::ExternalClock::now();
+        std::uint32_t                           kvarMs = 0;
+        const bool tillåten =
+            släppFri || detail::externalDesktopAllowed(varv, kvarMs);
+        bool ritade = false;
         for (AppWindow* win : windows_) {
-            if (win->wantsFrame()) {
+            if (tillåten && win->wantsFrame()) {
+                ritade            = true;
                 win->needsRedraw_ = false;
                 detail::profileFrameBegin(*win);
                 win->window().renderFrame();
@@ -521,6 +560,8 @@ void App::pumpUntilClosed(AppWindow& w)
                     *win, win->wantsFrame() || (detail::profiling() && hasPosted()));
             }
         }
+        if (ritade)
+            detail::externalDesktopDrawn(varv);
         // BILDERNA SOM SLÄPPER SINA PIXLAR: efter varvets ritning,
         // så varje fönster som ritade en bild i varvet hann få den.
         detail::releaseQueuedPixels();
@@ -728,6 +769,209 @@ void postFrameWork(std::function<void()> fn)
 
 } // namespace detail
 
+// ---------------------------------------------------------- EXTERNA BILDKÄLLOR
+//
+// Kontraktet står vid deklarationerna i app.h. Registret är ett eget lås och
+// en egen väg in: en källa har högst ETT väntande jobb och det körs i svansen
+// före ramkön (`drainPosted`). Ett jobb tillhör en KÄLLA, och källornas id
+// delas ut i stigande ordning och återanvänds aldrig — så "finns källan
+// fortfarande" är hela generationskontrollen, och ett jobb som snapshotats
+// men inte körts än faller bort om dess källa avregistrerats i ett jobb före.
+// Registret lever till processlut utan destruktor (jobben bär handtag som
+// ska släppas medan trådarna lever: `externalClose`), som `defaultPool()`.
+
+namespace detail {
+
+namespace {
+
+struct ExternalSource {
+    unsigned              hz = 1;
+    std::function<void()> job;   // tomt = inget väntar
+};
+
+struct ExternalRegistry {
+    std::mutex                                      mutex;
+    std::map<ExternalFrameSourceId, ExternalSource> sources;
+    ExternalFrameSourceId                           next = 0;
+    bool                                            closed = false;
+    // Skrivbordets period i mikrosekunder: den längsta av källornas, 0 utan
+    // källa. Under låset.
+    std::int64_t periodUs = 0;
+};
+
+ExternalRegistry& externals()
+{
+    static ExternalRegistry* const r = new ExternalRegistry;
+    return *r;
+}
+
+// UI-trådens: tidigast nästa skrivbordsritning medan en källa finns.
+ExternalClock::time_point g_nextDesktopDraw{};
+
+// Källornas takt → skrivbordets period. Under låset.
+void updatePeriod(ExternalRegistry& r)
+{
+    std::int64_t period = 0;
+    for (const auto& [id, s] : r.sources)
+        period = std::max<std::int64_t>(period, 1'000'000 / s.hz);
+    r.periodUs = period;
+}
+
+// Presentationstakten för alla öppna fönster.
+void applyPacing(bool on)
+{
+    for (AppWindow* w : app().windows())
+        if (w->isOpen())
+            w->window().renderer().setExternalFramePacing(on);
+}
+
+} // namespace
+
+ExternalFrameSourceId registerExternalFrameSource(unsigned desktopHz)
+{
+    app();   // App lat, som `Timer::start`: pacing och väckning kräver plattformen
+    ExternalRegistry& r = externals();
+    bool              första = false;
+    ExternalFrameSourceId id = 0;
+    {
+        std::lock_guard<std::mutex> lås(r.mutex);
+        if (r.closed)
+            return 0;
+        id = ++r.next;
+        // 0 Hz är ingen period: skrivbordet ritas då en gång per sekund.
+        r.sources[id].hz = std::max(desktopHz, 1u);
+        första           = r.sources.size() == 1;
+        updatePeriod(r);
+    }
+    if (första) {
+        g_nextDesktopDraw = ExternalClock::now();   // en väntande ritning får gå först
+        applyPacing(true);
+    }
+    return id;
+}
+
+bool postExternalFrame(ExternalFrameSourceId source, std::function<void()> job)
+{
+    if (!job)
+        return false;
+    ExternalRegistry& r = externals();
+    {
+        std::lock_guard<std::mutex> lås(r.mutex);
+        if (r.closed)
+            return false;
+        const auto it = r.sources.find(source);
+        if (it == r.sources.end() || it->second.job)
+            return false;   // okänd källa, eller ett jobb väntar redan
+        it->second.job = std::move(job);
+    }
+    gfx::postWakeup();   // utanför låset, som `App::enqueue`
+    return true;
+}
+
+void unregisterExternalFrameSource(ExternalFrameSourceId source)
+{
+    ExternalRegistry& r = externals();
+    ExternalSource    borta;   // släpps utanför låset, med sitt väntande jobb
+    bool              sista = false;
+    {
+        std::lock_guard<std::mutex> lås(r.mutex);
+        const auto it = r.sources.find(source);
+        if (it == r.sources.end())
+            return;
+        borta = std::move(it->second);
+        r.sources.erase(it);
+        updatePeriod(r);
+        sista = r.sources.empty() && !r.closed;
+    }
+    if (sista)
+        applyPacing(false);   // full takt: nästa varv ritar det som väntar
+}
+
+bool externalJobPending()
+{
+    ExternalRegistry&           r = externals();
+    std::lock_guard<std::mutex> lås(r.mutex);
+    for (const auto& [id, s] : r.sources)
+        if (s.job)
+            return true;
+    return false;
+}
+
+void externalRunJobs()
+{
+    ExternalRegistry& r = externals();
+    std::vector<std::pair<ExternalFrameSourceId, std::function<void()>>> jobb;
+    {
+        std::lock_guard<std::mutex> lås(r.mutex);
+        if (r.closed)
+            return;
+        for (auto& [id, s] : r.sources)
+            if (s.job) {
+                jobb.emplace_back(id, std::move(s.job));
+                s.job = nullptr;   // platsen är fri: nästa jobb får köas medan det här kör
+            }
+    }
+    for (auto& [id, fn] : jobb) {
+        {
+            std::lock_guard<std::mutex> lås(r.mutex);
+            if (r.closed || r.sources.find(id) == r.sources.end())
+                continue;   // avregistrerad (eller nedstängd) sedan snapshoten
+        }
+        const PostedCall mät;   // antalet och den längsta (profileraren)
+        fn();
+    }
+}
+
+bool externalPacingActive()
+{
+    ExternalRegistry&           r = externals();
+    std::lock_guard<std::mutex> lås(r.mutex);
+    return !r.sources.empty();
+}
+
+bool externalDesktopAllowed(ExternalClock::time_point now, std::uint32_t& waitMs)
+{
+    ExternalRegistry& r = externals();
+    std::int64_t      period = 0;
+    {
+        std::lock_guard<std::mutex> lås(r.mutex);
+        period = r.periodUs;
+    }
+    if (period == 0 || now >= g_nextDesktopDraw)
+        return true;
+    const auto kvar = std::chrono::duration_cast<std::chrono::microseconds>(
+        g_nextDesktopDraw - now);
+    waitMs = static_cast<std::uint32_t>(
+        std::max<std::int64_t>((kvar.count() + 999) / 1000, 1));
+    return false;
+}
+
+void externalDesktopDrawn(ExternalClock::time_point at)
+{
+    ExternalRegistry& r = externals();
+    std::int64_t      period = 0;
+    {
+        std::lock_guard<std::mutex> lås(r.mutex);
+        period = r.periodUs;
+    }
+    if (period > 0)
+        g_nextDesktopDraw = at + std::chrono::microseconds(period);
+}
+
+void externalClose()
+{
+    ExternalRegistry& r = externals();
+    std::map<ExternalFrameSourceId, ExternalSource> kvar;
+    {
+        std::lock_guard<std::mutex> lås(r.mutex);
+        r.closed = true;
+        kvar.swap(r.sources);
+        r.periodUs = 0;
+    }
+}
+
+} // namespace detail
+
 // VÄGEN IN, för båda köerna. Sättaren gör två saker: lägger funktionen i
 // kön under lås, och VÄCKER pumpen. Väckningen måste ligga UTANFÖR låset —
 // `postWakeup` går ner i backenden, och att hålla ett lås genom ett
@@ -765,6 +1009,9 @@ bool App::hasPosted() const
 // trådarnas svar, och nästa bild hade ritats utan rörelse.
 void App::drainPosted()
 {
+    // En extern bildkälla (app.h) går före båda köerna: dess bildruta har en
+    // tidsfrist som varken ramkön eller appens budget ska ligga ivägen för.
+    detail::externalRunJobs();
     runQueue(frame_, 0);
     runQueue(posted_, postBudgetMs_);
 }

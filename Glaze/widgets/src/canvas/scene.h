@@ -91,6 +91,10 @@ inline constexpr int kMainView = 0;
 // har sin egen kamera och placerar sina etiketter för sig, så skärmens
 // placering (träffprovet, toningen) står orörd (`PaintContext::labelSlot`).
 inline constexpr int kBitmapLabels = -1;
+// …och för ett MÅL i `ExternalCanvasPass::render` (ett headsets öga): målet
+// n har plats `kExternalLabels − n`. Egna platser, så varken skärmens
+// placering eller bildens rörs.
+inline constexpr int kExternalLabels = -2;
 
 // Vad en del ritas med — och slagens ordning i ByKind: linjerna i rymden
 // efter de plana, och texten i rymden efter den plana — text överst.

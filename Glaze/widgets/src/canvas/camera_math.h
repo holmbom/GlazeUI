@@ -158,6 +158,23 @@ gfx::View3D view3D(const Camera3D& cam, const gfx::Rectf& box,
 // projektion: 3D-målet ritar genom 3D-vyn.
 gfx::MapView mapViewAt(const Camera3D& cam, const gfx::Rectf& box, bool yUp);
 
+// En UTTRYCKLIG 3D-vys kartskugga (ett headsets öga, som saknar en
+// `Camera3D`): samma MapView som `mapViewAt`, men "mitten" är en punkt på
+// blicken i stället för kamerans mål — på djupet till scenens låda mitt när
+// den ligger mellan klipplanen, annars på mitten av klipplanen (det
+// geometriska medelvärdet i perspektiv, där närplanet är positivt). Skalan är
+// fasadens `pxPerUnitAt` där, också för ett asymmetriskt frustum; rutan är
+// vyns. Det ritytan mäter "i mitten" — text och markörer i världsenheter,
+// rutnätets glesning och lagrens zoomintervall — räknas därmed ur samma vy
+// som ritar.
+gfx::MapView mapViewAtView(const gfx::View3D& v, const std::optional<Box3>& scene,
+                           bool yUp);
+
+// Punkten på blicken `depth` världsenheter från ögat (blicken behöver inte
+// vara enhetlig) — ögat själv när blicken är noll. Provet för fasadens skala
+// och användbarhet längs en uttrycklig vy.
+gfx::Vec3d axisPoint(const gfx::View3D& v, double depth);
+
 // ORBITEN: azimuten + dAz (normalform (−180, 180]) och elevationen + dEl —
 // utan tumling klampad till [minEl, maxEl], med tumling fri och i
 // normalformen (−180, 180], så kameran går över polen. En elevation som

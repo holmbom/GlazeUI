@@ -81,6 +81,16 @@
 //      en enhet längs blickens VÅGRÄTA del (också tiltad), åt höger, längs
 //      upp-axeln (Z och Y) och längs kamerans upp. Sabotaget `lookAround` som
 //      vrider kring målet (orbitens) fäller det.
+//  22. ETT ASYMMETRISKT FRUSTUM (`View3D::frustum`) mot en egen hålkamera med
+//      tangenter: ytans hörn på tangenterna hamnar på ytans hörn, `project`
+//      och djupet 0–1, mittstrålen (för hand), `rayThrough` mot hålkamerans
+//      stråle och tur och retur, `pxPerUnitAt`, `visiblePlaneRegion`,
+//      GlazeFrame (`rayCenter` + ndc · (right, up) = strålen, forward kvar,
+//      float-vägen < 0,05 px) — axelrätt, vridet med förskjutet frustum
+//      (noll utanför spannen) och lutat vid SWEREF. Symmetriskt är
+//      oförändrat (frustum med ±tan(fov/2) = synfältets matris; utan frustum
+//      är rayCenter exakt forward), ortografiskt ignorerar frustumet och
+//      left ≥ right, down ≥ up och icke-ändliga tal ger en oanvändbar vy.
 //
 // INTE MÄTT här (scene3d_pixel_gate mäter det i pixlar genom backenden): att shadern läser
 // matrisen i rätt ordning, närplanstrimningen i vertexshadern och klipp-
@@ -101,6 +111,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <numbers>
 #include <optional>
 #include <string>
@@ -1576,7 +1587,10 @@ void fallVerktygen()
         const double perPx = u.pixelSize[0] * djup + u.pixelSize[1];
         check(lika && strålFel < 1e-4 &&
                   nära(perPx * gfx::pxPerUnitAt(v, g3(p)), 1.0, 1e-6) &&
-                  u.eye[3] == (orto ? 0.0f : 1.0f) && u.scale[2] == 1.0f,
+                  u.eye[3] == (orto ? 0.0f : 1.0f) && u.scale[2] == 1.0f &&
+                  u.rayCenter[0] == u.forward[0] &&
+                  u.rayCenter[1] == u.forward[1] &&
+                  u.rayCenter[2] == u.forward[2] && u.rayCenter[3] == 0.0f,
               std::string("frameUniforms (") +
                   (orto ? "ortografiskt" : "perspektiv") +
                   "): strålbasen = rayThrough, världen per px = 1 / "
@@ -1711,6 +1725,450 @@ void fallFörstapersonen()
           "21. moveEye: en enhet längs kamerans upp (lodrätt i bildplanet)");
 }
 
+// ------------------------------------------------------------------ 22
+//
+// ETT ASYMMETRISKT FRUSTUM (`View3D::frustum`). FÖRVÄNTAT VÄRDE: en egen
+// hålkamera med tangenter, skriven ur definitionen — punkten q relativt ögat
+// med djupet t = q·blick ger sidovinklarna a = q·höger / t och b = q·upp / t,
+// och skärmläget är px = x + w · (a − vänster) / (höger − vänster) och py =
+// y + h · (upp − b) / (upp − ned). Djupet i [0, 1] mellan klipplanen är
+// f · (t − n) / (t · (f − n)). Basen (blick, höger, upp) står uttryckligen i
+// kameran nedan; ingenting läses ur camera3d.cpp.
+
+constexpr double kFrNear = 0.5;
+constexpr double kFrFar  = 200.0;
+
+struct FrKamera {
+    V3                   eye, fw, rt, upv;   // ögat och basen, skrivna för hand
+    gfx::FrustumTangents t;
+    gfx::Rectf           box{40.0f, 30.0f, 800.0f, 600.0f};
+};
+
+gfx::View3D frVy(const FrKamera& k)
+{
+    gfx::View3D v;
+    v.eye        = g3(k.eye);
+    v.forward    = g3(k.fw);
+    v.up         = gfx::Vec3d{0.0, 0.0, 1.0};
+    v.projection = gfx::Projection3D::Perspective;
+    v.fovY       = 2.5;   // ersätts av tangenterna — ett värde som skulle synas
+    v.frustum    = k.t;
+    v.nearZ      = kFrNear;
+    v.farZ       = kFrFar;
+    v.box        = k.box;
+    return v;
+}
+
+bool frPx(const FrKamera& k, V3 w, double& px, double& py, double* djup = nullptr)
+{
+    const V3     q = w - k.eye;
+    const double t = dot(q, k.fw);
+    if (!(t > 0.0))
+        return false;
+    const double a = dot(q, k.rt) / t;
+    const double b = dot(q, k.upv) / t;
+    px = k.box.x + k.box.w * (a - k.t.left) / (k.t.right - k.t.left);
+    py = k.box.y + k.box.h * (k.t.up - b) / (k.t.up - k.t.down);
+    if (djup)
+        *djup = kFrFar * (t - kFrNear) / (t * (kFrFar - kFrNear));
+    return true;
+}
+
+// Punkten på djupet t med sidovinklarna (a, b).
+V3 frPunkt(const FrKamera& k, double t, double a, double b)
+{
+    return k.eye + k.fw * t + k.rt * (a * t) + k.upv * (b * t);
+}
+
+// Strålens riktning genom pixeln, enhetlig: (blick + a · höger + b · upp)
+// med a och b ur pixelns läge i frustumet.
+V3 frStråle(const FrKamera& k, double px, double py)
+{
+    const double a = k.t.left + (px - k.box.x) / k.box.w * (k.t.right - k.t.left);
+    const double b = k.t.up - (py - k.box.y) / k.box.h * (k.t.up - k.t.down);
+    const V3     d = k.fw + k.rt * a + k.upv * b;
+    return d * (1.0 / len(d));
+}
+
+std::vector<FrKamera> frKameror()
+{
+    const double s   = std::sqrt(0.5);
+    const double c30 = std::cos(rad(30.0));
+    const double s30 = std::sin(rad(30.0));
+    std::vector<FrKamera> v;
+    // Axelrätt, ett vanligt öga: noll ligger mellan tangenterna.
+    v.push_back({V3{10.0, 20.0, 30.0}, V3{0.0, 1.0, 0.0}, V3{1.0, 0.0, 0.0},
+                 V3{0.0, 0.0, 1.0}, gfx::FrustumTangents{-0.9, 0.5, -0.4, 0.8}});
+    // Vriden 45° och FÖRSKJUTET: noll ligger utanför båda spannen.
+    v.push_back({V3{-5.0, 3.0, 2.0}, V3{s, s, 0.0}, V3{s, -s, 0.0},
+                 V3{0.0, 0.0, 1.0}, gfx::FrustumTangents{0.1, 0.9, 0.2, 0.6}});
+    // Lutad 30° nedåt, vid SWEREF.
+    v.push_back({V3{674010.5, 6580005.25, 25.125}, V3{0.0, c30, -s30},
+                 V3{1.0, 0.0, 0.0}, V3{0.0, s30, c30},
+                 gfx::FrustumTangents{-1.2, 0.3, -0.7, 0.35}});
+    return v;
+}
+
+// Rad `rad` av en kolumnordnad float-matris gånger (x, y, z, 1).
+float frKlipp(const float* m, int rad, float x, float y, float z)
+{
+    return m[rad] * x + m[4 + rad] * y + m[8 + rad] * z + m[12 + rad];
+}
+
+V3 frVec3(const float* a)
+{
+    return V3{a[0], a[1], a[2]};
+}
+
+// Provpunkten för de oanvändbara vyerna.
+const gfx::Vec3d kFrProv{10.0, 25.0, 30.0};
+
+void fallFrustum()
+{
+    const std::vector<FrKamera> kameror = frKameror();
+    int                         nr      = 0;
+    for (const FrKamera& k : kameror) {
+        ++nr;
+        const std::string namn = "frustum, kamera " + std::to_string(nr) + ": ";
+        const gfx::View3D v    = frVy(k);
+        const double      x0 = k.box.x, x1 = k.box.x + k.box.w;
+        const double      y0 = k.box.y, y1 = k.box.y + k.box.h;
+
+        // HÖRNEN: ytans fyra hörn ligger på tangenterna och projicerar till
+        // ytans fyra hörn (ndc ±1).
+        {
+            struct Hörn {
+                double a, b, px, py;
+            };
+            const Hörn h[] = {
+                {k.t.left, k.t.down, x0, y1},
+                {k.t.right, k.t.down, x1, y1},
+                {k.t.right, k.t.up, x1, y0},
+                {k.t.left, k.t.up, x0, y0},
+            };
+            double fel = 0.0;
+            bool   ok  = true;
+            for (const Hörn& c : h)
+                for (const double t : {1.0, 7.0, 90.0}) {
+                    double px, py;
+                    if (!gfx::project(v, g3(frPunkt(k, t, c.a, c.b)), px, py)) {
+                        ok = false;
+                        continue;
+                    }
+                    fel = std::max({fel, std::abs(px - c.px), std::abs(py - c.py)});
+                }
+            check(ok && fel < 1e-5, namn + "tangenternas hörn hamnar på ytans hörn",
+                  "största fel " + std::to_string(fel) + " px");
+        }
+
+        // PROJEKTIONEN mot hålkameran, också utanför ytan, och djupet.
+        {
+            double fel = 0.0, djupFel = 0.0;
+            bool   ok = true;
+            for (const double t : {0.8, 3.0, 40.0})
+                for (const double a : {k.t.left - 0.5, 0.0,
+                                       (k.t.left + k.t.right) / 2.0,
+                                       k.t.right + 0.3})
+                    for (const double b : {k.t.down - 0.2, 0.1, k.t.up + 0.4}) {
+                        const V3 p = frPunkt(k, t, a, b);
+                        double   px, py, d, fx, fy, fd;
+                        if (!gfx::project(v, g3(p), px, py, &d) ||
+                            !frPx(k, p, fx, fy, &fd)) {
+                            ok = false;
+                            continue;
+                        }
+                        fel     = std::max({fel, std::abs(px - fx), std::abs(py - fy)});
+                        djupFel = std::max(djupFel, std::abs(d - fd));
+                    }
+            check(ok && fel < 1e-5 && djupFel < 1e-9,
+                  namn + "project = hålkameran med tangenter, djupet i [0, 1]",
+                  "px " + std::to_string(fel) + ", djup " + std::to_string(djupFel));
+            double dn = -1.0, df = -1.0, sx, sy;
+            gfx::project(v, g3(frPunkt(k, kFrNear, 0.0, 0.0)), sx, sy, &dn);
+            gfx::project(v, g3(frPunkt(k, kFrFar, 0.0, 0.0)), sx, sy, &df);
+            check(nära(dn, 0.0, 1e-9) && nära(df, 1.0, 1e-9),
+                  namn + "närplanet har djup 0 och det bortre 1",
+                  std::to_string(dn) + " / " + std::to_string(df));
+        }
+
+        // STRÅLEN genom pixeln mot hålkameran, och tillbaka: punkten längs
+        // strålen projicerar till samma pixel.
+        {
+            double fel = 0.0, tur = 0.0;
+            bool   ok = true;
+            for (const double px : {x0, 100.3, (x0 + x1) / 2.0, 700.7, x1})
+                for (const double py : {y0, 200.1, (y0 + y1) / 2.0, 555.5, y1}) {
+                    gfx::Ray3d r;
+                    if (!gfx::rayThrough(v, px, py, r)) {
+                        ok = false;
+                        continue;
+                    }
+                    fel = std::max(fel, len(v3(r.dir) - frStråle(k, px, py)));
+                    fel = std::max(fel, len(v3(r.origin) - k.eye));
+                    double qx, qy;
+                    if (!gfx::project(v, g3(v3(r.origin) + v3(r.dir) * 5.0), qx, qy)) {
+                        ok = false;
+                        continue;
+                    }
+                    tur = std::max({tur, std::abs(qx - px), std::abs(qy - py)});
+                }
+            check(ok && fel < 1e-9 && tur < 1e-5,
+                  namn + "rayThrough = hålkamerans stråle, och project tar den tillbaka",
+                  "stråle " + std::to_string(fel) + ", tur och retur " +
+                      std::to_string(tur) + " px");
+        }
+
+        // SKALAN: px per världsenhet vinkelrätt mot blicken = ytans höjd /
+        // (tangentspannet · djupet).
+        {
+            double fel = 0.0;
+            for (const double t : {1.0, 6.0, 55.0}) {
+                const V3     p   = frPunkt(k, t, k.t.right, k.t.up);
+                const double var = k.box.h / ((k.t.up - k.t.down) * t);
+                fel = std::max(fel, std::abs(gfx::pxPerUnitAt(v, g3(p)) / var - 1.0));
+            }
+            check(fel < 1e-9,
+                  namn + "pxPerUnitAt = ytans höjd / (tangentspannet · djupet)",
+                  "relativt fel " + std::to_string(fel));
+        }
+
+        // GLAZEFRAME: strålens mitt och basen. rayCenter + ndc.x · right +
+        // ndc.y · up är strålen genom ytans pixel; ett förskjutet origo
+        // ändrar bara ögat.
+        {
+            const V3 o = k.eye + V3{3.0, -2.0, 1.0};
+            const gfx::FrameUniforms u = gfx::frameUniforms(v, o.x, o.y, o.z);
+            const double hx = (k.t.right - k.t.left) / 2.0;
+            const double hy = (k.t.up - k.t.down) / 2.0;
+            const double cx = (k.t.right + k.t.left) / 2.0;
+            const double cy = (k.t.up + k.t.down) / 2.0;
+            const V3     rc = k.fw + k.rt * cx + k.upv * cy;
+            double       fel = 0.0;
+            for (const double nx : {-1.0, 0.0, 0.37, 1.0})
+                for (const double ny : {-1.0, 0.0, -0.61, 1.0}) {
+                    const V3 d = frVec3(u.rayCenter) + frVec3(u.right) * nx +
+                                 frVec3(u.up) * ny;
+                    const double px = k.box.x + k.box.w * (nx + 1.0) / 2.0;
+                    const double py = k.box.y + k.box.h * (1.0 - ny) / 2.0;
+                    fel = std::max(fel, len(d * (1.0 / len(d)) - frStråle(k, px, py)));
+                }
+            check(fel < 1e-5 && len(frVec3(u.rayCenter) - rc) < 1e-6 &&
+                      u.rayCenter[3] == 0.0f &&
+                      len(frVec3(u.forward) - k.fw) < 1e-6 &&
+                      len(frVec3(u.right) - k.rt * hx) < 1e-6 &&
+                      len(frVec3(u.up) - k.upv * hy) < 1e-6 &&
+                      len(frVec3(u.eye) - (k.eye - o)) < 1e-6 && u.eye[3] == 1.0f &&
+                      nära(u.pixelSize[0], hy / (k.box.h / 2.0), 1e-7) &&
+                      u.pixelSize[1] == 0.0f,
+                  namn + "frameUniforms: rayCenter + ndc · (right, up) = strålen, "
+                         "forward kvar som axeln",
+                  "strålfel " + std::to_string(fel));
+        }
+
+        // GPU:ns VÄG: float(punkt − origo) genom den float-avrundade
+        // matrisen i blocket hamnar inom 0,05 px från hålkameran.
+        {
+            const V3 o = k.eye + V3{1.0, 2.0, -3.0};
+            const gfx::FrameUniforms u = gfx::frameUniforms(v, o.x, o.y, o.z);
+            double fel = 0.0;
+            for (const double t : {2.0, 20.0, 120.0})
+                for (const double a : {k.t.left, 0.0, k.t.right})
+                    for (const double b : {k.t.down, k.t.up}) {
+                        const V3    p  = frPunkt(k, t, a, b);
+                        const float lx = static_cast<float>(p.x - o.x);
+                        const float ly = static_cast<float>(p.y - o.y);
+                        const float lz = static_cast<float>(p.z - o.z);
+                        const float cw = frKlipp(u.viewProj, 3, lx, ly, lz);
+                        double      fx = 0.0, fy = 0.0;
+                        frPx(k, p, fx, fy);
+                        fel = std::max(
+                            {fel,
+                             std::abs(frKlipp(u.viewProj, 0, lx, ly, lz) / cw - fx),
+                             std::abs(frKlipp(u.viewProj, 1, lx, ly, lz) / cw - fy)});
+                    }
+            check(fel < 0.05, namn + "RTC: float-vägen genom blockets matris < 0,05 px",
+                  "största fel " + std::to_string(fel) + " px");
+        }
+
+        // SYNLIGA DELEN av planet vinkelrätt mot blicken på djupet 10: exakt
+        // rektangeln mellan tangenterna.
+        {
+            std::vector<V3> hörn;
+            for (const double a : {k.t.left, k.t.right})
+                for (const double b : {k.t.down, k.t.up})
+                    hörn.push_back(frPunkt(k, 10.0, a, b));
+            const std::vector<gfx::Vec3d> poly = gfx::visiblePlaneRegion(
+                v, gfx::Plane3d{g3(k.eye + k.fw * 10.0), g3(k.fw)}, 0.0);
+            int funna = 0;
+            for (const V3& h : hörn)
+                for (const gfx::Vec3d& p : poly)
+                    if (len(v3(p) - h) < 1e-6) {
+                        ++funna;
+                        break;
+                    }
+            check(poly.size() == 4 && funna == 4,
+                  namn + "visiblePlaneRegion: planet på djupet 10 är rektangeln "
+                         "mellan tangenterna",
+                  std::to_string(poly.size()) + " hörn, " + std::to_string(funna) +
+                      " träffar");
+        }
+    }
+
+    // MITTSTRÅLEN, med tal skrivna för hand: tangenterna (−0,9, 0,5, −0,4,
+    // 0,8) ger mitten (−0,2, 0,2), och ytans mittpixel (440, 330) strålen
+    // (−0,2, 1, 0,2)/√1,08. Halva spannen är 0,7 och 0,6.
+    {
+        const gfx::View3D v = frVy(kameror[0]);
+        gfx::Ray3d        r;
+        const bool        ok = gfx::rayThrough(v, 440.0, 330.0, r);
+        const double      n  = std::sqrt(1.08);
+        check(ok && nära(r.dir.x, -0.2 / n, 1e-12) && nära(r.dir.y, 1.0 / n, 1e-12) &&
+                  nära(r.dir.z, 0.2 / n, 1e-12),
+              "frustum: ytans mittpixel ger strålen (−0,2, 1, 0,2) normerad",
+              ok ? tre(v3(r.dir)) : "false");
+        const gfx::FrameUniforms u = gfx::frameUniforms(v, 0.0, 0.0, 0.0);
+        check(nära(u.rayCenter[0], -0.2, 1e-6) && nära(u.rayCenter[1], 1.0, 1e-6) &&
+                  nära(u.rayCenter[2], 0.2, 1e-6) && nära(u.right[0], 0.7, 1e-6) &&
+                  nära(u.up[2], 0.6, 1e-6),
+              "frustum: rayCenter (−0,2, 1, 0,2), right 0,7 och up 0,6 med tal "
+              "för hand");
+    }
+
+    // SYMMETRISKT ÄR OFÖRÄNDRAT: ett frustum med tangenter ±tan(fov/2) ·
+    // bildförhållandet och ±tan(fov/2) ger samma matris som synfältet, och
+    // utan frustum är rayCenter EXAKT forward (perspektiv som ortografiskt).
+    {
+        gfx::View3D v;
+        v.eye     = gfx::Vec3d{674000.0, 6580000.0, 30.0};
+        v.forward = gfx::Vec3d{0.3, 1.0, -0.4};
+        v.fovY    = 1.1;
+        v.nearZ   = 0.5;
+        v.farZ    = 300.0;
+        v.box     = gfx::Rectf{40.0f, 30.0f, 800.0f, 600.0f};
+        gfx::View3D  s  = v;
+        const double hy = std::tan(0.55);
+        s.frustum = gfx::FrustumTangents{-hy * 800.0 / 600.0, hy * 800.0 / 600.0,
+                                         -hy, hy};
+        const gfx::Mat4d a = gfx::viewProjection(v, 674001.0, 6580002.0, 28.0);
+        const gfx::Mat4d b = gfx::viewProjection(s, 674001.0, 6580002.0, 28.0);
+        double skillnad = 0.0, störst = 0.0;
+        for (int i = 0; i < 16; ++i) {
+            skillnad = std::max(skillnad, std::abs(a.m[i] - b.m[i]));
+            störst   = std::max(störst, std::abs(a.m[i]));
+        }
+        check(störst > 0.0 && skillnad < 1e-9 * störst,
+              "frustum: ett symmetriskt frustum ger synfältets matris",
+              "skillnad " + std::to_string(skillnad));
+        gfx::Ray3d ra, rb;
+        gfx::rayThrough(v, 123.0, 456.0, ra);
+        gfx::rayThrough(s, 123.0, 456.0, rb);
+        check(len(v3(ra.dir) - v3(rb.dir)) < 1e-12,
+              "frustum: samma stråle ur synfältet och ur det symmetriska "
+              "frustumet");
+
+        for (const bool orto : {false, true}) {
+            gfx::View3D w = v;
+            if (orto) {
+                w.projection      = gfx::Projection3D::Orthographic;
+                w.orthoHalfHeight = 20.0;
+            }
+            const gfx::FrameUniforms u =
+                gfx::frameUniforms(w, w.eye.x, w.eye.y, w.eye.z);
+            bool exakt = true;
+            for (int i = 0; i < 4; ++i)
+                exakt = exakt && u.rayCenter[i] == u.forward[i];
+            check(exakt && u.forward[1] != 0.0f,
+                  std::string("frustum: utan frustum är rayCenter exakt forward (") +
+                      (orto ? "ortografiskt" : "perspektiv") + ")");
+        }
+    }
+
+    // ORTOGRAFISKT IGNORERAR frustumet — också ett ogiltigt.
+    {
+        gfx::View3D v;
+        v.eye             = gfx::Vec3d{5.0, 6.0, 40.0};
+        v.forward         = gfx::Vec3d{0.0, 0.0, -1.0};
+        v.up              = gfx::Vec3d{0.0, 1.0, 0.0};
+        v.projection      = gfx::Projection3D::Orthographic;
+        v.orthoHalfHeight = 15.0;
+        v.nearZ           = 1.0;
+        v.farZ            = 100.0;
+        v.box             = gfx::Rectf{0.0f, 0.0f, 640.0f, 480.0f};
+        gfx::View3D g     = v;
+        g.frustum         = gfx::FrustumTangents{2.0, -2.0, 5.0, 1.0};
+        const gfx::Mat4d a = gfx::viewProjection(v, 0.0, 0.0, 0.0);
+        const gfx::Mat4d b = gfx::viewProjection(g, 0.0, 0.0, 0.0);
+        bool lika2 = true, någon = false;
+        for (int i = 0; i < 16; ++i) {
+            lika2 = lika2 && a.m[i] == b.m[i];
+            någon = någon || a.m[i] != 0.0;
+        }
+        gfx::Ray3d ra, rb;
+        const bool ok = gfx::rayThrough(g, 100.0, 100.0, rb) &&
+                        gfx::rayThrough(v, 100.0, 100.0, ra);
+        check(någon && lika2 && ok && len(v3(ra.dir) - v3(rb.dir)) == 0.0 &&
+                  len(v3(ra.origin) - v3(rb.origin)) == 0.0,
+              "frustum: ortografiskt ignoreras frustumet, också ett ogiltigt");
+    }
+
+    // OANVÄNDBARA FRUSTUM: left ≥ right, down ≥ up, icke-ändliga tal — vyn
+    // ger nollmatrisen och falska svar. Ett användbart frustum behöver
+    // inget giltigt fovY, och noll behöver inte ligga mellan tangenterna.
+    {
+        const double inf = std::numeric_limits<double>::infinity();
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const gfx::FrustumTangents dåliga[] = {
+            {0.5, 0.5, -1.0, 1.0},    // left == right
+            {1.0, -1.0, -1.0, 1.0},   // left > right
+            {-1.0, 1.0, 0.3, 0.3},    // down == up
+            {-1.0, 1.0, 1.0, -1.0},   // down > up
+            {nan, 1.0, -1.0, 1.0},    {-1.0, nan, -1.0, 1.0},
+            {-1.0, 1.0, nan, 1.0},    {-1.0, 1.0, -1.0, nan},
+            {-inf, 1.0, -1.0, 1.0},   {-1.0, inf, -1.0, 1.0},
+            {-1.0, 1.0, -inf, 1.0},   {-1.0, 1.0, -1.0, inf},
+        };
+        int ogiltiga = 0, fel = 0;
+        for (const gfx::FrustumTangents& t : dåliga) {
+            ++ogiltiga;
+            gfx::View3D v = frVy(kameror[0]);
+            v.frustum     = t;
+            const gfx::Mat4d m = gfx::viewProjection(v, 0.0, 0.0, 0.0);
+            bool noll = true;
+            for (const double e : m.m)
+                noll = noll && e == 0.0;
+            const gfx::FrameUniforms u = gfx::frameUniforms(v, 0.0, 0.0, 0.0);
+            bool uNoll = u.rayCenter[0] == 0.0f && u.rayCenter[1] == 0.0f &&
+                         u.rayCenter[2] == 0.0f;
+            for (const float e : u.viewProj)
+                uNoll = uNoll && e == 0.0f;
+            double     px, py;
+            gfx::Ray3d r;
+            const bool ok =
+                noll && uNoll && !gfx::project(v, kFrProv, px, py) &&
+                !gfx::rayThrough(v, 400.0, 300.0, r) &&
+                gfx::pxPerUnitAt(v, kFrProv) == 0.0 &&
+                gfx::visiblePlaneRegion(
+                    v, gfx::Plane3d{kFrProv, gfx::Vec3d{0.0, 1.0, 0.0}}, 0.0)
+                    .empty();
+            fel += ok ? 0 : 1;
+        }
+        check(fel == 0,
+              "frustum: left ≥ right, down ≥ up och icke-ändliga tal ger en "
+              "oanvändbar vy",
+              std::to_string(fel) + " av " + std::to_string(ogiltiga) +
+                  " användbara");
+
+        gfx::View3D v = frVy(kameror[0]);
+        v.fovY        = 0.0;   // ersatt av frustumet — påverkar inte användbarheten
+        double px, py;
+        check(gfx::project(v, kFrProv, px, py),
+              "frustum: ett användbart frustum behöver inget giltigt fovY");
+        v.nearZ = 0.0;
+        check(!gfx::project(v, kFrProv, px, py),
+              "frustum: närplanet 0 ger fortfarande en oanvändbar vy");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1744,6 +2202,8 @@ int main(int argc, char** argv)
     fallScenensLåda();
     // Förstapersonen.
     fallFörstapersonen();
+    // Det asymmetriska frustumet.
+    fallFrustum();
     std::printf(g_fel ? "=== scene_math_gate: %d FEL av %d ===\n"
                       : "=== scene_math_gate: allt grönt (%d fel av %d) ===\n",
                 g_fel, g_fall);

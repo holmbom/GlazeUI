@@ -49,7 +49,7 @@
 // En mesh får GlazeFrame med placeringens VRIDNING och SKALA invikta —
 // matriserna tar meshens lokala lägen, och ögat och strålbasen står i samma
 // ram (strålbasen oskalad: strålen genom en pixel är fortfarande ögat +
-// t · (forward + x · right + y · up)). RESERVEN: saknas programmet, är det
+// t · (rayCenter + x · right + y · up)). RESERVEN: saknas programmet, är det
 // ogiltigt, läser det en plats som formens ström saknar, vill det ha fler
 // texturer än stilen ger — eller är formen INSTANSER, vars prototyp bär sin
 // placering i det inbyggda programmets block — ritas formen med det

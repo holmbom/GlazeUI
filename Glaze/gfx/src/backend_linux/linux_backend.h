@@ -462,6 +462,15 @@ public:
     bool beginOffscreen() override;
     void endOffscreen() override;
 
+    // Integrationen med ett annat grafik-API (gfx/native.h) — stöds inte på
+    // Linux (linux_renderer.cpp).
+    NativeDevice nativeDevice() const override;
+    std::unique_ptr<RenderTarget> importRenderTarget(
+        const ExternalTargetDesc& desc, RenderTarget* sharedAttachments,
+        std::string& error) override;
+    void setExternalFramePacing(bool on) override;
+    std::unique_ptr<GpuCompletion> insertCompletion(std::string& error) override;
+
     // Texturhjälpare för text/bild — håller ALLA GL-anrop i
     // linux_renderer.cpp (makeCurrent ingår). `rowBytes` är byte mellan två
     // rader i `px` (en multipel av pixelstorleken — UNPACK_ROW_LENGTH talar

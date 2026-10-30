@@ -116,26 +116,29 @@ detail::LayerPaint lagerMålare(Canvas& yta)
     };
 }
 
-// 3D-MÅLETS ARGUMENT som ritningen och `renderToBitmap` delar — provtagningen,
-// rutnätet ur temat och stilen, appens `onPaint` och lagrens målare; kameran,
-// stämpeln, toningen och del-vyerna sätter anroparen.
-detail::Target3DArgs målArgs(Canvas& yta, const Ctx& c)
+} // namespace
+
+namespace detail {
+
+// 3D-MÅLETS ARGUMENT som ritningen, `renderToBitmap` och de externa målen
+// (`ExternalCanvasPass`) delar — se target3d.h.
+Target3DArgs canvasTarget3DArgs(Canvas& yta, const Ctx& c)
 {
-    detail::Target3DArgs a;
+    Target3DArgs a;
     a.samples     = yta.multisample();
     a.gridSize    = yta.gridSize();
     a.gridColor   = c.theme->colors.canvasGrid;
     a.gridMinPx   = c.style->canvasGridMin;
     a.gridWidthPx = c.style->canvasGridWidth;
     if (yta.onPaint)
-        a.paint = [&yta](detail::PaintContext& p) {
+        a.paint = [&yta](PaintContext& p) {
             måla(yta, yta.onPaint, p, false);
         };
     a.layerPaint = lagerMålare(yta);
     return a;
 }
 
-} // namespace
+} // namespace detail
 
 Canvas::Canvas()
     : scene_(std::make_shared<detail::SceneData>()),
@@ -405,7 +408,7 @@ void Canvas::drawScene(const Ctx& c)
         // i fönstrets.
         detail::PaintContext tc;
         paintContext(c, tc, detail::targetBox(c.box));
-        detail::Target3DArgs a = målArgs(*this, c);
+        detail::Target3DArgs a = detail::canvasTarget3DArgs(*this, c);
         a.stamp          = damageStamp();
         a.camera         = is3D_ ? &cam3D_ : nullptr;
         a.labelFade      = labelFade_;
@@ -2253,7 +2256,7 @@ std::optional<Bitmap> Canvas::renderToBitmap(int w, int h, const Camera3D& camer
         return std::nullopt;   // fönstret är mitt i öppning eller stängning
     // Scenen som 3D-målet ritar den — men med bildens kamera och utan
     // toning (bilden är ett ögonblick).
-    detail::Target3DArgs a = målArgs(*this, c);
+    detail::Target3DArgs a = detail::canvasTarget3DArgs(*this, c);
     a.camera               = &camera;
     // Ritytans ritläge bär fönstrets resurser, ljuset och y-riktningen —
     // rutan är bildens (target3d.h).
@@ -3050,17 +3053,7 @@ bool isLabel(const Shape& s)
 }
 
 // Plockas formen i rymden (pick3d.h)?
-bool isObject3D(const Shape& s)
-{
-    switch (s.kind()) {
-    case Shape::Kind::Mesh:
-    case Shape::Kind::Area3:
-    case Shape::Kind::Instances:
-    case Shape::Kind::Points3:
-    case Shape::Kind::Lines3: return true;
-    default:                  return false;
-    }
-}
+using detail::isObject3D;
 
 // Ritas lagret i vyn vid zoomen (scene.cpp `layerDrawn`, och synligheten)?
 bool drawnIn(const detail::LayerData& L, int view, double zoom)
@@ -3076,17 +3069,7 @@ double rayParam(const Ray3& r, const Point3& p)
            (p.z - r.origin.z) * r.direction.z;
 }
 
-// En enhetlig riktning, eller tom för en stråle som inte går att räkna på.
-std::optional<Ray3> unitRay(const Ray3& r)
-{
-    const double l = std::sqrt(r.direction.x * r.direction.x +
-                               r.direction.y * r.direction.y +
-                               r.direction.z * r.direction.z);
-    if (!(l > 0.0) || !std::isfinite(l) || !std::isfinite(r.origin.x) ||
-        !std::isfinite(r.origin.y) || !std::isfinite(r.origin.z))
-        return std::nullopt;
-    return Ray3{r.origin, {r.direction.x / l, r.direction.y / l, r.direction.z / l}};
-}
+using detail::unitRay;
 
 } // namespace
 
@@ -3559,10 +3542,6 @@ std::vector<HitResult> Canvas::hitTest(Rect local, HitMode mode) const
 std::vector<HitResult> Canvas::castRay(const Ray3& ray, const HitOptions& options) const
 {
     const ProfileScope mät(detail::frameworkLabel(detail::FrameworkLabel::CastRay));
-    std::vector<HitResult>    out;
-    const std::optional<Ray3> r = unitRay(ray);
-    if (!r)
-        return out;
     // Kameran som ritar ger detaljnivån och de skärmkonstanta meshernas
     // storlek; utan en känd yta den finaste nivån (och inga skärmkonstanta).
     gfx::Rectf                 box{};
@@ -3570,73 +3549,14 @@ std::vector<HitResult> Canvas::castRay(const Ray3& ray, const HitOptions& option
     std::optional<gfx::View3D> v3;
     if (knownBox(box, scale))
         v3 = mainView3DFor(box, scale);
-    detail::PickContext pk;
-    pk.ray         = *r;
-    pk.view        = v3 ? &*v3 : nullptr;
-    pk.finest      = !v3;
-    pk.opaqueOnly  = options.opaqueOnly;
-    pk.maxDistance = options.maxDistance;
-    pk.occluder    = true;   // längs en fri stråle skymmer varje ogenomskinlig yta
+    double pxPerPx = 0.0, pxPerMm = 0.0;
     if (const AppWindow* w = appWindow(); w && w->isOpen()) {
         const Ctx c = behaviorCtx();
-        pk.pxPerPx  = c.scale;
-        pk.pxPerMm  = c.pxPerMm;
+        pxPerPx     = c.scale;
+        pxPerMm     = c.pxPerMm;
     }
-    // SKYMNINGEN FÖRST (`occlusion`): den närmaste
-    // ogenomskinliga ytan längs strålen — och det som ligger bortom den med
-    // skymningens marginal plockas inte alls (pick3d.h `occlusionReach`), så
-    // en mesh bakom en vägg varken prövas eller bygger sin BVH.
-    std::optional<double> närmast;
-    if (options.occlusion) {
-        std::vector<detail::Occluder> skymmare;
-        for (const std::shared_ptr<detail::LayerData>& Lp : scene_->layers) {
-            if (!Lp->visible || !(Lp->opacity > 0.0f))
-                continue;
-            for (const detail::ShapeSlot& slot : Lp->slots)
-                if (isObject3D(slot.entry->shape))
-                    skymmare.push_back(detail::occluder(*slot.entry, Lp->opacity));
-        }
-        närmast = detail::nearestOccluder(skymmare, *r, pk.view);
-        if (närmast) {
-            const double tak = detail::occlusionReach(*närmast);
-            pk.maxDistance   = pk.maxDistance > 0.0 ? std::min(pk.maxDistance, tak) : tak;
-        }
-    }
-    std::vector<detail::SceneHit> träffar;
-    for (int li = static_cast<int>(scene_->layers.size()) - 1; li >= 0; --li) {
-        const detail::LayerData& L = *scene_->layers[static_cast<std::size_t>(li)];
-        if (!L.visible || !(L.opacity > 0.0f))
-            continue;
-        pk.layerOpacity = L.opacity;
-        for (std::size_t i = 0; i < L.slots.size(); ++i) {
-            const Shape& s = L.slots[i].entry->shape;
-            if (!isObject3D(s))
-                continue;
-            träffar.clear();
-            detail::pickShape3D(*L.slots[i].entry, pk, träffar);
-            for (const detail::SceneHit& t : träffar) {
-                HitResult h;
-                h.layer    = li;
-                h.index    = static_cast<int>(i);
-                h.instance = t.instance;
-                h.element  = t.element;
-                h.kind     = t.kind;
-                h.point    = t.point;
-                h.normal   = t.normal;
-                h.distance = t.distance;
-                out.push_back(h);
-            }
-        }
-    }
-    // Taket ovan är en aning längre än skymningen — provet är det här.
-    if (närmast)
-        std::erase_if(out, [&](const HitResult& h) {
-            return *närmast < h.distance - detail::occlusionSlack(h.distance);
-        });
-    std::stable_sort(out.begin(), out.end(), [](const HitResult& a, const HitResult& b) {
-        return a.distance < b.distance;
-    });
-    return out;
+    return detail::castRayInScene(*scene_, ray, options, v3 ? &*v3 : nullptr,
+                                  pxPerPx, pxPerMm);
 }
 
 std::optional<double> Canvas::heightAt(Point xy) const

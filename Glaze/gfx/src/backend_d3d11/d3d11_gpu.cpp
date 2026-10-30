@@ -123,6 +123,13 @@ bool sameLuid(const LUID& a, const LUID& b)
 
 } // namespace
 
+std::uint64_t packLuid(const LUID& luid)
+{
+    return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(luid.HighPart))
+            << 32) |
+           static_cast<std::uint64_t>(luid.LowPart);
+}
+
 std::vector<DxgiAdapter> enumerateAdapters(IDXGIFactory1& f, bool probeKind)
 {
     std::vector<DxgiAdapter> ut;
@@ -145,6 +152,7 @@ std::vector<DxgiAdapter> enumerateAdapters(IDXGIFactory1& f, bool probeKind)
         g.memoryBytes = d.DedicatedVideoMemory;
         g.selectable  = true;
         g.isDefault   = i == 0;   // den D3D11CreateDevice(nullptr, …) tar
+        g.localAdapterId = packLuid(d.AdapterLuid);
 
         const KmtAdapter kmt(d.AdapterLuid);
         UINT             typ    = 0;

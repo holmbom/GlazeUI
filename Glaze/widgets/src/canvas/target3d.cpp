@@ -15,6 +15,8 @@
 #include <gfx/camera.h>
 #include <gfx/platform.h>
 
+#include "glaze/app.h"
+#include "../font_set.h"
 #include "../image_cache.h"
 #include "../profiler_hooks.h"
 #include "camera_math.h"
@@ -149,6 +151,49 @@ PaintContext cameraContext(const PaintContext& canvas, const Ctx& c,
     f.view3D    = viewView3D(cam, box, scene, view);
     return f;
 }
+
+// Ritläget för en UTTRYCKLIG 3D-vy (ett headsets öga): vyn själv, kartskuggan
+// ur den (camera_math `mapViewAtView` — skalan "i mitten" räknas ur samma vy
+// som ritar), vyns ruta som ritytans lokala rymd och etiketternas plats. `c`
+// är vyns Ctx (rutan = vyns). Resten — fönstrets resurser, ljuset och
+// y-riktningen — är ritytans, som i `cameraContext`.
+PaintContext viewContext(const PaintContext& canvas, const Ctx& c,
+                         const gfx::View3D& view, const SceneData& scene,
+                         int labelSlot)
+{
+    PaintContext f;
+    f.c         = &c;
+    f.res       = canvas.res;
+    f.world     = mapViewAtView(view, sceneBox(scene, kMainView), canvas.world.yUp);
+    f.screen    = localView(view.box, c.scale);
+    f.zoom      = f.world.pxPerUnit / c.scale;
+    f.opacity   = 1.0f;   // tonen är kompositens — här finns ingen
+    f.view      = kMainView;
+    f.labelSlot = labelSlot;
+    f.lighting  = canvas.lighting;
+    f.view3D    = view;
+    return f;
+}
+
+// Ett `beginOffscreen`-block som alltid slutar: bilden och de externa målen
+// ritas utanför fönstrets frame och lämnar blocket på varje väg ut.
+class OffscreenBlock {
+public:
+    explicit OffscreenBlock(gfx::Renderer& r) : r_(r), open_(r.beginOffscreen()) {}
+    ~OffscreenBlock()
+    {
+        if (open_)
+            r_.endOffscreen();
+    }
+    OffscreenBlock(const OffscreenBlock&)            = delete;
+    OffscreenBlock& operator=(const OffscreenBlock&) = delete;
+    // Gick blocket att öppna? (Inte i en frame — renderaren loggar orsaken.)
+    bool open() const { return open_; }
+
+private:
+    gfx::Renderer& r_;
+    bool           open_;
+};
 
 // Ett måls pixlar i fönstret: rutan `r` ∩ ritytans `box`, från snittets
 // heltalshörn till dess heltalsslut. Tomt (w = h = 0) utan snitt.
@@ -405,28 +450,30 @@ std::optional<Bitmap> renderBitmap3D(const PaintContext& canvas,
 {
     const Ctx&     c = *canvas.c;
     gfx::Renderer& r = *c.r;
-    if (!r.beginOffscreen())
-        return std::nullopt;   // inuti en frame — renderaren loggar orsaken
-    // Bildens ruta från (0, 0); allt annat är fönstrets (skalan, mm, temat).
-    Ctx bc = c;
-    bc.box = gfx::Rectf{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)};
-    rebuildDirty(*scene);
-    PaintContext f = cameraContext(canvas, bc, *a.camera, bc.box, *scene,
-                                   kMainView, kBitmapLabels);
-    gfx::TargetDesc d;
-    d.samples = r.supportedSamples(a.samples);
-    d.depth   = true;
-    const std::unique_ptr<gfx::RenderTarget> t = r.createRenderTarget(w, h, d);
-    if (!t->image().valid()) {
-        r.endOffscreen();
-        if (!g_bitmapLogged.exchange(true))
-            gfx::log("Canvas::renderToBitmap: målet (%d × %d) gick inte att "
-                     "skapa — ingen bild; loggas en gång",
-                     w, h);
-        return std::nullopt;
+    std::unique_ptr<gfx::RenderTarget> t;
+    {
+        const OffscreenBlock block(r);
+        if (!block.open())
+            return std::nullopt;   // inuti en frame — renderaren loggar orsaken
+        // Bildens ruta från (0, 0); allt annat är fönstrets (skalan, mm, temat).
+        Ctx bc = c;
+        bc.box = gfx::Rectf{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)};
+        rebuildDirty(*scene);
+        PaintContext f = cameraContext(canvas, bc, *a.camera, bc.box, *scene,
+                                       kMainView, kBitmapLabels);
+        gfx::TargetDesc d;
+        d.samples = r.supportedSamples(a.samples);
+        d.depth   = true;
+        t         = r.createRenderTarget(w, h, d);
+        if (!t->image().valid()) {
+            if (!g_bitmapLogged.exchange(true))
+                gfx::log("Canvas::renderToBitmap: målet (%d × %d) gick inte att "
+                         "skapa — ingen bild; loggas en gång",
+                         w, h);
+            return std::nullopt;
+        }
+        renderView(f, scene, *t, background, a, true, DrapeMode::Complete);
     }
-    renderView(f, scene, *t, background, a, true, DrapeMode::Complete);
-    r.endOffscreen();
     std::vector<std::uint8_t> px;
     if (!r.readTarget(*t, px))
         return std::nullopt;   // renderaren loggar orsaken
@@ -440,6 +487,48 @@ std::optional<Bitmap> renderBitmap3D(const PaintContext& canvas,
     if (!b.valid())
         return std::nullopt;   // Bitmap loggar orsaken
     return b;
+}
+
+// ----------------------------------------------------------- externa mål
+
+bool renderExternal3D(const PaintContext& canvas,
+                      const std::shared_ptr<SceneData>& scene,
+                      const Target3DArgs& a,
+                      std::span<const ExternalCanvasView> views,
+                      gfx::Color background, std::string& error)
+{
+    const Ctx&     c = *canvas.c;
+    gfx::Renderer& r = *c.r;
+    const OffscreenBlock block(r);
+    if (!block.open()) {
+        error = "kunde inte öppna ett offscreen-block (en bildruta pågår, eller "
+                "enheten är förlorad)";
+        return false;
+    }
+    // RESURSBUDGETEN förnyas EN gång för hela anropet — det skrivbordet gör
+    // överst i varje frame (app_window.cpp `renderContent`): bildernas vräkning
+    // och uppladdningsbudget, ritytans döda resurser och fältens textstorlekar.
+    // Här, före all ritning i blocket och aldrig mellan målen, så det första
+    // målets bilder, buffertar och atlaser lever tills sista målet ritats.
+    if (c.images)
+        c.images->trim(app().canvasMemoryBudget(), app().canvasUploadBudget());
+    if (c.canvas)
+        c.canvas->trim();
+    if (c.textFonts)
+        c.textFonts->trim();
+    // EN scenuppdatering för hela anropet: de märkta lagren byggs om här, och
+    // varje mål förbereder sedan sina lager mot de färdiga.
+    rebuildDirty(*scene);
+    for (std::size_t i = 0; i < views.size(); ++i) {
+        // Målets Ctx med målets ruta; ritläget pekar på den under ritningen.
+        Ctx vc = c;
+        vc.box = views[i].view.box;
+        PaintContext f = viewContext(canvas, vc, views[i].view, *scene,
+                                     kExternalLabels - static_cast<int>(i));
+        renderView(f, scene, *views[i].target, background, a, true,
+                   DrapeMode::Complete);
+    }
+    return true;
 }
 
 } // namespace glaze::detail

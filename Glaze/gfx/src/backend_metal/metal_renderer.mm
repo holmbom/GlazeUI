@@ -1164,6 +1164,33 @@ void MetalRenderer::endOffscreen()
     curDepthTex_ = nil;
 }
 
+// ------------------------------------------- integration med ett annat API
+//
+// Se gfx/native.h. Metal delar ingen enhet och tar inga externa bilder: de
+// fyra anropen svarar "stöds inte" enligt kontraktet i renderer.h.
+NativeDevice MetalRenderer::nativeDevice() const
+{
+    return NativeDevice{};   // api == None
+}
+
+std::unique_ptr<RenderTarget> MetalRenderer::importRenderTarget(
+    const ExternalTargetDesc&, RenderTarget*, std::string& error)
+{
+    error = "externa mål stöds inte av Metal-backenden";
+    return std::make_unique<MetalRenderTarget>();   // ogiltigt mål
+}
+
+void MetalRenderer::setExternalFramePacing(bool)
+{
+}
+
+std::unique_ptr<GpuCompletion> MetalRenderer::insertCompletion(
+    std::string& error)
+{
+    error = "GPU-markörer stöds inte av Metal-backenden";
+    return nullptr;
+}
+
 // Byte av textur, topologi eller FILTER bryter batchen — flusha först så
 // ritordningen (bakifrån och fram) bevaras.
 void MetalRenderer::setState(id<MTLTexture> tex, MTLPrimitiveType topo,

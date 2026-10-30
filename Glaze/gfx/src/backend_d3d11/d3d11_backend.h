@@ -117,6 +117,10 @@ ComPtr<IDXGIAdapter1>    preferredAdapter(IDXGIFactory1& f, GpuPreference p);
 ComPtr<IDXGIAdapter1>    chosenAdapter(IDXGIFactory1& f,
                                        const std::vector<DxgiAdapter>& kort);
 std::string adapterIdOf(const std::vector<DxgiAdapter>& kort, const LUID& luid);
+// LUID:en i den form ett annat grafik-API anger kortet (`GpuAdapter::
+// localAdapterId`, `NativeDevice::localAdapterId`): HighPart i de övre 32
+// bitarna, LowPart i de nedre.
+std::uint64_t packLuid(const LUID& luid);
 void        logAdapter(const std::vector<DxgiAdapter>& kort,
                        const DXGI_ADAPTER_DESC& vald, const std::string& id);
 
@@ -216,6 +220,11 @@ private:
 // provtagen textur (`msaa`, RTV:n sitter på den) som löses upp till bildens
 // textur med `ResolveSubresource` när målet lämnas; annars sitter RTV:n på
 // bilden själv. Djupet är en D32F-textur med samma provtagning (`dsv`).
+//
+// ETT IMPORTERAT MÅL (`importRenderTarget`) har en extern textur som bild, i
+// `resolveFormat` (RGBA eller BGRA, alltid UNORM-vyn); upplösningen skrivs i
+// det formatet. Den provtagna ytan, dess RTV och djupet delas med ett annat
+// importerat mål genom att COM-referenserna kopieras.
 class D3dRenderTarget : public RenderTarget {
 public:
     D3dRenderTarget() = default;   // ogiltigt (fabrikens svar vid fel)
@@ -224,13 +233,20 @@ public:
                     ComPtr<ID3D11Texture2D> msaa,
                     ComPtr<ID3D11RenderTargetView> rtv,
                     ComPtr<ID3D11DepthStencilView> dsv, int w, int h,
-                    int samples, bool mipmapped)
+                    int samples, bool mipmapped,
+                    DXGI_FORMAT resolveFormat = DXGI_FORMAT_B8G8R8A8_UNORM)
         : image_(std::move(tex), std::move(srv), w, h, ImageFormat::Rgba8,
                  true, mipmapped),
           msaa_(std::move(msaa)), rtv_(std::move(rtv)), dsv_(std::move(dsv)),
-          samples_(samples)
+          samples_(samples), resolveFormat_(resolveFormat)
     {
     }
+
+    // Ett importerat mål är det enda en delning får hämta hjälpytorna ur.
+    void markImported() { imported_ = true; }
+    bool imported() const { return imported_; }
+    // Formatet den provtagna ytan löses upp i och bilden skrivs i.
+    DXGI_FORMAT resolveFormat() const { return resolveFormat_; }
 
     Image& image() override { return image_; }
     int    samples() const override { return image_.valid() ? samples_ : 1; }
@@ -249,7 +265,9 @@ private:
     ComPtr<ID3D11Texture2D>        msaa_;
     ComPtr<ID3D11RenderTargetView> rtv_;
     ComPtr<ID3D11DepthStencilView> dsv_;
-    int                            samples_ = 1;
+    int                            samples_       = 1;
+    DXGI_FORMAT                    resolveFormat_ = DXGI_FORMAT_B8G8R8A8_UNORM;
+    bool                           imported_      = false;
 };
 
 // gfx::Font ovanpå DirectWrite. Glyfer rasteriseras vid behov via
@@ -404,6 +422,15 @@ public:
                                  // efterföljande ritning (chrome/overlay) går
                                  // direkt i backbuffern
     void present();              // flush + Present(1, 0) — vsync
+    // Sant en gång efter en `present` som skrivbordet nekade (extern bildtakt:
+    // `DXGI_ERROR_WAS_STILL_DRAWING`) — bilden visades inte. Läsningen
+    // nollställer; fönstret begär då en ny ritning.
+    bool takePresentDenied() noexcept
+    {
+        const bool denied = presentDenied_;
+        presentDenied_    = false;
+        return denied;
+    }
 
     // Osynkad Present (SyncInterval 0) mellan WM_ENTERSIZEMOVE och
     // WM_EXITSIZEMOVE: under den modala resize-loopen hinner en vsync-
@@ -476,6 +503,16 @@ public:
     bool beginOffscreen() override;
     void endOffscreen() override;
 
+    // Integrationen med ett annat grafik-API (gfx/native.h): enheten och
+    // presentens takt (d3d11_renderer.cpp), de externa målen och markören
+    // (d3d11_target.cpp).
+    NativeDevice nativeDevice() const override;
+    std::unique_ptr<RenderTarget> importRenderTarget(
+        const ExternalTargetDesc& desc, RenderTarget* sharedAttachments,
+        std::string& error) override;
+    void setExternalFramePacing(bool on) override;
+    std::unique_ptr<GpuCompletion> insertCompletion(std::string& error) override;
+
     // Scenen (d3d11_scene.cpp): buffertarna, den
     // transienta ringen och Line-programmet — se renderer.h för kontraktet.
     std::unique_ptr<GpuBuffer> createBuffer(BufferKind kind, std::size_t bytes,
@@ -543,6 +580,8 @@ private:
     bool initGpuQueries();
     void collectGpuQueries();
     void startGpuQuery();
+    // Stänger den öppna framens (eller offscreen-blockets) fråga.
+    void endGpuQuery();
 
     // SDF-primitiven (rundade hörn, skuggor) bär sina parametrar per vertex
     // så de batchas i samma pipeline som allt annat — inga extra cbuffer-
@@ -762,7 +801,7 @@ private:
     ComPtr<ID3D11InputLayout>  glyph3Layout_;
 
     // EGNA PROGRAM (d3d11_program.cpp). GlazeFrame går i
-    // en EGEN cbuffer b3 (DYNAMIC, 240 byte: `MeshDraw::frame` med det bundna
+    // en EGEN cbuffer b3 (DYNAMIC, 256 byte: `MeshDraw::frame` med det bundna
     // målets storlek i `target`), skapad i init; GlazeUser i programmets egen
     // b4. `curProgram_` är det BUNDNA programmets löpnummer — aldrig en
     // adress, för ett rivet programs adress kan återanvändas av nästa — och
@@ -845,6 +884,13 @@ private:
     int width_  = 0;
     int height_ = 0;
     bool unsyncedPresent_ = false;   // sant under WM_ENTER/EXITSIZEMOVE
+    // `setExternalFramePacing`: osynkad present utan väntan. Egen flagga —
+    // storleksloopens `unsyncedPresent_` slås av vid loopens slut och får
+    // inte ta den här med sig.
+    bool externalPacing_ = false;
+    bool presentDenied_  = false;   // senaste `present` nekades; se `takePresentDenied`
+    // Kortets LUID i `packLuid`s form, satt i init (`nativeDevice`).
+    std::uint64_t adapterLuid_ = 0;
 
     // Transparent-vägen. dcomp-objekten hålls som
     // IUnknown (dcomp.h dras bara in i d3d11_renderer.cpp — importlibben

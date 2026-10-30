@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 
 #include <gfx/camera.h>
 #include <gfx/color.h>
@@ -11,6 +12,7 @@
 
 #include "glaze/canvas/bitmap.h"
 #include "glaze/canvas/camera.h"
+#include "glaze/canvas/external_pass.h"   // ExternalCanvasView
 #include "glaze/canvas/style3d.h"   // View
 #include "scene.h"
 
@@ -110,6 +112,12 @@ struct Target3DArgs {
     std::span<const View> views;
 };
 
+// 3D-målets argument ur ritytan — provtagningen, rutnätet ur temat och
+// stilen, appens `onPaint` och lagrens målare. Ritningen, `renderToBitmap` och
+// de externa målen delar det; kameran, stämpeln, toningen och del-vyerna sätter
+// anroparen. (Definierad i widgets/canvas.cpp, där målarna bor.)
+Target3DArgs canvasTarget3DArgs(Canvas& canvas, const Ctx& c);
+
 // Det en ritning av målen lämnar efter sig — båda ber om nästa bild (ritytan
 // invaliderar sig själv, Progress-mönstret, regel 1): etiketterna TONAR, och
 // draperingar VÄNTAR på nästa bilds budget (drape.h — innehållet släpar
@@ -178,5 +186,22 @@ std::optional<Bitmap> renderBitmap3D(const PaintContext& canvas,
                                      const std::shared_ptr<SceneData>& scene,
                                      const Target3DArgs& args, int w, int h,
                                      gfx::Color background);
+
+// ------------------------------------------------------- EXTERNA MÅL
+// `ExternalCanvasPass::render`: HUVUDVYNS lager i varje mål i `views` med
+// målets UTTRYCKLIGA vy (`view.box` = hela målet), på samma väg som skärmen
+// och bilden (`renderView`) — rutnätet, terrängen, djupet, världen,
+// etiketterna och `onPaint`/`onPaintLayer` — rensat till `background`.
+// ALLA målen i ETT `beginOffscreen`/`endOffscreen`-block, med EN
+// scenuppdatering (`rebuildDirty`) för hela anropet. Etiketterna placeras i
+// målets egen plats (`kExternalLabels − n`), draperingarna ritas KOMPLETTA
+// och ingenting läses tillbaka. `canvas` är ritytans ritläge (fönstrets Ctx:s
+// resurser, ljus och y-riktning); skrivbordets kamera, mål och cache rörs
+// inte. false + `error` inuti en frame eller när blocket inte går att öppna.
+bool renderExternal3D(const PaintContext& canvas,
+                      const std::shared_ptr<SceneData>& scene,
+                      const Target3DArgs& args,
+                      std::span<const ExternalCanvasView> views,
+                      gfx::Color background, std::string& error);
 
 } // namespace glaze::detail

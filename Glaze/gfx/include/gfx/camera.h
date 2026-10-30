@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "gfx/geometry.h"
@@ -121,6 +122,18 @@ bool anchorWorldAt(MapView& v, double wx, double wy, double px, double py);
 
 enum class Projection3D : std::uint8_t { Perspective, Orthographic };
 
+// ETT ASYMMETRISKT FRUSTUM i perspektiv, som tangenterna av vinklarna från
+// blicken till ytans fyra kanter: vänster och nedåt negativa, höger och uppåt
+// positiva för ett vanligt öga (ett VR-headsets synfält per öga). Användbart
+// när talen är ändliga, `left < right` och `down < up`; noll behöver inte
+// ligga mellan dem.
+struct FrustumTangents {
+    double left  = -1.0;
+    double right = 1.0;
+    double down  = -1.0;
+    double up    = 1.0;
+};
+
 // En vy i världen. Riktningarna behöver varken vara enhetliga eller
 // vinkelräta: blicken normeras, och upp-vektorn räknas om till den räta
 // uppåtriktningen i blickens plan (höger = blicken × upp). ANVÄNDBAR är en vy
@@ -135,6 +148,9 @@ struct View3D {
     Vec3d up{0.0, 0.0, 1.0};           // uppåt
     Projection3D projection = Projection3D::Perspective;
     double fovY            = kMapFovRad;   // VERTIKALT synfält i RADIANER
+    // Perspektiv: ett satt frustum ersätter `fovY` och ytans bildförhållande —
+    // tangenterna ÄR ytans kanter. Ortografiskt används det inte.
+    std::optional<FrustumTangents> frustum;
     double orthoHalfHeight = 1.0;          // halva höjden i världsenheter
     // Klipplanen som avstånd längs blicken från ögat. Ändliga båda: 3D:n har
     // djuptest, och D32F med standard-Z vill ha far/near ≤ 10⁴.
@@ -228,6 +244,12 @@ struct FrameUniforms {
     // (k, c, 0, 0): världsenheter per fysisk px på djupet d längs blicken är
     // k · d + c (perspektiv c = 0, ortografiskt k = 0).
     float pixelSize[4];
+    // Strålens MITT, w = 0. Perspektiv: strålen ur ögat har riktningen
+    // rayCenter + ndc.x · right + ndc.y · up — lika med forward för ett
+    // symmetriskt frustum, förskjuten för ett asymmetriskt. Ortografiskt:
+    // forward. `forward` står kvar som den optiska axeln (djupet längs
+    // blicken, `pixelSize`).
+    float rayCenter[4];
 };
 static_assert(offsetof(FrameUniforms, viewProj) == 0);
 static_assert(offsetof(FrameUniforms, invViewProj) == 64);
@@ -238,7 +260,8 @@ static_assert(offsetof(FrameUniforms, up) == 176);
 static_assert(offsetof(FrameUniforms, target) == 192);
 static_assert(offsetof(FrameUniforms, scale) == 208);
 static_assert(offsetof(FrameUniforms, pixelSize) == 224);
-static_assert(sizeof(FrameUniforms) == 240);
+static_assert(offsetof(FrameUniforms, rayCenter) == 240);
+static_assert(sizeof(FrameUniforms) == 256);
 
 // Blocket för vyn och en chunk med origot (ox, oy, oz). En oanvändbar vy
 // ger nollmatriser (ingenting ritas) — `scale` står ändå på sina förval.

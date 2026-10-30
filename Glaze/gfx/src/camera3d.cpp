@@ -81,9 +81,21 @@ bool usable(const View3D& v, Basis& b)
         !std::isfinite(v.farZ) || !(v.farZ > v.nearZ))
         return false;
     if (v.projection == Projection3D::Perspective) {
-        if (!(v.nearZ > 0.0) || !(v.fovY > 0.0) ||
-            !(v.fovY < std::numbers::pi))
+        if (!(v.nearZ > 0.0))
             return false;
+        if (v.frustum) {
+            // Ett satt frustum ersätter synfältet: tangenterna ändliga och
+            // kanterna i ordning.
+            const FrustumTangents& t = *v.frustum;
+            if (!std::isfinite(t.left) || !std::isfinite(t.right) ||
+                !std::isfinite(t.down) || !std::isfinite(t.up) ||
+                !(t.left < t.right) || !(t.down < t.up) ||
+                !std::isfinite(t.right - t.left) ||
+                !std::isfinite(t.up - t.down))
+                return false;
+        } else if (!(v.fovY > 0.0) || !(v.fovY < std::numbers::pi)) {
+            return false;
+        }
     } else if (!(v.orthoHalfHeight > 0.0) ||
                !std::isfinite(v.orthoHalfHeight)) {
         return false;
@@ -101,13 +113,51 @@ bool usable(const View3D& v, Basis& b)
     return true;
 }
 
-// Halva ytans mått: i perspektiv som tangenter (tan(fov/2) × bild-
-// förhållandet och tan(fov/2)), ortografiskt i världsenheter.
-void halfExtents(const View3D& v, double& hx, double& hy)
+// Ytans utsträckning i bildplanet: halva spannet (hx, hy) och mittens
+// förskjutning (cx, cy) från blickens axel. Perspektiv utan frustum:
+// tan(fov/2) × bildförhållandet och tan(fov/2), mitten exakt 0. Perspektiv
+// med frustum: tangenternas halva spann och mitt. Ortografiskt: halva
+// måtten i världsenheter, mitten 0 (frustum ignoreras). Ytans kanter ligger
+// på cx ± hx och cy ± hy.
+struct Extents {
+    double hx = 0.0;
+    double hy = 0.0;
+    double cx = 0.0;
+    double cy = 0.0;
+};
+
+Extents extentsOf(const View3D& v)
 {
-    hy = v.projection == Projection3D::Perspective ? std::tan(v.fovY / 2.0)
-                                                   : v.orthoHalfHeight;
-    hx = hy * (static_cast<double>(v.box.w) / v.box.h);
+    Extents e;
+    if (v.projection == Projection3D::Perspective && v.frustum) {
+        const FrustumTangents& t = *v.frustum;
+        e.hx = (t.right - t.left) / 2.0;
+        e.hy = (t.up - t.down) / 2.0;
+        e.cx = (t.right + t.left) / 2.0;
+        e.cy = (t.up + t.down) / 2.0;
+        return e;
+    }
+    e.hy = v.projection == Projection3D::Perspective ? std::tan(v.fovY / 2.0)
+                                                     : v.orthoHalfHeight;
+    e.hx = e.hy * (static_cast<double>(v.box.w) / v.box.h);
+    return e;
+}
+
+// Off-axis-perspektivet: x_ndc = (x/w − cx) / hx och y_ndc = (y/w − cy) / hy
+// med w = −z, djupet i [0, 1] med samma z- och w-rader som
+// `Mat4d::perspective`. Det symmetriska fallet går genom den funktionen, så
+// det är oförändrat bit för bit.
+Mat4d offAxisPerspective(const Extents& e, double n, double f)
+{
+    Mat4d p;
+    p.m[0]  = 1.0 / e.hx;
+    p.m[5]  = 1.0 / e.hy;
+    p.m[8]  = e.cx / e.hx;   // z-kolumnens bidrag till x: cx · z / hx
+    p.m[9]  = e.cy / e.hy;
+    p.m[11] = -1.0;
+    p.m[10] = f / (n - f);
+    p.m[14] = -(f * n) / (f - n);
+    return p;
 }
 
 // Ytans NDC → målets fysiska px (y nedåt, origo uppe till vänster) — samma
@@ -157,12 +207,13 @@ Mat4d viewProjection(const View3D& v, double ox, double oy, double oz)
         m;
 
     // 3. Projektionen, djupet i [0, 1] mellan klipplanen.
-    double hx, hy;
-    halfExtents(v, hx, hy);
-    if (v.projection == Projection3D::Perspective)
-        m = Mat4d::perspective(v.fovY, hx / hy, v.nearZ, v.farZ) * m;
+    const Extents e = extentsOf(v);
+    if (v.projection == Projection3D::Orthographic)
+        m = Mat4d::ortho(-e.hx, e.hx, -e.hy, e.hy, v.nearZ, v.farZ) * m;
+    else if (v.frustum)
+        m = offAxisPerspective(e, v.nearZ, v.farZ) * m;
     else
-        m = Mat4d::ortho(-hx, hx, -hy, hy, v.nearZ, v.farZ) * m;
+        m = Mat4d::perspective(v.fovY, e.hx / e.hy, v.nearZ, v.farZ) * m;
 
     // 4. Ytans NDC → målets fysiska px.
     return pixelMatrix(v.box) * m;
@@ -189,15 +240,15 @@ bool rayThrough(const View3D& v, double px, double py, Ray3d& out)
     Basis b;
     if (!usable(v, b) || !std::isfinite(px) || !std::isfinite(py))
         return false;
-    double hx, hy;
-    halfExtents(v, hx, hy);
-    // Pixeln som NDC över ytan, y uppåt — och dess förskjutning från mitten
+    const Extents e = extentsOf(v);
+    // Pixeln som NDC över ytan, y uppåt — och dess förskjutning från axeln
     // i bildplanet på djupet 1 (perspektiv) respektive i världen.
     const double halfW = v.box.w / 2.0;
     const double halfH = v.box.h / 2.0;
     const double nx    = (px - (static_cast<double>(v.box.x) + halfW)) / halfW;
     const double ny    = ((static_cast<double>(v.box.y) + halfH) - py) / halfH;
-    const Vec3d  side  = add(mul(b.r, nx * hx), mul(b.u, ny * hy));
+    const Vec3d  side  = add(mul(b.r, e.cx + nx * e.hx),
+                             mul(b.u, e.cy + ny * e.hy));
     if (v.projection == Projection3D::Perspective) {
         const Vec3d d = add(b.f, side);
         out.origin    = v.eye;
@@ -214,17 +265,16 @@ double pxPerUnitAt(const View3D& v, Vec3d w)
     Basis b;
     if (!usable(v, b))
         return 0.0;
-    double hx, hy;
-    halfExtents(v, hx, hy);
-    const double halfH = v.box.h / 2.0;
+    const Extents e     = extentsOf(v);
+    const double  halfH = v.box.h / 2.0;
     if (v.projection == Projection3D::Orthographic)
-        return halfH / hy;
+        return halfH / e.hy;
     // Djupet längs blicken, relativt ögat i double — en SWEREF-punkt minus
     // ett SWEREF-öga tappar inga siffror som spelar roll.
     const double d = dot(sub(w, v.eye), b.f);
     if (!(d > 0.0))
         return 0.0;
-    return halfH / (hy * d);
+    return halfH / (e.hy * d);
 }
 
 bool intersect(const Ray3d& r, const Plane3d& p, Vec3d& hit, double* t)
@@ -266,16 +316,19 @@ std::vector<Vec3d> visiblePlaneRegion(const View3D& v, const Plane3d& p,
 
     // Synpyramidens åtta hörn RELATIVT ögat (inga stora tal): närplanets
     // fyra (0–3) och det bortre planets (4–7), varvet runt i samma ordning.
-    double hx, hy;
-    halfExtents(v, hx, hy);
-    const bool persp = v.projection == Projection3D::Perspective;
-    Vec3d      c[8];
-    double     storlek = 0.0;
+    const Extents e     = extentsOf(v);
+    const bool    persp = v.projection == Projection3D::Perspective;
+    Vec3d         c[8];
+    double        storlek = 0.0;
     for (int k = 0; k < 2; ++k) {
-        const double d   = k == 0 ? v.nearZ : farD;
-        const double sx  = persp ? hx * d : hx;
-        const double sy  = persp ? hy * d : hy;
-        const Vec3d  mid = mul(b.f, d);
+        const double d = k == 0 ? v.nearZ : farD;
+        // Planets halva mått och mittens förskjutning från axeln: i
+        // perspektiv tangenterna gånger djupet, ortografiskt världsenheter.
+        const double s   = persp ? d : 1.0;
+        const double sx  = e.hx * s;
+        const double sy  = e.hy * s;
+        const Vec3d  mid = add(add(mul(b.f, d), mul(b.r, e.cx * s)),
+                               mul(b.u, e.cy * s));
         c[4 * k + 0] = sub(sub(mid, mul(b.r, sx)), mul(b.u, sy));
         c[4 * k + 1] = sub(add(mid, mul(b.r, sx)), mul(b.u, sy));
         c[4 * k + 2] = add(add(mid, mul(b.r, sx)), mul(b.u, sy));
@@ -472,9 +525,8 @@ FrameUniforms frameUniforms(const View3D& v, double ox, double oy, double oz)
     if (m.inverse(inv))
         inv.toFloat(u.invViewProj);
 
-    double hx, hy;
-    halfExtents(v, hx, hy);
-    const bool persp = v.projection == Projection3D::Perspective;
+    const Extents ext   = extentsOf(v);
+    const bool    persp = v.projection == Projection3D::Perspective;
     // Ögat relativt origot i double (RTC) — ortografiskt närplanets mitt,
     // strålarnas början.
     const Vec3d e   = persp ? v.eye : add(v.eye, mul(b.f, v.nearZ));
@@ -487,11 +539,15 @@ FrameUniforms frameUniforms(const View3D& v, double ox, double oy, double oz)
     };
     sätt(u.eye, e.x - ox, e.y - oy, e.z - oz, persp ? 1.0 : 0.0);
     sätt(u.forward, b.f.x, b.f.y, b.f.z, 0.0);
-    sätt(u.right, b.r.x * hx, b.r.y * hx, b.r.z * hx, 0.0);
-    sätt(u.up, b.u.x * hy, b.u.y * hy, b.u.z * hy, 0.0);
+    sätt(u.right, b.r.x * ext.hx, b.r.y * ext.hx, b.r.z * ext.hx, 0.0);
+    sätt(u.up, b.u.x * ext.hy, b.u.y * ext.hy, b.u.z * ext.hy, 0.0);
+    // Strålens mitt: mot ytans mittpunkt — blicken plus mittens förskjutning
+    // i höger- och uppåtriktningen (noll utan frustum och ortografiskt).
+    const Vec3d c = add(b.f, add(mul(b.r, ext.cx), mul(b.u, ext.cy)));
+    sätt(u.rayCenter, c.x, c.y, c.z, 0.0);
     // Världsenheter per fysisk px: halva höjden (på djupet 1 i perspektiv)
     // genom halva ytans höjd i px.
-    const double perPx = hy / (v.box.h / 2.0);
+    const double perPx = ext.hy / (v.box.h / 2.0);
     u.pixelSize[0]     = persp ? static_cast<float>(perPx) : 0.0f;
     u.pixelSize[1]     = persp ? 0.0f : static_cast<float>(perPx);
     return u;

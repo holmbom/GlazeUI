@@ -11,7 +11,7 @@
 // TRE KONTRAKT bor här, lika i alla tre språken:
 //
 // 1. FÖRSPELET. Backenden lägger sin egen bit FÖRE appens källa — blocket
-//    GlazeFrame (`FrameUniforms`, gfx/camera.h: std140, 240 byte) med namnet
+//    GlazeFrame (`FrameUniforms`, gfx/camera.h: std140, 256 byte) med namnet
 //    `glaze`, och `glaze_toClip(c)`, som gör kamerans PIXELKLIPP (x/w och y/w
 //    i målets fysiska px) till backendens egen klipprymd — och sist
 //    `#line 1`, så att ett fel på appens rad 7 rapporteras på rad 7. I GLSL
@@ -26,7 +26,10 @@
 //            float4 glaze_toClip(float4 c, constant GlazeFrame& glaze)
 //    Medlemmarna heter som fälten i `FrameUniforms`: glaze.viewProj,
 //    glaze.invViewProj, glaze.eye, glaze.forward, glaze.right, glaze.up,
-//    glaze.target, glaze.scale och glaze.pixelSize. Matriserna läses som
+//    glaze.target, glaze.scale, glaze.pixelSize och glaze.rayCenter (en
+//    perspektivstråle är rayCenter + ndc.x · right + ndc.y · up — rätt också
+//    för ett asymmetriskt frustum; forward är den optiska axeln, för djupet).
+//    Matriserna läses som
 //    kolumnvektorer: `mul(glaze.viewProj, v)` i HLSL, `glaze.viewProj * v` i
 //    GLSL och MSL. `target` skriver BACKENDEN (det bundna målets storlek).
 //    Förspelet bär också FÄRGJUSTERINGEN — samma funktion som

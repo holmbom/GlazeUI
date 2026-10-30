@@ -347,6 +347,12 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   bakgrund → `renderView` med
   bildens kamera och etikettplatsen `kBitmapLabels` → `endOffscreen` →
   `readTarget` → `Bitmap`; en bild som väntar på bildcachens budget loggas.
+  `canvasTarget3DArgs` (provtagning, rutnät, `onPaint`, målarna) delas av
+  skärmen, bilden och **`renderExternal3D`** (åt `ExternalCanvasPass`, i
+  `external_pass.cpp`): `renderView` per mål med en uttrycklig vy
+  (`viewContext`, kartskuggan `mapViewAtView`) i ETT offscreen-block, med EN
+  `rebuildDirty` och en förnyad resursbudget (`trim`) för alla mål, KOMPLETTA
+  draperingar och ingen återläsning; skrivbordets kamera, mål och cache orörda.
 - **`drape.h/.cpp`** (CANVAS_3D etapp 9, planens §3.2; REQ3: posten bär sin scen, budgeten är RITYTANS) — INTERN: TERRÄNGEN
   OCH DRAPERINGEN. `hasTerrain` (ett synligt, ritat Terrain-lager med en
   mesh eller yta i rymden), **`terrainHeight(scen, x, y)`** — den ENDA
@@ -524,7 +530,8 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   en del av cachens jämförelse (`sameView3D`). `LayerFrame` bor här.
   **Etapp 10:** placeringen sparas i ritningens plats
   (`PaintContext::labelSlot`): en del-vy placerar sina etiketter för sig,
-  och bilden ur renderToBitmap i sin egen plats. **CANVAS_3D etapp 9:** en
+  och bilden ur renderToBitmap i sin egen plats; ett externt mål n har plats
+  `kExternalLabels − n` (scene.h). **CANVAS_3D etapp 9:** en
   LIGGANDE etiketts låda (`groundGeometry`) är den PROJICERADE quadens
   axelparallella skärmruta — Glyph-programmets `glyphGround` räknat i double
   (baslinjen, "nedåt" vänd så att ramen aldrig speglas, em-storleken vid
@@ -625,7 +632,9 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   avstånd lägsta index; `opaqueOnly` (alfa < 255 i något hörn; utan
   färgström ogenomskinligt), `maxDistance`, den RITADE nivån och stilens
   intervall (snittade till ett triangelintervall). **`rayPlane`** genom
-  fasadens `gfx::intersect`. **RITYTANS PLOCKNING (etapp 7)** ovanpå:
+  fasadens `gfx::intersect`. `castRayInScene(scen, stråle, options, vy*, pxPerPx,
+  pxPerMm)` är `Canvas::castRay`s kärna, med vyn (fönstrets eller ett externt
+  måls) som skärmstorlek och LOD räknas mot. **RITYTANS PLOCKNING (etapp 7)** ovanpå:
   **`pickShape3D(form, PickContext, ut)`** för Mesh, Area3 (ytan och
   konturen), Instances, Points3 och Lines3 → `SceneHit` (sort, element,
   instans, punkt, normal, avstånd längs strålen, SKÄRMAVSTÅNDET och om ytan

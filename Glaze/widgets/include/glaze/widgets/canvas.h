@@ -188,6 +188,7 @@ enum class PanVertical : std::uint8_t;   // …3D-panoreringens fram/bak
 enum class MotionKind : std::uint8_t;    // …kamerans sort för bindningarna
 class  InputMap;       // src/canvas/input_map.h
 struct DragPlan;       //   …ett drags två axlar
+class  ExternalCanvasPass;   // glaze/canvas/external_pass.h
 }
 
 // Hur ett lager ritar sina former (src/canvas/scene.h har detaljerna):
@@ -1065,6 +1066,10 @@ protected:
     void languageChanged() override;
 
 private:
+    // Ritningen i ett externt mål med en uttrycklig vy (ett VR-headsets ögon)
+    // når scenen inifrån — se glaze/canvas/external_pass.h.
+    friend class detail::ExternalCanvasPass;
+
     // Scenen innanför klippet: rutnätet, lagren och målaren i världen — i
     // 2D-vägen direkt, annars genom 3D-målet (src/canvas/target3d.h).
     void drawScene(const Ctx& c);

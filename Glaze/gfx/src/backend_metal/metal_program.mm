@@ -48,6 +48,7 @@ struct GlazeFrame
     float4   target;
     float4   scale;
     float4   pixelSize;
+    float4   rayCenter;   // strålens mitt: sist i blocket
 };
 // Kamerans pixelklipp (x/w och y/w i målets px, z/w i [0, 1]) → Metals
 // klipprymd. Linjär — w går orört vidare till rasteriseringen.

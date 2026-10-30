@@ -588,6 +588,25 @@ Kontrakten står i [../../include/gfx/CLAUDE.md](../../include/gfx/CLAUDE.md)
   Sedan DOCKNING_DRAG E2 ritar fönstret ingen frame i init vid någon skala:
   storleken och platsen sätts innan renderaren finns (förr ritade WM_SIZE
   från `setSize` en frame vid skala ≠ 1, och G9 B4 tvingade skalan till 1).
+  Blocket har en egen GPU-fråga (`startGpuQuery`/`endGpuQuery`) och mäts som en
+  frame, med upplösningen av målen som lämnas inuti.
+- **EXTERNA MÅL OCH ANDRA GRAFIK-API:er** (`gfx/native.h`; grind
+  `tests/external_target_gate.cpp`): `nativeDevice` lånar ut rendererns
+  `ID3D11Device` med LUID:en (`packLuid`, `adapterLuid_` satt i init) och
+  funktionsnivån. `importRenderTarget` (`d3d11_target.cpp`) kräver SAMMA enhet
+  (`GetDevice`), mått, ett prov, RENDER_TARGET + SHADER_RESOURCE och en
+  RGBA8-/BGRA8-familj som matchar `color`; bilden skrivs genom en egen
+  UNORM-RTV/SRV (aldrig sRGB — färgerna är redan kodade), med D32F-djup och
+  vid MSAA en provtagen yta i samma UNORM-format som `ResolveSubresource` löser
+  upp i `D3dRenderTarget::resolveFormat()` när målet lämnas (`bindTarget`;
+  `readTarget` byter kanaler bara för BGRA). `sharedAttachments` kopierar den
+  provtagna ytans, dess RTV:s och djupets COM-referenser — samma mått,
+  `TargetDesc` och färgformat krävs — och `pushTarget` nollställer dem per
+  mål. Ingen rensning vid import; fel ger ett ogiltigt mål och text.
+  `insertCompletion` är en `D3D11_QUERY_EVENT` + `Flush`, pollad med
+  `DONOTFLUSH`. `setExternalFramePacing` (`externalPacing_`, skild från
+  storleksloopens `unsyncedPresent_`) presenterar med intervall 0 och
+  `DXGI_PRESENT_DO_NOT_WAIT`; en present som inte hinner hoppas över.
 - **GRAFIKKORTEN — `d3d11_gpu.cpp`** (REQ9_GRAFIKKORTET; också GPU-
   preferensen och adapterloggen, flyttade ur `d3d11_renderer.cpp`):
   `enumerateAdapters(f, probeKind)` går `EnumAdapters1` (index 0 = förvalet,
@@ -605,6 +624,7 @@ Kontrakten står i [../../include/gfx/CLAUDE.md](../../include/gfx/CLAUDE.md)
   loggat), enheten med `D3D_DRIVER_TYPE_UNKNOWN`, och reserverna HARDWARE och
   WARP som förut. `deviceName_` är den FAKTISKA adapterns `Description`,
   `adapterId_` dess LUID mot listan (också efter WARP; tomt utan träff).
+  `GpuAdapter::localAdapterId` är LUID:en packad med `packLuid`.
 - **ADAPTERLOGGEN (PRESTANDA A1, `logAdapter`):** EN gång per process listas
   varje adapter (id, namn, slaget när flaggorna känner det, VendorId, eget
   minne), och vid varje NY adapter (en annan LUID än förra enhetens) "D3D11:
@@ -635,8 +655,8 @@ Kontrakten (förspelet, platserna, blocken) står i
 grind: G9 del C.
 
 - **`createProgram`**: `programDescError`, sedan HLSL-källan (saknas den:
-  "saknar HLSL-källa (Windows)"), och källan blir FÖRSPELET (`GlazeFrameData`
-  som struct i `cbuffer GlazeFrame : register(b3)` — medlemmarna heter
+  "saknar HLSL-källa (Windows)"), och källan blir FÖRSPELET (`GlazeFrameData`,
+  256 byte med `rayCenter` sist, som struct i `cbuffer GlazeFrame : register(b3)` — medlemmarna heter
   `glaze.…` som i GLSL och MSL, packningen är densamma — och `glaze_toClip`)
   + **`kHlslAdjustSrc`** (`glaze_colorAdjust`, REQ8 3 — samma text som
   Image-programmet klistrar in; ritytans Mesh-program kör den härifrån)

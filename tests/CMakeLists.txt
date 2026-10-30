@@ -1505,15 +1505,51 @@ endif()
 
 # openxr_math_gate  OPENXR-PAKETETS KÄRNA headless: axelbytet OpenXR → Glaze,
 #                   förankringen, världslåsningen, kameravinklarna mot
-#                   Camera3D:s konvention (yaw, pitch, rollens tecken, polerna),
-#                   stora koordinater och den symmetriska projektionen mot
-#                   asymmetriska synfält — mot analytiska fall. Länkar BARA
+#                   Camera3D:s konvention (yaw, pitch, rollens tecken, polerna)
+#                   och stora koordinater — mot analytiska fall. Länkar BARA
 #                   glaze_openxr. Finns med -DGLAZE_OPENXR=ON.
+# openxr_session_gate  SESSIONENS BILDRUTOR utan headset: paketets egen
+#                   funktionstabell med mock-funktioner — wait/begin/end-
+#                   ordningen, att acquire/wait/release balanseras, timeout,
+#                   shouldRender = false, stopp mitt i, sessionsförlust och
+#                   överlämningen mellan trådarna.
 if(TARGET glaze_openxr)
     add_executable(openxr_math_gate openxr_math_gate.cpp)
     target_link_libraries(openxr_math_gate PRIVATE glaze_openxr)
     add_test(NAME openxr_math_gate COMMAND openxr_math_gate)
     set_tests_properties(openxr_math_gate PROPERTIES TIMEOUT 30)
+endif()
+if(TARGET glaze_openxr_ui)
+    add_executable(openxr_session_gate openxr_session_gate.cpp)
+    target_link_libraries(openxr_session_gate PRIVATE glaze_openxr_ui Threads::Threads)
+    target_include_directories(openxr_session_gate PRIVATE ${CMAKE_SOURCE_DIR}/OpenXR/src)
+    target_include_directories(openxr_session_gate SYSTEM PRIVATE ${GLAZE_OPENXR_INCLUDE_DIR})
+    target_compile_definitions(openxr_session_gate PRIVATE
+        XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11 XR_NO_PROTOTYPES
+        WIN32_LEAN_AND_MEAN NOMINMAX)
+    add_test(NAME openxr_session_gate COMMAND openxr_session_gate)
+    set_tests_properties(openxr_session_gate PROPERTIES TIMEOUT 60)
+endif()
+
+# external_canvas_gate  RITYTANS SCEN I ETT EXTERNT MÅL (glaze/canvas/
+#                   external_pass.h): symmetrisk vy mot renderToBitmap,
+#                   asymmetriska frustum mot en hålkamera, skrivbordets bild och
+#                   kamera orörda, castRay med uttrycklig vy och felvägarna.
+#                   77 = inget fönster.
+# external_target_gate  D3D11:S EXTERNA MÅL (gfx/native.h): import av TYPELESS/
+#                   UNORM RGBA och BGRA vid 1×/2×/4×, kanalordningen, djupet,
+#                   resolve, delade hjälpytor, felvägarna, den externa
+#                   bildtakten och GPU-markören. Pixelgrind: hoppar inte över.
+add_executable(external_canvas_gate external_canvas_gate.cpp)
+target_link_libraries(external_canvas_gate PRIVATE glaze)
+target_include_directories(external_canvas_gate PRIVATE ${CMAKE_SOURCE_DIR}/Glaze/widgets/src)
+add_test(NAME external_canvas_gate COMMAND external_canvas_gate)
+set_tests_properties(external_canvas_gate PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+if(WIN32)
+    add_executable(external_target_gate external_target_gate.cpp)
+    target_link_libraries(external_target_gate PRIVATE glaze d3d11 dxgi)
+    add_test(NAME external_target_gate COMMAND external_target_gate)
+    set_tests_properties(external_target_gate PROPERTIES TIMEOUT 120)
 endif()
 
 # ---- DELAT BIBLIOTEK — EN instans av ramverket

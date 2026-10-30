@@ -11,6 +11,7 @@
 #include "glaze/app.h"
 #include "canvas/resources.h"   // CanvasResources komplett för canvas_
 #include "drag_scroll.h"   // autoskrollens timer-id
+#include "external_frames.h"   // pacing för ett fönster som öppnas under en extern bildkälla
 #include "font_set.h"      // FontSet komplett för fontSet_
 #include "image_cache.h"
 #include "profiler_hooks.h"   // profileraren — innehållet, overlayen, skadan
@@ -826,6 +827,11 @@ void AppWindow::showOwned(AppWindow* owner)
     desc.hidden = offscreen_ || dold || skjutUpp;   // offscreen: visas aldrig
     if (!win_->init(desc))                // loggar själv vid fel
         return;
+
+    // En extern bildkälla (app.h) som redan går: ett fönster som öppnas under
+    // tiden presenterar i hennes takt, som de redan öppna.
+    if (detail::externalPacingActive())
+        win_->renderer().setExternalFramePacing(true);
 
     // Rundningen bekräftas EFTER init: `desc.transparent` är en BEGÄRAN, och
     // X11 utan ARGB-visual degraderar den till opakt (backenden loggar).

@@ -1,11 +1,12 @@
 #pragma once
 
 // Sessionens interna tillstånd, utan OpenXR- och Windows-typer: sessionens
-// livscykel som tillståndsmaskin, och det som delas mellan UI-tråden och
-// XR-tråden (uppdragen över till UI-tråden, och bilderna tillbaka).
+// livscykel som tillståndsmaskin, överlämningen av en bildruta mellan XR-
+// tråden och UI-tråden, och det som delas mellan sessionen och dess uppdrag.
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -16,6 +17,10 @@
 #include <vector>
 
 #include <glaze_openxr/session.h>
+
+namespace glaze {
+class Timer;
+}
 
 namespace glaze::openxr::detail {
 
@@ -88,6 +93,57 @@ private:
     std::string failure_;
 };
 
+// ------------------------------------------------------------- ÖVERLÄMNINGEN
+
+// Hur en bildruta som lämnats till UI-tråden slutade.
+enum class SubmitResult {
+    Done,        // bildrutan är avslutad och bilderna släppta
+    Cancelled,   // ingenting gjordes: bilderna är kvar hos anroparen
+    Failed       // ett fel; bildrutan är avslutad utan lager och bilderna släppta
+};
+
+// Ett uppdrag som XR-tråden ger UI-tråden, ett i taget: Idle → Posted (XR-
+// tråden) → Running (UI-tråden) → Done (UI-tråden) → Idle (XR-tråden tar
+// emot kvittot). XR-tråden väntar på kvittot men kan avbryta ett uppdrag som
+// UI-tråden ännu inte börjat; ett uppdrag som körs väntar den in, för det rör
+// då bildrutans objekt. UI-tråden väntar aldrig på XR-tråden.
+class JobGate {
+public:
+    enum class Await {
+        Done,        // uppdraget kördes färdigt
+        Cancelled    // stopp kom innan uppdraget började; det kommer aldrig att köras
+    };
+
+    // Begär stopp. Från vilken tråd som helst.
+    void stop();
+    bool stopped() const;
+    // Väntar högst `time`, avbruten av ett stopp.
+    void sleepFor(std::chrono::milliseconds time);
+
+    // XR-tråden: förbereder ett uppdrag. false vid stopp eller om ett annat
+    // uppdrag inte är mottaget.
+    bool arm(std::uint64_t& id);
+    // XR-tråden: uppdraget kunde inte postas och tas tillbaka.
+    void abort(std::uint64_t id);
+    // XR-tråden: väntar på kvittot.
+    Await await(std::uint64_t id);
+
+    // UI-tråden: uppdraget börjar. false när det avbrutits eller ersatts —
+    // då får det inte köra.
+    bool begin(std::uint64_t id);
+    // UI-tråden: uppdraget är färdigt.
+    void finish(std::uint64_t id);
+
+private:
+    enum class State { Idle, Posted, Running, Done };
+
+    mutable std::mutex      mutex_;
+    std::condition_variable wake_;
+    bool                    stop_ = false;
+    State                   state_ = State::Idle;
+    std::uint64_t           id_ = 0;
+};
+
 // ------------------------------------------------------------- DELAT TILLSTÅND
 
 // En spårad pose i OpenXR:s spårningsrum.
@@ -98,7 +154,7 @@ struct PoseSample {
     bool orientationTracked = false;
 };
 
-// Handkontrollens läge och reglage, så som XR-tråden läst dem.
+// Handkontrollens läge och reglage, så som de lästs.
 struct ControllerSample {
     PoseSample grip;
     PoseSample aim;
@@ -109,13 +165,14 @@ struct ControllerSample {
     bool   stickActive = false;
 };
 
-struct EyeRequest {
-    bool          valid = false;     // posen är giltig och bilden ska ritas
-    TrackingPose  pose;              // ögat i spårningsrummet
-    SymmetricView view;              // bildens mått och synfält
+// Ett ögas läge och synfält så som runtimen gav dem.
+struct EyeView {
+    bool         valid = false;   // posen och synfältet är giltiga och ögat ska ritas
+    TrackingPose pose;
+    Fov          fov;
 };
 
-// Det XR-tråden lämnar till UI-tråden för en bildruta.
+// Allt UI-tråden vet om en bildruta innan den ritas.
 struct FrameRequest {
     std::uint64_t sequence     = 0;
     double        deltaSeconds = 0.0;
@@ -123,38 +180,74 @@ struct FrameRequest {
     std::uint64_t focusEpoch   = 0;   // LifeCycle::focusEpoch vid bildrutan
     bool          headValid    = false;
     TrackingPose  head;
-    std::array<EyeRequest, 2>        eyes;
-    std::array<ControllerSample, 2>  controllers;
+    std::array<EyeView, 2>          eyes;
+    std::array<ControllerSample, 2> controllers;
+    std::array<std::uint32_t, 2>    imageIndex{};   // bilden att rita i, per öga
 };
 
-struct EyeImage {
-    int width  = 0;
-    int height = 0;
-    std::vector<std::uint8_t> pixels;   // RGBA8, rak alfa, rad 0 överst
+// Ett ögas swapchain-bilder: runtimens rekommenderade mått och bilderna som
+// opaka pekare (D3D11: `ID3D11Texture2D*`, ägda av runtimen), så som Canvas-
+// renderaren importerar dem.
+struct EyeImageSet {
+    int                width  = 0;
+    int                height = 0;
+    bool               bgra   = false;   // annars RGBA; sRGB-familjen i båda
+    std::vector<void*> images;
 };
 
-// Det UI-tråden lämnar tillbaka.
 struct FrameResult {
-    std::string error;               // icke tomt: ett fel som stoppar sessionen
-    bool        hasImages = false;   // båda ögonens bilder finns
-    std::array<EyeImage, 2> images;
+    std::string error;           // icke tomt: ett fel som stoppar sessionen
+    bool        rendered = false;   // båda ögonen är ritade
 };
 
 class CanvasBridge;
+class OpenXrContext;
+class Actions;
+
+// Hur UI-trådens avveckling slutade.
+enum class TeardownEnd {
+    Clean,       // GPU:n har bekräftat att allt arbete före markören är klart
+    DeviceLost,  // enheten förlorades: inget arbete återstår att vänta på
+    GpuTimeout   // GPU:n blev inte klar i tid: arbetet kan fortfarande läsa bilderna
+};
+
+// Att UI-tråden river sin sida (målen, passet) innan XR-tråden river
+// swapchains och session. XR-tråden väntar på `done`, utan tidsgräns: UI-
+// tråden avgör avvecklingen med en bekräftelse, ett enhetsfel eller sin
+// egen tidsgräns för GPU:n.
+struct Teardown {
+    std::mutex              mutex;
+    std::condition_variable wake;
+    bool                    done = false;               // under `mutex`
+    TeardownEnd             end = TeardownEnd::Clean;   // under `mutex`; giltig när `done`
+    std::string             failure;                    // under `mutex`; texten när `end` inte är Clean
+};
 
 // Tillståndet för EN start. UI-uppdragen och XR-tråden håller var sin
 // referens, så uppdragen kan köras (och avstå) även sedan tråden avslutat.
 struct Run {
     Options options;
     std::unique_ptr<CanvasBridge> bridge;   // bara UI-tråden rör den
+    std::uint64_t source = 0;               // bildkällan i pumpen; bara UI-tråden
+    bool          sourceUnregistered = false;   // bara UI-tråden
+    bool          teardownBegun = false;    // bara UI-tråden: markören lagd, tidsgränsen satt
+    bool          tornDown = false;         // bara UI-tråden: målen och passet släppta
+    std::chrono::steady_clock::time_point gpuDeadline{};   // bara UI-tråden: när GPU:n måste vara klar
+    std::unique_ptr<glaze::Timer> poll;     // bara UI-tråden: nästa kontroll av GPU:n
 
-    std::mutex              mutex;
-    std::condition_variable wake;
-    bool                    stopRequested = false;   // under `mutex`
-    bool                    abandoned     = false;   // under `mutex`: tråden väntar inte längre
-    std::uint64_t           jobId         = 0;       // under `mutex`: senast postade uppdraget
-    std::uint64_t           doneId        = 0;       // under `mutex`: senast färdiga uppdraget
-    FrameResult             result;                  // under `mutex`: resultatet för `doneId`
+    JobGate  gate;
+    Teardown teardown;
+
+    // XR-trådens objekt, som UI-uppdragen når medan de körs. Sätts av XR-
+    // tråden före första uppdraget och nollas efter det sista; uppdragen
+    // körs bara mellan `JobGate::begin` och `finish`, då XR-tråden väntar.
+    OpenXrContext* context = nullptr;
+    Actions*       actions = nullptr;
+
+    // Kvittot för det senaste bildrutejobbet; skrivs före `finish`, läses efter
+    // `await`.
+    SubmitResult lastResult = SubmitResult::Done;
+    std::string lastError;
 
     Run();
     ~Run();

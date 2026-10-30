@@ -1,11 +1,11 @@
 # OpenXR — SIDOPAKETET som visar en glaze::Canvas-scen i ett PC-VR-headset.
 #
-# UTANFÖR ramverket: `glaze` länkar ALDRIG det här — OpenXR, en egen
-# D3D11-enhet och en XR-tråd är inte GUI, och en app som inte behöver VR får
-# det inte med sig. Två target, Threads-formen:
+# UTANFÖR ramverket: `glaze` länkar ALDRIG det här — OpenXR och en XR-tråd
+# är inte GUI, och en app som inte behöver VR får det inte med sig. Två
+# target, Threads-formen:
 #
 #   glaze_openxr     KÄRNAN — matematiken: OpenXR:s spårningsrum → Glaze-
-#                    världen, kameravinklar och den symmetriska projektionen.
+#                    världen, förankringen och kameravinklarna.
 #                    Ren std. Bygger fristående: `cmake -S OpenXR -B b`, och
 #                    tests/openxr_math_gate länkar bara den.
 #   glaze_openxr_ui  SESSIONEN `glaze::openxr::Session` — loadern, OpenXR-
@@ -49,9 +49,8 @@ if(TARGET glaze AND WIN32)
     add_library(glaze_openxr_ui ${_glaze_lib_type}
         src/session.cpp          # Session, XR-tråden och bildloopen
         src/openxr_context.cpp   # loadern, instansen, sessionen, rummen, swapchains
-        src/d3d11_upload.cpp     # egen D3D11-enhet på runtimens LUID, uppladdningen
         src/actions.cpp          # action set, profilerna, spakarna, avtryckaren
-        src/canvas_bridge.cpp    # förankringen, plockningen och ögonens bilder
+        src/canvas_bridge.cpp    # förankringen, plockningen och ögonens ritning
     )
     if(GLAZE_SHARED)
         _glaze_shared_library(glaze_openxr_ui glaze_openxr_ui)

@@ -30,6 +30,7 @@ add_library(glaze_impl ${_glaze_lib_type}
     src/canvas/build.cpp
     src/canvas/scene.cpp
     src/canvas/target3d.cpp
+    src/canvas/external_pass.cpp   # scenen i ett externt mål med en uttrycklig vy
     src/canvas/resources.cpp
     src/canvas/camera_math.cpp
     # BINDNINGSTABELLEN — rader, specificitet, lägenas

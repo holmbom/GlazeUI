@@ -1768,7 +1768,7 @@ float fbm(float2 p)
 }
 float4 fsMain(VsOut i) : SV_Target
 {
-    float3 dir = normalize(glaze.forward.xyz + i.ndc.x * glaze.right.xyz + i.ndc.y * glaze.up.xyz);
+    float3 dir = normalize(glaze.rayCenter.xyz + i.ndc.x * glaze.right.xyz + i.ndc.y * glaze.up.xyz);
     float3 col = lerp(uHorizon.rgb, uZenith.rgb, pow(saturate(dir.z), 0.55));
     float  sun = max(dot(dir, normalize(uSun.xyz)), 0.0);
     col += float3(1.0, 0.94, 0.82) * (pow(sun, 400.0) * 0.5 + pow(sun, 12.0) * 0.1);
@@ -1815,7 +1815,7 @@ float fbm(vec2 p)
 }
 void main()
 {
-    vec3  dir = normalize(glaze.forward.xyz + vNdc.x * glaze.right.xyz + vNdc.y * glaze.up.xyz);
+    vec3  dir = normalize(glaze.rayCenter.xyz + vNdc.x * glaze.right.xyz + vNdc.y * glaze.up.xyz);
     vec3  col = mix(uHorizon.rgb, uZenith.rgb, pow(clamp(dir.z, 0.0, 1.0), 0.55));
     float sun = max(dot(dir, normalize(uSun.xyz)), 0.0);
     col += vec3(1.0, 0.94, 0.82) * (pow(sun, 400.0) * 0.5 + pow(sun, 12.0) * 0.1);
@@ -1862,7 +1862,7 @@ fragment float4 fsMain(VsOut i [[stage_in]],
                        constant GlazeFrame& glaze [[buffer(2)]],
                        constant User& user [[buffer(3)]])
 {
-    float3 dir = normalize(glaze.forward.xyz + i.ndc.x * glaze.right.xyz + i.ndc.y * glaze.up.xyz);
+    float3 dir = normalize(glaze.rayCenter.xyz + i.ndc.x * glaze.right.xyz + i.ndc.y * glaze.up.xyz);
     float3 col = mix(user.horizon.rgb, user.zenith.rgb, pow(saturate(dir.z), 0.55));
     float  sun = max(dot(dir, normalize(user.sun.xyz)), 0.0);
     col += float3(1.0, 0.94, 0.82) * (pow(sun, 400.0) * 0.5 + pow(sun, 12.0) * 0.1);

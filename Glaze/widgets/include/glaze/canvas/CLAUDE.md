@@ -299,6 +299,20 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
   fönstrets tema och fonter — och måste därför vara DETERMINISTISK.
   Innehållet är PREMULTIPLICERAT (gfx/image.h). En textur som ritar sig
   själv i sin målning får nullptr där (loggas, rekursionen bryts).
+- **`external_pass.h`** — `glaze::detail::ExternalCanvasPass`: ritytans scen i
+  ett EXTERNT mål (`gfx::Renderer::importRenderTarget`) med en uttrycklig
+  `gfx::View3D` per mål, för ett sidopaket som visar en Canvas utanför
+  fönstret. INTERN: undantaget från "allt här kommer in med `glaze.h`" — den
+  står inte i paraplyet, har ingen `.glazeui`-form, och `Canvas` ger den
+  tillträde med en `friend`. `create(canvas, error)` kräver ett ÖPPET
+  fönster; `render(views, error)` ritar HUVUDVYNS lager (rutnätet, terrängen,
+  djupet, världen, etiketterna, `onPaint`/`onPaintLayer`) i alla mål i ETT
+  offscreen-block utan att röra skrivbordets kamera, mål eller cache, och
+  utan återläsning; `castRay(ray, options, view)` är `Canvas::castRay` med
+  en uttrycklig vy för skärmstorlekar, LOD och toleranser; `renderer()` är
+  fönstrets renderare, som skapar målen. UI-trådens, och släpps före ritytan.
+  Del-vyerna, kanten och fokusringen ingår inte. Implementationen:
+  [../../../src/canvas/CLAUDE.md](../../../src/canvas/CLAUDE.md).
 - **`mesh.h`** (CANVAS_3D etapp 4, 6 och 7) — 3D-INNEHÅLL UR DATA, koddata
   som `Bitmap`: ingen `.glazeui`-form utom literalerna `Mesh::triangles`/
   `Mesh::indexed` (regel 8, §2.4). **`Mesh`** — ett HANDTAG (kopior delar

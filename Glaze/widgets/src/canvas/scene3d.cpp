@@ -441,8 +441,9 @@ void drawSegments(const Pass& p, const ObjectResidency::GpuMesh& g,
 
 // GlazeFrame för ett EGET program på en mesh (scene3d.h): placeringens
 // vridning och skala (`model`, utan förflyttning — anropets origo bär den)
-// invikta i matriserna, och ögat och strålbasen i meshens lokala ram. En
-// singulär modell (en skala 0) får nollmatriser och ritar ingenting.
+// invikta i matriserna, och ögat, strålbasen och strålens mitt i meshens
+// lokala ram. En singulär modell (en skala 0) får nollmatriser och ritar
+// ingenting.
 gfx::FrameUniforms customFrame(const Pass& p, const Point3& origin,
                                const Affine3& model)
 {
@@ -457,9 +458,9 @@ gfx::FrameUniforms customFrame(const Pass& p, const Point3& origin,
     gfx::Mat4d vpInv;
     if (vp.inverse(vpInv))
         (toMat4(inv) * vpInv).toFloat(fr.invViewProj);
-    // Ögat och strålbasen genom inversen — utan förflyttning, så ett läge och
-    // en riktning tar samma väg.
-    for (float* v : {fr.eye, fr.forward, fr.right, fr.up}) {
+    // Ögat, strålbasen och strålens mitt genom inversen — utan förflyttning,
+    // så ett läge och en riktning tar samma väg.
+    for (float* v : {fr.eye, fr.forward, fr.right, fr.up, fr.rayCenter}) {
         const Vec3 l = inv.applyDir(Vec3{v[0], v[1], v[2]});
         v[0]         = static_cast<float>(l.x);
         v[1]         = static_cast<float>(l.y);

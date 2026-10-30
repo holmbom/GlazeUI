@@ -10,6 +10,7 @@
 #include "gfx/color.h"
 #include "gfx/geometry.h"
 #include "gfx/image.h"
+#include "gfx/native.h"
 #include "gfx/scene.h"
 #include "gfx/text.h"
 
@@ -360,6 +361,34 @@ public:
     virtual bool beginOffscreen() = 0;
     virtual void endOffscreen()   = 0;
 
+    // INTEGRATION MED ETT ANNAT GRAFIK-API (gfx/native.h). Alla i UI-tråden.
+    // En renderare utan stöd svarar `api == None`, ett ogiltigt mål med
+    // feltext, no-op respektive nullptr med feltext.
+    //
+    // Den inbyggda enheten — lånad, se `NativeDevice`.
+    virtual NativeDevice nativeDevice() const = 0;
+    // Ett mål runt en EXTERN bild (`ExternalTargetDesc`), bundet med
+    // `pushTarget`/`popTarget` som ett vanligt mål. Bilden skrivs inte vid
+    // importen; `pushTarget` rensar den som vanligt. Fel enhet, fel mått, fel
+    // formatfamilj eller en provtagning som inte stöds ger ett ogiltigt mål
+    // (`image().valid()` false) och skälet i `error`. `sharedAttachments` är
+    // null eller ett tidigare importerat mål med samma mått och `target`:
+    // det nya målet delar då dess provtagna färgyta och djup i stället för
+    // att skapa egna — en swapchain med flera bilder per öga kostar EN
+    // uppsättning hjälpytor.
+    virtual std::unique_ptr<RenderTarget> importRenderTarget(
+        const ExternalTargetDesc& desc, RenderTarget* sharedAttachments,
+        std::string& error) = 0;
+    // EXTERN BILDTAKT: på, presenterar fönstret osynkat och utan att vänta
+    // (en present som inte hinner hoppas över) — en annan klocka styr då
+    // takten, och fönstrets vsync får inte blockera UI-tråden. Oberoende av
+    // storleksloopens osynkade present.
+    virtual void setExternalFramePacing(bool on) = 0;
+    // En markör efter allt som skickats hittills; se `GpuCompletion`. Skickar
+    // det köade arbetet till GPU:n. nullptr + `error` utan stöd.
+    virtual std::unique_ptr<GpuCompletion> insertCompletion(
+        std::string& error) = 0;
+
     // GPU:N renderaren ritar med — DXGI-adapterns beskrivning (D3D11),
     // `GL_RENDERER` (Linux) eller `MTLDevice.name` (Metal); tom i en renderare
     // utan GPU. Hur den valdes står vid `gfx::setGpuPreference`
@@ -386,8 +415,9 @@ public:
     // Svaret kommer i efterhand, 2–3 frames senare: `takeGpuTimes` LÄGGER
     // TILL det som kommit sedan förra hämtningen i `out` och tömmer
     // brevlådan, som håller de `kMaxGpuTimes` senaste. En frame som GPU:n
-    // inte kunde mäta (D3D11:s disjoint) får inget svar, och ett block
-    // utanför en frame mäts aldrig. `gpuTimingSupported` säger om backenden
+    // inte kunde mäta (D3D11:s disjoint) får inget svar. Ett block utanför en
+    // frame (`beginOffscreen`) mäts på D3D11 under sitt eget `frameSerial`;
+    // Metal och GL mäter bara frames. `gpuTimingSupported` säger om backenden
     // kan mäta alls — falskt i en renderare utan GPU (NullRenderer). Ingen av
     // dem är virtuell: backenden läser flaggan och lämnar svaren.
     static constexpr std::size_t kMaxGpuTimes = 64;
