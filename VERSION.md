@@ -18,6 +18,8 @@ versionen sätts.
 
 ## Nästa
 
+- **New** — sidopaketet `OpenXR` (`glaze_openxr`, `glaze_openxr_ui`, `-DGLAZE_OPENXR=ON`, bara Windows): `glaze::openxr::Session` visar en `Canvas`-scen i ett PC-VR-headset genom den aktiva OpenXR-runtimen — huvudspårning i stereo, handkontroller, spakförflyttning och en stråle som plockar med `castRay`.
+
 ## 0.2.0 — 2026-10-21
 
 - **Testad** — Windows 2026-10-21 (Windows 11, MinGW UCRT64, Intel UHD + RTX 4070): statisk och delad svit (79 + 79 grindar) och röktest — rättelserna nedan inräknade; raderna i doc/os/windows som kräver en människa står kvar. macOS 2026-10-21 (se 0.1.10). **Linux: ej testad** — 0.2.0 går ut med macOS och Windows på Eriks ord.

@@ -35,8 +35,9 @@ any other source file.
   state, and our own menus.
 - **Side packages** (optional, outside the framework): `Threads` (a worker
   pool with results posted back to the UI thread), `Networking` (TCP, UDP,
-  DNS, ping and HTTP(S) through the OS's own stack) and `Terminal` (a
-  terminal widget on the OS's pseudoterminal).
+  DNS, ping and HTTP(S) through the OS's own stack), `Terminal` (a
+  terminal widget on the OS's pseudoterminal) and `OpenXR` (a canvas scene
+  in a PC VR headset; Windows, opt-in).
 - **Event-driven rendering:** the app sleeps at ~0 % CPU until something
   changes, and only the changed area is redrawn.
 

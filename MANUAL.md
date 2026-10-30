@@ -48,7 +48,7 @@ Id:n ändras inte när filen växer — radnumren gör det. Grep:a id:t (`grep -
 - **Menyer och dialoger:** `menus` · `app-icon` · `tray-icon` · `message-box` · `file-dialog` · `color-dialog` · `input-box` · `tooltip` · `drag-drop`
 - **Ritytan (2D och 3D):** `canvas` · `canvas-shapes` · `canvas-layers` · `canvas-camera` · `canvas-units` · `canvas-painter` · `canvas-hit-test` · `canvas-images` · `canvas-3d` · `canvas-meshes` · `canvas-terrain` · `canvas-programs` · `canvas-shaders` · `canvas-views` · `canvas-first-person`
 - **Utseende, egna widgets, språk och resurser:** `appearance` · `custom-widget` · `language` · `assets`
-- **Sidopaketen:** `threads` · `networking` · `networking-http` · `networking-tcp` · `networking-udp` · `networking-dns-ping` · `terminal`
+- **Sidopaketen:** `threads` · `networking` · `networking-http` · `networking-tcp` · `networking-udp` · `networking-dns-ping` · `terminal` · `openxr`
 - **Fasaden, plattformarna och verktygen:** `gfx` · `platforms` · `profiler` · `testing` · `glaze-render` · `glazebuilder` · `version`
 
 <!-- BEGIN:start | start quickstart snabbstart hello-world minimal-app main run bygga build köra cmake ninja smoke-test röktest timeout first-app kom-igång getting-started -->
@@ -6400,6 +6400,85 @@ Previewn (glaze-render, GlazeBuilder) visar en TOM terminal i rätt färger och 
 - `onExit` kommer först när programmet avslutats OCH dess sista utdata är levererad. Lever ett bakgrundsjobb kvar med terminalen öppen (POSIX) kommer händelsen när också det släppt den.
 
 <!-- END:terminal -->
+
+<!-- BEGIN:openxr | openxr vr xr headset virtual-reality pc-vr stereo huvudspårning head-tracking handkontroller controllers stråle ray castray förflyttning locomotion glaze_openxr glaze_openxr_ui session -->
+## OpenXR — en Canvas-scen i ett PC-VR-headset (`openxr`)
+
+**Alias:** openxr, vr, xr, headset, virtual-reality, pc-vr, stereo, huvudspårning, head-tracking, handkontroller, controllers, stråle, ray, castray, förflyttning, locomotion, glaze_openxr, glaze_openxr_ui, session
+**Include:** `#include <glaze_openxr/session.h>` · **CMake:** `glaze_openxr_ui` (med `-DGLAZE_OPENXR=ON`) · **Källa:** [session.h](OpenXR/include/glaze_openxr/session.h), [math.h](OpenXR/include/glaze_openxr/math.h), [CLAUDE.md](OpenXR/CLAUDE.md)
+
+`glaze::openxr::Session` visar en befintlig `glaze::Canvas`-scen med `Camera3D` i ett PC-VR-headset genom OpenXR — den runtime som är aktiv på datorn, oftast registrerad av headsetets PC-programvara. Huvudet spåras i stereo och världen står still, vänster spak går och sidstegar, höger spak vrider, och avtryckaren skjuter en stråle genom `Canvas::castRay` till appens `onPick`. Varje öga ritas av Canvas själv (`renderToBitmap`) — paketet har ingen egen 3D-motor, och OpenXR sköts i en egen tråd. Sidopaketet `OpenXR/` — `glaze` länkar det aldrig, och det finns bara på Windows.
+
+### API
+- `Session(glaze::Canvas& canvas, Callbacks callbacks)` · `~Session()` (stoppar och väntar in sin tråd) — ej kopierbar eller flyttbar.
+- `void start(const Options& options = {})` — asynkront; förankringen tas ur canvasens kamera (huvudet i `eye()`, blicken mot `azimuth`) · `void requestStop()` — blockerar inte · `State state() const` — `Stopped`, `Starting`, `Waiting`, `Running`, `Stopping`, `Failed`.
+- `Options` i fältordning: `resolutionScale` (0,5 × runtimens rekommenderade mått), `moveMetresPerSecond` (1), `turnDegreesPerSecond` (60), `stickDeadzone` (0,2), `rayLengthMetres` (20), `nearMetres` (0,05), `farMetres` (1000).
+- `Callbacks`: `onStatus(const Status&)` (`state` + `message` — felen som text) · `onFrame(const FrameInfo&)` (före ritningen: `controllers[0]` vänster, `[1]` höger, med `grip`/`aim` som `WorldPose` i världen, spak och avtryckare) · `onPick(const PickEvent&)` (en gång per nytt avtryck: `hand`, `ray`, `hits` närmast först). Alla i UI-tråden.
+- Kärnan (`glaze_openxr`, `<glaze_openxr/math.h>`) är ren std: `makeAnchor`, `toWorldPose`, `cameraAngles`, `makeSymmetricView`.
+
+### Exempel
+```cpp
+#include <glaze/glaze.h>
+#include <glaze_openxr/session.h>   // UTANFÖR GlazeBuilder-regionen
+
+class Vr : public glaze::AppWindow {
+public:
+    Vr() : glaze::AppWindow("VR", 1000, 640)
+    {
+        vrKnapp.name = "vrKnapp";
+        vrKnapp.setText("Starta VR");
+        vrKnapp.onClick = [this] {
+            if (session_->state() == glaze::openxr::State::Stopped ||
+                session_->state() == glaze::openxr::State::Failed)
+                session_->start();
+            else
+                session_->requestStop();
+        };
+        verktyg.adopt(vrKnapp);
+
+        scen.name = "scen";
+        scen.dock = glaze::Dock::Fill;
+        scen.setCamera(glaze::Camera3D::lookFrom({0, -6, 1.7}, 0, -5));   // meter, z upp
+        scen.addShape(glaze::Shape::box({{-0.5, -0.5, 0}, {0.5, 0.5, 1}}));
+
+        glaze::openxr::Callbacks cb;
+        cb.onStatus = [this](const glaze::openxr::Status& s) { setTitle("VR — " + s.message); };
+        cb.onPick   = [this](const glaze::openxr::PickEvent& p) {
+            if (!p.hits.empty()) setTitle("Träff i lager " + std::to_string(p.hits.front().layer));
+        };
+        session_ = std::make_unique<glaze::openxr::Session>(scen, std::move(cb));
+
+        root().adopt(verktyg);
+        root().adopt(scen);
+    }
+
+private:
+    glaze::ToolBar    verktyg;
+    glaze::ToolButton vrKnapp;
+    glaze::Canvas     scen;                               // FÖRE sessionen
+    std::unique_ptr<glaze::openxr::Session> session_;    // förstörs först
+};
+```
+```cmake
+set(GLAZE_OPENXR ON CACHE BOOL "" FORCE)   # före FetchContent_MakeAvailable(GlazeUI)
+target_link_libraries(vr PRIVATE glaze glaze_openxr_ui)
+glaze_openxr_runtime(vr)                   # openxr_loader.dll bredvid programmet
+```
+
+### .glazeui
+Ingen — sessionen är varken widget eller komponent och skapas i användarkoden (som `glaze::Worker`). Canvas och dess scen har sina vanliga former (`canvas-3d`).
+
+### Fallgropar
+- Canvas ska ha en `Camera3D` med `UpAxis::Z` och en världsenhet per METER — annars `Failed` med skälet.
+- Deklarera Canvas FÖRE sessionen: medlemmarna förstörs baklänges, och sessionen ska dö först.
+- Stäng inte fönstret medan VR går: veta `onClose` (`e.cancel = true`), anropa `requestStop()` och stäng när `onStatus` säger `Stopped` eller `Failed`.
+- `GLAZE_OPENXR` är AV som förval och hämtar OpenXR-loadern med FetchContent; på annat OS än Windows stoppar den konfigureringen.
+- Runtimen är den som är registrerad som aktiv i Windows (`HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime`) — paketet väljer ingen själv. Khronos `openxr_runtime_list.exe` och `hello_xr.exe -g D3D11` (i loader-zipen, `_deps/openxrloader-src/x64/bin/`) visar vilken runtime som är aktiv och om headsetet svarar, innan appens kod är inblandad.
+- Bildtakten är låg: två `renderToBitmap` med synkron readback per bildruta. `resolutionScale` byter skärpa mot fart.
+- `renderToBitmap` kör appens `onPaint`/`onPaintLayer` en gång per öga — de får inte ändra tillstånd per anrop. `castRay` träffar ytor, inte linjer eller etiketter, så strålar och markeringar i egna linjelager blir aldrig träffar.
+- Efter en fokusförlust (en meny i headsetet) ger avtryckaren ett val först efter ett släpp.
+
+<!-- END:openxr -->
 
 <!-- BEGIN:gfx | gfx fasad facade color färg key tangent keyboard kmodctrl modifierare event log openurl gfx-openfile standardprogram knownplaces displaymetrics setgpupreference gpuadapters setgpuadapter grafikkort decodeimage encodepng urklipp clipboard keydown-text tangentens-text devicename gpu adapter renderstats gputime -->
 ## `gfx::` — det en app rör i fasaden (`gfx`)

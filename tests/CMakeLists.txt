@@ -1503,6 +1503,19 @@ if(TARGET glaze_terminal_ui)
     set_tests_properties(terminal_ui_gate PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 endif()
 
+# openxr_math_gate  OPENXR-PAKETETS KÄRNA headless: axelbytet OpenXR → Glaze,
+#                   förankringen, världslåsningen, kameravinklarna mot
+#                   Camera3D:s konvention (yaw, pitch, rollens tecken, polerna),
+#                   stora koordinater och den symmetriska projektionen mot
+#                   asymmetriska synfält — mot analytiska fall. Länkar BARA
+#                   glaze_openxr. Finns med -DGLAZE_OPENXR=ON.
+if(TARGET glaze_openxr)
+    add_executable(openxr_math_gate openxr_math_gate.cpp)
+    target_link_libraries(openxr_math_gate PRIVATE glaze_openxr)
+    add_test(NAME openxr_math_gate COMMAND openxr_math_gate)
+    set_tests_properties(openxr_math_gate PROPERTIES TIMEOUT 30)
+endif()
+
 # ---- DELAT BIBLIOTEK — EN instans av ramverket
 #      per process. Hela sviten ovan byggs också mot de delade biblioteken
 #      (-DGLAZE_SHARED=ON): auto-exporten gör de interna symbolerna nåbara, och

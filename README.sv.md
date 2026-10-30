@@ -35,8 +35,9 @@ vilken källfil som helst.
   fönstrets plats och läge, och egna menyer.
 - **Sidopaket** (valfria, utanför ramverket): `Threads` (en trådpool vars
   svar postas tillbaka till UI-tråden), `Networking` (TCP, UDP, DNS, ping
-  och HTTP(S) genom OS:ets egen stack) och `Terminal` (en terminal-widget i
-  OS:ets pseudoterminal).
+  och HTTP(S) genom OS:ets egen stack), `Terminal` (en terminal-widget i
+  OS:ets pseudoterminal) och `OpenXR` (en rityta i ett PC-VR-headset; Windows,
+  slås på vid behov).
 - **Händelsestyrd rendering:** appen sover på ~0 % CPU tills något ändras,
   och bara den ändrade ytan ritas om.
 

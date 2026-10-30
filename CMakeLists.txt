@@ -125,6 +125,17 @@ option(GLAZE_TERMINAL "Bygg sidopaketet Terminal (glaze_terminal)" ON)
 if(GLAZE_TERMINAL)
     add_subdirectory(Terminal)
 endif()
+# OpenXR — glaze_openxr (matematiken) och glaze_openxr_ui (sessionen som visar
+# en Canvas i ett PC-VR-headset). AV som förval: paketet hämtar OpenXR-
+# loadern med FetchContent, och GlazeUI:s vanliga bygge är beroendefritt.
+# Bara Windows (OpenXR:s D3D11-väg).
+option(GLAZE_OPENXR "Bygg sidopaketet OpenXR (glaze_openxr) — hämtar OpenXR-loadern" OFF)
+if(GLAZE_OPENXR)
+    if(NOT WIN32)
+        message(FATAL_ERROR "GLAZE_OPENXR: sidopaketet OpenXR finns bara för Windows (D3D11).")
+    endif()
+    add_subdirectory(OpenXR)
+endif()
 
 # VERKTYGEN SOM BEROENDE: glaze-render och
 # GlazeBuilder slår upp widgetarna i REGISTRET, så ett verktygsbygge som länkar
