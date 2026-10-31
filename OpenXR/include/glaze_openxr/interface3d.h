@@ -36,6 +36,8 @@
 
 namespace glaze::openxr {
 
+class FlatPanel;   // glaze_openxr/flat_panel.h
+
 // ---------------------------------------------------------------- PLACERING
 enum class Attach : std::uint8_t {
     World,           // `Mount::pose` i världen
@@ -149,6 +151,37 @@ struct Layout {
     double     width = 0.0, height = 0.0;   // meter, när `autoSize` är false
 };
 
+// ------------------------------------------------------------ PLATTA PANELER
+// En platt panel visar ett riktigt Glaze-widgetträd (`FlatPanel`) eller en
+// stillbild på en yta i scenen — som en tavla med tjocklek och ram, och
+// valfritt på en stolpe ned till marken (en skylt). Pekaren är musen:
+// hover, tryck med avtryckaren eller fingrets tryckdjup, drag och rullning
+// med spaken.
+struct Stand {                              // stolpen från tavlans underkant rakt ned
+    bool       on = false;
+    double     radius = 0.03;               // meter
+    gfx::Color color{90, 94, 100};
+    // Var stolpen slutar: tomt = första scenytan rakt under tavlan (utan
+    // gränssnittets lager), annars den här höjden (världsenheter).
+    std::optional<double> groundZ;
+};
+struct FlatStyle {
+    double     thickness = 0.03;            // tavlans tjocklek (meter); 0 = bara ytan
+    gfx::Color body{60, 66, 78};            // kanter, ram och baksida
+    double     border = 0.01;               // ram runt ytan (meter)
+    Stand      stand;
+};
+struct FlatContent {
+    // Ett levande widgetträd (lånat, lever längre än panelen) som pekaren
+    // styr — ELLER `image`, en stillbild (t.ex. `FlatPanel::snapshot()`). Varje
+    // levande FlatPanel är ett eget offscreen-fönster; många skyltar visar
+    // därför stillbilder och appen kopplar ett levande träd till den skylt
+    // användaren arbetar vid.
+    FlatPanel*    live = nullptr;
+    glaze::Bitmap image;
+    FlatStyle     style;
+};
+
 struct Panel {
     std::string          id;
     Mount                mount;
@@ -158,6 +191,9 @@ struct Panel {
     bool                 visible     = true;
     Visibility           showWhen;              // blick och den andra handen; förval: alltid
     bool                 grabbable   = false;   // panelen kan greppas i plattan och flyttas
+    // En platt panel: med den är `elements` tom och `layout.width/height`
+    // ytans mått i meter (utan ram).
+    std::optional<FlatContent> flat;
 };
 
 // ------------------------------------------------------------ PEKAREN
@@ -194,11 +230,12 @@ struct Pointers {
 
 // Pekarens mål den här bildrutan: närmast av gränssnittets element, en
 // grepbar platta och scenen (gränssnittets eget lager räknas aldrig som scen).
-enum class PointerTarget : std::uint8_t { None, Element, Plate, Scene };
+enum class PointerTarget : std::uint8_t { None, Element, Plate, Flat, Scene };
 struct PointerHit {
     PointerTarget                   kind = PointerTarget::None;
     std::string                     panel, element;   // Element/Plate
     std::optional<glaze::HitResult> scene;            // Scene: träffen (lager, form, punkt, normal)
+    gfx::Pointf                     flatPx{};         // Flat: träffen i panelens fönster (fysiska px)
     Vec3   point;                                     // träffen i världen
     Vec3   normal{0.0, 0.0, 1.0};
     double distance = 0.0;                            // från pekarens början, världsenheter
@@ -213,6 +250,7 @@ struct PointerState {
     Vec3        tip;                             // stavens spets, eller strålens slut (träffen eller full längd)
     PointerHit  hit;
     bool        consumed = false;                // gränssnittet tar handens tryck den här bildrutan
+    bool        pressing = false;                // handen håller ett tryck i gränssnittet (avtryckare, stav eller finger)
 };
 
 enum class ElementEventKind : std::uint8_t {

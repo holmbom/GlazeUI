@@ -1377,3 +1377,27 @@ laddas upp med `sizeof f`. Aldrig kompilerat eller kört på Linux.
   X11. *Rätt utfall:* GLSL:en länkar utan fel (blocket matchar `FrameUniforms`), G1 grönt (färgen i
   varje provad pixel = hålkamerans riktning ±3, `forward` = (128, 255, 128), raden uppåt rätt väg i
   målet); 0 varningar.
+
+## Offscreen-fönstrets bild och ägda fönster — gemensam kod, BLINT, Wayland OCH X11 (OpenXR platta paneler)
+
+`AppWindow::updateOffscreen` läser ett offscreen-fönsters bild med `captureFrame` bara när pumpen
+ritat en ny bild; `acceptsOwnedWindow` låter ett fönster spärra popuper och dialoger. Aldrig kört
+på Linux.
+
+- [ ] **Bilden följer ändringarna**: ett `setOffscreen(true)`-fönster med en knapp, `show()`, pumpa;
+  `updateOffscreen` två gånger utan ändring, ändra knappens text, pumpa, igen. *Rätt utfall:*
+  `Updated`, `Unchanged`, sedan `Updated` med den nya texten i pixlarna, under Wayland och X11;
+  0 varningar.
+- [ ] **Spärrade popuper**: en subklass som svarar false i `acceptsOwnedWindow` och en Dropdown i
+  den; öppna listan. *Rätt utfall:* ingen popup (inget `xdg_popup`, ingen grab kvar), en loggrad.
+
+## `Renderer::pushTargetPreserved` — gemensam kod, BLINT, Wayland OCH X11 (OpenXR komfort)
+
+Binder ett enprovs-mål utan djup UTAN att rensa (ett överlägg på en färdig bild). Aldrig kört på
+Linux.
+
+- [ ] **Bilden bevaras**: ett enprovs-mål utan djup, `pushTarget(t, röd)`, `popTarget`, sedan
+  `pushTargetPreserved(t)`, en halvgenomskinlig svart rektangel över halva målet, `popTarget`, läs
+  tillbaka. *Rätt utfall:* den orörda halvan röd, den andra mörkare röd; klippet efter `popTarget`
+  som före; ett MSAA-mål eller ett med djup avvisas (false, en loggrad, stacken orörd), under
+  Wayland och X11; 0 varningar.

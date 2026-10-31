@@ -287,6 +287,11 @@ Pose elementFrame(const ElementPlace& place, const Element& element)
     return compose(cell, element.pose);
 }
 
+double plateThicknessOf(const Panel& panel)
+{
+    return panel.flat ? std::max(0.0, panel.flat->style.thickness) : panel.style.thickness;
+}
+
 // ----------------------------------------------------------- PLACERING
 Pose mirrorForLeftHand(const Pose& offset)
 {

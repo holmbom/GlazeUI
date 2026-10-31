@@ -346,13 +346,17 @@ public:
         PoseSample head;
         FrameRequest request;
         if (!api.locateViews(ticket.predictedDisplayTime, views, error) ||
-            !api.locateHead(ticket.predictedDisplayTime, head, error) ||
-            !run_.actions->sync(ticket.predictedDisplayTime, ticket.focused, ticket.focusEpoch,
-                                request.controllers, request.events, error)) {
+            !api.locateHead(ticket.predictedDisplayTime, head, error)) {
             return FillResult::Failed;
         }
+        // Lederna före knapparna: källvalet och det härledda siktet ser händerna.
         if (run_.context->extensions().handTracking) {
             run_.context->locateHands(ticket.predictedDisplayTime, request.hands);
+        }
+        if (!run_.actions->sync(ticket.predictedDisplayTime, ticket.deltaSeconds, ticket.focused,
+                                ticket.focusEpoch, head, request.hands, request.controllers,
+                                request.events, error)) {
+            return FillResult::Failed;
         }
         // Uppdateringsfrekvensen appen begärt i `Options`, när sessionen kör.
         if (!run_.refreshRateRequested) {
@@ -735,6 +739,14 @@ void Session::setLocomotion(const Locomotion& locomotion) {
 
 void Session::claimHand(Hand hand) {
     if (detail::Run* run = impl_->shared->run.get(); run && run->bridge) run->bridge->claimHand(hand);
+}
+
+void Session::setComfort(const Comfort& comfort) {
+    if (detail::Run* run = impl_->shared->run.get(); run && run->bridge) run->bridge->setComfort(comfort);
+}
+
+void Session::claimStick(Hand hand) {
+    if (detail::Run* run = impl_->shared->run.get(); run && run->bridge) run->bridge->claimStick(hand);
 }
 
 bool Session::vibrate(Hand hand, double amplitude, double seconds, double frequencyHz) {

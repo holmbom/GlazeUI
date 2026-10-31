@@ -9,8 +9,6 @@ namespace glaze::openxr::detail {
 
 namespace {
 
-constexpr double kRad = kPi / 180.0;
-
 // Teleporteringen: spaken framåt över `kTeleportStart` visar bågen, under
 // `kTeleportRelease` släpps den. En yta tar emot en landning när dess normal
 // pekar minst så här mycket uppåt. Bågen provas segment för segment.
@@ -25,14 +23,6 @@ constexpr double kStraightMetres     = 20.0;   // den raka strålens längd när
 // först sedan den gått under `kSnapReset`.
 constexpr double kSnapStart = 0.7;
 constexpr double kSnapReset = 0.3;
-
-double wrapDegrees(double d) {
-    d = std::fmod(d, 360.0);
-    if (d > 180.0) d -= 360.0;
-    if (d <= -180.0) d += 360.0;
-    return d;
-}
-
 
 // Vektorn vriden `yawDegrees` medurs sett uppifrån (som förankringens yaw).
 Vec3 rotateYaw(double yawDegrees, const Vec3& v) {
@@ -165,20 +155,35 @@ void Mover::reset() noexcept {
     snapArmed_ = true;
     teleporting_ = false;
     landing_.reset();
+    request_.reset();
     arc_.clear();
     arcHit_.reset();
 }
 
-void Mover::cancel() noexcept {
-    grab_.mode = GrabMode::None;
+void Mover::cancelTeleport() noexcept {
     teleporting_ = false;
     landing_.reset();
+    request_.reset();
+}
+
+void Mover::cancel() noexcept {
+    grab_.mode = GrabMode::None;
+    cancelTeleport();
+}
+
+std::optional<Landing> Mover::takeLanding() noexcept {
+    std::optional<Landing> taken = request_;
+    request_.reset();
+    return taken;
 }
 
 void Mover::update(const LocomotionInput& input, const Locomotion& settings, Anchor& anchor,
                    const SegmentCast& cast) {
     arc_.clear();
     arcHit_.reset();
+    request_.reset();
+    landed_  = false;
+    snapped_ = false;
     if (!input.focused || !input.headValid) {
         reset();
         return;
@@ -281,6 +286,7 @@ void Mover::updateTurn(const LocomotionInput& input, const Locomotion& settings,
         if (!snapArmed_ || std::fabs(x) < kSnapStart) return;
         snapArmed_ = false;
         yaw = wrapDegrees(yaw + (x > 0.0 ? settings.snapDegrees : -settings.snapDegrees));
+        snapped_ = true;
     }
     const auto head = toWorldPose(anchor, input.head);
     if (!head) return;
@@ -323,10 +329,22 @@ void Mover::updateTeleport(const LocomotionInput& input, const Locomotion& setti
         landing_.reset();
     }
 
-    if (hand.stickY < kTeleportRelease || !hand.aimValid) {
-        // Släppt: flytta rummet så att fötterna hamnar där vägen landade.
+    if (!hand.aimValid) {
+        // Siktet tappades: avbrutet, ingen landning.
         teleporting_ = false;
-        if (landing_) placeFeet(anchor, input.head, input.floorHeight, *landing_, std::nullopt);
+        landing_.reset();
+        return;
+    }
+    if (hand.stickY < kTeleportRelease) {
+        // Släppt: fötterna ska hamna där vägen landade — direkt, eller som en
+        // begäran när landningen går genom komforten.
+        teleporting_ = false;
+        if (landing_) {
+            if (input.deferLanding)
+                request_ = Landing{*landing_, std::nullopt};
+            else
+                landed_ = placeFeet(anchor, input.head, input.floorHeight, *landing_, std::nullopt);
+        }
         landing_.reset();
         return;
     }

@@ -29,6 +29,7 @@
 namespace glaze {
 
 class App;
+class Bitmap;          // ett offscreen-fönsters bild (`updateOffscreen`)
 class Button;          // standard- och avbrytknappen
 class ToolTipWindow;   // tooltipens popup — intern, src/tooltip.h
 class TrayHostWindow;  // systemfältsmenyns värd — intern, src/tray_icon.cpp
@@ -943,6 +944,25 @@ protected:
     // virtuell: en app som vill SE eller ÄTA ett event har `event()` ovan,
     // som körs först härinne.
     void handleEvent(const gfx::Event& e);
+
+    // ETT OFFSCREEN-FÖNSTERS BILD (`setOffscreen`), för den som visar
+    // fönstrets innehåll någon annanstans (en yta i en 3D-scen): pumpen ritar
+    // fönstret som vanligt när något i det ändrats, och `updateOffscreen`
+    // läser tillbaka den senast ritade bilden till `target` — bara när en ny
+    // bild ritats sedan förra anropet. `Updated` med nya pixlar (en ny
+    // `Bitmap` när måtten ändrats, annars `setPixels` i den befintliga),
+    // `Unchanged` utan ny bild, `Unavailable` när fönstret inte är ett öppet
+    // offscreen-fönster eller bilden inte går att läsa (den gamla står kvar).
+    // UI-tråden, aldrig inifrån en ritning.
+    enum class OffscreenUpdate : std::uint8_t { Unchanged, Updated, Unavailable };
+    OffscreenUpdate updateOffscreen(Bitmap& target);
+
+    // FÖNSTER SOM DET HÄR FÖNSTRET ÄGER (popuper, menyer, verktygstips,
+    // dialoger som visas med `show(*this)`): false spärrar öppningen — ett
+    // fönster vars innehåll visas på en yta utan OS-fönster kan inte visa
+    // dem. Frågas före öppningen; den spärrade öppningen loggas och lämnar
+    // det ägda fönstret stängt. Förval true.
+    virtual bool acceptsOwnedWindow(const AppWindow& child) const;
 
 private:
     // show()-kärnan: öppnar OS-fönstret, laddar fonten, kopplar render-/
@@ -2065,6 +2085,8 @@ private:
     // alltid går den fulla vägen (alfa kan inte återställas per rect).
     bool        roundedChrome_ = false;
     bool        offscreen_   = false;   // skapas dolt (WindowDesc::hidden)
+    std::uint64_t contentRevision_  = 0;   // ritade bilder (räknas när innehåll ritas)
+    std::uint64_t capturedRevision_ = 0;   // den bild `updateOffscreen` senast läste
     bool        isModal_     = false;   // run() pumpar med modal-filtret
     // AKTIVITETSFÄLTET — attributet; `showOwned` kopierar
     // det till `WindowDesc::showInTaskbar`.

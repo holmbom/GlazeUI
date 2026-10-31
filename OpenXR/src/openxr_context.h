@@ -74,6 +74,7 @@ namespace glaze::openxr::detail {
     X(xrGetActionStateBoolean) \
     X(xrGetActionStateFloat) \
     X(xrGetActionStateVector2f) \
+    X(xrGetActionStatePose) \
     X(xrSyncActions) \
     X(xrPathToString) \
     X(xrGetCurrentInteractionProfile) \
@@ -346,6 +347,8 @@ struct XrExtensions {
     bool bdController = false;   // XR_BD_controller_interaction
     bool palmPose     = false;   // XR_EXT_palm_pose
     bool handTracking = false;   // XR_EXT_hand_tracking: aktiverad och systemet har handspårning
+    bool handAim      = false;   // XR_FB_hand_tracking_aim: aktiverad (kräver handTracking)
+    bool handInteraction = false;   // XR_EXT_hand_interaction: aktiverad (profilen och posernas nyp och pek)
     bool refreshRate  = false;   // XR_FB_display_refresh_rate
     bool localFloor   = false;   // XR_EXT_local_floor
 };
@@ -424,8 +427,10 @@ public:
     XrSessionApi& api() noexcept { return *api_; }
     const std::array<EyeImageSet, 2>& eyeImages() const noexcept { return eyeImages_; }
 
-    // Handlederna vid `time` i referensrummet. `out[i].active` false för en
-    // hand som inte spåras eller när handspårningen saknas.
+    // Handlederna vid `time` i referensrummet, med runtimens egna sikte,
+    // nypstyrka och systemgest när `XR_FB_hand_tracking_aim` finns.
+    // `out[i].active` false för en hand som inte spåras eller när
+    // handspårningen saknas.
     void locateHands(XrTime time, std::array<HandSample, 2>& out) const;
 
     // Uppdateringsfrekvenserna headsetet erbjuder; tomt utan tillägget.

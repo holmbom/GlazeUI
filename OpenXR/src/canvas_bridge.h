@@ -16,6 +16,9 @@
 #include <gfx/renderer.h>
 
 #include <glaze_openxr/session.h>
+#include "comfort_logic.h"
+#include "comfort_pass.h"
+#include "hand_navigation.h"
 #include "locomotion.h"
 #include "session_state.h"
 
@@ -41,7 +44,9 @@ public:
 
     // Importerar varje bild EN gång som ett mål (MSAA och djup enligt
     // `Options::msaaSamples`); ett ögas första bild delar sina hjälpytor med
-    // resten. false + `error` om en bild inte kan importeras.
+    // resten. Varje bild importeras dessutom som ett enprovsmål utan djup för
+    // komforten (vinjetten och svarttoningen). false + `error` om en bild inte
+    // kan importeras.
     bool importImages(const std::array<EyeImageSet, 2>& eyes, std::string& error);
 
     // Kör en bildruta: skapar förankringen första gången, tillämpar det
@@ -64,6 +69,11 @@ public:
     void   setLocomotion(const Locomotion& locomotion);
     // Handen tas från förflyttningens grepp i nästa bildruta (`Session::claimHand`).
     void   claimHand(Hand hand);
+    // Handens spak tas från förflyttningen i nästa bildruta (`Session::claimStick`).
+    void   claimStick(Hand hand);
+    // Komforten från nästa bildruta (`Session::setComfort`). Stängs svarttoningen
+    // av utförs en väntande teleportering direkt.
+    void   setComfort(const Comfort& comfort);
 
     // En stråle mot scenen, räknad mot headsetets vy från senaste bildrutan.
     // Tom innan första bildrutan.
@@ -74,8 +84,9 @@ public:
     // den (Pending medan den inte gjort det, Complete när allt före markören
     // är klart, Failed med text i `error` när enheten förlorats eller markören
     // inte gick att lägga eller fråga), och `release` släpper målen och
-    // passet — målen i omvänd ordning, så att ett ögas första mål, som de
-    // andra delar hjälpytor med, släpps sist. Utan pass finns inget skickat
+    // passet — komforten först, sedan målen i omvänd ordning, så att ett ögas
+    // första mål, som de andra delar hjälpytor med, släpps sist. Utan pass
+    // finns inget skickat
     // arbete: `pollRelease` ger då Complete.
     void beginRelease();
     gfx::GpuCompletionState pollRelease(std::string& error);
@@ -100,6 +111,13 @@ private:
     std::vector<glaze::HitResult> cast(const glaze::Ray3& ray, const glaze::HitOptions& options) const;
     // Ritar båda ögonen; false utan fel när en pose saknas.
     bool renderEyes(const FrameRequest& request, std::string& error);
+    // Komfortens förlopp en bildruta: svarttoningens steg (och flytten efter en
+    // svart bildruta) i början av bildrutan.
+    void advanceFade(const FrameRequest& request);
+    // Utför en landning med bildrutans huvud (som `teleportTo`).
+    void land(const FrameRequest& request, const Landing& landing);
+    // Går vinjetten och svarttoningen att rita?
+    bool comfortReady() const;
 
     glaze::Canvas&         canvas_;
     Options                options_;
@@ -109,17 +127,23 @@ private:
     std::unique_ptr<gfx::GpuCompletion> completion_;
     std::string            releaseError_;   // markören gick inte att lägga
     std::optional<Anchor>  anchor_;
+    Anchor                 motionStart_;   // förankringen som vinjetten mäter från: bildrutans början, efter hopp
     std::optional<Anchor>  pendingAnchor_;      // `setAnchor`, till nästa bildruta
     std::optional<double>  pendingRecenter_;    // `recenter`, till nästa bildruta med ett huvud
-    struct PendingTeleport {
-        Vec3                  feet;
-        std::optional<double> yawDegrees;
-    };
-    std::optional<PendingTeleport> pendingTeleport_;   // `teleportTo`, till nästa bildruta med ett huvud
+    std::optional<Landing> pendingTeleport_;   // `teleportTo`, till nästa bildruta med ett huvud
     Mover                  mover_;
+    HandNavigator          handNavigator_;
+    std::array<bool, 2>    navigationReserved_{};   // handen styr förflyttningen (hand-källan)
+    std::unique_ptr<ComfortPass> comfort_;
+    Vignette               vignette_;
+    TeleportFade           fade_;
+    double                 fadeAlpha_ = 0.0;   // svärtan som ritas den här bildrutan
+    bool                   comfortFailureLogged_ = false;
     std::array<bool, 2>    claimed_{};        // `claimHand`, till nästa bildruta
     std::array<bool, 2>    worldSqueeze_{};   // handens grepp drar världen (till släppet)
     std::array<bool, 2>    heldSqueeze_{};    // handens grepp hålls (av eller på världen)
+    std::array<bool, 2>    stickClaimed_{};   // `claimStick`, till nästa bildruta
+    std::array<bool, 2>    stickHeld_{};      // spaken spärrad tills den släppts till mitten
     std::optional<gfx::View3D> headView_;       // plockningens vy från senaste bildrutan
 };
 

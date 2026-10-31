@@ -37,7 +37,17 @@ struct LocomotionInput {
     // Den raka teleportstrålens längd i meter i rummet (skalas med
     // förankringen); 0 eller mindre ger 20 m.
     double       rayLengthMetres = 20.0;
+    // Teleporteringens landning lämnas som en begäran (`Mover::takeLanding`)
+    // i stället för att utföras direkt — komforten tonar då ut först.
+    bool         deferLanding = false;
     std::array<LocomotionHand, 2> hands;   // [0] vänster, [1] höger
+};
+
+// Var användaren ska stå efter en teleportering: fötterna i världen och, om
+// den anges, kompassriktningen att vända mot.
+struct Landing {
+    Vec3                  feet;
+    std::optional<double> yawDegrees;
 };
 
 // Träffarna längs en sträcka ur `ray.origin` i `ray.direction` (enhetsvektor),
@@ -72,12 +82,24 @@ public:
     // Flyttar `anchor` en bildruta enligt `settings`. Utan fokus eller huvud
     // sker ingenting och pågående gester avbryts. Teleportvägens punkter
     // (bågen eller den raka strålen) och landningsplatsen hålls i
-    // `arc()`/`arcHit()` tills nästa anrop.
+    // `arc()`/`arcHit()` tills nästa anrop. En teleportering som släpps
+    // landar direkt (`landed()`), eller lämnar en begäran (`takeLanding`) när
+    // `LocomotionInput::deferLanding` är satt. En teleportering vars sikte
+    // tappas avbryts utan landning.
     void update(const LocomotionInput& input, const Locomotion& settings, Anchor& anchor,
                 const SegmentCast& cast);
 
     // Förankringen byttes utanför: en pågående gest börjar om från den nya.
     void cancel() noexcept;
+    // En pågående teleportering avbryts utan landning (spaken togs av appen).
+    void cancelTeleport() noexcept;
+
+    // Landningsbegäran från senaste `update`, en gång; tom annars.
+    std::optional<Landing> takeLanding() noexcept;
+    // Senaste `update` flyttade förankringen med en direkt landning.
+    bool landed() const noexcept { return landed_; }
+    // Senaste `update` tog ett steg i den stegvisa vridningen.
+    bool snapped() const noexcept { return snapped_; }
 
     const std::vector<Vec3>&                arc() const noexcept { return arc_; }
     const std::optional<glaze::HitResult>&  arcHit() const noexcept { return arcHit_; }
@@ -104,6 +126,9 @@ private:
     bool   snapArmed_ = true;
     bool   teleporting_ = false;
     std::optional<Vec3> landing_;   // där bågen landade senast, för släppet
+    std::optional<Landing> request_;   // begärd landning som ännu inte tagits
+    bool   landed_  = false;
+    bool   snapped_ = false;
     std::vector<Vec3>               arc_;
     std::optional<glaze::HitResult> arcHit_;
 };

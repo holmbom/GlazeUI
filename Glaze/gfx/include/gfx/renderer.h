@@ -437,6 +437,11 @@ public:
     // varje gång det lämnas (gfx/image.h). Målets bild får inte ritas medan
     // målet är bundet (loggas, ritas inte).
     void pushTarget(RenderTarget& t, Color c);
+    // Som `pushTarget` men UTAN rensning: det som redan står i målet ligger
+    // kvar, och ritningen läggs ovanpå (ett överlägg på en färdig bild). Bara
+    // ett mål med ETT prov och utan djup — annat avvisas (loggas, false, inget
+    // binds och stacken är orörd).
+    bool pushTargetPreserved(RenderTarget& t);
     void popTarget();
 
     // Renderstatistiken (se `RenderStats` ovan). Icke-virtuell: räknarna
@@ -615,6 +620,9 @@ private:
 
     // Samlar de yttersta aktiva maskerna och anropar applyClip.
     void applyTop();
+    // pushTarget/pushTargetPreserved utan rensningen: lägger målet på stacken
+    // med en tom klippstack och binder det.
+    void enterTarget(RenderTarget& t);
 
     // `meshDrawOk` för `MeshProgram::Custom`, och
     // svansen de två delar: `why` nullptr godkänner anropet (och loggar EN

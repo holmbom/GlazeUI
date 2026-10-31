@@ -601,13 +601,28 @@ void Renderer::sceneImageAdjust(const SceneUniforms& u, float (&out)[4])
 // den igen — EFTER att det yttre målet bundits, så scissorn räknas mot rätt
 // mål (GL räknar nerifrån mot det bundna målets höjd).
 
-void Renderer::pushTarget(RenderTarget& t, Color c)
+void Renderer::enterTarget(RenderTarget& t)
 {
     targetStack_.push_back(TargetLevel{&t, std::move(clipStack_)});
     clipStack_.clear();
     bindTarget(&t);
     applyTop();   // inget klipp i det nya målet
+}
+
+void Renderer::pushTarget(RenderTarget& t, Color c)
+{
+    enterTarget(t);
     clear(c);
+}
+
+bool Renderer::pushTargetPreserved(RenderTarget& t)
+{
+    if (t.samples() != 1 || t.hasDepth()) {
+        log("pushTargetPreserved: bara ett mål med ett prov och utan djup — avvisas");
+        return false;
+    }
+    enterTarget(t);
+    return true;
 }
 
 void Renderer::popTarget()

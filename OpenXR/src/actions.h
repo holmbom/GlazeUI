@@ -1,12 +1,21 @@
 #pragma once
 
-// Handkontrollerna: ett action set med en action för varje knapp, beröring och
-// värde i `Button`-uppsättningen, grip-, aim- och handflatepose och en
-// haptikaction, per hand. Föreslagna bindningar för sex kontrollerprofiler;
-// den aktiva profilen per hand avgör vilka knappar som finns (`available`).
-// Knapparnas tillstånd löses ur de råa värdena (hysteres på analoga värden)
-// och flanker blir `InputEvent`. Allt utom `vibrate`/`stopVibration` och
-// `profileChanged` körs i UI-tråden, i bildrutejobbet.
+// Handkontrollerna och händerna som ingång: ett action set med en action för
+// varje knapp, beröring och värde i `Button`-uppsättningen, grip-, aim- och
+// handflatepose och en haptikaction, per hand. Föreslagna bindningar för sex
+// kontrollerprofiler och handprofilen (`XR_EXT_hand_interaction`: nyp-,
+// pek-, sikteaktiverings- och greppvärden och poser, utan haptik); den
+// aktiva profilen per hand avgör vilka knappar som finns (`available`).
+//
+// KÄLLAN PER HAND (`Controller::source`): en kontroll när en kontrollprofil är
+// aktiv och dess sikte giltigt, annars den spårade handen — sikte och
+// knappar ur handprofilen, annars ur `XR_FB_hand_tracking_aim`, annars
+// härledda ur lederna (hand_logic.h) — annars ingen. Knapparnas tillstånd
+// löses ur de råa värdena (hysteres på analoga värden) och flanker blir
+// `InputEvent`; byts källan släpps hållna knappar, `inputEpoch` ökar och det
+// som fortfarande hålls spärras tills det släpps. Allt utom
+// `vibrate`/`stopVibration` och `profileChanged` körs i UI-tråden, i
+// bildrutejobbet.
 
 #include <array>
 #include <atomic>
@@ -15,66 +24,11 @@
 #include <vector>
 
 #include <glaze_openxr/session.h>
+#include "hand_logic.h"
 #include "openxr_context.h"
 #include "session_state.h"
 
 namespace glaze::openxr::detail {
-
-// ----------------------------------------------------------- INDATALOGIKEN
-// Ren logik utan OpenXR-typer; provas utan runtime.
-
-// Ett analogt värde räknas som nedtryckt över `kPressThreshold` och släppt
-// under `kReleaseThreshold`; däremellan behålls föregående läge.
-inline constexpr double kPressThreshold   = 0.55;
-inline constexpr double kReleaseThreshold = 0.45;
-
-// Vad actionerna gav för EN knapp i en bildruta. `has*` är actionens
-// `isActive`.
-struct RawButton {
-    bool   hasValue = false;
-    double value    = 0.0;
-    bool   hasClick = false;
-    bool   click    = false;
-    bool   hasTouch = false;
-    bool   touch    = false;
-};
-
-bool analogPressed(double value, bool wasPressed) noexcept;
-
-// Knappens tillstånd: nedtryckt är klicket när profilen har ett, annars det
-// analoga värdet med hysteres (`wasPressed` är föregående bildrutas råa
-// läge). Värdet är det analoga, annars 0/1. Berörd bara där profilen känner
-// beröring. En knapp som inte finns (`available == false`) är helt noll.
-ButtonState resolveButton(const RawButton& raw, bool wasPressed, bool available) noexcept;
-
-// Spaken efter en radiell dödzon: noll innanför, annars skalad så att kanten
-// av dödzonen blir 0 och fullt utslag 1.
-void applyDeadzone(double& x, double& y, double deadzone) noexcept;
-
-// Knapparnas tillstånd över tid för båda händerna: löser de råa värdena,
-// ger flankerna som händelser (ordning: berörd, nedtryckt, släppt, inte
-// längre berörd, per knapp) och spärrar det som redan var nedtryckt eller
-// berört när fokus kom tillbaka — det ger ingen flank och räknas som släppt
-// tills det släpps på riktigt. Utan fokus är allt släppt.
-class ButtonTracker {
-public:
-    void update(Hand hand, bool focused,
-                const std::array<RawButton, kButtonCount>& raw,
-                const std::array<bool, kButtonCount>& available,
-                std::array<ButtonState, kButtonCount>& out,
-                std::vector<InputEvent>& events);
-    // Glöm allt (efter en fokusförlust): nästa fokuserade bildruta spärrar på nytt.
-    void reset() noexcept;
-
-private:
-    struct Per {
-        bool rawPressed = false, rawTouched = false;       // runtimens läge
-        bool pressed = false, touched = false;             // det som rapporterats
-        bool blockPressed = false, blockTouched = false;   // spärrat sedan fokus kom tillbaka
-    };
-    std::array<std::array<Per, kButtonCount>, 2> state_{};
-    std::array<bool, 2> wasFocused_{};
-};
 
 // ------------------------------------------------------------------ ACTIONS
 
@@ -90,12 +44,15 @@ public:
     Actions(const Actions&)            = delete;
     Actions& operator=(const Actions&) = delete;
 
-    // Läser handkontrollernas lägen i referensrummet vid `time` och, med
-    // fokus, knapparna. `focusEpoch` räknas upp varje gång fokus förlorats:
-    // knapparnas tillstånd från före ett byte gäller inte efter det. Knapp-
-    // flankerna sedan förra anropet läggs i `events` (vänster hand först).
-    // `out[0]` är vänster.
-    bool sync(XrTime time, bool focused, std::uint64_t focusEpoch,
+    // Läser handkontrollernas och händernas lägen i referensrummet vid `time`
+    // och, med fokus, knapparna. `hands` (lederna vid samma tid) och `head`
+    // behövs för källvalet och det härledda siktet, så de ska vara lästa före
+    // anropet. `focusEpoch` räknas upp varje gång fokus förlorats: knapparnas
+    // tillstånd från före ett byte gäller inte efter det. Knapp-flankerna
+    // sedan förra anropet läggs i `events` (vänster hand först, släppflanker
+    // vid ett källbyte före handens övriga). `out[0]` är vänster.
+    bool sync(XrTime time, double deltaSeconds, bool focused, std::uint64_t focusEpoch,
+              const PoseSample& head, const std::array<HandSample, 2>& hands,
               std::array<ControllerSample, 2>& out, std::vector<InputEvent>& events,
               std::string& error);
 
@@ -118,16 +75,22 @@ private:
 
     bool locate(XrSpace space, XrTime time, PoseSample& out, ControllerSample* velocity) const;
     void refreshProfiles();
+    // Är poseactionen aktiv för handen? Sant när det inte går att fråga
+    // (inget synkat action set än).
+    bool poseActive(std::size_t slot, std::size_t hand) const;
 
     const OpenXrContext& context_;
     Options              options_;
 
     std::unique_ptr<Impl> impl_;
     std::array<XrPath, 2> handPaths_{};
-    std::array<std::array<XrSpace, 2>, 3> spaces_{};   // grip, aim, palm — per hand
+    std::array<std::array<XrSpace, 2>, 5> spaces_{};   // grip, aim, palm, pinch, poke — per hand
     XrActionSet actionSet_ = XR_NULL_HANDLE;
 
     ButtonTracker       tracker_;
+    std::array<HandSource, 2>  sources_;     // källvalet per hand
+    std::array<AimSmoother, 2> smoothers_;   // det härledda siktet per hand
+    bool                synced_ = false;     // xrSyncActions har lyckats minst en gång
     std::uint64_t       epoch_ = 0;
     std::atomic<bool>   profileDirty_{true};
     std::atomic<bool>   focused_{false};

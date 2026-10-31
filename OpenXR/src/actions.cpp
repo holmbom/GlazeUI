@@ -1,98 +1,13 @@
 #include "actions.h"
 
 #include "hands.h"
+#include "vector_ops.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 
 namespace glaze::openxr::detail {
-
-// ----------------------------------------------------------- INDATALOGIKEN
-
-bool analogPressed(double value, bool wasPressed) noexcept {
-    if (value >= kPressThreshold) return true;
-    if (value <= kReleaseThreshold) return false;
-    return wasPressed;
-}
-
-ButtonState resolveButton(const RawButton& raw, bool wasPressed, bool available) noexcept {
-    ButtonState state;
-    state.available = available;
-    if (!available) return state;
-    if (raw.hasClick) {
-        state.pressed = raw.click;
-    } else if (raw.hasValue) {
-        state.pressed = analogPressed(raw.value, wasPressed);
-    }
-    state.value = raw.hasValue ? std::clamp(raw.value, 0.0, 1.0) : (state.pressed ? 1.0 : 0.0);
-    state.touched = raw.hasTouch && raw.touch;
-    return state;
-}
-
-void applyDeadzone(double& x, double& y, double deadzone) noexcept {
-    const double magnitude = std::hypot(x, y);
-    if (magnitude <= deadzone || magnitude <= 0.0) {
-        x = 0.0;
-        y = 0.0;
-        return;
-    }
-    const double span = std::max(1e-6, 1.0 - deadzone);
-    const double scaled = std::min(1.0, (magnitude - deadzone) / span);
-    x = x / magnitude * scaled;
-    y = y / magnitude * scaled;
-}
-
-void ButtonTracker::reset() noexcept {
-    state_ = {};
-    wasFocused_ = {};
-}
-
-void ButtonTracker::update(Hand hand, bool focused,
-                           const std::array<RawButton, kButtonCount>& raw,
-                           const std::array<bool, kButtonCount>& available,
-                           std::array<ButtonState, kButtonCount>& out,
-                           std::vector<InputEvent>& events) {
-    const std::size_t index = handIndex(hand);
-    std::array<Per, kButtonCount>& states = state_[index];
-    const bool regained = focused && !wasFocused_[index];
-    wasFocused_[index] = focused;
-
-    for (std::size_t b = 0; b < kButtonCount; ++b) {
-        Per& per = states[b];
-        ButtonState next;
-        next.available = available[b];
-        if (focused && available[b]) next = resolveButton(raw[b], per.rawPressed, true);
-
-        const bool rawPressed = next.pressed;
-        const bool rawTouched = next.touched;
-        if (regained) {
-            per.blockPressed = rawPressed;
-            per.blockTouched = rawTouched;
-        }
-        per.rawPressed = rawPressed;
-        per.rawTouched = rawTouched;
-        if (per.blockPressed) {
-            if (rawPressed) next.pressed = false;
-            else per.blockPressed = false;
-        }
-        if (per.blockTouched) {
-            if (rawTouched) next.touched = false;
-            else per.blockTouched = false;
-        }
-
-        const auto event = [&](InputKind kind) {
-            events.push_back(InputEvent{hand, static_cast<Button>(b), kind});
-        };
-        if (next.touched && !per.touched) event(InputKind::Touched);
-        if (next.pressed && !per.pressed) event(InputKind::Pressed);
-        if (!next.pressed && per.pressed) event(InputKind::Released);
-        if (!next.touched && per.touched) event(InputKind::Untouched);
-        per.pressed = next.pressed;
-        per.touched = next.touched;
-        out[b] = next;
-    }
-}
 
 // --------------------------------------------------------------- BINDNINGAR
 
@@ -113,12 +28,15 @@ enum class Slot : std::uint8_t {
     ThumbrestTouch,
     PadForce, PadClick, PadTouch, PadAxes,
     GripPose, AimPose, PalmPose,
+    PinchPose, PokePose,
     Haptic,
+    // Handprofilen: värden och beredskap (ready) för nyp, sikteaktivering och grepp.
+    PinchValue, PinchReady, AimActivateValue, AimActivateReady, GraspValue, GraspReady,
     Count
 };
 constexpr std::size_t kSlotCount = static_cast<std::size_t>(Slot::Count);
 
-enum class Role : std::uint8_t { Value, Click, Touch, Axes, Pose, Haptic };
+enum class Role : std::uint8_t { Value, Click, Touch, Axes, Pose, Haptic, HandValue, HandReady };
 
 struct SlotDef {
     Slot           slot;
@@ -157,8 +75,33 @@ const SlotDef kSlots[kSlotCount] = {
     {Slot::GripPose,       kPose,    "grip_pose",       "Grip",             Button::Count,      Role::Pose},
     {Slot::AimPose,        kPose,    "aim_pose",        "Aim",              Button::Count,      Role::Pose},
     {Slot::PalmPose,       kPose,    "palm_pose",       "Palm",             Button::Count,      Role::Pose},
+    {Slot::PinchPose,      kPose,    "pinch_pose",      "Pinch",            Button::Count,      Role::Pose},
+    {Slot::PokePose,       kPose,    "poke_pose",       "Poke",             Button::Count,      Role::Pose},
     {Slot::Haptic,         kOutput,  "haptic",          "Haptic",           Button::Count,      Role::Haptic},
+    {Slot::PinchValue,        kFloat,   "pinch_value",         "Pinch value",         Button::Count, Role::HandValue},
+    {Slot::PinchReady,        kBoolean, "pinch_ready",         "Pinch ready",         Button::Count, Role::HandReady},
+    {Slot::AimActivateValue,  kFloat,   "aim_activate_value",  "Aim activate value",  Button::Count, Role::HandValue},
+    {Slot::AimActivateReady,  kBoolean, "aim_activate_ready",  "Aim activate ready",  Button::Count, Role::HandReady},
+    {Slot::GraspValue,        kFloat,   "grasp_value",         "Grasp value",         Button::Count, Role::HandValue},
+    {Slot::GraspReady,        kBoolean, "grasp_ready",         "Grasp ready",         Button::Count, Role::HandReady},
 };
+
+// Slottarna som bara hör till handprofilen (och skapas bara med tillägget).
+bool handOnly(Slot slot) {
+    switch (slot) {
+    case Slot::PinchPose: case Slot::PokePose:
+    case Slot::PinchValue: case Slot::PinchReady:
+    case Slot::AimActivateValue: case Slot::AimActivateReady:
+    case Slot::GraspValue: case Slot::GraspReady:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Poseslottarna i `Actions::spaces_`s ordning.
+constexpr Slot kPoseSlots[] = {Slot::GripPose, Slot::AimPose, Slot::PalmPose, Slot::PinchPose, Slot::PokePose};
+constexpr std::size_t kPoseKinds = std::size(kPoseSlots);
 
 enum class Side : std::uint8_t { Both, Left, Right };
 
@@ -266,25 +209,42 @@ constexpr Binding kCommon[] = {
 };
 constexpr Binding kPalm = {Slot::PalmPose, LR, "/input/palm_ext/pose"};
 
+// Handprofilen (XR_EXT_hand_interaction): nyp- och pekposerna, nypet,
+// sikteaktiveringen och greppet med sina ready-flaggor. Ingen haptik.
+constexpr Binding kHandExt[] = {
+    {Slot::PinchPose,        LR, "/input/pinch_ext/pose"},
+    {Slot::PokePose,         LR, "/input/poke_ext/pose"},
+    {Slot::PinchValue,       LR, "/input/pinch_ext/value"},
+    {Slot::PinchReady,       LR, "/input/pinch_ext/ready_ext"},
+    {Slot::AimActivateValue, LR, "/input/aim_activate_ext/value"},
+    {Slot::AimActivateReady, LR, "/input/aim_activate_ext/ready_ext"},
+    {Slot::GraspValue,       LR, "/input/grasp_ext/value"},
+    {Slot::GraspReady,       LR, "/input/grasp_ext/ready_ext"},
+};
+
+// Tillägget en profil kräver för att få föreslås.
+enum class Needs : std::uint8_t { Nothing, BdController, HandInteraction };
+
 struct ProfileDef {
     const char*    path;
-    bool           needsBdExtension;
+    Needs          needs;
     const Binding* bindings;
     std::size_t    count;
 };
 
 template <std::size_t N>
-constexpr ProfileDef profileDef(const char* path, bool needsBd, const Binding (&bindings)[N]) {
-    return ProfileDef{path, needsBd, bindings, N};
+constexpr ProfileDef profileDef(const char* path, Needs needs, const Binding (&bindings)[N]) {
+    return ProfileDef{path, needs, bindings, N};
 }
 
 const ProfileDef kProfiles[] = {
-    profileDef("/interaction_profiles/khr/simple_controller", false, kSimple),
-    profileDef("/interaction_profiles/oculus/touch_controller", false, kTouch),
-    profileDef("/interaction_profiles/valve/index_controller", false, kIndex),
-    profileDef("/interaction_profiles/bytedance/pico4_controller", true, kPico4),
-    profileDef("/interaction_profiles/htc/vive_controller", false, kVive),
-    profileDef("/interaction_profiles/microsoft/motion_controller", false, kMotion),
+    profileDef("/interaction_profiles/khr/simple_controller", Needs::Nothing, kSimple),
+    profileDef("/interaction_profiles/oculus/touch_controller", Needs::Nothing, kTouch),
+    profileDef("/interaction_profiles/valve/index_controller", Needs::Nothing, kIndex),
+    profileDef("/interaction_profiles/bytedance/pico4_controller", Needs::BdController, kPico4),
+    profileDef("/interaction_profiles/htc/vive_controller", Needs::Nothing, kVive),
+    profileDef("/interaction_profiles/microsoft/motion_controller", Needs::Nothing, kMotion),
+    profileDef("/interaction_profiles/ext/hand_interaction_ext", Needs::HandInteraction, kHandExt),
 };
 constexpr std::size_t kProfileCount = sizeof(kProfiles) / sizeof(kProfiles[0]);
 
@@ -299,6 +259,7 @@ struct Actions::ProfileInfo {
     std::string path;
     XrPath      xrPath = XR_NULL_PATH;
     bool        accepted = false;
+    bool        hand = false;   // handprofilen: ingen kontroll
     // Knapparna profilen har per hand, ur bindningarna runtimen tog emot.
     std::array<std::array<bool, kButtonCount>, 2> available{};
 };
@@ -324,6 +285,7 @@ std::unique_ptr<Actions> Actions::create(const OpenXrContext& context, const Opt
     const XrInstance instance = context.instance();
     const XrSession session = context.session();
     const bool palm = context.extensions().palmPose;
+    const bool handInteraction = context.extensions().handInteraction;
 
     const auto fail = [&](const char* call, XrResult r) {
         error = context.describe(call, r);
@@ -350,6 +312,7 @@ std::unique_ptr<Actions> Actions::create(const OpenXrContext& context, const Opt
 
     for (const SlotDef& def : kSlots) {
         if (def.slot == Slot::PalmPose && !palm) continue;
+        if (handOnly(def.slot) && !handInteraction) continue;
         auto info = xrStruct<XrActionCreateInfo>(XR_TYPE_ACTION_CREATE_INFO);
         info.actionType = def.type;
         std::snprintf(info.actionName, sizeof(info.actionName), "%s", def.name);
@@ -377,7 +340,9 @@ std::unique_ptr<Actions> Actions::create(const OpenXrContext& context, const Opt
     for (const ProfileDef& def : kProfiles) {
         ProfileInfo info;
         info.path = def.path;
-        if (def.needsBdExtension && !context.extensions().bdController) {
+        info.hand = def.needs == Needs::HandInteraction;
+        if ((def.needs == Needs::BdController && !context.extensions().bdController) ||
+            (def.needs == Needs::HandInteraction && !handInteraction)) {
             impl.profiles.push_back(std::move(info));
             continue;
         }
@@ -399,7 +364,10 @@ std::unique_ptr<Actions> Actions::create(const OpenXrContext& context, const Opt
         // Poserna är kärnan; resten kan avvisas av en enskild runtime.
         std::vector<Entry> core;
         std::vector<Entry> optional;
-        for (const Binding& b : kCommon) makeEntries(b, b.slot == Slot::Haptic ? optional : core);
+        for (const Binding& b : kCommon) {
+            if (b.slot == Slot::Haptic && info.hand) continue;   // handprofilen har ingen haptik
+            makeEntries(b, b.slot == Slot::Haptic ? optional : core);
+        }
         if (palm) makeEntries(kPalm, optional);
         for (std::size_t i = 0; i < def.count; ++i) makeEntries(def.bindings[i], optional);
 
@@ -442,12 +410,12 @@ std::unique_ptr<Actions> Actions::create(const OpenXrContext& context, const Opt
     }
 
     // Rummen för poserna, per hand.
-    const Slot poseSlots[3] = {Slot::GripPose, Slot::AimPose, Slot::PalmPose};
-    for (std::size_t kind = 0; kind < 3; ++kind) {
-        if (poseSlots[kind] == Slot::PalmPose && !palm) continue;
+    for (std::size_t kind = 0; kind < kPoseKinds; ++kind) {
+        if (kPoseSlots[kind] == Slot::PalmPose && !palm) continue;
+        if (handOnly(kPoseSlots[kind]) && !handInteraction) continue;
         for (std::size_t hand = 0; hand < 2; ++hand) {
             auto info = xrStruct<XrActionSpaceCreateInfo>(XR_TYPE_ACTION_SPACE_CREATE_INFO);
-            info.action = impl.actions[static_cast<std::size_t>(poseSlots[kind])];
+            info.action = impl.actions[static_cast<std::size_t>(kPoseSlots[kind])];
             info.subactionPath = self->handPaths_[hand];
             info.poseInActionSpace.orientation.w = 1.0f;
             XrSpace& space = self->spaces_[kind][hand];
@@ -542,7 +510,40 @@ void Actions::refreshProfiles() {
     }
 }
 
-bool Actions::sync(XrTime time, bool focused, std::uint64_t focusEpoch,
+bool Actions::poseActive(std::size_t slot, std::size_t hand) const {
+    if (!synced_ || !focused_) return true;
+    const XrAction action = impl_->actions[slot];
+    if (action == XR_NULL_HANDLE) return true;
+    auto getInfo = xrStruct<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO);
+    getInfo.action = action;
+    getInfo.subactionPath = handPaths_[hand];
+    auto state = xrStruct<XrActionStatePose>(XR_TYPE_ACTION_STATE_POSE);
+    if (XR_FAILED(context_.fn().xrGetActionStatePose(context_.session(), &getInfo, &state))) return true;
+    return state.isActive == XR_TRUE;
+}
+
+namespace {
+
+// En pose ur handspårningen som en spårad pose.
+PoseSample trackedPose(const TrackingPose& pose) {
+    PoseSample sample;
+    sample.pose = pose;
+    sample.valid = true;
+    sample.positionTracked = true;
+    sample.orientationTracked = true;
+    return sample;
+}
+
+// Ledens pose, när den är giltig.
+PoseSample jointPose(const HandSample& hand, int joint) {
+    const JointSample& j = hand.joints[static_cast<std::size_t>(joint)];
+    return hand.active && j.valid ? trackedPose(j.pose) : PoseSample{};
+}
+
+} // namespace
+
+bool Actions::sync(XrTime time, double deltaSeconds, bool focused, std::uint64_t focusEpoch,
+                   const PoseSample& head, const std::array<HandSample, 2>& hands,
                    std::array<ControllerSample, 2>& out, std::vector<InputEvent>& events,
                    std::string& error) {
     const XrFunctions& fn = context_.fn();
@@ -568,6 +569,7 @@ bool Actions::sync(XrTime time, bool focused, std::uint64_t focusEpoch,
         // XR_SESSION_NOT_FOCUSED: fokus gick förlorat mellan tillståndsbytet
         // och anropet; knapparna läses som släppta.
         if (r == XR_SESSION_NOT_FOCUSED) focused = false;
+        else synced_ = true;
     }
     focused_ = focused;
 
@@ -578,42 +580,163 @@ bool Actions::sync(XrTime time, bool focused, std::uint64_t focusEpoch,
     }
 
     const auto actionOf = [&](Slot slot) { return impl.actions[static_cast<std::size_t>(slot)]; };
+    const TrackingPose* headPose = head.valid ? &head.pose : nullptr;
 
     for (std::size_t hand = 0; hand < 2; ++hand) {
+        const Hand handId = hand == 0 ? Hand::Left : Hand::Right;
+        const HandSample& tracked = hands[hand];
         ControllerSample sample;
-        locate(spaces_[0][hand], time, sample.grip, &sample);
-        locate(spaces_[1][hand], time, sample.aim, nullptr);
-        locate(spaces_[2][hand], time, sample.palm, nullptr);
+
+        // Poserna som profilen ger, och bara de som är aktiva. Farten hör till
+        // gripposen.
+        static_assert(std::tuple_size_v<decltype(spaces_)> == kPoseKinds);
+        std::array<PoseSample, kPoseKinds> poses;
+        for (std::size_t kind = 0; kind < kPoseKinds; ++kind) {
+            PoseSample& pose = poses[kind];
+            locate(spaces_[kind][hand], time, pose, kind == 0 ? &sample : nullptr);
+            if (pose.valid && !poseActive(static_cast<std::size_t>(kPoseSlots[kind]), hand)) pose = PoseSample{};
+        }
+        const PoseSample& grip = poses[0];
+        const PoseSample& aim = poses[1];
+        const PoseSample& palm = poses[2];
+        const PoseSample& pinch = poses[3];
+        const PoseSample& poke = poses[4];
+        if (!grip.valid) sample.velocityValid = false;
         sample.profile = impl.currentPath[hand];
+
+        const int profile = impl.current[hand];
+        const bool handProfile = profile >= 0 && impl.profiles[static_cast<std::size_t>(profile)].hand;
+        const bool controllerProfile = !impl.currentPath[hand].empty() && !handProfile;
+
+        auto getInfo = xrStruct<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO);
+        getInfo.subactionPath = handPaths_[hand];
+        const auto readFloat = [&](Slot slot, double& value) {
+            const XrAction action = actionOf(slot);
+            if (action == XR_NULL_HANDLE) return false;
+            getInfo.action = action;
+            auto state = xrStruct<XrActionStateFloat>(XR_TYPE_ACTION_STATE_FLOAT);
+            if (XR_FAILED(fn.xrGetActionStateFloat(session, &getInfo, &state)) || !state.isActive) return false;
+            value = state.currentState;
+            return true;
+        };
+        const auto readBool = [&](Slot slot, bool& value) {
+            const XrAction action = actionOf(slot);
+            if (action == XR_NULL_HANDLE) return false;
+            getInfo.action = action;
+            auto state = xrStruct<XrActionStateBoolean>(XR_TYPE_ACTION_STATE_BOOLEAN);
+            if (XR_FAILED(fn.xrGetActionStateBoolean(session, &getInfo, &state)) || !state.isActive) return false;
+            value = state.currentState == XR_TRUE;
+            return true;
+        };
+
+        // Handprofilens värden: nyp, sikteaktivering och grepp, nollade när
+        // handen inte är redo för gesten.
+        bool extValues = false;
+        double extPinch = 0.0, extAim = 0.0, extGrasp = 0.0;
+        if (focused && handProfile) {
+            const auto gated = [&](Slot value, Slot ready, double& result) {
+                double v = 0.0;
+                if (!readFloat(value, v)) return;
+                extValues = true;
+                bool isReady = true;
+                const bool hasReady = readBool(ready, isReady);
+                result = gateByReady(unitValue(v), hasReady, isReady);
+            };
+            gated(Slot::PinchValue, Slot::PinchReady, extPinch);
+            gated(Slot::AimActivateValue, Slot::AimActivateReady, extAim);
+            gated(Slot::GraspValue, Slot::GraspReady, extGrasp);
+        }
+
+        // Handens sikte, i ordning: handprofilen, runtimens eget, härlett ur
+        // lederna (utjämnat, och nollställt så fort ett annat gäller).
+        const bool profileAim = handProfile && aim.valid;
+        const bool runtimeAim = tracked.active && tracked.aimValid && !tracked.systemGesture;
+        RawAim derived;
+        if (!profileAim && !runtimeAim && tracked.active) {
+            derived = smoothers_[hand].step(deriveAim(tracked, hand == 0, headPose), deltaSeconds);
+        } else {
+            smoothers_[hand].reset();
+        }
+
+        HandInputs inputs;
+        inputs.controllerProfile = controllerProfile;
+        inputs.controllerPose = aim.valid;
+        inputs.handAim = profileAim || runtimeAim || derived.valid;
+        inputs.suspended = tracked.active && tracked.systemGesture;
+        if (extValues) {
+            inputs.triggerAim = extAim;
+            inputs.triggerPinch = extPinch;
+            inputs.squeeze = extGrasp;
+        } else if (tracked.active) {
+            inputs.triggerPinch = pinchStrengthOf(tracked);
+            inputs.squeeze = graspStrengthOf(tracked);
+        }
+        const HandOutput chosen = sources_[hand].update(deltaSeconds, inputs);
+        if (chosen.cut) tracker_.cut(handId, events);
+        sample.source = chosen.source;
+        sample.inputEpoch = chosen.epoch;
+        if (chosen.source != Controller::Source::Hand) smoothers_[hand].reset();
+
+        // Poserna som källan ger; en annan källas poser visas aldrig. Farten
+        // hör till gripposen som runtimen ger (kontrollens eller handprofilens).
+        const auto dropVelocity = [&] {
+            sample.velocityValid = false;
+            sample.linearVelocity = Vec3{};
+            sample.angularVelocity = Vec3{};
+        };
+        if (chosen.source == Controller::Source::Controller) {
+            sample.grip = grip;
+            sample.aim = aim;
+            sample.palm = palm;
+        } else if (chosen.source == Controller::Source::Hand) {
+            if (profileAim) {
+                sample.aim = aim;
+            } else if (runtimeAim) {
+                sample.aim = trackedPose(tracked.aimPose);
+            } else if (const auto pose = aimPoseOf(derived)) {
+                sample.aim = trackedPose(*pose);
+            }
+            const PoseSample palmJoint = jointPose(tracked, kJointPalm);
+            if (handProfile && grip.valid) {
+                sample.grip = grip;
+            } else {
+                sample.grip = palmJoint;
+                dropVelocity();
+            }
+            sample.palm = palm.valid ? palm : palmJoint;
+            const Quaternion facing = sample.aim.valid ? sample.aim.pose.orientation : Quaternion{};
+            if (handProfile && pinch.valid) {
+                sample.pinch = pinch;
+            } else if (const auto point = pinchPointOf(tracked)) {
+                sample.pinch = trackedPose(TrackingPose{*point, facing});
+            }
+            if (handProfile && poke.valid) {
+                sample.poke = poke;
+            } else if (const auto point = pokePointOf(tracked)) {
+                sample.poke = trackedPose(TrackingPose{*point, facing});
+            }
+        } else {
+            dropVelocity();
+        }
 
         std::array<RawButton, kButtonCount> raw{};
         std::array<bool, kButtonCount> available{};
-        const int profile = impl.current[hand];
-        if (profile >= 0) available = impl.profiles[static_cast<std::size_t>(profile)].available[hand];
-
-        if (focused) {
-            auto getInfo = xrStruct<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO);
-            getInfo.subactionPath = handPaths_[hand];
-            for (const SlotDef& def : kSlots) {
-                if (def.role == Role::Pose || def.role == Role::Haptic) continue;
-                const XrAction action = actionOf(def.slot);
-                if (action == XR_NULL_HANDLE) continue;
-                getInfo.action = action;
-                const std::size_t b = static_cast<std::size_t>(def.button);
-                switch (def.type) {
-                case XR_ACTION_TYPE_FLOAT_INPUT: {
-                    auto state = xrStruct<XrActionStateFloat>(XR_TYPE_ACTION_STATE_FLOAT);
-                    if (XR_SUCCEEDED(fn.xrGetActionStateFloat(session, &getInfo, &state)) && state.isActive) {
-                        raw[b].hasValue = true;
-                        raw[b].value = state.currentState;
-                        available[b] = true;
+        if (chosen.source == Controller::Source::Controller) {
+            if (profile >= 0) available = impl.profiles[static_cast<std::size_t>(profile)].available[hand];
+            if (focused) {
+                for (const SlotDef& def : kSlots) {
+                    if (def.role == Role::Pose || def.role == Role::Haptic || def.role == Role::HandValue ||
+                        def.role == Role::HandReady) {
+                        continue;
                     }
-                    break;
-                }
-                case XR_ACTION_TYPE_BOOLEAN_INPUT: {
-                    auto state = xrStruct<XrActionStateBoolean>(XR_TYPE_ACTION_STATE_BOOLEAN);
-                    if (XR_SUCCEEDED(fn.xrGetActionStateBoolean(session, &getInfo, &state)) && state.isActive) {
-                        const bool value = state.currentState == XR_TRUE;
+                    const std::size_t b = static_cast<std::size_t>(def.button);
+                    switch (def.type) {
+                    case XR_ACTION_TYPE_FLOAT_INPUT:
+                        if (readFloat(def.slot, raw[b].value)) raw[b].hasValue = available[b] = true;
+                        break;
+                    case XR_ACTION_TYPE_BOOLEAN_INPUT: {
+                        bool value = false;
+                        if (!readBool(def.slot, value)) break;
                         if (def.role == Role::Click) {
                             raw[b].hasClick = true;
                             raw[b].click = value;
@@ -622,33 +745,46 @@ bool Actions::sync(XrTime time, bool focused, std::uint64_t focusEpoch,
                             raw[b].touch = value;
                         }
                         available[b] = true;
+                        break;
                     }
-                    break;
-                }
-                case XR_ACTION_TYPE_VECTOR2F_INPUT: {
-                    auto state = xrStruct<XrActionStateVector2f>(XR_TYPE_ACTION_STATE_VECTOR2F);
-                    if (XR_SUCCEEDED(fn.xrGetActionStateVector2f(session, &getInfo, &state)) && state.isActive) {
-                        double x = state.currentState.x;
-                        double y = state.currentState.y;
-                        if (def.slot == Slot::StickAxes) {
-                            applyDeadzone(x, y, options_.stickDeadzone);
-                            sample.stickX = x;
-                            sample.stickY = y;
-                        } else {
-                            sample.padX = std::clamp(x, -1.0, 1.0);
-                            sample.padY = std::clamp(y, -1.0, 1.0);
+                    case XR_ACTION_TYPE_VECTOR2F_INPUT: {
+                        const XrAction action = actionOf(def.slot);
+                        if (action == XR_NULL_HANDLE) break;
+                        getInfo.action = action;
+                        auto state = xrStruct<XrActionStateVector2f>(XR_TYPE_ACTION_STATE_VECTOR2F);
+                        if (XR_SUCCEEDED(fn.xrGetActionStateVector2f(session, &getInfo, &state)) && state.isActive) {
+                            double x = state.currentState.x;
+                            double y = state.currentState.y;
+                            if (def.slot == Slot::StickAxes) {
+                                applyDeadzone(x, y, options_.stickDeadzone);
+                                sample.stickX = x;
+                                sample.stickY = y;
+                            } else {
+                                sample.padX = std::clamp(x, -1.0, 1.0);
+                                sample.padY = std::clamp(y, -1.0, 1.0);
+                            }
+                            available[b] = true;
                         }
-                        available[b] = true;
+                        break;
                     }
-                    break;
-                }
-                default:
-                    break;
+                    default:
+                        break;
+                    }
                 }
             }
+        } else if (chosen.source == Controller::Source::Hand) {
+            // Handen: avtryckaren är sikteaktiveringen eller nypet, greppet
+            // greppet, med samma hysteres och flanker som kontrollens knappar.
+            const auto trigger = static_cast<std::size_t>(Button::Trigger);
+            const auto squeeze = static_cast<std::size_t>(Button::Squeeze);
+            available[trigger] = available[squeeze] = true;
+            raw[trigger].hasValue = true;
+            raw[trigger].value = chosen.trigger;
+            raw[squeeze].hasValue = true;
+            raw[squeeze].value = chosen.squeeze;
         }
 
-        tracker_.update(hand == 0 ? Hand::Left : Hand::Right, focused, raw, available, sample.buttons, events);
+        tracker_.update(handId, focused, raw, available, sample.buttons, events);
         out[hand] = std::move(sample);
     }
     return true;

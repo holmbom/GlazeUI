@@ -1538,6 +1538,40 @@ if(TARGET glaze_openxr_ui)
     target_include_directories(interface3d_gate PRIVATE ${CMAKE_SOURCE_DIR}/OpenXR/src)
     add_test(NAME interface3d_gate COMMAND interface3d_gate)
     set_tests_properties(interface3d_gate PROPERTIES TIMEOUT 60)
+
+    # flat_panel_gate  PLATTA PANELER: träffpunkten → panelens px (kanter,
+    #                  baksidan, utanför vid drag), musens tillstånd per
+    #                  hand (tryck, drag, släpp, avbrott utan klick).
+    add_executable(flat_panel_gate flat_panel_gate.cpp)
+    target_link_libraries(flat_panel_gate PRIVATE glaze_openxr_ui)
+    target_include_directories(flat_panel_gate PRIVATE ${CMAKE_SOURCE_DIR}/OpenXR/src)
+    add_test(NAME flat_panel_gate COMMAND flat_panel_gate)
+    set_tests_properties(flat_panel_gate PROPERTIES TIMEOUT 60)
+
+    # vr_keyboard_gate  VR-TANGENTBORDET: layouterna, tangent → exakt
+    #                   händelseföljd (KeyDown, TextInput, KeyUp), Shift och
+    #                   Ctrl, UTF-8 delad på teckengränser.
+    add_executable(vr_keyboard_gate vr_keyboard_gate.cpp)
+    target_link_libraries(vr_keyboard_gate PRIVATE glaze_openxr_ui)
+    target_include_directories(vr_keyboard_gate PRIVATE ${CMAKE_SOURCE_DIR}/OpenXR/src)
+    add_test(NAME vr_keyboard_gate COMMAND vr_keyboard_gate)
+    set_tests_properties(vr_keyboard_gate PROPERTIES TIMEOUT 60)
+
+    # hand_input_gate  HÄNDERNA SOM INGÅNG: härlett sikte (vänster/höger,
+    #                  saknade leder, utjämning, NaN), nypets hysteres och
+    #                  flanker, källbyte kontroll ↔ hand med släppflanker.
+    # hand_navigation_gate  FÖRFLYTTNING MED HÄNDERNA: den virtuella spaken,
+    #                  neutral återgång, teleport som avbryts utan landning.
+    # comfort_gate     KOMFORTEN: vinjettens styrka (vila, gång, vridning,
+    #                  skalning, attack/release, dt = 0, NaN; huvudets egen
+    #                  rörelse ger 0) och svarttoningens förlopp.
+    foreach(gate hand_input_gate hand_navigation_gate comfort_gate)
+        add_executable(${gate} ${gate}.cpp)
+        target_link_libraries(${gate} PRIVATE glaze_openxr_ui)
+        target_include_directories(${gate} PRIVATE ${CMAKE_SOURCE_DIR}/OpenXR/src)
+        add_test(NAME ${gate} COMMAND ${gate})
+        set_tests_properties(${gate} PROPERTIES TIMEOUT 60)
+    endforeach()
 endif()
 
 # external_canvas_gate  RITYTANS SCEN I ETT EXTERNT MÅL (glaze/canvas/

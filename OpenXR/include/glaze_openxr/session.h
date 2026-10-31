@@ -76,9 +76,23 @@ struct TrackedPose {
 };
 
 struct Controller {
+    // VÄGEN SOM MATAR HANDEN: en handkontroll, eller den spårade handen
+    // (`Options::handTracking`) när ingen kontroll är aktiv — då är `aim`
+    // handens sikte, `Trigger` nypet (eller sikteaktiveringen) och `Squeeze`
+    // greppet, med samma hysteres och flanker som kontrollens knappar. En
+    // producent per hand; byts den, eller tappas spårningen, ökar `inputEpoch`
+    // och knappar som hölls släpps (pågående tryck och grepp avbryts).
+    enum class Source : std::uint8_t { None, Controller, Hand };
+    Source        source     = Source::None;
+    std::uint64_t inputEpoch = 0;
     TrackedPose grip;               // handen
     TrackedPose aim;                // strålen: origo och forward
     TrackedPose palm;               // handflatan, där runtimen har den
+    TrackedPose pinch;              // handen: punkten mellan tummen och pekfingret
+    TrackedPose poke;               // handen: pekfingrets topp, för tryck
+    // Handen styr förflyttningen (`Locomotion::handNavigation`): gränssnitt
+    // och appen låter den vara.
+    bool navigationReserved = false;
     // Hastigheten i världen (enheter/s respektive rad/s kring axeln) — för
     // kast och tröghet. `velocityValid` false när runtimen inte har den.
     Vec3 linearVelocity;
@@ -123,6 +137,12 @@ enum class ReferenceSpace : std::uint8_t { Local, LocalFloor, Stage };
 // `Session::setAnchor`. Farter i meter i rummet — `Anchor::scale` gör dem
 // till världsenheter.
 enum class MoveMode : std::uint8_t { None, Walk, Fly };   // vänster spak
+// FÖRFLYTTNING MED HÄNDERNA (utan kontroller): `MoveTurn` — vänster hands nyp
+// håller en virtuell spak (handens förskjutning från nypets början ger
+// gång/flykt), höger hands nyp vrider; `Teleport` — höger hands nyp visar
+// vägen och släppet landar. En hand som styr förflyttningen är
+// `Controller::navigationReserved`.
+enum class HandNavigation : std::uint8_t { None, MoveTurn, Teleport };
 enum class TurnMode : std::uint8_t { None, Smooth, Snap }; // höger spak i sidled
 struct Locomotion {
     MoveMode move                 = MoveMode::Walk;   // Walk: i planet; Fly: längs blicken, upp och ned
@@ -144,6 +164,29 @@ struct Locomotion {
     bool     grabWorld            = false;
     double   minScale             = 0.01;
     double   maxScale             = 1000.0;
+    HandNavigation handNavigation = HandNavigation::None;
+    double   handStickRangeMetres = 0.12;    // handens förskjutning som ger fullt utslag
+};
+
+// KOMFORT vid artificiell rörelse, valbar. VINJETTEN (en tunnel som mörkar
+// utkanten av båda ögonen) tonar in efter hastigheten i den UTFÖRDA rörelsen —
+// förflyttning, vridning och skalning av världen, inte huvudets egen rörelse —
+// med fullt utslag vid `full*`; den fria öppningen krymper till
+// `minFieldDegrees` (hela vinkeln) med en mjuk kant på `featherDegrees`.
+// SVARTTONINGEN gör en teleportering (den inbyggda och `teleportTo`) till: tona
+// ut → en helt svart bildruta → flytten → tona in. Ritas bara i headsetet.
+struct Comfort {
+    bool   vignette     = false;
+    bool   teleportFade = false;
+    double fullMoveMetresPerSecond  = 1.5;
+    double fullTurnDegreesPerSecond = 90.0;
+    double fullScaleRatePerSecond   = 1.0;    // |ln(skala)| per sekund
+    double minFieldDegrees = 60.0;
+    double featherDegrees  = 15.0;
+    double attackSeconds   = 0.08;
+    double releaseSeconds  = 0.20;
+    double fadeOutSeconds  = 0.10;
+    double fadeInSeconds   = 0.15;
 };
 
 // Strålarnas förval: det man inte ser (bakom den första ytan) träffas inte.
@@ -168,7 +211,8 @@ struct Options {
     // strålarna och teleporteringen träffar där scenen inte har någon yta —
     // en platt karta utan terräng, ett tomt rum. Träffen har lager −1.
     std::optional<double> groundZ;
-    bool   handTracking = false;   // handlederna i `FrameInfo::hands`
+    bool   handTracking = false;   // handlederna i `FrameInfo::hands` och händerna som ingång (`Controller::source`)
+    Comfort comfort;
     float  refreshRate  = 0.0f;    // Hz; 0 = runtimens förval
     double nearMetres   = 0.05;
     double farMetres    = 1000.0;
@@ -231,6 +275,8 @@ public:
     // över golvet, skalan oförändrad), vänd mot `yawDegrees` om den anges —
     // direkt, i nästa bildruta. Appens egen teleportering: en knapp och en
     // träffpunkt räcker. false utan körande session.
+    // Med `Comfort::teleportFade` sker flytten i den helt svarta bildrutan
+    // efter uttoningen; en ny begäran ersätter en väntande.
     bool   teleportTo(Vec3 feet, std::optional<double> yawDegrees = {});
     // Byter den inbyggda förflyttningen under en körande session.
     void   setLocomotion(const Locomotion& locomotion);
@@ -239,6 +285,14 @@ public:
     // fortsätter tills det släpps). Anropas varje bildruta medan appen — eller
     // `Interface3D`, som gör det själv — använder handens grepp.
     void   claimHand(Hand hand);
+    // Tar handens SPAK från den inbyggda förflyttningen i nästa bildruta (en
+    // rullning i en panel): spaken varken går, vrider eller teleporterar, och
+    // spärren håller tills spaken släppts till mitten. En pågående
+    // teleportering avbryts utan landning. Anropas varje bildruta medan appen
+    // — eller `Interface3D` — använder spaken.
+    void   claimStick(Hand hand);
+    // Byter komforten under en körande session.
+    void   setComfort(const Comfort& comfort);
 
     // VIBRATION i en kontroll: styrka 0 … 1, längd i sekunder (0 = runtimens
     // kortaste), frekvens i Hz (0 = runtimens). false utan session eller fokus.

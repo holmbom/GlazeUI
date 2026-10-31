@@ -171,3 +171,25 @@ Ingenting kompilerat eller kört på Metal.
   `MTL_DEBUG_LAYER=1`. *Rätt utfall:* MSL:en kompilerar utan fel, G1 grönt (färgen i varje provad
   pixel = hålkamerans riktning ±3, `forward` = (128, 255, 128)); inga valideringsfel om en för liten
   buffert; 0 varningar.
+
+### Offscreen-fönstrets bild och ägda fönster — gemensam kod, BLINT på macOS (OpenXR platta paneler)
+
+`AppWindow::updateOffscreen` läser ett offscreen-fönsters bild med `captureFrame` bara när pumpen
+ritat en ny bild; `acceptsOwnedWindow` låter ett fönster spärra popuper och dialoger. Ingenting
+kört på Metal.
+
+- **Bilden följer ändringarna** — *Gör:* ett `setOffscreen(true)`-fönster med en knapp, `show()`,
+  pumpa; `updateOffscreen` två gånger utan ändring, ändra knappens text, pumpa, igen. *Rätt utfall:*
+  `Updated`, `Unchanged`, sedan `Updated` med den nya texten i pixlarna; 0 varningar.
+- **Spärrade popuper** — *Gör:* en subklass som svarar false i `acceptsOwnedWindow` och en Dropdown i
+  den; öppna listan. *Rätt utfall:* ingen popup öppnas, en loggrad, ingen hängande grab.
+
+### `Renderer::pushTargetPreserved` — gemensam kod, BLINT på Metal (OpenXR komfort)
+
+Binder ett enprovs-mål utan djup UTAN att rensa (ett överlägg på en färdig bild). Metal laddar
+målet med `MTLLoadActionLoad`. Ingenting kört på Metal.
+
+- **Bilden bevaras** — *Gör:* ett enprovs-mål utan djup, `pushTarget(t, röd)`, `popTarget`, sedan
+  `pushTargetPreserved(t)`, en halvgenomskinlig svart rektangel över halva målet, `popTarget`, läs
+  tillbaka. *Rätt utfall:* den orörda halvan röd, den andra mörkare röd; klippet efter `popTarget`
+  som före; ett MSAA-mål eller ett med djup avvisas (false, en loggrad, stacken orörd); 0 varningar.

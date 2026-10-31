@@ -12,15 +12,16 @@ namespace glaze::openxr {
 namespace {
 
 using detail::kPi;
+using detail::kRad;
 using detail::vadd;
 using detail::vcross;
 using detail::vdot;
 using detail::vlength;
 using detail::vmul;
 using detail::vsub;
+using detail::wrapDegrees;
 
 constexpr double kDeg = 180.0 / kPi;
-constexpr double kRad = kPi / 180.0;
 
 // Hur långt från längden 1 en kvaternion får vara och ändå gälla som en
 // enhetskvaternion (runtimens float-kvaternioner ligger långt innanför).
@@ -66,14 +67,6 @@ Vec3 rotateYaw(double yawDegrees, const Vec3& v) noexcept {
     const double s = std::sin(a);
     const double c = std::cos(a);
     return {v.x * c + v.y * s, -v.x * s + v.y * c, v.z};
-}
-
-// Vinkeln i (−180, 180].
-double wrapDegrees(double d) noexcept {
-    d = std::fmod(d, 360.0);
-    if (d > 180.0) d -= 360.0;
-    if (d <= -180.0) d += 360.0;
-    return d;
 }
 
 // Kompassriktningen för en vågrät riktning (x öster, y norr).

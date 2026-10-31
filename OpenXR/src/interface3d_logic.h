@@ -67,6 +67,9 @@ PanelLayout layoutPanel(const Panel& panel);
 // elementets `pose` ovanpå.
 Pose elementFrame(const ElementPlace& place, const Element& element);
 
+// Plattans tjocklek: panelens, eller tavlans för en platt panel.
+double plateThicknessOf(const Panel& panel);
+
 // ----------------------------------------------------------- PLACERING
 // Förskjutningen speglad för vänster hand: x byter tecken och vridningen
 // speglas i planet x = 0 (kvaternionen (x, −y, −z, w)), så samma `pose` ger

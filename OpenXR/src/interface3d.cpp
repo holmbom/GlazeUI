@@ -6,6 +6,9 @@
 #include <map>
 #include <utility>
 
+#include <glaze_openxr/flat_panel.h>
+
+#include "flat_panel_logic.h"
 #include "interface3d_logic.h"
 
 // 3D-GRÄNSSNITTET — paneler av element i ritytans lager.
@@ -36,13 +39,13 @@
 // Text3, Markers3 och Points3. Andra slag lämnas ut.
 //
 // PEKARNA. En per hand och bildruta, i ETT läge (`PointerMode`, upplöst i
-// `resolvePointer`): närläget är fingertoppen (handledens index 10) eller
+// `resolvePointer`): närläget är fingertoppen (handens poke-pose, annars ledens index 10) eller
 // stavens spets, `tipOffset` framför aim-posen; fjärrläget är strålen ur
-// aim-posen. Auto väljer närläget när spetsen är inom `wandRange` från ett
+// aim-posen (för en hand handens sikte). Auto väljer närläget när spetsen är inom `wandRange` från ett
 // element, en greppbar platta eller en yta i scenen. Spetsen trycker genom
 // att gå in längs framsidans normal (Pressed vid 0,7 av `travel`, Released
 // under 0,4, Clicked vid släpp över elementet); strålen trycker med
-// avtryckaren. Squeeze eller nyp (≥ 0,8) greppar ett handtag eller en
+// avtryckaren (för en hand nypet). Squeeze (för en hand greppet) greppar ett handtag eller en
 // greppbar platta (panelen följer handen med `followGrab` och blir därefter
 // en World-panel), vrider ett vred (handens rullning) eller drar ett reglage
 // (pekarens läge längs spåret).
@@ -51,6 +54,22 @@
 // tunn låda från aim-läget till spetsen och en liten sfär i spetsen, vars
 // färg blandas mot elementets hover-färg efter närhet; strålen som en linje
 // till träffen. Ingen stav ritas för en hand vars fingertopp används.
+//
+// PLATTA PANELER (`Panel::flat`). En tavla ur en låda (`FlatStyle::thickness`,
+// `border`, `body`) med fönstrets bild som texturerad yta på framsidan, och
+// på önskan en stolpe (`Stand`) rakt ned från tavlans underkant till marken
+// (`groundZ`, eller första scenytan rakt under via `Session::castRay`). Ett
+// levande träd (`FlatPanel`) läses en gång per bildruta (`refresh`) och
+// ytans form byggs om bara när en ny bild kom; en stillbild ritas som den är.
+// Pekaren är musen: ytan är ett mål som elementen — staven eller fingret
+// när spetsen är nära, annars strålen — och träffen blir en pixel i
+// panelens fönster. Avtryckaren eller tryckdjupet (som knapparnas hysteres)
+// är vänster musknapp, ett drag är låst till panelen tills knappen släpps,
+// och spaken rullar. Panelen har EN mus: handen som trycker äger den. Ett
+// avbrott (panelen göms eller tas bort, handen tappar spårning eller fokus)
+// ger MouseCaptureLost, aldrig ett släpp, så inget klick uppstår. Händelserna
+// köas under bildrutan och skickas efter den, när inget i gränssnittet är
+// mitt i en ändring.
 //
 // SYNLIGHETEN (`Panel::showWhen`). Villkoren — panelens mitt inom
 // `gazeDegrees` från blicken, den andra handens spets eller grepp inom
@@ -67,7 +86,6 @@ using namespace detail;
 namespace {
 
 constexpr int    kIndexTipJoint     = 10;     // XR_HAND_JOINT_INDEX_TIP_EXT
-constexpr double kPinchGrab         = 0.8;
 constexpr double kHoverMargin       = 0.006;  // sidled marginal för spetsen (meter)
 constexpr double kRayPressSeconds   = 0.06;   // strålens animerade intryckning
 constexpr double kFaceLift          = 0.0003; // framsidan framför kroppens framkant
@@ -77,6 +95,8 @@ constexpr double kFadeSteps         = 64.0;   // opaciteten ritas i så här må
 constexpr double kVisibleWiden      = 1.15;   // en synlig panel släcks först vid 15 % längre bort
 constexpr double kWandTipFactor     = 1.8;    // spetsens radie i stavens radier
 constexpr double kNearRelease       = 1.25;   // Auto: närläget släpps först vid 25 % längre bort
+constexpr double kStandProbeSeconds = 0.5;    // en stolpe utan mark frågar om marken så ofta
+constexpr double kStandProbeMetres  = 500.0;  // hur långt ned marken söks
 
 Hand otherHand(Hand h) { return h == Hand::Left ? Hand::Right : Hand::Left; }
 
@@ -395,6 +415,16 @@ struct PanelRt {
     int                  drawnFade  = 0;
     bool                 dirty      = true;
     std::vector<glaze::Shape> shapes;
+    // Platt panel: musen (EN per panel), handen som äger den och om den
+    // matades den här bildrutan; stolpens marknivå (z) och posen den frågades för.
+    FlatMouse            mouse;
+    std::optional<Hand>  mouseHand;
+    bool                 mouseDriven = false;
+    std::optional<double> standGround;
+    bool                 standProbed = false;
+    Pose                 standWorld;
+    double               standScale  = 1.0;
+    double               standAge    = 0.0;
 
     bool shown() const { return panel.visible && hasPose; }
     // Opaciteten i steg: det som ritas och jämförs.
@@ -409,13 +439,15 @@ struct PanelRt {
 // Handens indata den här bildrutan. Pekaren (spetsen eller strålen) står i
 // handens `PointerState`.
 struct HandIn {
-    std::optional<Vec3> finger;              // pekfingrets topp, när handen spåras
+    std::optional<Vec3> finger;              // pekfingrets topp, när handen är källan
     std::optional<WorldPose> aim;
     bool                trigger  = false;
     bool                grabLike = false;
-    bool                focused  = false;   // headsetet har fokus (inga tryck utan)
+    bool                focused  = false;   // gränssnittet verkar: fokus och handen inte reserverad av förflyttningen
+    std::uint64_t       epoch    = 0;       // `Controller::inputEpoch`: ändras när källan byts eller bryts
     std::optional<Pose> grabPose;
     std::optional<Vec3> rollRight;
+    double              stickX = 0.0, stickY = 0.0;   // spaken (rullar en platt panel)
 };
 
 enum class Via : std::uint8_t { Poke, Trigger, Squeeze };
@@ -423,6 +455,7 @@ enum class Via : std::uint8_t { Poke, Trigger, Squeeze };
 struct Engaged {
     std::string panel, element;
     Via         via        = Via::Poke;
+    bool        flat       = false;   // musknappen nere på en platt panel (Poke eller Trigger)
     bool        angleValid = false;
     double      angleLast  = 0.0;   // vredet: rullningen förra bildrutan
     double      turned     = 0.0;   // vredet: vridningen sedan greppet
@@ -436,6 +469,7 @@ struct Grab {
 };
 
 struct HandRt {
+    std::uint64_t         epoch        = 0;    // senast sedda `inputEpoch`
     bool                  prevTrigger  = false;
     bool                  prevGrabLike = false;
     bool                  pokePressed  = false;
@@ -463,7 +497,8 @@ struct WandDraw {
 // Ett träffat mål för en hand.
 struct Target {
     int     panel   = -1;
-    int     element = -1;      // −1 = plattan
+    int     element = -1;      // −1 = plattan, eller ytan när `flat`
+    bool    flat    = false;   // ytan på en levande platt panel
     bool    ray     = false;
     int     cls     = 0;       // 0 element, 1 platta (elementet vinner)
     double  distance = 0.0;
@@ -501,6 +536,58 @@ bool isRay(const PointerState& st)
     return st.valid && st.mode == PointerMode::Ray;
 }
 
+// ------------------------------------------------------------ PLATTA PANELER
+// Bilden ytan visar: det levande trädets senast lästa, annars stillbilden.
+const glaze::Bitmap* flatImageOf(const PanelRt& p)
+{
+    if (!p.panel.flat)
+        return nullptr;
+    return p.panel.flat->live ? &p.panel.flat->live->image() : &p.panel.flat->image;
+}
+
+// Ytan som pekaren styr: måtten i meter och fönstrets bild i px. `valid` bara
+// för ett levande träd med en läst bild.
+struct FlatSurface {
+    FlatGeometry geometry;
+    int          pxWidth = 0, pxHeight = 0;
+    bool         valid = false;
+};
+
+// Tavlans och ytans mått för en platt panel.
+FlatGeometry flatGeometryOf(const Panel& panel)
+{
+    const FlatStyle& style = panel.flat->style;
+    return flatGeometry(panel.layout.width, panel.layout.height, style.thickness, style.border);
+}
+
+FlatSurface flatSurfaceOf(const PanelRt& p)
+{
+    FlatSurface s;
+    if (!p.panel.flat || !p.panel.flat->live)
+        return s;
+    s.geometry = flatGeometryOf(p.panel);
+    const glaze::Bitmap& image = p.panel.flat->live->image();
+    if (!image.valid())
+        return s;
+    s.pxWidth  = image.width();
+    s.pxHeight = image.height();
+    s.valid    = s.geometry.surfaceWidth > 0.0 && s.geometry.surfaceHeight > 0.0 && s.pxWidth > 0 &&
+                 s.pxHeight > 0;
+    return s;
+}
+
+// Träffen (panelens ram) som pixel i fönstret.
+gfx::Pointf flatPixelOf(const FlatSurface& s, Vec3 local)
+{
+    return flatPixel(local, s.geometry.surfaceWidth, s.geometry.surfaceHeight, s.pxWidth, s.pxHeight);
+}
+
+// En händelse på väg till en levande panels fönster.
+struct FlatDelivery {
+    FlatPanel* panel = nullptr;
+    gfx::Event event;
+};
+
 } // namespace
 
 // ================================================================== IMPL
@@ -524,6 +611,11 @@ struct Interface3D::Impl {
     std::array<PointerState, 2>                 states{};
     std::array<bool, 2>                         nearLatch{};
     std::array<std::optional<Target>, 2>        uiTargets{};
+    // Platta paneler: händelserna till fönstren (köas under bildrutan,
+    // skickas av `deliverFlat`) och spakarna som gränssnittet tar.
+    std::vector<FlatDelivery>                   flatEvents;
+    bool                                        delivering = false;
+    std::array<bool, 2>                         stickClaim{};
 
     Impl(glaze::Canvas& c, int l) : canvas(c), layer(l) {}
 
@@ -549,9 +641,48 @@ struct Interface3D::Impl {
         return -1;
     }
 
-    // Grepp och tryck som pågick på panelen `id` är över (panelen byts eller tas bort).
+    // ------------------------------------------------------ PLATTA PANELER
+    // Köar händelserna till panelens levande fönster.
+    void queueFlat(const PanelRt& p, const std::vector<gfx::Event>& events)
+    {
+        if (!p.panel.flat || !p.panel.flat->live)
+            return;
+        for (const gfx::Event& e : events)
+            flatEvents.push_back(FlatDelivery{p.panel.flat->live, e});
+    }
+
+    // Skickar de köade händelserna. En handler i fönstret får ändra paneler
+    // (och därmed köa fler), och skickas inte inifrån en annan skickning.
+    void deliverFlat()
+    {
+        if (delivering)
+            return;
+        delivering = true;
+        for (std::size_t i = 0; i < flatEvents.size(); ++i) {
+            const FlatDelivery d = flatEvents[i];
+            d.panel->sendEvent(d.event);
+        }
+        flatEvents.clear();
+        delivering = false;
+    }
+
+    // Musen på panelen `id` släpps utan klick (panelen byts eller tas bort).
+    void cancelMouse(PanelRt& p)
+    {
+        FlatMouseInput in;
+        in.cancel = true;
+        queueFlat(p, stepFlatMouse(p.mouse, in));
+        p.mouseHand.reset();
+        p.mouseDriven = false;
+    }
+
+    // Grepp och tryck som pågick på panelen `id` är över (panelen byts eller
+    // tas bort). Musens avbrott köas; anroparen skickar dem när panellistan
+    // är färdigändrad, eftersom en handler kan ändra paneler.
     void dropHands(const std::string& id)
     {
+        if (PanelRt* p = findPanel(id))
+            cancelMouse(*p);
         for (HandRt& hs : hands) {
             if (hs.grab && hs.grab->panel == id)
                 hs.grab.reset();
@@ -579,10 +710,17 @@ struct Interface3D::Impl {
             if (!p.layoutDirty && p.elems.size() == p.panel.elements.size())
                 continue;
             p.elems.resize(p.panel.elements.size());
-            p.layout = layoutPanel(p.panel);
-            for (std::size_t i = 0; i < p.elems.size(); ++i) {
-                p.elems[i].frame    = elementFrame(p.layout.places[i], p.panel.elements[i]);
-                p.elems[i].frameInv = inverse(p.elems[i].frame);
+            if (p.panel.flat) {   // plattan är tavlan: ytan och ramen
+                const FlatGeometry g = flatGeometryOf(p.panel);
+                p.layout        = PanelLayout{};
+                p.layout.width  = g.boardWidth;
+                p.layout.height = g.boardHeight;
+            } else {
+                p.layout = layoutPanel(p.panel);
+                for (std::size_t i = 0; i < p.elems.size(); ++i) {
+                    p.elems[i].frame    = elementFrame(p.layout.places[i], p.panel.elements[i]);
+                    p.elems[i].frameInv = inverse(p.elems[i].frame);
+                }
             }
             p.layoutDirty = false;
             p.dirty       = true;
@@ -686,6 +824,17 @@ struct Interface3D::Impl {
     {
         return vmul(transformPoint(p.worldInv, world), 1.0 / p.scale);
     }
+    // Strålen mot ytan på en levande platt panel, i panelens ram.
+    static FlatRay flatRayOf(const PanelRt& p, const FlatSurface& s, const PointerState& ptr)
+    {
+        return flatRay(panelLocal(p, ptr.origin), transformDirection(p.worldInv, ptr.direction),
+                       s.geometry.surfaceWidth, s.geometry.surfaceHeight, s.pxWidth, s.pxHeight);
+    }
+    // Stolpens topp i världen: mitt under tavlans underkant.
+    static Vec3 standTopOf(const PanelRt& p, const FlatGeometry& g)
+    {
+        return transformPoint(p.world, vmul(Vec3{0.0, g.thickness / 2.0, -g.boardHeight / 2.0}, p.scale));
+    }
     // En punkt i världen i elementets ram.
     static Vec3 inElement(const PanelRt& p, std::size_t ei, Vec3 world)
     {
@@ -708,7 +857,7 @@ struct Interface3D::Impl {
         g.height         = s.height;
         g.depth          = s.depth;
         g.travel         = s.travel;
-        g.plateThickness = p.panel.style.thickness;
+        g.plateThickness = plateThicknessOf(p.panel);
         return g;
     }
     static bool overPlate(const PanelRt& p, Vec3 local, double margin)
@@ -718,25 +867,34 @@ struct Interface3D::Impl {
     }
 
     // Handens poser och knappar ur bildrutan. Pekaren (spetsen eller strålen)
-    // sätts sedan av `resolvePointer`.
+    // sätts sedan av `resolvePointer`. Avtryckaren och greppet är knapparna
+    // `Trigger` och `Squeeze` — för en hand nypet och greppet. En hand som
+    // styr förflyttningen får ingen pekare och verkar inte (som utan fokus).
     HandIn gather(Hand hand, const FrameInfo& f) const
     {
         HandIn in;
         const std::size_t i = handIndex(hand);
         const Controller& c = f.controllers[i];
         const TrackedHand& th = f.hands[i];
-        if (pointers.fingertip && th.active && th.joints[kIndexTipJoint].valid)
-            in.finger = th.joints[kIndexTipJoint].pose.position;
+        in.epoch = c.inputEpoch;
+        if (c.navigationReserved)
+            return in;
+        if (pointers.fingertip && c.source == Controller::Source::Hand) {
+            if (c.poke.pose)
+                in.finger = c.poke.pose->position;
+            else if (th.active && th.joints[kIndexTipJoint].valid)
+                in.finger = th.joints[kIndexTipJoint].pose.position;
+        }
         in.aim = c.aim.pose;
+        in.stickX = c.stickX;
+        in.stickY = c.stickY;
         const auto button = [&](Button b) -> const ButtonState& {
             return c.buttons[static_cast<std::size_t>(b)];
         };
         const bool focused = f.focused;
         in.focused         = focused;
         in.trigger = focused && button(Button::Trigger).available && button(Button::Trigger).pressed;
-        const bool squeeze = focused && button(Button::Squeeze).available && button(Button::Squeeze).pressed;
-        const bool pinch   = focused && th.active && th.pinch >= kPinchGrab;
-        in.grabLike = squeeze || pinch;
+        in.grabLike = focused && button(Button::Squeeze).available && button(Button::Squeeze).pressed;
         in.grabPose = handFramePose(f, hand, HandFrame::Grip);
         if (c.aim.pose)
             in.rollRight = c.aim.pose->right;
@@ -797,9 +955,23 @@ struct Interface3D::Impl {
                 t.local    = el;
                 keepBetter(best, t);
             }
+            const FlatSurface surface = flatSurfaceOf(p);
+            if (surface.valid) {   // ytan på en levande platt panel
+                const TipEval ev = evalTip(pl, flatTipGeom(surface.geometry), reach, plateMargin);
+                if (ev.inRange) {
+                    Target t;
+                    t.panel    = static_cast<int>(pi);
+                    t.flat     = true;
+                    t.distance = ev.distance;
+                    t.lateral  = std::hypot(pl.x, pl.z);
+                    t.tip      = ev;
+                    t.local    = pl;
+                    keepBetter(best, t);
+                }
+            }
             const double pen = pl.y;   // plattans framkant i y = 0
             if (p.panel.grabbable && overPlate(p, pl, plateMargin) && pen >= -reach &&
-                pen <= p.panel.style.thickness + kBehindPlate) {
+                pen <= plateThicknessOf(p.panel) + kBehindPlate) {
                 Target t;
                 t.panel    = static_cast<int>(pi);
                 t.cls      = 1;
@@ -847,22 +1019,17 @@ struct Interface3D::Impl {
         }
         const double scale = sanitizedScale(f.anchor.scale);
 
-        if (in.finger) {   // handspårningen: fingertoppen är närläget
-            st.valid     = true;
-            st.mode      = PointerMode::Wand;
-            st.finger    = true;
-            st.origin    = *in.finger;
-            st.tip       = *in.finger;
-            if (in.aim)
-                st.direction = vnormalized(in.aim->forward);
-            return;
-        }
         if (!in.aim)
             return;
 
         const Vec3 origin = in.aim->position;
         const Vec3 dir    = vnormalized(in.aim->forward);
-        const Vec3 tip    = controllerTip(*in.aim, pointers.tipOffset, scale);
+        // Närlägets spets: fingertoppen när handen är källan, annars stavens
+        // spets framför siktet. Fjärrläget är strålen ur siktet i båda fallen.
+        const bool   finger     = in.finger.has_value();
+        const Vec3   tip        = finger ? *in.finger : controllerTip(*in.aim, pointers.tipOffset, scale);
+        const Vec3   nearOrigin = finger ? tip : origin;
+        const double nearOffset = finger ? 0.0 : pointers.tipOffset;
 
         // Auto väljer läge när handen inte trycker eller greppar; annars står
         // det upplösta läget kvar.
@@ -878,10 +1045,10 @@ struct Interface3D::Impl {
         std::optional<glaze::HitResult> ahead;
         if (pick || mode == PointerMode::Wand) {
             const double reach = std::max(pick ? range : 0.0, pointers.hoverDistance);
-            ahead = sceneHit(origin, dir, (pointers.tipOffset + reach) * scale);
+            ahead = sceneHit(nearOrigin, dir, (nearOffset + reach) * scale);
         }
         const auto aheadWithin = [&](double reach) {
-            return ahead && ahead->distance <= (pointers.tipOffset + reach) * scale;
+            return ahead && ahead->distance <= (nearOffset + reach) * scale;
         };
         if (pick) {
             const bool near = nearestTip(hand, tip, range, range).has_value() || aheadWithin(range);
@@ -892,10 +1059,11 @@ struct Interface3D::Impl {
 
         st.valid     = true;
         st.mode      = mode;
-        st.origin    = origin;
+        st.origin    = mode == PointerMode::Wand ? nearOrigin : origin;
         st.direction = dir;
         if (mode == PointerMode::Wand) {
-            st.tip = tip;
+            st.tip    = tip;
+            st.finger = finger;
             if (aheadWithin(pointers.hoverDistance))
                 scene = ahead;
         } else {
@@ -924,11 +1092,15 @@ struct Interface3D::Impl {
             return;
 
         std::optional<PointerHit> ui;
-        const auto uiHit = [&](const PanelRt& p, const std::string& element, double distance) {
+        const auto uiHit = [&](const PanelRt& p, const std::string& element, double distance,
+                               std::optional<gfx::Pointf> flatPx = std::nullopt) {
             PointerHit ph;
-            ph.kind     = element.empty() ? PointerTarget::Plate : PointerTarget::Element;
+            ph.kind     = flatPx ? PointerTarget::Flat
+                                 : (element.empty() ? PointerTarget::Plate : PointerTarget::Element);
             ph.panel    = p.panel.id;
             ph.element  = element;
+            if (flatPx)
+                ph.flatPx = *flatPx;
             ph.distance = distance;
             ph.point    = st.mode == PointerMode::Ray ? vadd(st.origin, vmul(st.direction, distance)) : st.tip;
             ph.normal   = transformDirection(p.world, Vec3{0.0, -1.0, 0.0});
@@ -939,10 +1111,17 @@ struct Interface3D::Impl {
             const PanelRt& p = panels[static_cast<std::size_t>(t->panel)];
             const std::string element =
                 t->element >= 0 ? p.panel.elements[static_cast<std::size_t>(t->element)].id : std::string();
-            ui = uiHit(p, element, t->ray ? t->distance : tipDistance);
+            std::optional<gfx::Pointf> flatPx;
+            if (t->flat)
+                flatPx = flatPixelOf(flatSurfaceOf(p), t->local);
+            ui = uiHit(p, element, t->ray ? t->distance : tipDistance, flatPx);
         } else if (hs.engaged) {
-            if (const PanelRt* p = findPanel(hs.engaged->panel))
-                ui = uiHit(*p, hs.engaged->element, tipDistance);
+            if (const PanelRt* p = findPanel(hs.engaged->panel)) {
+                std::optional<gfx::Pointf> flatPx;
+                if (hs.engaged->flat)
+                    flatPx = p->mouse.pos;
+                ui = uiHit(*p, hs.engaged->element, tipDistance, flatPx);
+            }
         } else if (hs.grab) {
             if (const PanelRt* p = findPanel(hs.grab->panel))
                 ui = uiHit(*p, hs.grab->element, tipDistance);
@@ -961,7 +1140,9 @@ struct Interface3D::Impl {
         if (st.mode == PointerMode::Ray && st.hit.kind != PointerTarget::None)
             st.tip = st.hit.point;
         st.consumed = hs.engaged.has_value() || hs.grab.has_value() ||
-                      st.hit.kind == PointerTarget::Element || st.hit.kind == PointerTarget::Plate;
+                      st.hit.kind == PointerTarget::Element || st.hit.kind == PointerTarget::Plate ||
+                      st.hit.kind == PointerTarget::Flat;
+        st.pressing = hs.engaged.has_value();
     }
 
     // Gränssnittets mål för handen: spetsen i närläget, strålen i fjärrläget —
@@ -992,6 +1173,19 @@ struct Interface3D::Impl {
                     t.distance = r.t * p.scale;
                     t.local    = r.local;
                     keepBetter(best, t);
+                }
+                const FlatSurface surface = flatSurfaceOf(p);
+                if (surface.valid) {   // ytan på en levande platt panel, bara framifrån
+                    const FlatRay r = flatRayOf(p, surface, ptr);
+                    if (r.hit && r.inside && r.t * p.scale <= rayReach) {
+                        Target t;
+                        t.panel    = static_cast<int>(pi);
+                        t.flat     = true;
+                        t.ray      = true;
+                        t.distance = r.t * p.scale;
+                        t.local    = r.local;
+                        keepBetter(best, t);
+                    }
                 }
                 if (p.panel.grabbable) {
                     const Vec3 o = panelLocal(p, ptr.origin);
@@ -1098,6 +1292,17 @@ struct Interface3D::Impl {
         PanelRt* p = findPanel(eng.panel);
         if (!p)
             return;
+        if (eng.flat) {
+            // Släppet går till fönstret som MouseButtonUp (Glaze avgör klicket);
+            // ett avbrott ger MouseCaptureLost och släpper musen.
+            FlatMouseInput in;
+            in.cancel = !clicked;
+            queueFlat(*p, stepFlatMouse(p->mouse, in));
+            if (!clicked)
+                p->mouseHand.reset();
+            haptic(hand, 0.15, 0.02);
+            return;
+        }
         const int ei = findElement(*p, eng.element);
         if (ei < 0)
             return;
@@ -1118,6 +1323,8 @@ struct Interface3D::Impl {
     bool updateEngaged(Hand hand, HandRt& hs, const HandIn& in)
     {
         Engaged& eng = *hs.engaged;
+        if (eng.flat)
+            return updateFlatPress(hand, hs, in);
         PanelRt* p   = findPanel(eng.panel);
         const int ei = p ? findElement(*p, eng.element) : -1;
         if (!p || ei < 0 || !p->shown() || !p->panel.elements[static_cast<std::size_t>(ei)].enabled) {
@@ -1197,6 +1404,135 @@ struct Interface3D::Impl {
         return false;
     }
 
+    // ------------------------------------------------- PLATT PANEL: MUSEN
+    // Spaken som pekar på en levande panel rullar den och tas från förflyttningen,
+    // också i neutralläget — så att första utslaget redan är panelens.
+    void flatStick(Hand hand, PanelRt& p, const HandIn& in, gfx::Pointf px, bool inside)
+    {
+        stickClaim[handIndex(hand)] = true;
+        if (inside && in.stickY != 0.0)
+            queueFlat(p, {wheelEvent(px, wheelRows(in.stickY, dt))});
+    }
+
+    // Handen pekar på ytan: hover, och ett tryck som tar musen. Panelen har EN
+    // mus — den hand som trycker behåller den, en annan tar den först när
+    // ingen trycker och den själv börjar trycka.
+    void handleFlat(Hand hand, HandRt& hs, PanelRt& p, const Target& target, const HandIn& in,
+                    bool grabEdge, bool triggerEdge)
+    {
+        const FlatSurface s = flatSurfaceOf(p);
+        if (!s.valid)
+            return;
+        if (!target.ray) {
+            hs.wandProx  = target.tip.proximity;
+            hs.wandHover = p.panel.style.element.hover;
+        }
+        if (grabEdge && p.panel.grabbable) {
+            beginGrab(hand, hs, p, std::string(), in);
+            return;
+        }
+
+        bool pressEdge = triggerEdge;
+        if (!target.ray) {
+            const double depth = pressDepthOf(target.tip.penetration, kFlatTravel);
+            if (depth < kPressOff)
+                hs.pokeArmed = true;
+            pressEdge = hs.pokeArmed && depth >= kPressOn;
+        }
+        if (p.mouseHand && *p.mouseHand != hand && (p.mouse.down || !pressEdge))
+            return;
+
+        const gfx::Pointf px = flatPixelOf(s, target.local);
+        const bool inside    = flatInside(px, s.pxWidth, s.pxHeight);
+        p.mouseHand   = hand;
+        p.mouseDriven = true;
+        FlatMouseInput mi;
+        mi.present = true;
+        mi.px      = px;
+        mi.inside  = inside;
+        mi.down    = pressEdge && inside;
+        queueFlat(p, stepFlatMouse(p.mouse, mi));
+        if (p.mouse.down) {
+            Engaged eng;
+            eng.panel      = p.panel.id;
+            eng.via        = target.ray ? Via::Trigger : Via::Poke;
+            eng.flat       = true;
+            hs.engaged     = std::move(eng);
+            hs.pokePressed = !target.ray;
+            hs.pokeArmed   = false;
+            hs.wandProx    = 1.0;
+            haptic(hand, 0.35, 0.03);
+        }
+        flatStick(hand, p, in, px, inside);
+    }
+
+    // Håller ett musknapptryck vid liv. Falskt när det tog slut: ett släpp ger
+    // MouseButtonUp, men en träff som försvinner, en hand som tappar
+    // spårningen eller en panel som göms avbryter utan klick.
+    bool updateFlatPress(Hand hand, HandRt& hs, const HandIn& in)
+    {
+        const Engaged& eng  = *hs.engaged;
+        PanelRt* p          = findPanel(eng.panel);
+        const FlatSurface s = p ? flatSurfaceOf(*p) : FlatSurface{};
+        if (!p || !s.valid || !p->shown() || p->mouseHand != hand) {
+            endPress(hand, hs, false);
+            return false;
+        }
+        const PointerState& ptr = states[handIndex(hand)];
+        FlatMouseInput mi;
+        mi.down = true;
+        bool released = false;
+        if (eng.via == Via::Poke) {
+            const std::optional<Vec3> tip = nearTip(ptr);
+            if (!tip) {
+                endPress(hand, hs, false);
+                return false;
+            }
+            const Vec3 local = panelLocal(*p, *tip);
+            if (local.y > s.geometry.thickness + kBehindPlate) {   // genom tavlan
+                endPress(hand, hs, false);
+                return false;
+            }
+            released   = stepPress(hs.pokePressed, pressDepthOf(local.y, kFlatTravel)) == PressEdge::Released;
+            mi.present = true;
+            mi.px      = flatPixelOf(s, local);
+            mi.inside  = flatInside(mi.px, s.pxWidth, s.pxHeight);
+        } else {
+            if (!isRay(ptr)) {
+                endPress(hand, hs, false);
+                return false;
+            }
+            const FlatRay r = flatRayOf(*p, s, ptr);
+            if (r.hit) {
+                mi.present = true;
+                mi.px      = r.px;
+                mi.inside  = r.inside;
+            }
+            released = !in.trigger;
+        }
+        queueFlat(*p, stepFlatMouse(p->mouse, mi));
+        p->mouseDriven = true;
+        if (released) {
+            endPress(hand, hs, true);
+            return false;
+        }
+        hs.wandProx  = 1.0;
+        hs.wandHover = p->panel.style.element.hover;
+        flatStick(hand, *p, in, p->mouse.pos, p->mouse.inside);
+        return true;
+    }
+
+    // Bildrutans slut för musen: en panel som ingen hand matade släpper den
+    // (hovern släcks; ett tryck som ingen höll avbryts utan klick).
+    void settleFlatMice()
+    {
+        for (PanelRt& p : panels) {
+            if (p.mouseHand && !p.mouseDriven)
+                cancelMouse(p);
+            p.mouseDriven = false;
+        }
+    }
+
     // ------------------------------------------------------------- GREPP
     void beginGrab(Hand hand, HandRt& hs, PanelRt& p, const std::string& element, const HandIn& in)
     {
@@ -1257,6 +1593,19 @@ struct Interface3D::Impl {
     void processHand(Hand hand, const HandIn& in, double rayReach)
     {
         HandRt& hs = hands[handIndex(hand)];
+        // Källan byttes eller bröts: tryck och grepp som handen höll är över,
+        // utan klick, och musen på en platt panel släpps.
+        if (in.epoch != hs.epoch) {
+            hs.epoch = in.epoch;
+            if (hs.engaged)
+                endPress(hand, hs, false);
+            if (hs.grab)
+                dropGrab(hand, hs);
+            for (PanelRt& p : panels)
+                if (p.mouseHand && *p.mouseHand == hand)
+                    cancelMouse(p);
+            hs.pokeArmed = false;
+        }
         const bool grabEdge    = in.grabLike && !hs.prevGrabLike;
         const bool triggerEdge = in.trigger && !hs.prevTrigger;
         hs.prevGrabLike = in.grabLike;
@@ -1288,6 +1637,10 @@ struct Interface3D::Impl {
         }
         PanelRt& p = panels[static_cast<std::size_t>(target->panel)];
 
+        if (target->flat) {   // ytan på en levande platt panel
+            handleFlat(hand, hs, p, *target, in, grabEdge, triggerEdge);
+            return;
+        }
         if (target->element < 0) {   // plattan
             if (!target->ray && pointers.hoverDistance > 0.0) {
                 hs.wandProx  = std::clamp(1.0 - target->distance / pointers.hoverDistance, 0.0, 1.0);
@@ -1565,11 +1918,54 @@ struct Interface3D::Impl {
         }
     }
 
+    // Tavlan: en låda (kanter, ram och baksida) med fönstrets bild som
+    // texturerad yta på framsidan, och stolpen rakt ned till marken.
+    void buildFlat(const PanelRt& p, std::vector<glaze::Shape>& out) const
+    {
+        const FlatContent& fc = *p.panel.flat;
+        const FlatGeometry g  = flatGeometryOf(p.panel);
+        if (!(g.surfaceWidth > 0.0) || !(g.surfaceHeight > 0.0))
+            return;
+        if (g.thickness > 0.0) {
+            glaze::MeshStyle ms;
+            ms.color = fc.style.body;
+            ms.lit   = true;
+            out.push_back(placed(p, unitBox(), Pose{Vec3{0.0, g.thickness / 2.0, 0.0}, Quaternion{}},
+                                 Vec3{g.boardWidth, g.thickness, g.boardHeight}, ms));
+        }
+        if (const glaze::Bitmap* image = flatImageOf(p); image && image->valid()) {
+            glaze::MeshStyle ms;
+            ms.color   = gfx::Color{255, 255, 255, 255};
+            ms.lit     = false;
+            ms.fog     = false;
+            ms.texture = glaze::ImageSource(*image);
+            out.push_back(placed(p, unitQuad(), Pose{Vec3{0.0, -kFaceLift, 0.0}, Quaternion{}},
+                                 Vec3{g.surfaceWidth, 1.0, g.surfaceHeight}, ms));
+        }
+        if (fc.style.stand.on && p.standGround) {
+            const Vec3 top = standTopOf(p, g);
+            const double height = top.z - *p.standGround;
+            if (height > 0.0) {
+                glaze::MeshStyle ms;
+                ms.color   = fc.style.stand.color;
+                ms.lit     = true;
+                ms.opacity = static_cast<float>(p.opacity());
+                out.push_back(glaze::Shape::cylinder(glaze::Point3{top.x, top.y, *p.standGround},
+                                                     std::max(1e-4, fc.style.stand.radius) * p.scale,
+                                                     height, ms));
+            }
+        }
+    }
+
     void rebuildShapes(PanelRt& p)
     {
         p.shapes.clear();
         if (!p.drawable())
             return;
+        if (p.panel.flat) {
+            buildFlat(p, p.shapes);
+            return;
+        }
         const PanelStyle& ps = p.panel.style;
         if (ps.backplate) {
             glaze::MeshStyle ms;
@@ -1582,6 +1978,64 @@ struct Interface3D::Impl {
         for (std::size_t i = 0; i < p.panel.elements.size() && i < p.elems.size(); ++i) {
             buildElement(p, i, p.shapes);
             p.elems[i].drawn = visualOf(p, i);
+        }
+    }
+
+    // ------------------------------------------------------ PLATTA PANELER
+    // Läser varje synlig levande panels bild, en gång per bildruta; ytans form
+    // byggs om bara när en ny bild kom.
+    void refreshFlats()
+    {
+        for (PanelRt& p : panels)
+            if (p.panel.flat && p.panel.flat->live && p.drawable() && p.panel.flat->live->refresh())
+                p.dirty = true;
+    }
+
+    // Marknivån (z) rakt under `from`: första scenytan utan gränssnittets eget
+    // lager. Tomt utan session eller träff.
+    std::optional<double> groundBelow(Vec3 from, double scale) const
+    {
+        if (!session)
+            return std::nullopt;
+        glaze::HitOptions options = defaultHoverOptions();
+        options.occlusion         = false;
+        options.maxDistance       = kStandProbeMetres * scale;
+        const glaze::Ray3 ray{{from.x, from.y, from.z}, {0.0, 0.0, -1.0}};
+        for (const glaze::HitResult& h : session->castRay(ray, options))
+            if (h.layer != layer)
+                return h.point ? h.point->z : from.z - h.distance;
+        return std::nullopt;
+    }
+
+    // Stolpens marknivå: `Stand::groundZ`, annars frågad rakt under tavlans
+    // underkant när panelen flyttats (och om igen med jämna mellanrum så länge
+    // ingen mark hittats).
+    void updateStands()
+    {
+        for (PanelRt& p : panels) {
+            if (!p.panel.flat)
+                continue;
+            const Stand& stand = p.panel.flat->style.stand;
+            std::optional<double> ground = p.standGround;
+            if (!stand.on) {
+                ground.reset();
+            } else if (stand.groundZ) {
+                ground = stand.groundZ;
+            } else if (p.drawable()) {
+                p.standAge += dt;
+                const bool moved = !p.standProbed || p.standWorld != p.world || p.standScale != p.scale;
+                if (session && (moved || (!ground && p.standAge >= kStandProbeSeconds))) {
+                    ground         = groundBelow(standTopOf(p, flatGeometryOf(p.panel)), p.scale);
+                    p.standProbed  = true;
+                    p.standWorld   = p.world;
+                    p.standScale   = p.scale;
+                    p.standAge     = 0.0;
+                }
+            }
+            if (ground != p.standGround) {
+                p.standGround = ground;
+                p.dirty       = true;
+            }
         }
     }
 
@@ -1631,7 +2085,7 @@ struct Interface3D::Impl {
                 continue;
             }
             const Vec3 centre = transformPoint(
-                p.world, vmul(Vec3{p.layout.plateU, p.panel.style.thickness / 2.0, p.layout.plateV}, p.scale));
+                p.world, vmul(Vec3{p.layout.plateU, plateThicknessOf(p.panel) / 2.0, p.layout.plateV}, p.scale));
             const double widen = p.condShown ? kVisibleWiden : 1.0;
 
             bool gazeOk = false;
@@ -1791,6 +2245,9 @@ struct Interface3D::Impl {
         // Synligheten först, på händernas egna lägen: den avgör vilka händer
         // som bär en synlig panel och därför inte har någon pekare.
         updateVisibility(f, ins);
+        stickClaim = {};
+        refreshFlats();
+        updateStands();
         std::array<std::optional<glaze::HitResult>, 2> scene;
         for (std::size_t h = 0; h < 2; ++h)
             resolvePointer(h == 0 ? Hand::Left : Hand::Right, f, ins[h], states[h], scene[h]);
@@ -1801,14 +2258,19 @@ struct Interface3D::Impl {
             const std::size_t h = handIndex(hand);
             processHand(hand, ins[h], scene[h] ? std::min(scene[h]->distance, rayLength) : rayLength);
         }
+        settleFlatMice();
         for (std::size_t h = 0; h < 2; ++h)
             composeHit(h == 0 ? Hand::Left : Hand::Right, states[h], scene[h]);
         finishStates();
-        // En hand som gränssnittet tar greppar inte världen i nästa bildruta.
+        // En hand som gränssnittet tar greppar inte världen i nästa bildruta,
+        // och en spak som rullar en panel varken går eller vrider.
         if (session) {
-            for (Hand hand : {Hand::Left, Hand::Right})
+            for (Hand hand : {Hand::Left, Hand::Right}) {
                 if (states[handIndex(hand)].consumed)
                     session->claimHand(hand);
+                if (stickClaim[handIndex(hand)])
+                    session->claimStick(hand);
+            }
         }
         updatePointerDraw(f, ins);
         redraw();
@@ -1818,7 +2280,16 @@ struct Interface3D::Impl {
 // ====================================================== OFFENTLIGA GRÄNSSNITTET
 Interface3D::Interface3D(glaze::Canvas& canvas, int layer) : impl_(std::make_unique<Impl>(canvas, layer)) {}
 
-Interface3D::~Interface3D() = default;
+// En panel som släpps med musen nedtryckt får sitt avbrott: de platta
+// panelernas fönster lever längre än gränssnittet.
+Interface3D::~Interface3D()
+{
+    Impl& m = *impl_;
+    for (PanelRt& p : m.panels)
+        if (p.mouseHand)
+            m.cancelMouse(p);
+    m.deliverFlat();
+}
 
 void Interface3D::addPanel(Panel panel)
 {
@@ -1829,6 +2300,8 @@ void Interface3D::setPanel(const std::string& id, Panel panel)
 {
     Impl& m  = *impl_;
     panel.id = id;
+    if (panel.flat)
+        panel.elements.clear();   // plattan är tavlan; element hör till de andra panelerna
     PanelRt* p = m.findPanel(id);
     if (!p) {
         m.panels.emplace_back();
@@ -1842,6 +2315,7 @@ void Interface3D::setPanel(const std::string& id, Panel panel)
     p->custom  = custom;
     p->elems.resize(p->panel.elements.size());
     m.layerDirty = true;
+    m.deliverFlat();
 }
 
 void Interface3D::removePanel(const std::string& id)
@@ -1856,6 +2330,7 @@ void Interface3D::removePanel(const std::string& id)
     for (auto d = m.drawers.begin(); d != m.drawers.end();)
         d = d->first.first == id ? m.drawers.erase(d) : std::next(d);
     m.layerDirty = true;
+    m.deliverFlat();
 }
 
 const Panel* Interface3D::panel(const std::string& id) const
@@ -1898,7 +2373,7 @@ std::optional<Pose> Interface3D::panelPose(const std::string& id) const
 void Interface3D::setElement(const std::string& panel, Element element)
 {
     PanelRt* p = impl_->findPanel(panel);
-    if (!p)
+    if (!p || p->panel.flat)
         return;
     const int i = Impl::findElement(*p, element.id);
     if (i < 0) {
@@ -1991,9 +2466,10 @@ void Interface3D::setDrawer(const std::string& panel, const std::string& element
 void Interface3D::update(const FrameInfo& frame, Session* session)
 {
     impl_->run(frame, session);
+    // Händelserna fyras sist: en callback får ändra paneler och element.
+    impl_->deliverFlat();
     if (impl_->events.empty())
         return;
-    // Händelserna fyras sist: en callback får ändra paneler och element.
     std::vector<ElementEvent> events = std::move(impl_->events);
     impl_->events.clear();
     if (!onElement)

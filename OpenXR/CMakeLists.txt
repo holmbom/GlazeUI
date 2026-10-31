@@ -55,6 +55,15 @@ if(TARGET glaze AND WIN32)
         src/placement.cpp        # pose ↔ glaze::Placement
         src/interface3d.cpp      # 3D-gränssnitten: paneler, element, pekare
         src/interface3d_logic.cpp   # 3D-gränssnittets rena delar: layout, tryckdjup, värden
+        src/flat_panel.cpp       # platta paneler: widgetträdet i ett offscreen-fönster
+        src/flat_panel_logic.cpp # platta panelers rena delar: träffpunkt → px, musens tillstånd
+        src/vr_keyboard.cpp      # VR-tangentbordet: panelen och händelserna till en platt panel
+        src/vr_keyboard_logic.cpp   # tangentbordets rena delar: layouterna, tangent → händelser
+        src/hand_logic.cpp       # händerna som ingång: härlett sikte, källval, knapparna
+        src/hand_visual.cpp      # händerna ritade som linjer i ett eget lager
+        src/hand_navigation.cpp  # förflyttning med händerna: nyp som virtuell spak, teleport
+        src/comfort_logic.cpp    # komforten: vinjettens styrka och svarttoningens förlopp
+        src/comfort_pass.cpp     # vinjetten och svarttoningen ritade per öga ovanpå scenen
     )
     if(GLAZE_SHARED)
         _glaze_shared_library(glaze_openxr_ui glaze_openxr_ui)

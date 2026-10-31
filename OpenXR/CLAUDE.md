@@ -66,7 +66,17 @@ skapas i användarkoden (som `glaze::Worker`).
 | `include/glaze_openxr/interface3d.h` | publik: `Interface3D` — paneler (`Panel`, `Mount`, `Visibility`, `Layout`, `Element`, stilarna), pekaren (`PointerMode`, `Pointers`, `PointerState`), `ElementEvent`, `ElementDrawer` |
 | `src/interface3d.cpp` | `Interface3D::Impl`: panelernas placering och ritning i gränssnittets lager, synligheten, pekarna (upplösning, mål, ritning), tryck, dragningar och grepp, vibrationen och `claimHand` |
 | `src/interface3d_logic.h/.cpp` | de rena delarna: layouten, spetsen, blickvinkeln, synlighetsvillkoren och toningen |
-| `src/vector_ops.h` | internt, ren std: vektorräkningen (`vadd` … `vnormalized`, `kPi`) som kärnan, förflyttningen och gränssnittet delar |
+| `include/glaze_openxr/flat_panel.h` | publik: `FlatPanel` — ett offscreen-`AppWindow` vars bild visas på en platt panel |
+| `include/glaze_openxr/vr_keyboard.h` | publik: `VrKeyboard`, `KeyboardLayout`, `keyboardLayout` |
+| `src/flat_panel.cpp` | `FlatPanel`: utan ram och offscreen, `sendEvent` → `handleEvent`, `refresh` → `updateOffscreen`, `snapshot`, inga ägda fönster |
+| `src/flat_panel_logic.h/.cpp` | platta panelers rena delar: tavlans mått, träff → px, strålen och spetsen mot ytan, musens tillstånd per hand (`stepFlatMouse`), hjulet |
+| `src/vr_keyboard.cpp`, `src/vr_keyboard_logic.h/.cpp` | tangentbordet: panelen, vipporna och händelserna; layouterna och tangent → `KeyDown`/`TextInput`/`KeyUp` |
+| `include/glaze_openxr/hand_visual.h`, `src/hand_visual.cpp` | `HandVisual`: de spårade händerna som linjer i ett eget lager |
+| `src/hand_logic.h/.cpp` | händerna som ingång, rent: knapparnas hysteres och flanker (`ButtonTracker`, `cut` vid källbyte), härlett sikte (`deriveAim`, `AimSmoother`), nyp/grepp, källvalet (`HandSource`) |
+| `src/hand_navigation.h/.cpp` | förflyttning med händerna, rent: `HandNavigator` (virtuell spak, teleportnyp, neutral återgång, gränssnittet först) |
+| `src/comfort_logic.h/.cpp` | komforten, rent: rörelsemätningen, `Vignette`, öppningens form, `TeleportFade` |
+| `src/comfort_pass.h/.cpp` | vinjetten och svarttoningen per öga: en enprovs-vy utan djup av varje swapchain-bild, `pushTargetPreserved`, en fullskärmstriangel (HLSL) |
+| `src/vector_ops.h` | internt, ren std: vektor- och vinkelräkningen (`vadd` … `vnormalized`, `allFinite`, `wrapDegrees`, `unitValue`, `kPi`, `kRad`) som kärnan, händerna, komforten, förflyttningen och gränssnittet delar |
 | `src/hands.h` | internt: `handIndex` (0 vänster, 1 höger) |
 | `cmake/OpenXRLoader.cmake` | FetchContent av loadern + `glaze_openxr_runtime(<target>)` |
 
@@ -182,6 +192,17 @@ målen och passet; den gör avvecklingen själv och släpper XR-tråden.
   `CanvasBridge` avgör greppet när det börjar och håller beslutet till
   släppet: ett som börjar medan handen är tagen drar aldrig världen, ett som
   redan drar fortsätter.
+- **Platta paneler** (`Panel::flat`): plattans mått är tavlans, så placering,
+  synlighet och grepp är de vanliga. Tavlan ritas som en låda med ytan
+  (`unitQuad` + bitmappens textur) på framsidan och valfri stolpe ned till
+  `Stand::groundZ` eller första scenytan under (kastet görs om när panelen
+  flyttats). `refresh()` frågas en gång per bildruta för varje synlig
+  levande panel; formerna byggs om bara vid ny bild. Bara levande paneler
+  är musmål: en musägare per panel (pågående tryck vinner), avtryckaren
+  eller tryckdjupet är vänster knapp, spaken ger `MouseWheel` och
+  `claimStick`. Avbrott (dold panel, tappad spårning eller fokus, spetsen
+  genom tavlan, panelen byts) ger `MouseCaptureLost`, aldrig ett klick.
+  Händelserna köas och skickas efter bildrutan i `update`.
 - Scenträffarna går genom `Session::castRay` och hoppar över gränssnittets
   eget lager och utan ocklusion (pekaren och panelerna skymmer aldrig
   scenen): ETT kast per hand framför spetsen räcker för både Auto-valet och
@@ -191,6 +212,27 @@ målen och passet; den gör avvecklingen själv och släpper XR-tråden.
 - Utan fokus avbryts ett tryck utan klick, ett grepp släpps och inget nytt
   börjar. Vredet lägger ihop bildrutornas vridningar, så mer än ett halvt
   varv i ett grepp går.
+
+## Händerna och komforten
+
+- **Källan per hand** (`actions.cpp`, `hand_logic`): kontroll före hand före
+  ingen. Handens sikte: `XR_EXT_hand_interaction` (profilen
+  `/interaction_profiles/ext/hand_interaction_ext`, ingen haptik), annars
+  `XR_FB_hand_tracking_aim` (kedjad på `xrLocateHandJointsEXT`), annars
+  härlett ur lederna. Lederna läses FÖRE `Actions::sync` så källvalet ser
+  dem. Ett byte (eller tappad spårning, systemgest) ger släppflanker,
+  `inputEpoch`++ och spärr av redan hållna gester tills de släppts.
+- **Handnavigationen** (`hand_navigation`) körs i `applyLocomotion` och
+  ersätter spakvärdena för en hand vars källa är handen. Ett nyp som börjar
+  medan handen är tagen (`claimHand`, förra bildrutan) blir ingen gest;
+  `navigationReserved` gäller bara medan gesten pågår.
+- **Komforten** (`comfort_logic`, `comfort_pass`): vinjetten mäts runt
+  `Mover::update` ur förankringens ändring med samma huvudpose (en landning
+  är ett hopp, ingen fart). Med `teleportFade` lämnar `Mover` en
+  landningsbegäran och `teleportTo` köas; flytten sker i bildrutan efter att
+  en helt svart bild lämnats in (tidsgräns 0,5 s, aldrig fast i svart).
+  Passet ritas efter `ExternalCanvasPass::render` i ett eget offscreen-block,
+  före bildsläppet. Scenens MSAA-mål återbinds aldrig.
 
 ## Fallgropar
 

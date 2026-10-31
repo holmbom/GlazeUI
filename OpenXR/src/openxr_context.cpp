@@ -1,6 +1,9 @@
 #include "openxr_context.h"
 
+#include "hand_logic.h"
+
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <exception>
@@ -531,6 +534,10 @@ bool XrRuntime::createInstance(const Options& options, std::string& error) {
     // Handspårningen aktiveras bara när appen begär den; `handTracking`
     // sätts sedan om systemet har den.
     const bool handExtension = options.handTracking && has(XR_EXT_HAND_TRACKING_EXTENSION_NAME);
+    // Siktet och nypet ur runtimen kräver handspårningen; handprofilen kan
+    // finnas utan (kontrollerna mappas dit), men begärs också av `handTracking`.
+    extensions_.handAim = handExtension && has(XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME);
+    extensions_.handInteraction = options.handTracking && has(XR_EXT_HAND_INTERACTION_EXTENSION_NAME);
 
     std::vector<const char*> enabled{XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
     if (extensions_.bdController) enabled.push_back(XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
@@ -538,6 +545,8 @@ bool XrRuntime::createInstance(const Options& options, std::string& error) {
     if (extensions_.refreshRate)  enabled.push_back(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
     if (extensions_.localFloor)   enabled.push_back(XR_EXT_LOCAL_FLOOR_EXTENSION_NAME);
     if (handExtension)            enabled.push_back(XR_EXT_HAND_TRACKING_EXTENSION_NAME);
+    if (extensions_.handAim)      enabled.push_back(XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME);
+    if (extensions_.handInteraction) enabled.push_back(XR_EXT_HAND_INTERACTION_EXTENSION_NAME);
 
     auto info = xrStruct<XrInstanceCreateInfo>(XR_TYPE_INSTANCE_CREATE_INFO);
     copyName(info.applicationInfo.applicationName, sizeof(info.applicationInfo.applicationName), "GlazeUI");
@@ -613,6 +622,7 @@ bool XrRuntime::createSystem(const Options&, std::string& error) {
             extensions_.handTracking = false;
         }
     }
+    if (!extensions_.handTracking) extensions_.handAim = false;
 
     // Stereo med ogenomskinlig blandning: det enda läge sessionen ritar för.
     std::uint32_t count = 0;
@@ -770,6 +780,9 @@ void OpenXrContext::locateHands(XrTime time, std::array<HandSample, 2>& out) con
         auto locations = xrStruct<XrHandJointLocationsEXT>(XR_TYPE_HAND_JOINT_LOCATIONS_EXT);
         locations.jointCount = XR_HAND_JOINT_COUNT_EXT;
         locations.jointLocations = joints.data();
+        // Runtimens eget sikte, nypstyrka och systemgest hänger på ledlistan.
+        auto aim = xrStruct<XrHandTrackingAimStateFB>(XR_TYPE_HAND_TRACKING_AIM_STATE_FB);
+        if (runtime_->extensions().handAim) locations.next = &aim;
         auto locateInfo = xrStruct<XrHandJointsLocateInfoEXT>(XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT);
         locateInfo.baseSpace = trackingSpace_;
         locateInfo.time = time;
@@ -787,6 +800,16 @@ void OpenXrContext::locateHands(XrTime time, std::array<HandSample, 2>& out) con
             target.radius = joints[joint].radius;
         }
         computeHandMetrics(sample);
+        if (runtime_->extensions().handAim) {
+            sample.systemGesture = (aim.status & XR_HAND_TRACKING_AIM_SYSTEM_GESTURE_BIT_FB) != 0;
+            sample.aimPose = fromXr(aim.aimPose);
+            sample.aimPinch = aim.pinchStrengthIndex;
+            // Siktet gäller bara när runtimen säger det och posen är hel.
+            const Quaternion& q = sample.aimPose.orientation;
+            const double norm = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+            sample.aimValid = (aim.status & XR_HAND_TRACKING_AIM_VALID_BIT_FB) != 0 && std::isfinite(norm) &&
+                              norm > 0.5 && allFinite(sample.aimPose.position);
+        }
     }
 }
 
@@ -807,6 +830,16 @@ bool OpenXrContext::requestRefreshRate(float hz) {
 }
 
 // ================================================================ HANDMÅTT
+
+// Ledernas platser i hand_logic.h är OpenXR:s.
+static_assert(kJointPalm == XR_HAND_JOINT_PALM_EXT && kJointWrist == XR_HAND_JOINT_WRIST_EXT &&
+              kJointThumbTip == XR_HAND_JOINT_THUMB_TIP_EXT &&
+              kJointIndexProximal == XR_HAND_JOINT_INDEX_PROXIMAL_EXT &&
+              kJointIndexTip == XR_HAND_JOINT_INDEX_TIP_EXT &&
+              kJointMiddleTip == XR_HAND_JOINT_MIDDLE_TIP_EXT && kJointRingTip == XR_HAND_JOINT_RING_TIP_EXT &&
+              kJointLittleMetacarpal == XR_HAND_JOINT_LITTLE_METACARPAL_EXT &&
+              kJointLittleTip == XR_HAND_JOINT_LITTLE_TIP_EXT && XR_HAND_JOINT_COUNT_EXT == 26,
+              "ledernas ordning");
 
 namespace {
 

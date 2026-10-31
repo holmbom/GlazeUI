@@ -703,6 +703,13 @@ void AppWindow::showOwned(AppWindow* owner)
     // nästlad popup (undermeny i en meny) hade då stängt sin egen förälder.
     // `owner` bär kedjan som ska överleva; vi själva är ännu inte öppna och
     // hoppas över ändå.
+    // Ägaren kan spärra fönster den äger (`acceptsOwnedWindow`).
+    if (owner && !owner->acceptsOwnedWindow(*this)) {
+        gfx::log("AppWindow::show: \"%s\" öppnas inte — ägaren tar inga ägda fönster",
+                 title_.str().c_str());
+        return;
+    }
+
     if (popup_)
         app->closePopupsNow(owner);
 
@@ -2385,6 +2392,7 @@ void AppWindow::renderContent(gfx::Window& win)
     // Rotens storlek (`root().onResize`) — innehållsytan; rotens `resolve` är
     // 0 × 0. Barnen noteras i vandringarna nedan.
     noteSize(root_, c.area, c.scale);
+    ++contentRevision_;   // en ny bild ritas (`updateOffscreen`)
 
     if (full) {
         // Klassiska vägen — ritar allt.
@@ -5557,6 +5565,31 @@ void AppWindow::handleEvent(const gfx::Event& e)
     default:
         break;
     }
+}
+
+// ---------------------------------------------- offscreen-bilden
+
+AppWindow::OffscreenUpdate AppWindow::updateOffscreen(Bitmap& target)
+{
+    if (!offscreen_ || !open_ || !win_)
+        return OffscreenUpdate::Unavailable;
+    if (contentRevision_ == capturedRevision_ && target.valid())
+        return OffscreenUpdate::Unchanged;
+    std::vector<std::uint8_t> rgba;
+    int w = 0, h = 0;
+    if (!win_->captureFrame(rgba, w, h) || w <= 0 || h <= 0)
+        return OffscreenUpdate::Unavailable;
+    if (target.valid() && target.width() == w && target.height() == h && target.pixels())
+        target.setPixels(0, 0, w, h, rgba.data());
+    else
+        target = Bitmap(w, h, rgba.data());
+    capturedRevision_ = contentRevision_;
+    return target.valid() ? OffscreenUpdate::Updated : OffscreenUpdate::Unavailable;
+}
+
+bool AppWindow::acceptsOwnedWindow(const AppWindow&) const
+{
+    return true;
 }
 
 } // namespace glaze

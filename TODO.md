@@ -132,3 +132,5 @@ Utanför grinden. Inte mindre viktigt — men inte villkor för släppet, och f�
 - 💡 **Sidopaketet OpenXR till `main`** — [arkiverad plan](doc/plans/archive/2026-10-30_OPENXR_DIREKT.md)
   Branchen `OpenXR` mergas när hela sviten (statisk, delad och röktest) är grön; där körs i dag bara de berörda grindarna.
   3D-gränssnittet ([arkiverad plan](doc/plans/archive/2026-10-30_OPENXR_GRANSSNITT3D.md)) är provat i headset; `interface3d_gate` är skriven men inte körd.
+  Platta paneler och VR-tangentbordet ([arkiverad plan](doc/plans/archive/2026-10-30_OPENXR_PLATTA_PANELER.md)) är klara; `flat_panel_gate` och `vr_keyboard_gate` är skrivna men inte körda.
+  Händer och komfort ([arkiverad plan](doc/plans/archive/2026-10-30_OPENXR_HANDER_KOMFORT.md)) är klara; `hand_input_gate`, `hand_navigation_gate` och `comfort_gate` är skrivna men inte körda.

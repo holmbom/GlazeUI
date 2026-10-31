@@ -158,9 +158,13 @@ struct PoseSample {
 // ligger i spårningsrummet (OpenXR:s axlar); knapparna är redan lösta efter
 // dödzon, hysteres och profilens tillgängliga knappar.
 struct ControllerSample {
+    Controller::Source source = Controller::Source::None;   // vägen som matar handen
+    std::uint64_t      inputEpoch = 0;                       // ökar vid källbyte eller avbrott
     PoseSample grip;
     PoseSample aim;
     PoseSample palm;
+    PoseSample pinch;   // hand-källan: nypets punkt
+    PoseSample poke;    // hand-källan: pekfingrets topp
     // Handens hastighet (grip) i spårningsrummet: m/s och rad/s.
     bool velocityValid = false;
     Vec3 linearVelocity;
@@ -183,6 +187,12 @@ struct HandSample {
     std::array<JointSample, 26> joints{};
     double pinch = 0.0;
     double grab  = 0.0;
+    // XR_FB_hand_tracking_aim, när runtimen har den: siktet och nypets styrka
+    // (pekfingret) så som runtimen räknat dem, och om de gäller.
+    bool         aimValid      = false;
+    bool         systemGesture = false;   // handen gör systemets gest — ingen appinteraktion
+    TrackingPose aimPose;
+    double       aimPinch = 0.0;
 };
 
 // Ett ögas läge och synfält så som runtimen gav dem.

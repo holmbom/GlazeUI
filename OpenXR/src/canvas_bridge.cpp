@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <gfx/camera.h>
+#include <gfx/platform.h>
 #include <glaze/canvas/external_pass.h>
 
 namespace glaze::openxr::detail {
@@ -142,6 +143,15 @@ bool CanvasBridge::importImages(const std::array<EyeImageSet, 2>& eyes, std::str
             targets_[eye].push_back(std::move(target));
         }
     }
+
+    // Komforten ritar i egna enprovsmål av samma bilder. Går dess program inte
+    // att bygga saknas vinjetten och svarttoningen (loggat), men VR går.
+    comfort_ = std::make_unique<ComfortPass>(renderer);
+    if (comfort_->usable()) {
+        for (std::size_t eye = 0; eye < 2; ++eye) {
+            if (!comfort_->importImages(eye, eyes[eye], error)) return false;
+        }
+    }
     return true;
 }
 
@@ -165,7 +175,7 @@ void CanvasBridge::recenter(double yawDegrees) {
 bool CanvasBridge::teleportTo(const Vec3& feet, const std::optional<double>& yawDegrees) {
     if (!std::isfinite(feet.x) || !std::isfinite(feet.y) || !std::isfinite(feet.z)) return false;
     if (yawDegrees && !std::isfinite(*yawDegrees)) return false;
-    pendingTeleport_ = PendingTeleport{feet, yawDegrees};
+    pendingTeleport_ = Landing{feet, yawDegrees};
     return true;
 }
 
@@ -175,6 +185,24 @@ void CanvasBridge::setLocomotion(const Locomotion& locomotion) {
 
 void CanvasBridge::claimHand(Hand hand) {
     claimed_[handIndex(hand)] = true;
+}
+
+void CanvasBridge::claimStick(Hand hand) {
+    stickClaimed_[handIndex(hand)] = true;
+}
+
+void CanvasBridge::setComfort(const Comfort& comfort) {
+    options_.comfort = comfort;
+    // Utan svartoning utförs en teleportering som väntar på den direkt.
+    if (!comfort.teleportFade) {
+        const std::optional<Landing> waiting = fade_.flush();
+        if (waiting && !pendingTeleport_) pendingTeleport_ = *waiting;
+    }
+    if (!comfort.vignette) vignette_.reset();
+}
+
+bool CanvasBridge::comfortReady() const {
+    return comfort_ && comfort_->usable();
 }
 
 std::vector<glaze::HitResult> CanvasBridge::castRay(const glaze::Ray3& ray,
@@ -324,8 +352,12 @@ bool CanvasBridge::mapCameraStart(CameraStart& start, std::string& error) const 
 // Det appen begärt sedan förra bildrutan. En ny förankring ersätter den
 // gamla; `recenter` ställer huvudet där det står i världen nu, vänt åt den
 // begärda riktningen, med förankringens skala; `teleportTo` sätter fötterna
-// på den begärda punkten på samma sätt som den inbyggda landningen.
+// på den begärda punkten på samma sätt som den inbyggda landningen — med
+// `Comfort::teleportFade` genom svarttoningen, annars direkt.
 void CanvasBridge::applyRequests(const FrameRequest& request) {
+    // En ny förankring är en rörelse (en app kan flytta användaren med den
+    // varje bildruta); centrering och landning är hopp och mäts från efter dem.
+    motionStart_ = *anchor_;
     if (pendingAnchor_) {
         anchor_ = *pendingAnchor_;
         pendingAnchor_.reset();
@@ -333,18 +365,37 @@ void CanvasBridge::applyRequests(const FrameRequest& request) {
     }
     if (pendingRecenter_ && request.headValid) {
         if (const auto centered = faceYaw(*anchor_, request.head, *pendingRecenter_)) {
-            anchor_ = *centered;
+            anchor_      = *centered;
+            motionStart_ = *anchor_;
             mover_.cancel();
         }
         pendingRecenter_.reset();
     }
-    if (pendingTeleport_ && request.headValid) {
-        if (placeFeet(*anchor_, request.head, request.floorHeight, pendingTeleport_->feet,
-                      pendingTeleport_->yawDegrees)) {
-            mover_.cancel();
+    if (pendingTeleport_) {
+        if (options_.comfort.teleportFade && comfortReady()) {
+            fade_.request(*pendingTeleport_);
+            pendingTeleport_.reset();
+        } else if (request.headValid) {
+            land(request, *pendingTeleport_);
+            pendingTeleport_.reset();
         }
-        pendingTeleport_.reset();
     }
+    advanceFade(request);
+}
+
+// Svarttoningens bildruta: hur svart den ritas, och flytten som hör till en
+// svart bildruta som lämnats in. Flytten sker i början av nästa bildruta.
+void CanvasBridge::advanceFade(const FrameRequest& request) {
+    const TeleportFade::Step step =
+        fade_.advance(request.deltaSeconds, request.focused, request.headValid, options_.comfort);
+    fadeAlpha_ = step.alpha;
+    if (step.move && request.headValid) land(request, *step.move);
+}
+
+// Fötterna på landningsplatsen; en pågående gest börjar om från den nya förankringen.
+void CanvasBridge::land(const FrameRequest& request, const Landing& landing) {
+    if (placeFeet(*anchor_, request.head, request.floorHeight, landing.feet, landing.yawDegrees)) mover_.cancel();
+    motionStart_ = *anchor_;
 }
 
 // Plockningens vy: huvudet, med ett synfält som rymmer båda ögonens. Den
@@ -374,6 +425,34 @@ void CanvasBridge::applyLocomotion(const FrameRequest& request) {
     input.head = request.head;
     input.floorHeight = request.floorHeight;
     input.rayLengthMetres = options_.rayLengthMetres;
+    Locomotion settings = options_.locomotion;
+
+    // Händerna som spakar: nypet ger samma värden som kontrollens spak, för en
+    // hand vars källa är handen.
+    NavigationInput navigation;
+    navigation.mode = settings.handNavigation;
+    navigation.rangeMetres = settings.handStickRangeMetres;
+    navigation.deadzone = options_.stickDeadzone;
+    navigation.focused = request.focused;
+    navigation.headValid = request.headValid;
+    navigation.head = request.head;
+    for (std::size_t hand = 0; hand < 2; ++hand) {
+        const ControllerSample& in = request.controllers[hand];
+        NavigationHand& out = navigation.hands[hand];
+        out.source = in.source;
+        out.epoch = in.inputEpoch;
+        out.tracked = in.pinch.valid;
+        out.pinching = in.buttons[static_cast<std::size_t>(Button::Trigger)].pressed;
+        out.pinchPoint = in.pinch.pose.position;
+        out.claimed = claimed_[hand];   // `claimHand` från förra bildrutans onFrame
+    }
+    const NavigationOutput handSticks = handNavigator_.update(navigation);
+    navigationReserved_ = handSticks.reserved;
+    // Ett nyp som tappade spårningen är inget släpp: vägen avbryts utan landning.
+    if (handSticks.aborted[1]) mover_.cancelTeleport();
+    // Teleportering med höger hands nyp behöver inte slås på separat.
+    if (settings.handNavigation == HandNavigation::Teleport && handSticks.drives[1]) settings.teleport = true;
+
     for (std::size_t hand = 0; hand < 2; ++hand) {
         const ControllerSample& in = request.controllers[hand];
         LocomotionHand& out = input.hands[hand];
@@ -381,8 +460,18 @@ void CanvasBridge::applyLocomotion(const FrameRequest& request) {
         out.aimValid = in.aim.valid;
         out.grip = in.grip.pose;
         out.aim = in.aim.pose;
-        out.stickX = in.stickX;
-        out.stickY = in.stickY;
+        out.stickX = handSticks.drives[hand] ? handSticks.stickX[hand] : in.stickX;
+        out.stickY = handSticks.drives[hand] ? handSticks.stickY[hand] : in.stickY;
+        // En tagen spak når inte förflyttningen, och spärren håller tills
+        // spaken släppts till mitten.
+        const bool moved = out.stickX != 0.0 || out.stickY != 0.0;
+        stickHeld_[hand] = moved && (stickHeld_[hand] || stickClaimed_[hand]);
+        if (stickClaimed_[hand] || stickHeld_[hand]) {
+            out.stickX = 0.0;
+            out.stickY = 0.0;
+            if (hand == 1)   // teleporteringen är högerhandens
+                mover_.cancelTeleport();
+        }
         // Greppet avgörs när det börjar och gäller till släppet: ett som
         // börjar medan handen är tagen drar aldrig världen, ett som redan drar
         // fortsätter.
@@ -394,13 +483,30 @@ void CanvasBridge::applyLocomotion(const FrameRequest& request) {
         heldSqueeze_[hand] = squeeze;
         out.squeeze        = worldSqueeze_[hand];
     }
-    claimed_ = {};
+    claimed_      = {};
+    stickClaimed_ = {};
     const SegmentCast segment = [this](const glaze::Ray3& ray, double maxDistance) {
         glaze::HitOptions options = options_.hoverOptions;
         options.maxDistance = maxDistance;
         return cast(ray, options);
     };
-    mover_.update(input, options_.locomotion, *anchor_, segment);
+
+    // Med svartoning går teleporteringens landning genom den.
+    input.deferLanding = options_.comfort.teleportFade && comfortReady();
+    mover_.update(input, settings, *anchor_, segment);
+    if (const std::optional<Landing> landing = mover_.takeLanding()) fade_.request(*landing);
+
+    // Vinjetten mäts ur förflyttningen som just utfördes, appens nya förankring
+    // medräknad. En direkt landning är ett hopp och ger ingen vinjett.
+    if (options_.comfort.vignette) {
+        MotionSample motion;
+        motion.deltaSeconds = request.deltaSeconds;
+        if (request.headValid && !mover_.landed())
+            motion = measureMotion(motionStart_, *anchor_, request.head, request.deltaSeconds, mover_.snapped());
+        vignette_.update(motion, options_.comfort);
+    } else {
+        vignette_.reset();
+    }
 }
 
 FrameInfo CanvasBridge::makeFrameInfo(const FrameRequest& request) {
@@ -421,6 +527,11 @@ FrameInfo CanvasBridge::makeFrameInfo(const FrameRequest& request) {
         out.grip = toTracked(anchor, in.grip);
         out.aim = toTracked(anchor, in.aim);
         out.palm = toTracked(anchor, in.palm);
+        out.pinch = toTracked(anchor, in.pinch);
+        out.poke = toTracked(anchor, in.poke);
+        out.source = in.source;
+        out.inputEpoch = in.inputEpoch;
+        out.navigationReserved = navigationReserved_[hand];
         out.velocityValid = in.velocityValid;
         if (in.velocityValid) {
             out.linearVelocity = toWorldVector(anchor.yawDegrees, anchor.scale, in.linearVelocity);
@@ -481,6 +592,8 @@ FrameInfo CanvasBridge::makeFrameInfo(const FrameRequest& request) {
 
 bool CanvasBridge::renderEyes(const FrameRequest& request, std::string& error) {
     std::array<glaze::detail::ExternalCanvasView, 2> views;
+    std::array<ComfortPass::Eye, 2> comfortEyes;
+    const double vignetteStrength = options_.comfort.vignette ? vignette_.strength() : 0.0;
     for (std::size_t eye = 0; eye < 2; ++eye) {
         const EyeView& in = request.eyes[eye];
         const auto world = toWorldPose(*anchor_, in.pose);
@@ -494,12 +607,28 @@ bool CanvasBridge::renderEyes(const FrameRequest& request, std::string& error) {
         }
         views[eye] = glaze::detail::ExternalCanvasView{
             targets_[eye][index].get(), viewFrom(*world, *tangents, sizes_[eye], options_, anchor_->scale)};
+        comfortEyes[eye].imageIndex = index;
+        comfortEyes[eye].tangents = *tangents;
+        comfortEyes[eye].shape = vignetteShape(in.fov, vignetteStrength, options_.comfort);
     }
     std::string renderError;
     if (!pass_->render(std::span<const glaze::detail::ExternalCanvasView>(views), renderError)) {
         error = "Canvas kunde inte rita ögonen" +
                 (renderError.empty() ? std::string(".") : ": " + renderError);
         return false;
+    }
+
+    // Komforten ovanpå scenen: vinjetten och svarttoningen. Ett misslyckande är
+    // inget fel för sessionen, men en svart bildruta som uteblev räknas inte
+    // som inlämnad.
+    if (comfortReady() && (vignetteStrength > 0.0 || fadeAlpha_ > 0.0)) {
+        std::string comfortError;
+        if (comfort_->draw(comfortEyes, fadeAlpha_, comfortError)) {
+            if (fadeAlpha_ >= 1.0) fade_.blackSubmitted();
+        } else if (!comfortFailureLogged_) {
+            comfortFailureLogged_ = true;
+            gfx::log("komforten kunde inte ritas: %s", comfortError.c_str());
+        }
     }
     return true;
 }
@@ -527,6 +656,8 @@ gfx::GpuCompletionState CanvasBridge::pollRelease(std::string& error) {
 
 void CanvasBridge::release() {
     completion_.reset();
+    if (comfort_) comfort_->release();
+    comfort_.reset();
     for (auto& eye : targets_) {
         while (!eye.empty()) eye.pop_back();
     }
