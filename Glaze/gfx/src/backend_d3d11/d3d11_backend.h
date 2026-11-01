@@ -122,10 +122,15 @@ void        logAdapter(const std::vector<DxgiAdapter>& kort,
 
 // Klippmaskernas HLSL (cbuffer b1 + sdRoundRect + clipCoverage) — klistras
 // före VARJE pixelshader som ritar i ett mål med klippstacken, annars gäller
-// de rundade maskerna inte för programmet. Och målarens klipp:
-// cbuffer b5 + `sceneClip(p)`, som scenens program multiplicerar
-// alfan med och som KASTAR fragmentet utanför (`SceneClip`, gfx/scene.h).
+// de rundade maskerna inte för programmet.
 extern const char kHlslClipSrc[];
+
+// MÅLARENS KLIPP (d3d11_renderer.cpp) — cbuffer b5, maskerna t4–t5/s4–s5,
+// `glaze_clipScreen(p)` och `glaze_clip(px, local)` (gfx/program.h), som
+// KASTAR fragmentet där täckningen är 0 (`SceneClip`, gfx/scene.h). EN
+// definition: efter klippmaskernas del i scenens fyra program och i de egna
+// programmens förspel.
+extern const char kHlslSceneClipSrc[];
 
 // Färgens HLSL (d3d11_fill.cpp): scenens cbuffer b2 med
 // alla fält, rampen på t0, den linjära samplern på s0 och `paintColor(p)` —
@@ -678,16 +683,19 @@ private:
                   "och rymmas i scenens buffert");
 
     // MÅLARENS KLIPP — PS-cbuffern b5, samma layout som HLSL:ns
-    // `cbuffer SceneClip` (kHlslClipSrc): kantplanen som float4 och antalet i
-    // meta.x. Bunden i `bindPipelineState` bredvid maskerna; `bindSceneClip`
-    // skriver den bara när ett rit-anrops klipp skiljer från `sceneClip_` —
-    // det bufferten bär — så ett anrop utan klipp efter ett utan laddar inte
-    // upp något. false när den inte gick att skriva: anropet ritas då inte.
+    // `cbuffer GlazeClip` (kHlslSceneClipSrc): skärmmaskens yta, världsmaskens
+    // uv-affin och flaggorna i meta (.x skärmmask, .y världsmask). Bunden i
+    // `bindPipelineState`; `bindSceneClip` skriver den bara när ett rit-anrops
+    // klipp skiljer från `sceneClip_` — det bufferten bär — och binder alltid
+    // maskernas SRV:er på t4–t5 (en mask som ritats om sedan sist hade
+    // annars kunnat sitta bortnollad av bindTarget). false när blocket inte
+    // gick att skriva: anropet ritas då inte.
     struct SceneClipCb {
-        float planes[kMaxClipPlanes][4];
+        float rect[4];
+        float world[4];
         float meta[4];
     };
-    static_assert(sizeof(SceneClipCb) == 144 && sizeof(SceneClipCb) % 16 == 0,
+    static_assert(sizeof(SceneClipCb) == 48 && sizeof(SceneClipCb) % 16 == 0,
                   "SceneClipCb måste vara 16-byte-packad som HLSL:ns b5");
     bool bindSceneClip(const MeshDraw& d);
 
@@ -709,6 +717,7 @@ private:
     ComPtr<ID3D11Buffer>       sceneCbuf_;   // b2: scenens uniformer
     ComPtr<ID3D11Buffer>       sceneClipCbuf_;   // b5: målarens klipp
     SceneClip                  sceneClip_;       // det b5 bär
+    bool                       clipSrvsBound_ = false;   // t4–t5 bär en mask
     // LINE3: samma källa med GLAZE_POS3 och en egen input
     // layout för `LineVertex3`. Misslyckas den loggas det och Line3 ritar
     // inget — Line-programmet står kvar.

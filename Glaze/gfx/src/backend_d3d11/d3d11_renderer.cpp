@@ -146,9 +146,7 @@ bool D3dRenderer::initComposition(HWND hwnd)
 // KLIPPMASKERNAS DEL — delad av UI-pipelinens och scenens pixelshaders
 // (d3d11_scene.cpp). Varje program som ritar i ett mål med klippstacken
 // MÅSTE ha den, annars gäller de rundade maskerna inte för det;
-// därför står den på ETT ställe och klistras före båda källorna. Här
-// bor också MÅLARENS KLIPP (`sceneClip`) — scenens fyra källor
-// läser det, UI:t inte (kompilatorn stryker en oanvänd cbuffer).
+// därför står den på ETT ställe och klistras före båda källorna.
 const char kHlslClipSrc[] = R"hlsl(
 // RUNDADE KLIPPMASKER — EGEN cbuffer bunden
 // till PIXELSHADERN. b0 är VS:ens viewportbuffer och rörs INTE: att "utöka
@@ -185,30 +183,62 @@ float clipCoverage(float2 p)
     return cov;
 }
 
-// MÅLARENS KLIPP (gfx::SceneClip) — EGEN cbuffer b5, bunden till
-// PIXELSHADERN och läst bara av scenens program (b3 och b4 är de egna
-// programmens): en konvex yta i målets px som kantplan (nx, ny, d),
-// positivt inne. Arraylängden MÅSTE matcha gfx::kMaxClipPlanes.
-cbuffer SceneClip : register(b5)
+)hlsl";
+
+// MÅLARENS KLIPP (gfx::SceneClip) — TVÅ MASKER i render-målsbilder, läst av
+// scenens fyra program och de egna programmen (förspelet, `glaze_clip`);
+// UI:t läser dem inte. Blocket är EGEN cbuffer b5 bunden till PIXELSHADERN,
+// maskerna t4 (skärm) och t5 (värld) med var sin linjära, klampade sampler
+// s4/s5. Täckningen är maskens ALFA; utanför maskens yta är den 0, och utan
+// mask samplas ingenting (en uniform gren). Namnen börjar på glaze_ som
+// förspelets övriga.
+const char kHlslSceneClipSrc[] = R"hlsl(
+cbuffer GlazeClip : register(b5)
 {
-    float4 gSceneClip[8];
-    float4 gSceneClipMeta;   // .x = antal plan, 0 = inget klipp
+    float4 glaze_clipRect;    // skärmmaskens yta: x, y, w, h i målets px
+    float4 glaze_clipWorld;   // världsmaskens uv = local * xy + zw
+    float4 glaze_clipMeta;    // .x 1 = skärmmask, .y 1 = världsmask
+}
+Texture2D    glaze_clipScreenTex : register(t4);
+Texture2D    glaze_clipWorldTex  : register(t5);
+SamplerState glaze_clipScreenSmp : register(s4);
+SamplerState glaze_clipWorldSmp  : register(s5);
+
+// Maskens täckning i uv: alfan inne i [0, 1]², annars 0. SampleLevel, så
+// att anropet står i en gren utan derivator.
+float glaze_clipSample(Texture2D t, SamplerState s, float2 uv)
+{
+    if (any(uv < 0.0) || any(uv > 1.0))
+        return 0.0;
+    return t.SampleLevel(s, uv, 0).a;
 }
 
-// Täckningen i p (pixelcentrum i målets px): närmaste plans avstånd + ½,
-// kantutjämnat som maskerna — och där den är 0 KASTAS fragmentet, så det
-// varken färgar eller skriver djup. Utan plan 1. Bara i ett pixelsteg.
-float sceneClip(float2 p)
+// SKÄRMMASKEN i p (pixelcentrum i målets px, SV_Position.xy): täckningen
+// 0–1, och där den är 0 KASTAS fragmentet — det varken färgar eller skriver
+// djup. Utan skärmmask 1.
+float glaze_clipScreen(float2 p)
 {
-    const int n = (int)(gSceneClipMeta.x + 0.5);
-    if (n == 0)
-        return 1.0;
-    float d = 1.0e30;
-    for (int i = 0; i < n; ++i)
-        d = min(d, dot(gSceneClip[i].xy, p) + gSceneClip[i].z);
-    const float cov = saturate(d + 0.5);
-    if (cov <= 0.0)
-        discard;
+    float cov = 1.0;
+    if (glaze_clipMeta.x > 0.5) {
+        cov = glaze_clipSample(glaze_clipScreenTex, glaze_clipScreenSmp,
+                               (p - glaze_clipRect.xy) / glaze_clipRect.zw);
+        if (cov <= 0.0)
+            discard;
+    }
+    return cov;
+}
+
+// BÅDA maskerna: skärmmaskens täckning gånger världsmaskens i `local`
+// (vertexens chunk-lokala xy, interpolerat). Kastar vid 0.
+float glaze_clip(float2 px, float2 local)
+{
+    float cov = glaze_clipScreen(px);
+    if (glaze_clipMeta.y > 0.5) {
+        cov *= glaze_clipSample(glaze_clipWorldTex, glaze_clipWorldSmp,
+                                local * glaze_clipWorld.xy + glaze_clipWorld.zw);
+        if (cov <= 0.0)
+            discard;
+    }
     return cov;
 }
 )hlsl";

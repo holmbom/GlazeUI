@@ -44,10 +44,15 @@ void unregisterWindowId(WindowId id);
 // Klippmaskernas MSL (metal_renderer.mm): `#include <metal_stdlib>`,
 // sdRoundRect, `struct ClipMasks` och clipCoverage. Klistras före VARJE
 // bibliotek vars fragmentfunktion ritar i ett mål med klippstacken —
-// UI-pipelinens och scenens. Och målarens klipp:
-// `struct SceneClip` och `sceneClip(p, sc)`, som scenens fragmentfunktioner
-// multiplicerar alfan med och som KASTAR fragmentet utanför.
+// UI-pipelinens och scenens.
 extern const char kMslClipSrc[];
+
+// Målarens klipp i MSL (metal_renderer.mm): `struct GlazeClipBlock`,
+// `GlazeClipArgs`, makron `GLAZE_CLIP_PARAMS`/`GLAZE_CLIP_ARGS`, `glaze_clipScreen`
+// och `glaze_clip(px, local, clip)` (gfx/program.h), som KASTAR fragmentet där
+// täckningen är 0. EN definition: efter klippmaskernas del i scenens program
+// och efter prelude i de egna programmens förspel (som bär metal_stdlib).
+extern const char kMslSceneClipSrc[];
 
 // Färgens MSL (metal_fill.mm): `struct PaintU` och
 // `paintColor` — klistras efter klippmaskernas del i Fill-, Line- och
@@ -510,18 +515,22 @@ private:
     void setClipMasks(const RoundedClip* masks, std::size_t count);
     void bindClipMasks();   // ÄVEN från startEncoder — se metal_renderer.mm
 
-    // MÅLARENS KLIPP: fragmentbuffert 4 för scenens program, samma
-    // layout som MSL:ns `struct SceneClip` (kMslClipSrc) — kantplanen som
-    // float4 och antalet i meta.x. Index 4 ligger utanför de egna programmens
-    // block (2 och 3), så en Custom-ritning rör det inte. `bindSceneClip`
-    // binder anropets klipp när encodern saknar en bindning
-    // (`sceneClipBound_`, nollad i startEncoder — encoder-state försvinner
-    // vid varje ny encoder) eller när klippet skiljer från `sceneClip_`.
+    // MÅLARENS KLIPP: fragmentbuffert 4, texture(4–5) och sampler(4) — samma
+    // layout som MSL:ns `struct GlazeClipBlock` (kMslSceneClipSrc): skärm-
+    // maskens yta, världsmaskens uv-affin och flaggorna i meta (.x skärmmask,
+    // .y världsmask). Index 4 ligger utanför de egna programmens block (2 och
+    // 3), så ett eget program delar platserna med scenens. `bindSceneClip`
+    // binder anropet när encodern saknar en bindning (`sceneClipBound_`,
+    // nollad i startEncoder — encoder-state försvinner vid varje ny encoder)
+    // eller när klippet skiljer från `sceneClip_`; en mask binds om vid varje
+    // anrop, och utan mask står den vita 1×1-texturen på platserna (en
+    // oanvänd men obunden textur är ett valideringsfel).
     struct SceneClipBuf {
-        float planes[kMaxClipPlanes][4];
+        float rect[4];
+        float world[4];
         float meta[4];
     };
-    static_assert(sizeof(SceneClipBuf) == 144 && sizeof(SceneClipBuf) % 16 == 0,
+    static_assert(sizeof(SceneClipBuf) == 48 && sizeof(SceneClipBuf) % 16 == 0,
                   "SceneClipBuf måste vara 16-byte-packad som MSL:ns struct");
     void      bindSceneClip(const MeshDraw& d);
     SceneClip sceneClip_;               // det encodern har bundet

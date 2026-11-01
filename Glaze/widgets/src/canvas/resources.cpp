@@ -65,7 +65,8 @@ std::string rampKey(const std::vector<GradientStop>& stops)
 
 CanvasResources::CanvasResources(gfx::Renderer& r)
     : r_(&r), objects_(std::make_unique<detail::ObjectResidency>(r)),
-      drapes_(std::make_unique<detail::DrapeCache>(r))
+      drapes_(std::make_unique<detail::DrapeCache>(r)),
+      clips_(std::make_unique<detail::ClipMasks>(r))
 {
 }
 
@@ -82,6 +83,13 @@ void CanvasResources::trim()
     retiredTargets_.clear();
     objects_->trim();   // föremålen (residency.h)
     drapes_->trim();    // draperingarna (drape.h)
+    clips_->trim();     // klippmaskerna (clip.h)
+    {
+        const std::uint64_t serial = r_->frameSerial();
+        std::erase_if(pageTargets_, [serial](const std::unique_ptr<PageTarget>& p) {
+            return p->used + 2 < serial;
+        });
+    }
 
     // DÖTT: chunkar och körningar som byggts om eller vars rityta rivits.
     for (auto it = chunks_.begin(); it != chunks_.end();)
@@ -650,6 +658,22 @@ CanvasResources::target3D(const std::shared_ptr<detail::SceneData>& scene,
         t.drawn   = false;
     }
     return t;
+}
+
+std::unique_ptr<gfx::RenderTarget>& CanvasResources::pageTarget(int w, int h)
+{
+    const std::uint64_t serial = r_->frameSerial();
+    for (const std::unique_ptr<PageTarget>& p : pageTargets_)
+        if (p->w == w && p->h == h && p->used != serial) {
+            p->used = serial;
+            return p->target;
+        }
+    auto p  = std::make_unique<PageTarget>();
+    p->w    = w;
+    p->h    = h;
+    p->used = serial;
+    pageTargets_.push_back(std::move(p));
+    return pageTargets_.back()->target;
 }
 
 void CanvasResources::dropViews(std::uint64_t sceneId, int firstView)

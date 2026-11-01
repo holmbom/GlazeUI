@@ -401,7 +401,7 @@ bool bindMesh(const Pass& p, const ObjectResidency::GpuMesh& g,
 // `instCount` > 0.
 void drawSegments(const Pass& p, const ObjectResidency::GpuMesh& g,
                   const MeshBinding& b, const gfx::FrameUniforms& frame,
-                  std::uint32_t lo, std::uint32_t hi,
+                  const Point3& origin, std::uint32_t lo, std::uint32_t hi,
                   const gfx::GpuBuffer* instBuf, std::uint32_t firstInst,
                   std::uint32_t instCount)
 {
@@ -435,6 +435,7 @@ void drawSegments(const Pass& p, const ObjectResidency::GpuMesh& g,
         d.userBytes = b.userBytes;
         d.textures  = b.textures;
         d.state     = p.state;
+        p.f.clip.apply(d.uniforms.clip, true, origin.x, origin.y);
         p.f.c->r->drawMesh(d);
     }
 }
@@ -506,8 +507,8 @@ void drawMeshObject(const Pass& p, const Shape& s,
         switch (bindCustom(p.f, p.scene, st.program, g.layout, st.uniforms,
                            st.textures, b)) {
         case Bound::Ready:
-            drawSegments(p, g, b, customFrame(p, origin, model), lo, hi, nullptr,
-                         0, 0);
+            drawSegments(p, g, b, customFrame(p, origin, model), origin, lo, hi,
+                         nullptr, 0, 0);
             return;
         case Bound::Wait:
             return;
@@ -519,7 +520,7 @@ void drawMeshObject(const Pass& p, const Shape& s,
     const DrapeView* drape = p.drapes ? p.drapes->find(entryId) : nullptr;
     if (!bindMesh(p, g, st, model, false, b, drape, origin))
         return;
-    drawSegments(p, g, b, frameAt(p, origin), lo, hi, nullptr, 0, 0);
+    drawSegments(p, g, b, frameAt(p, origin), origin, lo, hi, nullptr, 0, 0);
 }
 
 // ---- INSTANSERNA: cell för cell, sammanslagna per block och nivå
@@ -563,8 +564,9 @@ void drawInstanceObject(const Pass& p, const Shape& s,
     } följd;
     const auto rita = [&] {
         if (följd.open && följd.count > 0)
-            drawSegments(p, g, b, frameAt(p, set->blocks[följd.block]), följd.lo,
-                         följd.hi, gi.buf.get(), följd.first, följd.count);
+            drawSegments(p, g, b, frameAt(p, set->blocks[följd.block]),
+                         set->blocks[följd.block], följd.lo, följd.hi,
+                         gi.buf.get(), följd.first, följd.count);
         följd.open = false;
     };
     for (const InstanceCell& c : set->cells) {
@@ -657,6 +659,7 @@ void drawPointObject(const Pass& p, const Shape& s,
         dr.userBytes     = b.userBytes;
         dr.textures      = b.textures;
         dr.state         = p.state;
+        p.f.clip.apply(dr.uniforms.clip, true, c.origin.x, c.origin.y);
         p.f.c->r->drawMesh(dr);
     }
 }
@@ -796,6 +799,7 @@ void drawScreenPass(const PaintContext& f, const SceneData& sc, const Shape& s,
     d.userBytes   = b.userBytes;
     d.textures    = b.textures;
     d.state       = state;
+    f.clip.apply(d.uniforms.clip, false, 0.0, 0.0);   // bara skärmmasken
     f.c->r->drawMesh(d);
 }
 

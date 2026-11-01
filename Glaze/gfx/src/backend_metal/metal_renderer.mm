@@ -129,28 +129,74 @@ float clipCoverage(float2 p, constant ClipMasks& cm)
     return cov;
 }
 
-// MÅLARENS KLIPP (gfx::SceneClip) — kantplanen (nx, ny, d) i målets
-// px, positivt inne, på fragmentbuffert 4 (`bindSceneClip`); bara scenens
-// program läser dem. Arrayens längd MÅSTE matcha gfx::kMaxClipPlanes.
-struct SceneClip {
-    float4 planes[8];
-    float4 meta;   // .x = antal plan, 0 = inget klipp
-};
+)msl";
 
-// HLSL:ns sceneClip rad för rad: närmaste plans avstånd + ½, och där
-// täckningen är 0 KASTAS fragmentet — varken färg eller djup. Bara ur en
-// fragmentfunktion.
-float sceneClip(float2 p, constant SceneClip& sc)
+// MÅLARENS KLIPP (gfx::SceneClip) — TVÅ MASKER i render-målsbilder, läst av
+// scenens program och de egna programmen (förspelet, `glaze_clip`). Blocket
+// ligger på fragmentbuffert 4, maskerna på texture(4) (skärm) och texture(5)
+// (värld) med samplern sampler(4) — linjär och klampad (`bindSceneClip`).
+// Täckningen är maskens ALFA; utanför maskens yta är den 0, och utan mask
+// samplas ingenting. Ett fragment med täckning 0 KASTAS — varken färg eller
+// djup. Bara ur en fragmentfunktion.
+//
+// En fragmentfunktion deklarerar platserna med `GLAZE_CLIP_PARAMS` (som
+// sista parametrar i listan) och lämnar dem vidare som `GLAZE_CLIP_ARGS`.
+const char kMslSceneClipSrc[] = R"msl(
+struct GlazeClipBlock {
+    float4 rect;    // skärmmaskens yta: x, y, w, h i målets px
+    float4 world;   // världsmaskens uv = local * xy + zw
+    float4 meta;    // .x 1 = skärmmask, .y 1 = världsmask
+};
+struct GlazeClipArgs {
+    constant GlazeClipBlock* block;
+    texture2d<float>         screen;
+    texture2d<float>         world;
+    sampler                  smp;
+};
+#define GLAZE_CLIP_PARAMS \
+    constant GlazeClipBlock& glaze_clipBlock [[buffer(4)]], \
+    texture2d<float> glaze_clipScreenTex [[texture(4)]], \
+    texture2d<float> glaze_clipWorldTex [[texture(5)]], \
+    sampler glaze_clipSmp [[sampler(4)]]
+#define GLAZE_CLIP_ARGS \
+    GlazeClipArgs{&glaze_clipBlock, glaze_clipScreenTex, glaze_clipWorldTex, \
+                  glaze_clipSmp}
+
+// Maskens täckning i uv: alfan inne i [0, 1]², annars 0. level(0), så att
+// anropet får stå i en gren utan derivator.
+inline float glaze_clipSample(texture2d<float> t, sampler s, float2 uv)
 {
-    const int n = (int)(sc.meta.x + 0.5);
-    if (n == 0)
-        return 1.0;
-    float d = 1.0e30;
-    for (int i = 0; i < n; ++i)
-        d = min(d, dot(sc.planes[i].xy, p) + sc.planes[i].z);
-    const float cov = saturate(d + 0.5);
-    if (cov <= 0.0)
-        discard_fragment();
+    if (any(uv < 0.0) || any(uv > 1.0))
+        return 0.0;
+    return t.sample(s, uv, level(0)).a;
+}
+
+// SKÄRMMASKEN i p ([[position]].xy, pixelcentrum i målets px): täckningen
+// 0–1, och där den är 0 kastas fragmentet. Utan skärmmask 1.
+inline float glaze_clipScreen(float2 p, GlazeClipArgs clip)
+{
+    float cov = 1.0;
+    if (clip.block->meta.x > 0.5) {
+        cov = glaze_clipSample(clip.screen, clip.smp,
+                               (p - clip.block->rect.xy) / clip.block->rect.zw);
+        if (cov <= 0.0)
+            discard_fragment();
+    }
+    return cov;
+}
+
+// BÅDA maskerna: skärmmaskens täckning gånger världsmaskens i `local`
+// (vertexens chunk-lokala xy, interpolerat). Kastar vid 0.
+inline float glaze_clip(float2 px, float2 local, GlazeClipArgs clip)
+{
+    float cov = glaze_clipScreen(px, clip);
+    if (clip.block->meta.y > 0.5) {
+        cov *= glaze_clipSample(clip.world, clip.smp,
+                                local * clip.block->world.xy +
+                                    clip.block->world.zw);
+        if (cov <= 0.0)
+            discard_fragment();
+    }
     return cov;
 }
 )msl";

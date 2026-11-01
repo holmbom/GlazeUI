@@ -19,6 +19,13 @@
 //      luckan, och nederkanten under luckan ritas ändan. Utan rubrik: en
 //      enda kontur och inget klipp.
 //
+//   4. MÄTCACHEN — en ram i en ram mäter sina barn EN gång per nyckel, och en
+//      ändring i delträdet (`invalidate()`, text, synlighet) når den yttre
+//      ramen. SABOTAGE: en `measure` som går förbi cachen (räknaren i 4 blir 3
+//      i stället för 1), en `invalidate()` som inte stegar förfäderna (den
+//      yttre ramens mått ligger kvar), och en `setText` som inte
+//      invaliderar (rubrikbredden uteblir).
+//
 // VAD DEN INTE MÄTER: hur det SER UT (pixlar — pixel_gate mäter att ramen
 // ritar och att rubriken syns, ögat via glaze-render resten), och sömmen
 // som snäppningen av luckans kanter tar bort (den syns bara i en riktig
@@ -338,6 +345,78 @@ void fallLuckan()
           std::to_string(u.size()));
 }
 
+// ------------------------------------------------------ 4. mätcachen
+
+// Ett löv med ett fast mått och en räknare: facit för hur många gånger
+// `contentSize` faktiskt kördes.
+struct Räknande final : glaze::Widget {
+    Räknande(float w, float h) : bw(w), bh(h) {}
+    void        draw(const glaze::Ctx&) override {}
+    float       bw, bh;
+    mutable int mätningar = 0;
+
+protected:
+    gfx::Sizef contentSize(const glaze::Ctx&) const override
+    {
+        ++mätningar;
+        return gfx::Sizef{bw, bh};
+    }
+};
+
+void fallMatcache()
+{
+    const glaze::Style& st = glaze::defaultStyle(glaze::UI::Slate);
+    FalskFont           f(7.0f, 13.0f);
+    const glaze::Ctx    c = ctxFör(st, f);
+
+    // Yttre ram ⊃ inre ram ⊃ löv 40×20. Inre: 40 + 16 = 56 × 20 + 13 + 16 = 49.
+    // Yttre: 56 + 16 = 72 × 49 + 13 + 16 = 78.
+    glaze::GroupBox yttre, inre;
+    Räknande        löv(40.0f, 20.0f);
+    inre.adopt(löv);
+    yttre.adopt(inre);
+
+    gfx::Sizef s = Meter::measure(yttre, c);
+    Meter::measure(yttre, c);
+    Meter::measure(yttre, c);
+    check(nära(s.w, 72.0f) && nära(s.h, 78.0f),
+          "cache: ram i ram — barnens utsträckning plus luften två gånger",
+          std::to_string(s.w) + "×" + std::to_string(s.h));
+    check(löv.mätningar == 1,
+          "cache: tre frågor till den yttre ramen mäter lövet EN gång",
+          std::to_string(löv.mätningar));
+
+    // Lövet ändras och invalideras: båda ramarna ser det.
+    löv.bw = 100.0f;
+    löv.invalidate();
+    s = Meter::measure(yttre, c);
+    check(nära(s.w, 132.0f) && nära(s.h, 78.0f),
+          "cache: invalidate() på lövet når den yttre ramens mått",
+          std::to_string(s.w) + "×" + std::to_string(s.h));
+    check(löv.mätningar == 2, "cache: …och lövet mäts om en gång",
+          std::to_string(löv.mätningar));
+
+    // Rubriken på den YTTRE ramen: ramen mäts om, lövet i delträdet inte.
+    yttre.setText(std::string(40, 'x'));
+    s = Meter::measure(yttre, c);
+    check(nära(s.w, 280.0f + 2.0f * (st.groupTitleIndent + st.groupTitleGap)),
+          "cache: ny rubrik på den yttre ramen — rubriken är bredast",
+          std::to_string(s.w));
+    check(löv.mätningar == 2,
+          "cache: …utan att delträdet mäts om", std::to_string(löv.mätningar));
+
+    // Ett dolt löv tar inte plats: den inre ramen är tom (16×29), den yttre
+    // 16 + 16 = 32 hög 29 + 13 + 16 = 58 (bredden är rubrikens).
+    löv.hide();
+    s = Meter::measure(yttre, c);
+    check(nära(s.h, 58.0f), "cache: ett dolt löv räknas inte",
+          std::to_string(s.h));
+    löv.show();
+    s = Meter::measure(yttre, c);
+    check(nära(s.h, 78.0f), "cache: visat igen räknas lövet",
+          std::to_string(s.h));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -352,6 +431,7 @@ int main(int argc, char** argv)
     fallInneryta();
     fallAutostorlek();
     fallLuckan();
+    fallMatcache();
 
     std::printf("\n%s — %d fall, %d fel\n",
                 g_fails == 0 ? "GROUPBOX_GATE GRÖN" : "GROUPBOX_GATE FÄLLD",

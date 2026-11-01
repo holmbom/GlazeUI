@@ -42,6 +42,15 @@
 //                 med bildcache och rityta (dock_gate:s flytande panel gör
 //                 den vägen).
 //
+//   MÄTCACHEN     (fall 10) en lossning, en utlämning och en flytt ändrar de
+//                 mått som cachats i BÅDA kedjorna — den gamla förälderns och
+//                 den nya — men rör inte syskonens delträd. SABOTAGEN som ska
+//                 fälla fallet: en `detach` som inte stegar den gamla kedjan
+//                 (den gamla föräldern behåller sitt mått), en `adopt` som inte
+//                 stegar den nya (den nya förälderns mått uteblir), och en
+//                 lossning som stegar förfädernas syskon (syskonets räknare
+//                 stiger).
+//
 // TVÅDELAD som dropdown_gate: headless för allt som inte kräver ett
 // fönster, och ett DOLT fönster (`setOffscreen`, som i window_gate)
 // för deny-fallen — de körs som en KEDJA AV POSTADE STEG, för `App::post`
@@ -598,6 +607,123 @@ void fallFlytten()
     }
 }
 
+// ----------------------------------------------------- 10. MÄTCACHEN
+
+// Ett löv med ett fast mått och en räknare, och en komposit vars mått är
+// barnens utsträckning — facit för vad som mäts om.
+struct Matt final : glaze::Widget {
+    Matt(float w, float h) : bw(w), bh(h) {}
+    void        draw(const glaze::Ctx&) override {}
+    float       bw, bh;
+    mutable int mätningar = 0;
+
+protected:
+    gfx::Sizef contentSize(const glaze::Ctx&) const override
+    {
+        ++mätningar;
+        return gfx::Sizef{bw, bh};
+    }
+};
+
+struct Samling final : glaze::Widget {
+    void draw(const glaze::Ctx&) override {}
+    // `measure` är protected; grinden når den genom den egna typen.
+    gfx::Sizef mät(const glaze::Ctx& c) const { return measure(*this, c); }
+
+protected:
+    gfx::Sizef contentSize(const glaze::Ctx& c) const override
+    {
+        return childrenExtent(c);
+    }
+};
+
+void fallMatcache()
+{
+    std::printf("\n=== 10. MÄTCACHEN: lossning, utlämning och flytt ===\n");
+
+    glaze::Ctx c{};
+    c.scale = 1.0f;
+    c.ui    = glaze::UI::Slate;
+    c.style = &glaze::defaultStyle(glaze::UI::Slate);
+    c.theme = &glaze::Theme::slateDefault().light;
+
+    const auto mått = [](const gfx::Sizef& s) {
+        return std::to_string(static_cast<int>(s.w)) + "x" +
+               std::to_string(static_cast<int>(s.h));
+    };
+
+    // (a) unadopt: förälderns mått krymper, syskonet mäts inte om.
+    {
+        Samling rot;
+        Matt    a(10.0f, 10.0f), b(30.0f, 5.0f);
+        a.dock = glaze::Dock::Top;
+        b.dock = glaze::Dock::Top;
+        rot.adopt(a);
+        rot.adopt(b);
+        check(mått(rot.mät(c)) == "30x15", "(a) två Top-remsor — 30x15",
+              mått(rot.mät(c)));
+        check(rot.unadopt(b), "(a) unadopt(b)");
+        check(mått(rot.mät(c)) == "10x10",
+              "(a) efter lossningen mäts föräldern om — 10x10",
+              mått(rot.mät(c)));
+        check(a.mätningar == 1, "(a) syskonet mäts INTE om",
+              std::to_string(a.mätningar));
+        rot.adopt(b);
+        check(mått(rot.mät(c)) == "30x15",
+              "(a) åter-adoption ger 30x15 igen", mått(rot.mät(c)));
+    }
+
+    // (b) releaseOwned: ett ÄGT barn lämnas ut och föräldern mäts om.
+    {
+        Samling rot;
+        auto*   ägt = new Matt(40.0f, 20.0f);
+        rot.adopt(std::unique_ptr<glaze::Widget>(ägt));
+        check(mått(rot.mät(c)) == "40x20", "(b) ägt barn — 40x20",
+              mått(rot.mät(c)));
+        std::unique_ptr<glaze::Widget> ut = rot.releaseOwned(*ägt);
+        check(ut != nullptr, "(b) releaseOwned lämnar ut barnet");
+        check(mått(rot.mät(c)) == "0x0",
+              "(b) föräldern är tom efter utlämningen — 0x0",
+              mått(rot.mät(c)));
+    }
+
+    // (c) transferChild: BÅDA kedjorna mäts om.
+    {
+        Samling rot1, rot2;
+        Matt    a(10.0f, 10.0f), b(5.0f, 5.0f);
+        rot1.adopt(a);
+        rot1.adopt(b);
+        check(mått(rot1.mät(c)) == "10x10" && mått(rot2.mät(c)) == "0x0",
+              "(c) före flytten", mått(rot1.mät(c)) + " | " + mått(rot2.mät(c)));
+        b.x = 20.0f;   // rått fält: det är flytten som ommäter föräldern
+        check(rot1.transferChild(a, rot2), "(c) transferChild(a, rot2)");
+        check(mått(rot1.mät(c)) == "25x5",
+              "(c) gamla kedjan mäts om — bara b kvar, 25x5",
+              mått(rot1.mät(c)));
+        check(mått(rot2.mät(c)) == "10x10",
+              "(c) nya kedjan mäts om — a har kommit, 10x10",
+              mått(rot2.mät(c)));
+        rot2.transferChild(a, rot1);   // hem före rivningen
+    }
+
+    // (d) Ett djupt delträd: en lossning långt ner når roten.
+    {
+        Samling rot, mitt;
+        Matt    löv(8.0f, 8.0f), syskon(3.0f, 3.0f);
+        rot.adopt(mitt);
+        mitt.adopt(löv);
+        rot.adopt(syskon);
+        check(mått(rot.mät(c)) == "8x8", "(d) 8x8 med löv och syskon",
+              mått(rot.mät(c)));
+        check(mitt.unadopt(löv), "(d) unadopt(löv) i mitten");
+        check(mått(rot.mät(c)) == "3x3",
+              "(d) roten ser lossningen två nivåer ner — 3x3",
+              mått(rot.mät(c)));
+        check(syskon.mätningar == 1, "(d) syskonet i roten mäts inte om",
+              std::to_string(syskon.mätningar));
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -617,6 +743,7 @@ int main(int argc, char** argv)
     fallInbyggda();
     fallFokus();
     fallFlytten();
+    fallMatcache();
     fallDeny();
 
     // ÖVERHOPPNING FÅR INTE SE UT SOM GRÖNT: en maskin utan display ger

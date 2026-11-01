@@ -501,12 +501,24 @@ egen fil; backendarnas 3D-del hade inte rymts under 1000 rader).
 - **UI-pipelinens del i scenen** (`d3d11_renderer.cpp`): klippmaskernas
   HLSL är **`kHlslClipSrc`** (cbuffer b1 + `sdRoundRect` + `clipCoverage`),
   klistrad före BÅDE UI:ts och Line-programmets källa (`compileHlsl`). Där
-  bor också MÅLARENS KLIPP (REQ8 1): cbuffer **b5** (`SceneClipCb`, 144
-  byte) och `sceneClip(p)` — scenens fyra källor multiplicerar alfan med den
-  och den `discard`:ar utanför (inget djup); UI:t läser den inte.
-  `bindPipelineState` binder b5 bredvid b1, och **`bindSceneClip`**
-  (d3d11_scene.cpp) skriver den bara när anropets klipp skiljer från
-  `sceneClip_` (det b5 bär — inget klipp från `initScene`), och
+  MÅLARENS KLIPP står i **`kHlslSceneClipSrc`** (egen del, klistrad efter
+  `kHlslClipSrc` i scenens fyra källor och i de egna programmens förspel; UI:t
+  läser den inte): cbuffer **b5** `GlazeClip` (`SceneClipCb`, 48 byte:
+  `rect` = skärmmaskens x, y, w, h · `world` = världsmaskens uv-affin · `meta`
+  .x skärmmask, .y världsmask), maskerna **t4** (skärm) och **t5** (värld)
+  med den linjära, klampade `samplerLinear_` på **s4/s5**, och funktionerna
+  `glaze_clipScreen(p)` (2D-programmen, p = `SV_Position.xy`) och
+  `glaze_clip(px, local)` (båda maskerna) — täckningen är maskens ALFA, 0
+  utanför ytan (`screenRect`, uv utanför [0, 1]²) och `discard` vid 0, så
+  inget djup skrivs. Line3 klipps på `ppos` (linjens chunk-lokala punkt) och
+  Glyph3 på ankaret (`clipLocal`, ett eget varying). Utan masker hoppar en
+  uniform gren över samplingen (`SampleLevel`). `bindPipelineState` binder
+  b5 bredvid b1, och **`bindSceneClip`** (d3d11_scene.cpp, också från
+  `drawCustomMesh`) binder maskernas SRV:er på t4–t5 vid VARJE anrop med
+  mask (`bindTarget` nollar dem, `clipSrvsBound_`) och skriver blocket bara
+  när anropets klipp skiljer från `sceneClip_` (det b5 bär — inget klipp från
+  `initScene`); `resourceError` släpper igenom `GlazeClip` och `glaze_clip*`
+  i de egna programmens reflektion, och
   **`pipeline_`**: `drawMesh` flushar UI-batchen först och lämnar sitt
   program bundet; **`flush()`** — det enda stället UI-pipelinen ritar —
   återbinder layout, vertexbuffert och shaders (`bindUiPipeline`) innan sin

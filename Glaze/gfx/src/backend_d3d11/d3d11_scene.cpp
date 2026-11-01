@@ -5,7 +5,7 @@
 //   * cbuffer b2 är scenens; b0 (UI:ts viewport) och b1 (klippmaskerna) är
 //     orörda, och b1 läses av Line-programmets pixelshader precis som av
 //     UI:ts — en rundad mask gäller ritytan per konstruktion. b5 är målarens
-//     klipp (`bindSceneClip`), läst av scenens fyra program.
+//     klipp (`bindSceneClip`), läst av scenens fyra program och de egna.
 //   * `drawMesh` flushar UI-batchen FÖRST (målarordningen) och lämnar sitt
 //     program bundet; `flush()` återbinder UI-pipelinen när den ritar nästa
 //     gång (`pipeline_`).
@@ -654,9 +654,15 @@ float4 linePs(LineOut i) : SV_Target
     if (alpha <= 0.0)
         discard;
 #endif
-    // Målarens klipp sist (kHlslClipSrc) — utanför kastas fragmentet.
+    // Målarens klipp sist (kHlslSceneClipSrc) — utanför kastas fragmentet.
+    // Line3 klipps på linjens punkt (`ppos`, chunk-lokal).
+#ifdef GLAZE_POS3
+    const float klipp = glaze_clip(i.pos.xy, i.ppos);
+#else
+    const float klipp = glaze_clipScreen(i.pos.xy);
+#endif
     return float4(col.rgb, col.a * alpha * gPaint1.y * clipCoverage(i.pos.xy) *
-                               sceneClip(i.pos.xy));
+                               klipp);
 }
 )hlsl";
 
@@ -688,8 +694,8 @@ UINT bindFlagsOf(BufferKind k)
 bool D3dRenderer::initScene()
 {
     const std::string src =
-        std::string(kHlslClipSrc) + kHlslPaintSrc + kHlslStandSrc +
-        kLineShaderSrc;
+        std::string(kHlslClipSrc) + kHlslSceneClipSrc + kHlslPaintSrc +
+        kHlslStandSrc + kLineShaderSrc;
     ComPtr<ID3DBlob> vsb = compileHlsl(src, "lineVs", "vs_4_0");
     ComPtr<ID3DBlob> psb = compileHlsl(src, "linePs", "ps_4_0");
 
@@ -791,7 +797,8 @@ void D3dRenderer::shutdownScene()
     for (TransientRing& r : transient_)
         r = TransientRing{};
     sceneClipCbuf_.Reset();
-    sceneClip_ = SceneClip{};
+    sceneClip_     = SceneClip{};
+    clipSrvsBound_ = false;
     sceneCbuf_.Reset();
     line3Layout_.Reset();
     line3Ps_.Reset();
@@ -909,25 +916,33 @@ BufferSlice D3dRenderer::uploadTransient(BufferKind kind, const void* data,
 
 // ---------------------------------------------------------------- ritning
 
-// HLSL-arrayens längd är skriven som en literal i källan.
-static_assert(kMaxClipPlanes == 8,
-              "gSceneClip i kHlslClipSrc är deklarerad [8]");
-
-// Målarens klipp i b5 — skrivet bara när anropets klipp skiljer
-// från det bufferten bär, så lagren (inget klipp) aldrig laddar upp det.
-// Antalet har `meshDrawOk` prövat.
+// Målarens klipp: blocket i b5 skrivs bara när anropets klipp skiljer från det
+// bufferten bär, så lagren (inget klipp) aldrig laddar upp det,
+// och maskernas SRV:er binds vid VARJE anrop med mask — bindTarget nollar dem
+// när ett mål binds. Maskerna och måtten har `meshDrawOk` prövat.
 bool D3dRenderer::bindSceneClip(const MeshDraw& d)
 {
     const SceneClip& k = d.uniforms.clip;
+    if (k.screen || k.world || clipSrvsBound_) {
+        ID3D11ShaderResourceView* srv[2] = {
+            k.screen ? static_cast<const D3dImage*>(k.screen)->srv() : nullptr,
+            k.world ? static_cast<const D3dImage*>(k.world)->srv() : nullptr};
+        ID3D11SamplerState* smp[2] = {samplerLinear_.Get(),
+                                      samplerLinear_.Get()};
+        context_->PSSetShaderResources(4, 2, srv);
+        context_->PSSetSamplers(4, 2, smp);
+        clipSrvsBound_ = k.screen || k.world;
+    }
     if (k == sceneClip_)
         return true;
     SceneClipCb cb{};
-    for (int i = 0; i < k.count; ++i) {
-        cb.planes[i][0] = k.planes[i].nx;
-        cb.planes[i][1] = k.planes[i].ny;
-        cb.planes[i][2] = k.planes[i].d;
-    }
-    cb.meta[0] = static_cast<float>(k.count);
+    cb.rect[0]  = k.screenRect.x;
+    cb.rect[1]  = k.screenRect.y;
+    cb.rect[2]  = k.screenRect.w;
+    cb.rect[3]  = k.screenRect.h;
+    std::memcpy(cb.world, k.worldUv, sizeof cb.world);
+    cb.meta[0] = k.screen ? 1.0f : 0.0f;
+    cb.meta[1] = k.world ? 1.0f : 0.0f;
     D3D11_MAPPED_SUBRESOURCE m;
     if (FAILED(context_->Map(sceneClipCbuf_.Get(), 0, D3D11_MAP_WRITE_DISCARD,
                              0, &m)))

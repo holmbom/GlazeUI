@@ -79,8 +79,8 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
     koordinater BAKLÄNGES med samma funktion), `inDockFlow()` håller `TopBar`
     utanför flödet, `earlierSibling` stannar vid `this`, `resolve()` loggar
     aldrig (6+ anrop per frame — valideringen sker där texten kommer IN), ett
-    DOLT mål räknas ändå (följaren lämnar ett hål), och layouten är
-    tillståndslös. Grind: `tests/layout_gate.cpp`.
+    DOLT mål räknas ändå (följaren lämnar ett hål), och layouten har bara
+    mätcachen som minne. Grind: `tests/layout_gate.cpp`.
   - `struct Ctx { gfx::Renderer* r; gfx::Font* font; gfx::Font* headingFont;
     float scale; gfx::Rectf area; const Theme::Variant* theme; UI ui;
     const Style* style; ImageCache* images; float pxPerMm;
@@ -300,7 +300,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
     dockad med remsans bredd (privata `dockedSize`, i dock-uppspelningen OCH
     `carveSiblingDocks`) — aldrig i en Bar, för Fill/Left/Right eller i
     `childrenExtent(c)` (skriven gräns). Läser aldrig `c.box`; en satt `height`
-    vinner. Bara `Label` (`wrap`) svarar; **`measureHeightForWidth`** är parhästen.
+    vinner. Bara `Label` (`wrap`) svarar; **`measureHeightForWidth`** är parhästen (cachar per bredd).
     **`childrenExtent(c, bredd)`** (publik, REQ3) — samma mått med BREDDEN GIVEN
     (fönstret som följer innehållet): Top/Bottom/Fill-remsorna och odockade barn
     med två KÄNDA x-kanter tar `heightForWidth` med sin bredd; kärnan är privata `extentOf`.
@@ -977,7 +977,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   genom `heightForWidth` (TEXTFALTEN), inte genom `c.area`; för
   `Fill` är kravet irrelevant. Bryts det blir syskonens layout beroende av
   frågeordningen och det finns ingen fixpunkt. `layout_gate` mäter
-  kontraktet med två areor på skäraxeln + en anropsräknare med facit.
+  kontraktet med två areor på skäraxeln + en anropsräknare med facit. **MÄTCACHEN:** `measure`/`measureHeightForWidth` svarar ur widgetens eget minne tills `invalidate()` i delträdet, ett barns tillägg/borttagning/flytt, ett miljöbyte (UI, stil, tema, skala, språk) eller en handler-epok (`detail::handlerEpoch()` — App stegar den kring varje leverans till appens kod, aldrig för ritytans tick) ändrar nyckeln. En rå layoutändring UTANFÖR en handler kräver därför `invalidate()`, `c.area` ingår inte i nyckeln (så `contentSize` läser den aldrig), och ett mått som läser syskon eller hela fönstret överrider `measureScope()` (Parent/Root).
 - **Tvärs-widget-geometri är inte ritning** och hör därför inte till
   `draw.h`: den blir en metod på ÄGAREN (`Panel::innerBounds`/`innerRect`
   är publika eftersom `PropertyGrid` ärver dem; `TextInput::innerBounds`

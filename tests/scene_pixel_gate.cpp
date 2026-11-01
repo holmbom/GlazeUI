@@ -273,6 +273,30 @@
 //       världen (K4). MÄTER INTE djupet (scene3d_pixel_gate KL), föremålen i
 //       rymden eller kantutjämningens profil — bara att bandet är under 3 px.
 //
+// DEL M — RITYTANS OCH LAGRETS KLIPP (`Canvas::setClips`, `setLayerClips`),
+// polygoner i ritytans lokala px, en riktig rityta. Referensen är polygonernas
+// geometri: 3 logiska px innanför ritas, 3 px utanför inte.
+//   M1  RITYTANS KLIPP med ett HÅL och en UNION: en yta med ett hål och en
+//       andra yta bredvid — blått i ytan, vitt i hålet, vitt mellan och
+//       utanför; gäller en yta, en linje och en bild.
+//   M2  LAGRETS KLIPP snittas med ritytans: ett lager med eget klipp ritar
+//       bara i snittet, ett annat lager utan eget klipp bara i ritytans.
+//   M3  KANTEN: en lutande kant är kantutjämnad (ett band om högst 3 px med
+//       mellanfärger, minst en) och en konkav yta har inga sömmar — varje
+//       pixel innanför är massiv.
+//   M4  `setClips({})` döljer allt, `resetClip()` tar bort klippet.
+//   M5  EN OGILTIG YTA (en självkorsande fluga): med `InvalidClip::Show`
+//       (förvalet) gäller klippet inte — allt ritas — och med `Hide` täcker
+//       den ingenting, så det som bara den släppte igenom döljs. Sabotage:
+//       `clipApplies` som bara läser `enabled` (Show-delen faller),
+//       `validPolygons` som släpper igenom de ogiltiga (Hide-delen faller).
+//       Sabotage som SKA fälla dem (skrivna): `lf.clips.of(li)` bort ur
+//       `inLayer` (M2 — lagrets klipp), `pc.clip = lf.clips.canvas` bort ur
+//       `drawScene` (M1, M2), förälderns mask bort ur `ClipMasks::fill`
+//       (M2 — snittet), `emptyScreen` som "inget klipp" (M4), kantremsan
+//       bort ur `buildClipPolygon` (M3 — ingen kantutjämning), triangulering
+//       per delyta i stället för hela ytan (M3 — sömmar).
+//
 // INTE MÄTT här: Metal (rader i doc/os/macos/TESTS.md),
 // färgjusteringen (B14/B15) på ett RENDER-MÅLS halvgenomskinliga texel — att
 // den sker EFTER av-premultipliceringen syns bara där, och B14 ritar en
@@ -5547,6 +5571,200 @@ void fallK4()
           fick);
 }
 
+// ============================================================ DEL M
+//
+// RITYTANS OCH LAGRETS KLIPP genom en riktig rityta: polygoner i de lokala px.
+
+const gfx::Color kBlåM{0, 0, 255, 255};
+
+glaze::ClipPolygon rektYta(double x, double y, double w, double h)
+{
+    glaze::ClipPolygon p;
+    p.outer = {{x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}};
+    return p;
+}
+
+// M1 RITYTANS KLIPP: ytan 100–260 × 60–160 med ett hål 150–210 × 90–130 och en
+// andra yta 300–340 × 60–100 (en union). En blå yta, en tjock linje och en
+// bild under det: blått bara i ytorna.
+void fallM1()
+{
+    Rit r;
+    if (!r.öppna())
+        return;
+    std::vector<std::uint8_t> rgba(4 * 4 * 4);
+    for (std::size_t i = 0; i < rgba.size(); i += 4)
+        std::memcpy(&rgba[i], &kBlåM, 4);
+    const glaze::Bitmap blå(4, 4, rgba.data(), 0);
+    glaze::Canvas&      y = r.f.yta;
+    glaze::ClipPolygon  med = rektYta(100, 60, 160, 100);
+    med.holes.push_back({{150, 90}, {210, 90}, {210, 130}, {150, 130}});
+    y.setClipSpace(glaze::ClipSpace::Screen);
+    y.addClip(med);
+    y.addClip(rektYta(300, 60, 40, 40));
+    using L = glaze::Point;
+    const char* namn[] = {"ytan", "linjen", "bilden"};
+    for (int fall = 0; fall < 3; ++fall) {
+        y.setShapes({});
+        if (fall == 0)
+            y.addShape(glaze::Shape::rect({0, 0, 480, 360}, kBlåM));
+        else if (fall == 1)
+            y.addShape(glaze::Shape::line({0, 80}, {480, 80},
+                                          glaze::Stroke{.paint = kBlåM, .width = 60.0f}));
+        else
+            y.addShape(glaze::Shape::image({0, 0, 480, 360}, blå));
+        if (fall == 2)
+            r.bild();   // bildcachen laddar upp bilden i den första ritningen
+        const Bild b = r.bild();
+        if (g_ritfel)
+            return;
+        std::string fick;
+        bool        ok = false;
+        if (fall == 1) {
+            // Linjen ligger på y = 80 (±30): blå i ytan 103 och i den andra
+            // ytan, vit i hålet (inget klipp där) och mellan ytorna.
+            ok = färgVid(r, b, L{103, 80}, kBlåM, fick) &&
+                 färgVid(r, b, L{320, 80}, kBlåM, fick);
+            fick += " |";
+            ok = färgVid(r, b, L{280, 80}, kVit, fick) &&
+                 färgVid(r, b, L{97, 80}, kVit, fick) && ok;
+        } else {
+            ok = färgVid(r, b, L{103, 110}, kBlåM, fick) &&
+                 färgVid(r, b, L{257, 110}, kBlåM, fick) &&
+                 färgVid(r, b, L{180, 93 - 6}, kBlåM, fick) &&
+                 färgVid(r, b, L{320, 80}, kBlåM, fick);
+            fick += " |";
+            ok = färgVid(r, b, L{180, 110}, kVit, fick) &&      // hålet
+                 färgVid(r, b, L{97, 110}, kVit, fick) &&       // utanför
+                 färgVid(r, b, L{280, 110}, kVit, fick) &&      // mellan ytorna
+                 färgVid(r, b, L{320, 106}, kVit, fick) && ok;  // under den andra
+        }
+        check(ok, std::string("M1 ritytans klipp (hål + union) klipper ") + namn[fall],
+              fick);
+    }
+}
+
+// M2 LAGRETS KLIPP snittas med ritytans: lager 0 (blått) har ritytans klipp
+// 100–260 × 60–160, lager 1 (rött) har sitt eget klipp 180–340 × 100–200 —
+// det röda syns bara i snittet 180–260 × 100–160.
+void fallM2()
+{
+    Rit r;
+    if (!r.öppna())
+        return;
+    glaze::Canvas& y = r.f.yta;
+    y.setClipSpace(glaze::ClipSpace::Screen);
+    y.addClip(rektYta(100, 60, 160, 100));
+    y.addShape(glaze::Shape::rect({0, 0, 480, 360}, kBlåM));
+    const int rött = y.addLayer("rött");
+    y.addShape(rött, glaze::Shape::rect({0, 0, 480, 360}, kRöd));
+    y.setLayerClipSpace(rött, glaze::ClipSpace::Screen);
+    y.addLayerClip(rött, rektYta(180, 100, 160, 100));
+    const Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    using L = glaze::Point;
+    std::string fick;
+    // Blått i ritytans klipp utanför lagrets, rött i snittet, vitt utanför båda.
+    bool ok = färgVid(r, b, L{140, 80}, kBlåM, fick) &&
+              färgVid(r, b, L{220, 130}, kRöd, fick) &&
+              färgVid(r, b, L{257, 157}, kRöd, fick);
+    fick += " |";
+    ok = färgVid(r, b, L{300, 150}, kVit, fick) &&   // lagrets klipp, utanför ritytans
+         färgVid(r, b, L{97, 110}, kVit, fick) &&
+         färgVid(r, b, L{220, 170}, kVit, fick) && ok;
+    check(ok, "M2 lagrets klipp snittas med ritytans: rött bara i snittet", fick);
+}
+
+// M3 KANTEN: en triangel (lutande kanter) är kantutjämnad — i en rad finns
+// högst tre och minst en pixel med mellanfärg — och en L-formad (konkav) yta
+// har inga sömmar: pixlarna i dess inre är massiva.
+void fallM3()
+{
+    Rit r;
+    if (!r.öppna())
+        return;
+    glaze::Canvas& y = r.f.yta;
+    y.setClipSpace(glaze::ClipSpace::Screen);
+    glaze::ClipPolygon tri;
+    tri.outer = {{40, 40}, {240, 60}, {120, 200}};
+    glaze::ClipPolygon ell;
+    ell.outer = {{280, 40}, {340, 40}, {340, 100}, {400, 100}, {400, 160}, {280, 160}};
+    y.addClip(tri);
+    y.addClip(ell);
+    y.addShape(glaze::Shape::rect({0, 0, 480, 360}, kBlåM));
+    const Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    // Mellanfärger längs raden y = 100 (triangelns vänstra kant): pixlar som
+    // varken är vita eller blå.
+    int mellan = 0;
+    for (int lx = 20; lx <= 160; ++lx) {
+        const std::uint8_t* q = b.at(r.x(lx), r.y(100));
+        if (!ärFärg(q, kVit, 3) && !ärFärg(q, kBlåM, 3))
+            ++mellan;
+    }
+    check(mellan >= 1 && mellan <= 3,
+          "M3 en lutande kant är kantutjämnad: ett band om högst 3 px",
+          std::to_string(mellan) + " mellanfärger");
+    // Den L-formade ytans inre, 4 px innanför kanterna: massivt blått.
+    int ofärgade = 0;
+    for (int lx = 284; lx <= 396; ++lx)
+        for (int ly = 44; ly <= 156; ++ly) {
+            const bool inne = lx <= 336 || ly >= 104;
+            if (inne && !ärFärg(b.at(r.x(lx), r.y(ly)), kBlåM, 3))
+                ++ofärgade;
+        }
+    check(ofärgade == 0, "M3 en konkav yta har inga sömmar: inre pixlar massiva",
+          std::to_string(ofärgade) + " ofärgade");
+}
+
+// M4 `setClips({})` döljer allt, `resetClip()` tar bort klippet.
+void fallM4()
+{
+    Rit r;
+    if (!r.öppna())
+        return;
+    glaze::Canvas& y = r.f.yta;
+    y.addShape(glaze::Shape::rect({0, 0, 480, 360}, kBlåM));
+    y.setClips({});
+    Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    std::string fick;
+    using L = glaze::Point;
+    bool ok = y.clipEnabled() && färgVid(r, b, L{180, 110}, kVit, fick);
+    y.resetClip();
+    b = r.bild();
+    fick += " |";
+    ok = färgVid(r, b, L{180, 110}, kBlåM, fick) && !y.clipEnabled() && ok;
+    check(ok, "M4 setClips({}) döljer allt, resetClip() tar bort klippet", fick);
+}
+
+// M5 en ogiltig yta: Show ritar allt, Hide döljer det den ytan släppte igenom.
+void fallM5()
+{
+    Rit r;
+    if (!r.öppna())
+        return;
+    glaze::Canvas& y = r.f.yta;
+    y.addShape(glaze::Shape::rect({0, 0, 480, 360}, kBlåM));
+    using L = glaze::Point;
+    // En fluga — ytterringen korsar sig själv.
+    y.setClips({{{L{100, 50}, L{300, 250}, L{300, 50}, L{100, 250}}, {}}});
+    Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    std::string fick;
+    bool ok = y.invalidClip() == glaze::InvalidClip::Show &&
+              färgVid(r, b, L{20, 20}, kBlåM, fick);
+    y.setInvalidClip(glaze::InvalidClip::Hide);
+    b = r.bild();
+    fick += " |";
+    ok = färgVid(r, b, L{20, 20}, kVit, fick) && ok;
+    check(ok, "M5 en ogiltig yta: Show ritar allt, Hide döljer det", fick);
+}
+
 int main(int argc, char** argv)
 {
     for (int i = 1; i < argc; ++i)
@@ -5630,6 +5848,11 @@ int main(int argc, char** argv)
     if (!g_ritfel) fallK2();
     if (!g_ritfel) fallK3();
     if (!g_ritfel) fallK4();
+    if (!g_ritfel) fallM1();
+    if (!g_ritfel) fallM2();
+    if (!g_ritfel) fallM3();
+    if (!g_ritfel) fallM4();
+    if (!g_ritfel) fallM5();
     f.scen.chunkar.clear();   // buffertarna före fönstret (livstidsregeln)
 
     std::printf(g_fel ? "=== scene_pixel_gate: %d FEL av %d ===\n"

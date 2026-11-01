@@ -207,6 +207,9 @@ protected:
             w ? w->appIcon.reservedWidth(c, AppIcon::Row::Title) : 0.0f;
         return gfx::Sizef{std::max(pad + cluster, ikon), height};
     }
+
+    // Programikonens plats läses ur fönstret — rotens generation.
+    MeasureScope measureScope() const override { return MeasureScope::Root; }
 };
 
 // DE ANPASSADE AXLARNA — en regel för mätningen,

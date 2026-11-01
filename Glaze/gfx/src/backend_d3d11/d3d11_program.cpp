@@ -36,8 +36,9 @@ namespace gfx {
 namespace {
 
 // FÖRSPELET (gfx/program.h) — GlazeFrame som `glaze` i b3 och glaze_toClip,
-// och därefter färgjusteringen (`kHlslAdjustSrc` nedan) och de
-// skärmvända hörnens djup (`kHlslStandSrc`).
+// och därefter färgjusteringen (`kHlslAdjustSrc` nedan), de skärmvända
+// hörnens djup (`kHlslStandSrc`) och klippet (`kHlslSceneClipSrc`, i
+// d3d11_renderer.cpp).
 // Blocket är en struct i cbuffern så att medlemmarna heter `glaze.…` som i
 // GLSL och MSL; packningen är densamma (en struct börjar på en hel
 // 16-byte-rad, matriserna är column_major som scenens). Efter förspelet
@@ -222,6 +223,10 @@ std::string resourceError(ID3DBlob* blob, const char* steg,
         if (FAILED(refl->GetResourceBindingDesc(i, &r)))
             continue;
         const std::string namn = r.Name ? r.Name : "?";
+        // Klippets block, maskerna och deras samplers är förspelets (t4–t5,
+        // s4–s5), inte appens.
+        if (namn == "GlazeClip" || namn.rfind("glaze_clip", 0) == 0)
+            continue;
         if (r.Type == D3D_SIT_CBUFFER && namn != "GlazeFrame" &&
             namn != "GlazeUser") {
             // $Globals bär de lösa globalerna — felet nämner den första.
@@ -389,7 +394,8 @@ std::unique_ptr<ShaderProgram> D3dRenderer::createProgram(const ProgramDesc& d)
             macros.push_back(D3D_SHADER_MACRO{namn.c_str(), värde.c_str()});
         macros.push_back(D3D_SHADER_MACRO{nullptr, nullptr});
         const std::string src = std::string(kHlslPrelude) + kHlslAdjustSrc +
-                                kHlslStandSrc + "#line 1 \"" +
+                                kHlslStandSrc + kHlslSceneClipSrc +
+                                "#line 1 \"" +
                                 programSourceName(d) + "\"\n" +
                                 d.hlsl;
         std::string text;
@@ -537,6 +543,10 @@ void D3dRenderer::drawCustomMesh(const MeshDraw& d)
         context_->PSSetSamplers(0, un, smp);
         customSrvs_ = std::max(customSrvs_, un);
     }
+    // Klippet: blocket i b5 och maskerna på t4–t5, för programmets
+    // `glaze_clip`.
+    if (!bindSceneClip(d))
+        return;
     applyMeshState(d.state);   // renderläget
 
     // Strömmarna: slot 0 vertex, slot 1 instans — instansdelen MED OFFSET.

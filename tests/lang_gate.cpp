@@ -14,6 +14,11 @@
 // och ett langIndex) och ALLA FYRA ska ge CRC-avslag. Med assets
 // blob-CRC hade tre av fyra passerat.
 //
+// DEL 5 mäter att MÄTCACHEN följer språket: en översatt text mäter olika i
+// olika språk, så ett språkbyte måste ge en ny mätning. SABOTAGE: en nyckel
+// utan språkgenerationen (`detail::languageGeneration`) — räknaren står kvar
+// och den cachade bredden är det gamla språkets.
+//
 // Exit 0 = allt grönt; 1 = minst ett fall föll.
 
 #include <cstdint>
@@ -1373,6 +1378,69 @@ void del4()
            "eller undanta den med `// lang_gate:rad <skäl>`)");
 }
 
+// ============================================================== DEL 5
+//
+// MÄTCACHEN OCH SPRÅKET. En widget vars mått är den UPPLÖSTA textens längd:
+// `TrText` räknar om sin text mot språkgenerationen, och mätcachen har samma
+// generation i sin nyckel — annars hade ett språkbyte lämnat det gamla
+// språkets mått kvar.
+
+struct Texten final : glaze::Widget {
+    glaze::TrText text;
+    mutable int   mätningar = 0;
+    void          draw(const glaze::Ctx&) override {}
+
+protected:
+    gfx::Sizef contentSize(const glaze::Ctx&) const override
+    {
+        ++mätningar;
+        return gfx::Sizef{static_cast<float>(text.str().size()), 1.0f};
+    }
+};
+
+struct MeterText : glaze::Widget {
+    using glaze::Widget::measure;
+};
+
+void del5()
+{
+    std::printf("\n--- del 5: mätcachen följer språket ---\n");
+
+    glaze::Ctx c{};
+    c.scale = 1.0f;
+    c.ui    = glaze::UI::Slate;
+    c.style = &glaze::defaultStyle(glaze::UI::Slate);
+    c.theme = &glaze::Theme::slateDefault().light;
+
+    glaze::setLanguage("sv");
+    Texten t;
+    t.text = glaze::tr(glaze::str::Cancel);
+
+    MeterText::measure(t, c);
+    MeterText::measure(t, c);
+    ok(t.mätningar == 1, "oförändrat språk: två frågor ger EN mätning (" +
+                             std::to_string(t.mätningar) + ")");
+
+    glaze::setLanguage("en");
+    const gfx::Sizef en = MeterText::measure(t, c);
+    ok(t.mätningar == 2, "språkbyte sv → en ger en ny mätning (" +
+                             std::to_string(t.mätningar) + ")");
+    ok(en.w == static_cast<float>(t.text.str().size()),
+       "den nya mätningen är den engelska textens längd (" +
+           std::to_string(en.w) + ")");
+
+    glaze::setLanguage("en");   // redan aktivt: ingen generation
+    MeterText::measure(t, c);
+    ok(t.mätningar == 2, "samma språk igen ger ingen ny mätning (" +
+                             std::to_string(t.mätningar) + ")");
+
+    glaze::setLanguage("sv");
+    const gfx::Sizef sv = MeterText::measure(t, c);
+    ok(t.mätningar == 3 && sv.w == static_cast<float>(t.text.str().size()),
+       "tillbaka till sv ger en tredje mätning med svenska textens längd (" +
+           std::to_string(t.mätningar) + ")");
+}
+
 } // namespace
 
 int main()
@@ -1401,6 +1469,7 @@ int main()
     del2();
     del3();
     del4();
+    del5();
     // EN LOGG PER MISS, MÄTT och inte påstådd. Kommer SIST, för den
     // omdirigerar stderr och kan inte lämna tillbaka den portabelt.
     // `resolve()` körs 6+ gånger per frame — en loggrad per uppslag hade

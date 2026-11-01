@@ -36,6 +36,7 @@ add_library(glaze_impl ${_glaze_lib_type}
     # reserv och vändningarna; ren std, grindad headless.
     src/canvas/input_map.cpp
     src/canvas/painter.cpp
+    src/canvas/clip.cpp
     # ETIKETTPLACERINGEN — ren algoritm, grindad headless — och
     # dess koppling: lådorna på skärmen och synlighetsbilden.
     src/canvas/placement.cpp

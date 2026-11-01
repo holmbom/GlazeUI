@@ -21,9 +21,9 @@
 namespace gfx {
 namespace {
 
-// Klippmaskernas och färgens delar (`kMslClipSrc`, `kMslPaintSrc`) klistras
-// FÖRE. GLYPH3 är samma källa med GLAZE_POS3 — ankaret i
-// xyz.
+// Klippmaskernas, målarens klipps och färgens delar (`kMslClipSrc`,
+// `kMslSceneClipSrc`, `kMslPaintSrc`) klistras FÖRE. GLYPH3 är samma källa
+// med GLAZE_POS3 — ankaret i xyz.
 const char kGlyphMslSrc[] = R"msl(
 #ifdef GLAZE_POS3
 typedef float3 GlyphPos;
@@ -53,6 +53,9 @@ struct GlyphOut {
                              // px, .w glorians bredd i em
     uint   flags [[flat]];
     float  vis   [[flat]];   // etikettens synlighet 0–1
+#ifdef GLAZE_POS3
+    float2 clipLocal [[flat]];   // ankarets chunk-lokala xy
+#endif
 };
 
 // Världsriktningen v som skärmens riktning vid ankaret (pixelklippet c) —
@@ -109,6 +112,9 @@ vertex GlyphOut glyphVs(GlyphIn i [[stage_in]], constant PaintU& u [[buffer(1)]]
     o.flags = i.flags;
     o.uv    = i.uv;
     o.shape = float4(0.0);
+#ifdef GLAZE_POS3
+    o.clipLocal = i.anchor.xy;
+#endif
     // Synligheten: 1 utan bunden synlighet (basen negativ), annars texeln på
     // basen + indexet, rad för rad.
     o.vis = 1.0;
@@ -182,9 +188,9 @@ vertex GlyphOut glyphVs(GlyphIn i [[stage_in]], constant PaintU& u [[buffer(1)]]
 fragment float4 glyphPs(GlyphOut i [[stage_in]],
                         constant ClipMasks& cm [[buffer(0)]],
                         constant PaintU& u [[buffer(1)]],
-                        constant SceneClip& sc [[buffer(4)]],
                         texture2d<float> atlas [[texture(0)]],
-                        sampler smp [[sampler(0)]])
+                        sampler smp [[sampler(0)]],
+                        GLAZE_CLIP_PARAMS)
 {
     const uint  shape  = i.flags & 3u;
     const float sizePx = i.shape.z;
@@ -224,8 +230,15 @@ fragment float4 glyphPs(GlyphOut i [[stage_in]],
         a   = fa + ha;
         rgb = a > 0.0 ? (i.col.rgb * fa + i.halo.rgb * ha) / a : i.col.rgb;
     }
+    // Målarens klipp (kMslSceneClipSrc); Glyph3 klipps på ankaret, så hela
+    // etiketten syns eller inte.
+#ifdef GLAZE_POS3
+    const float klipp = glaze_clip(i.pos.xy, i.clipLocal, GLAZE_CLIP_ARGS);
+#else
+    const float klipp = glaze_clipScreen(i.pos.xy, GLAZE_CLIP_ARGS);
+#endif
     return float4(rgb, a * i.vis * u.paint1.y * clipCoverage(i.pos.xy, cm) *
-                           sceneClip(i.pos.xy, sc));
+                           klipp);
 }
 )msl";
 
@@ -276,7 +289,8 @@ bool MetalRenderer::initGlyphProgram()
             NSError*          err  = nil;
             const std::string src  = std::string(pos3 ? "#define GLAZE_POS3 1\n"
                                                       : "") +
-                                    kMslClipSrc + kMslPaintSrc + kMslStandSrc +
+                                    kMslClipSrc + kMslSceneClipSrc + kMslPaintSrc +
+                                    kMslStandSrc +
                                     kGlyphMslSrc;
             id<MTLLibrary> lib = compileMsl(@(src.c_str()), nil, &err);
             if (!lib) {

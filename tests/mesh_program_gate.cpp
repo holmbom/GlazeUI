@@ -61,6 +61,14 @@
 //       6,4 px).
 //   F8  en punkt bakom kameran och en bortom det bortre planet
 //       ritas inte; punkterna överlever Cull::Back (quaden är moturs).
+//   K1  KLIPPET i egna program: en skärmmask (övre vänstra kvadranten, en
+//       render-målsbild) klipper ett program som anropar `glaze_clip`; K2 ett
+//       som inte anropar den klipps inte.
+//   K3  världsmasken ensam, samplad ur den interpolerade `local`; K4 skärm- och
+//       världsmaskens PRODUKT (vänster halva · övre halva = övre vänstra
+//       kvadranten, varken den ena eller den andra ensam).
+//   K5  utanför skärmmaskens yta (`screenRect`) är täckningen 0, inne i den
+//       1; K6 en skärmmask utan yta avvisas av fasaden och ingenting ritas.
 //
 // INTE MÄTT här: Metal (MSL:en provas på macOS — raden i
 // doc/os/macos/TESTS.md); DRAPED i ritytan (draperingsmålen, belysningen av
@@ -73,6 +81,13 @@
 //
 // SABOTAGEN — alla fäller grinden, antalet fel i parentes (D3D11 / GL, samma på
 // båda drivrutinerna):
+// KLIPPET (skrivna, ej körda): `glaze_clip` som returnerar 1 utan att kasta eller
+// sampla (K1, K3, K4, K5 — i alla tre språken), bindSceneClip utelämnad i de
+// egna programmens ritning (K1, K3, K4, K5), skärmmaskens uv utan
+// `screenRect.xy` (K5), världsmaskens förskjutning ignorerad (K3, K4), GL:s
+// v-spegling (`flags.z`/`flags.w`) ignorerad (K1, K3, K4 på GL — masken är en
+// render-målsbild och speglad), och meshDrawOk utan prövningen av `screenRect`
+// (K6).
 // normalen inte vänd på baksidan (6 / 6 — E2 tvåsidigt, E3), dimman
 // linjär när fogPower ≠ 1 (1 / 1 — E7), mättnaden mot medelvärdet i stället
 // för luminansen (2 / 2 — E6), instansmatrisen transponerad (4 / 4 — E9;
@@ -1708,6 +1723,234 @@ void fallFFärg(Fönster& f)
     }
 }
 
+// ---------------------------------------------------------------------- K
+//
+// KLIPPET i egna program (`glaze_clip` i förspelet, gfx/program.h). Ett
+// helskärmspass utan vertexström (kvadratens tre vertex ur SV_VertexID,
+// gl_VertexID och [[vertex_id]]) fyller hela målet rött; med USE_CLIP
+// multiplicerar fragmentet sin färg med `glaze_clip(px, local)`, där `local`
+// är samma px som fragmentets läge — så skärm- och världsmasken ligger på
+// varandra. Maskerna är render-målsbilder (en vit rektangel på ett genomskinligt
+// mål), alltså på GL speglade bilder.
+const char kKlippHlsl[] = R"hlsl(
+struct VOut { float4 pos : SV_Position; float2 local : TEXCOORD0; };
+VOut vsMain(uint id : SV_VertexID)
+{
+    VOut         o;
+    const float2 p = float2((id << 1) & 2, id & 2);
+    o.pos   = float4(p * 2.0 - 1.0, 0.0, 1.0);
+    o.local = float2(p.x, 1.0 - p.y) * glaze.target.xy;
+    return o;
+}
+float4 fsMain(VOut i) : SV_Target
+{
+#ifdef USE_CLIP
+    const float c = glaze_clip(i.pos.xy, i.local);
+#else
+    const float c = 1.0;
+#endif
+    return float4(1.0, 0.0, 0.0, 1.0) * c;
+}
+)hlsl";
+
+const char kKlippGlslVs[] = R"glsl(
+out vec2 vPix;
+out vec2 vLocal;
+void main()
+{
+    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+    vPix   = vec2(p.x, 1.0 - p.y) * glaze.target.xy;
+    vLocal = vPix;
+}
+)glsl";
+
+const char kKlippGlslFs[] = R"glsl(
+in vec2 vPix;
+in vec2 vLocal;
+out vec4 frag;
+void main()
+{
+#ifdef USE_CLIP
+    float c = glaze_clip(vPix, vLocal);
+#else
+    float c = 1.0;
+#endif
+    frag = vec4(1.0, 0.0, 0.0, 1.0) * c;
+}
+)glsl";
+
+const char kKlippMsl[] = R"msl(
+struct VOut { float4 pos [[position]]; float2 local; };
+vertex VOut vsMain(uint id [[vertex_id]], constant GlazeFrame& glaze [[buffer(2)]])
+{
+    VOut         o;
+    const float2 p = float2(float((id << 1) & 2u), float(id & 2u));
+    o.pos   = float4(p * 2.0 - 1.0, 0.0, 1.0);
+    o.local = float2(p.x, 1.0 - p.y) * glaze.target.xy;
+    return o;
+}
+fragment float4 fsMain(VOut i [[stage_in]], GLAZE_CLIP_PARAMS)
+{
+#ifdef USE_CLIP
+    const float c = glaze_clip(i.pos.xy, i.local, GLAZE_CLIP_ARGS);
+#else
+    const float c = 1.0;
+#endif
+    return float4(1.0, 0.0, 0.0, 1.0) * c;
+}
+)msl";
+
+std::unique_ptr<gfx::ShaderProgram> klippProgram(gfx::Renderer& r, bool medKlipp)
+{
+    gfx::ProgramDesc d;
+    d.name         = medKlipp ? "klipp_med" : "klipp_utan";
+    d.hlsl         = kKlippHlsl;
+    d.glslVertex   = kKlippGlslVs;
+    d.glslFragment = kKlippGlslFs;
+    d.msl          = kKlippMsl;
+    if (medKlipp)
+        d.defines.emplace_back("USE_CLIP", "1");
+    return r.createProgram(d);
+}
+
+// Helskärmspasset med anropets klipp.
+void ritaKlippt(gfx::Renderer& r, const gfx::ShaderProgram& p,
+                const gfx::SceneClip& klipp)
+{
+    const gfx::VertexLayout  tom;
+    const gfx::FrameUniforms fr = ram(ovanifrån());
+    gfx::MeshDraw            d;
+    d.program       = gfx::MeshProgram::Custom;
+    d.shader        = &p;
+    d.layout        = &tom;
+    d.vertexCount   = 3;
+    d.frame         = fr;
+    d.state         = läge(gfx::DepthTest::Off);
+    d.uniforms.clip = klipp;
+    r.drawMesh(d);
+}
+
+void fallK(Fönster& f)
+{
+    gfx::Renderer& r         = f.window().renderer();
+    const auto     medKlipp  = klippProgram(r, true);
+    const auto     utanKlipp = klippProgram(r, false);
+    check(medKlipp->valid() && utanKlipp->valid(),
+          "K0 programmen med och utan glaze_clip kompilerar",
+          kort(medKlipp->error() + utanKlipp->error()));
+    if (!medKlipp->valid() || !utanKlipp->valid())
+        return;
+
+    // En mask: en vit rektangel på ett genomskinligt mål.
+    const auto mask = [&](gfx::Rectf rect) {
+        return målMed(
+            f, [&](gfx::Renderer& rr) { rr.fillRect(rect, kVit); }, false,
+            gfx::Color{0, 0, 0, 0});
+    };
+    constexpr float kS        = static_cast<float>(kSida);
+    constexpr float kH        = kS / 2.0f;
+    const auto      vänster   = mask({0.0f, 0.0f, kH, kS});
+    const auto      uppe      = mask({0.0f, 0.0f, kS, kH});
+    const auto      övreVänst = mask({0.0f, 0.0f, kH, kH});
+    const auto      hel       = mask({0.0f, 0.0f, kS, kS});
+    if (g_ritfel)
+        return;
+
+    const gfx::Rectf hela{0.0f, 0.0f, kS, kS};
+    const auto       skärm = [](gfx::RenderTarget& m, gfx::Rectf yta) {
+        gfx::SceneClip k;
+        k.screen     = &m.image();
+        k.screenRect = yta;
+        return k;
+    };
+    const auto värld = [](gfx::SceneClip k, gfx::RenderTarget& m) {
+        k.world      = &m.image();
+        k.worldUv[0] = 1.0f / kS;   // local är px: uv = px / målets sida
+        k.worldUv[1] = 1.0f / kS;
+        k.worldUv[2] = 0.0f;
+        k.worldUv[3] = 0.0f;
+        return k;
+    };
+
+    // Kvadrantmitterna: övre vänster, övre höger, nedre vänster, nedre höger.
+    const int  kvad[4][2] = {{32, 32}, {96, 32}, {32, 96}, {96, 96}};
+    const auto prov = [&](const char* vad, const gfx::ShaderProgram& p,
+                          const gfx::SceneClip& k, const bool (&väntat)[4]) {
+        auto t = målMed(f, [&](gfx::Renderer& rr) { ritaKlippt(rr, p, k); },
+                        false);
+        if (g_ritfel)
+            return;
+        const Bild b = läs(r, *t, vad);
+        for (int i = 0; i < 4; ++i) {
+            const std::uint8_t* q = b.at(kvad[i][0], kvad[i][1]);
+            check(ärFärg(q, väntat[i] ? kRöd : kSvart),
+                  std::string(vad) + " kvadrant " + std::to_string(i) +
+                      (väntat[i] ? " röd" : " svart"),
+                  px(q));
+        }
+    };
+    const bool bara0[4] = {true, false, false, false};
+    const bool alla[4]  = {true, true, true, true};
+
+    // K1 en skärmmask (övre vänstra kvadranten) klipper ett program som
+    // anropar glaze_clip — och K2 inte ett som inte gör det.
+    prov("K1 skärmmask + glaze_clip", *medKlipp, skärm(*övreVänst, hela), bara0);
+    prov("K2 skärmmask utan glaze_clip", *utanKlipp, skärm(*övreVänst, hela),
+         alla);
+    // K3 världsmasken ensam, ur `local`.
+    prov("K3 världsmask + glaze_clip", *medKlipp, värld({}, *övreVänst), bara0);
+    // K4 båda: vänster halva · övre halva = övre vänstra kvadranten.
+    prov("K4 skärm · värld", *medKlipp, värld(skärm(*vänster, hela), *uppe),
+         bara0);
+
+    // K5 utanför skärmmaskens yta är täckningen 0: en helt ogenomskinlig mask
+    // över rutan 32–96 klipper bort allt utanför den.
+    {
+        auto t = målMed(
+            f,
+            [&](gfx::Renderer& rr) {
+                ritaKlippt(rr, *medKlipp,
+                           skärm(*hel, gfx::Rectf{32.0f, 32.0f, 64.0f, 64.0f}));
+            },
+            false);
+        if (g_ritfel)
+            return;
+        const Bild b = läs(r, *t, "K5");
+        const struct {
+            int  x, y;
+            bool röd;
+        } punkter[] = {{48, 48, true},  {80, 80, true},  {16, 16, false},
+                       {110, 110, false}, {48, 16, false}, {16, 80, false}};
+        for (const auto& p : punkter)
+            check(ärFärg(b.at(p.x, p.y), p.röd ? kRöd : kSvart),
+                  std::string("K5 yta 32–96: (") + std::to_string(p.x) + ", " +
+                      std::to_string(p.y) + (p.röd ? ") röd" : ") svart"),
+                  px(b.at(p.x, p.y)));
+    }
+
+    // K6 en skärmmask utan yta (screenRect.w = 0) avvisas av fasaden: inget
+    // ritas.
+    {
+        auto t = målMed(
+            f,
+            [&](gfx::Renderer& rr) {
+                ritaKlippt(rr, *medKlipp,
+                           skärm(*hel, gfx::Rectf{0.0f, 0.0f, 0.0f, kS}));
+            },
+            false);
+        if (g_ritfel)
+            return;
+        const Bild b      = läs(r, *t, "K6");
+        int        ritade = 0;
+        for (int y = 0; y < b.h; ++y)
+            for (int x = 0; x < b.w; ++x)
+                ritade += ärFärg(b.at(x, y), kSvart, 0) ? 0 : 1;
+        check(ritade == 0, "K6 en skärmmask utan yta avvisas — inget ritas",
+              std::to_string(ritade) + " ritade px");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1744,6 +1987,7 @@ int main(int argc, char** argv)
         if (!g_ritfel) fallE11(f);
         if (!g_ritfel) fallFStorlek(f);
         if (!g_ritfel) fallFFärg(f);
+        if (!g_ritfel) fallK(f);
         g_prog = nullptr;
     }
 

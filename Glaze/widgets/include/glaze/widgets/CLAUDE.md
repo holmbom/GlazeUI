@@ -944,7 +944,12 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   `nullopt` med en logg. **DE FÖRANKRADE BARNEN** (REQ8 14): `setChildAnchor(barn, punkt, ankare)` — ritytan
   placerar BARA de förankrade (`placesChild`, widget.h) ur kameran, i SAMMA bildruta som scenen; får stå före
   `adopt` (pekare + livstecken). **MÅLARENS PLATS** (REQ8 2): `onPaintLayer` i lagren med `setLayerPainter`, med
-  lagrets djup; **PLATT** (REQ8 4): `setFlat`. **DE LÖPANDE HÄNDELSERNA RITAR OM RITYTAN, INTE FÖNSTRET**
+  lagrets djup; **PLATT** (REQ8 4): `setFlat`. **KLIPPET**: `setClipSpace` (World = prisma,
+  Screen = lokala px), `addClip`/`setClip`/`setClips`/`resetClip`/`clipEnabled`/`clips` för ritytan och
+  `setLayerClipSpace`/`addLayerClip`/… för varje lager — polygoner med hål, en samling är en union, lagrets klipp
+  snittas med ritytans, `setClips({})` döljer allt och `resetClip()` tar bort klippet; `hitTest` träffar inte det som
+  klippts bort, `moveLayer` tar klippet med sig och `setLayer(s)` släcker det; `renderToBitmap` och
+  `Painter::drawCanvas` ritar med. Maskerna: ../../../src/canvas/ (clip.h). **DE LÖPANDE HÄNDELSERNA RITAR OM RITYTAN, INTE FÖNSTRET**
   (PRESTANDA D1, ett medvetet brott mot widget.h:s "efter en handler ritas hela fönstret om"): efter `onTick`,
   `onGesture` och `onCameraChange` från drag, hjul, gest, tröghet och snäpp ritas ritytan och dess 3D-mål om, inte
   resten och inte en annan ritytas mål — en annan widget ändras genom sin sättare; diskreta händelser (klick,

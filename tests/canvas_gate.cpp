@@ -67,6 +67,11 @@
 //       med den gröna formen, underst lager 1 med den blå, ur `shape()`),
 //       flytten ritar om ritytan EN gång, och till samma plats och utanför
 //       ritar inte om.
+//   KP  KLIPPET (`setClips`, `setLayerClips`): ett satt klipp ritar om ritytan
+//       EN gång, ett oförändrat inte; `hitTest` träffar inte det som klippts
+//       bort (ritytans klipp, lagrets, ett hål); `moveLayer` tar lagrets
+//       klipp med sig, `setLayer` släcker det, `setClips({})` klipper bort
+//       allt och ett index utanför ger ingen ändring.
 //   M   TEXTENS MÅTT (`Canvas::measureText`): M1 nullopt utan
 //       fönster; M2 mätningen före ritningen = efter den (1e-4) i fyra
 //       stilar med en reservglyf (scene_pixel_gate del R:s kodpunkter); M3 =
@@ -488,6 +493,7 @@ struct Värd : glaze::AppWindow {
 
     void synkront();
     void lagerordning();   // LO
+    void klipp();          // KP
     void mätning();        // M
     void träffprovRT();    // RT
     void inmatning();      // IN
@@ -1076,6 +1082,97 @@ void Värd::lagerordning()
     check(kvar && avslag && yta.ritningar == 0 && yta.layerName(1) == "Blå",
           "LO till samma plats och utanför: ingen omritning, ordningen står kvar",
           std::to_string(yta.ritningar) + " ritningar");
+    yta.setLayers({""});
+}
+
+// KP. KLIPPET (`Canvas::setClips`, `setLayerClips`) genom fönstret. En röd yta
+// 40 × 40 vid origo i lager 1 och en grön 40 × 40 bredvid i lager 2, kameran
+// zoom 2. (1) Ett klipp som ändras ritar om ritytan EN gång, ett oförändrat
+// klipp (samma värde i `setClips`/`resetClip` på ett redan återställt klipp) —
+// `resetClip()` när inget klipp finns — gör ingen omritning av en rityta som
+// redan står stilla utan att kalla `invalidate()`; (2) `hitTest` träffar inte
+// det som klippts bort — ritytans klipp, lagrets klipp, ett hål; (3) `moveLayer`
+// tar lagrets klipp med sig och `setLayer` tar bort det; (4) ett index utanför
+// ger ingen ändring.
+void Värd::klipp()
+{
+    nollställ();
+    yta.setShapes({});
+    yta.resetClip();
+    yta.setCamera(glaze::Camera{{0.0, 0.0}, 2.0, 0.0f, 0.0f});
+    const gfx::Color röd{220, 40, 40, 255}, grön{40, 180, 60, 255};
+    yta.setLayers({"Grund", "Röd", "Grön"});
+    yta.addShape(1, glaze::Shape::rect({-20, -20, 40, 40}, röd));
+    yta.addShape(2, glaze::Shape::rect({-20, -20, 40, 40}, grön));
+    rita();
+    const glaze::Point mitt = världTillLokal(0.0, 0.0);
+    const glaze::Point sida = världTillLokal(15.0, 0.0);
+    check(yta.hitTest(mitt).size() == 2, "KP (fixturen) två ytor under mitten");
+
+    const auto ytaI = [](double x0, double y0, double x1, double y1) {
+        glaze::ClipPolygon p;
+        p.outer = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+        return p;
+    };
+    // (1) Ritytans klipp i världen: x −20–5. Mitten är innanför, (15, 0) utanför.
+    yta.ritningar = 0;
+    yta.setClips({ytaI(-20, -20, 5, 20)});
+    rita();
+    const int ritade = yta.ritningar;
+    check(ritade == 1 && yta.clipEnabled() && yta.clips().size() == 1,
+          "KP ett satt klipp ritar om ritytan en gång",
+          std::to_string(ritade) + " ritningar");
+    check(yta.hitTest(mitt).size() == 2 && yta.hitTest(sida).empty(),
+          "KP hitTest: innanför ritytans klipp träffar, utanför inte");
+
+    // Ett oförändrat klipp: ritytan står stilla, ingenting ritar om.
+    yta.ritningar = 0;
+    rita();
+    check(yta.ritningar == 0, "KP oförändrat klipp ritar inte om",
+          std::to_string(yta.ritningar) + " ritningar");
+
+    // (2) Lagrets klipp snittas med ritytans: det gröna lagret klipps till x −20–−5,
+    // mitten (x 0) ligger utanför det men innanför ritytans.
+    yta.setLayerClipSpace(2, glaze::ClipSpace::World);
+    yta.addLayerClip(2, ytaI(-20, -20, -5, 20));
+    rita();
+    const auto h = yta.hitTest(mitt);
+    check(h.size() == 1 && h[0].layer == 1 && yta.layerClipEnabled(2) &&
+              yta.layerClips(2).size() == 1,
+          "KP lagrets klipp: det gröna träffas inte utanför det, det röda i ritytans",
+          std::to_string(h.size()) + " träffar");
+
+    // Ett hål: en yta med ett hål i mitten släpper inte igenom hålet.
+    glaze::ClipPolygon med = ytaI(-20, -20, 20, 20);
+    med.holes.push_back({{-5, -5}, {5, -5}, {5, 5}, {-5, 5}});
+    yta.resetClip();
+    yta.resetLayerClip(2);
+    yta.addClip(med);
+    rita();
+    check(yta.hitTest(mitt).empty() && yta.hitTest(världTillLokal(12.0, 0.0)).size() == 2,
+          "KP hitTest: hålet i en yta träffas inte, ytan runt det gör det");
+
+    // (3) moveLayer tar klippet med sig, setLayer tar bort det.
+    yta.resetClip();
+    yta.addLayerClip(2, ytaI(-20, -20, -5, 20));
+    yta.moveLayer(2, 1);
+    check(yta.layerClipEnabled(1) && !yta.layerClipEnabled(2) &&
+              yta.layerClips(1).size() == 1,
+          "KP moveLayer: lagrets klipp följer med till den nya platsen");
+    yta.setLayer(1, "Ny");
+    check(!yta.layerClipEnabled(1) && yta.layerClips(1).empty(),
+          "KP setLayer nollställer lagrets klipp");
+
+    // (4) Ett index utanför ändrar ingenting; setClips({}) döljer allt.
+    yta.setClips({});
+    check(yta.clipEnabled() && yta.clips().empty() && yta.hitTest(mitt).empty(),
+          "KP setClips({}) klipper bort allt: ingen träff");
+    const std::size_t före = yta.clips().size();
+    yta.setClip(3, ytaI(0, 0, 1, 1));
+    yta.setLayerClip(1, 7, ytaI(0, 0, 1, 1));
+    check(yta.clips().size() == före && yta.layerClips(1).empty(),
+          "KP index utanför ger ingen ändring");
+    yta.resetClip();
     yta.setLayers({""});
 }
 
@@ -1886,7 +1983,9 @@ void Läsare::fall()
     for (Dokument* d : {&iPanel, &underRot}) {
         const std::string fall = d == &iPanel ? "MR3a i en Panel"
                                               : "MR3b direkt under roten";
+        // `utanCtx` ändrar vad måttet läser: mätcachen kräver `invalidate()`.
         d->utanCtx = true;
+        d->invalidate();
         d->nollaRäknarna();
         const gfx::Sizef s = d->actualSize();
         check(d->maxDjup == 2 && d->nullsvar >= 1 && s.h > 0.0f,
@@ -1895,6 +1994,7 @@ void Läsare::fall()
               "djupet " + std::to_string(d->maxDjup) + ", " +
                   std::to_string(d->nullsvar) + " nollsvar");
         d->utanCtx = false;
+        d->invalidate();
     }
 
     // ---- MR4. De två formerna är LIKA med `behaviorCtx()` som Ctx.
@@ -2016,6 +2116,7 @@ void fallMedFönster()
         kördes = true;
         w.synkront();
         w.lagerordning();
+        w.klipp();
         w.mätning();
         w.träffprovRT();
         w.inmatning();

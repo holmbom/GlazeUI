@@ -146,8 +146,9 @@ utanför sin mapp (metal_backend.h bär ObjC-typer — BARA .mm-filer).
   `imageUpdateOk` (rektangeln, stride:n, inget render-mål), och
   `meshDrawOk` kräver en giltig `MeshDraw::image` för Image-programmet och
   för Line giltiga streck och spetsgräns (`strokeOk`, `kLogStroke`), och för
-  alla inbyggda program ett giltigt klipp (REQ8 1, `clipOk`, `kLogClip` —
-  0–`kMaxClipPlanes` plan, de aktiva ändliga).
+  varje program, också de egna, ett giltigt klipp (`clipWhy`, `kLogClip` — maskerna
+  giltiga bilder, `screenRect` med storlek och ändlig, `worldUv` ändlig) och
+  ingen mask som är det bundna målets egen bild (`imageDrawOk`).
   `sceneImageFlags` är bildflaggorna ALLA scenprogram läser.
   **RENDER-MÅLENS STACK (etapp 6):** `pushTarget` flyttar klippstacken in i
   målnivån och börjar tomt, binder målet (`bindTarget`), tillämpar inget
@@ -223,7 +224,11 @@ utanför sin mapp (metal_backend.h bär ObjC-typer — BARA .mm-filer).
   Bygget sker i double och blir chunk-lokalt först när chunken är vald; en
   yta som inte ryms i en tom chunk fördelas med vertexkopior. En misslyckad
   yta loggas en gång per episod (atomic — byggarna får köras i en
-  arbetartråd). Plus gradientens ramp (premultiplicerad interpolering) och
+  arbetartråd). `buildClipPolygon` är samma rensning, triangulering och
+  kantremsa (delade hjälpare med `buildPolygon`) men STRIKT: den bygger i en
+  lokal lista och lägger den till bara när trianguleringen lyckats, så ett
+  misslyckande (eller ingen ytterring) ger false och orörd `chunks`, utan
+  logg och utan solfjäder. Plus gradientens ramp (premultiplicerad interpolering) och
   `linearPaint`/`radialPaint`. Kontrakten står i
   [../include/gfx/CLAUDE.md](../include/gfx/CLAUDE.md). `mat4.cpp`s
   `lookAt` (CANVAS_3D etapp 2) lägger ögonrymdens axlar som RADER (s, v,

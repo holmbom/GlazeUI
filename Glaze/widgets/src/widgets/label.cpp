@@ -208,7 +208,8 @@ gfx::Sizef Label::contentSize(const Ctx& c) const
         // satt bredd svarar kroken inte, och då gäller enradsmätningen nedan
         // — inte en gissad brytbredd: en gissning hade gett en höjd som inte
         // stämmer med det som ritas efteråt.
-        if (const std::optional<float> h = heightForWidth(c, width)) {
+        if (const std::optional<float> h =
+                measureHeightForWidth(*this, c, width)) {
             s.h = *h;   // grannen är redan inräknad i kroken
             return s;
         }
@@ -268,6 +269,13 @@ float Label::groupWidth(const Ctx& c) const
             kvar.push_back(ch);
     }
     return bredast;
+}
+
+Widget::MeasureScope Label::measureScope() const
+{
+    if (!widthGroup_.empty())
+        return MeasureScope::Root;
+    return buddy_.empty() ? MeasureScope::Self : MeasureScope::Parent;
 }
 
 // HÖJD FÖR BREDD — kontraktet i widget.h, tabellen i label.h.

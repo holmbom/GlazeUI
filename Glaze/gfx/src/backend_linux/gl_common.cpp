@@ -292,28 +292,93 @@ float clipCoverage(vec2 p)
     return cov;
 }
 
-// MÅLARENS KLIPP (gfx::SceneClip) — kantplanen (nx, ny, d) i målets
-// px, positivt inne, som uniformer PER PROGRAM (`setSceneClip`); bara
-// scenens program läser dem. Arrayens längd MÅSTE matcha gfx::kMaxClipPlanes.
-uniform vec4 uSceneClip[8];
-uniform int  uSceneClipN;   // 0 = inget klipp
+)glsl";
 
-// HLSL:ns sceneClip rad för rad: närmaste plans avstånd + ½, och där
-// täckningen är 0 KASTAS fragmentet — varken färg eller djup. p som
-// clipCoverage, aldrig gl_FragCoord.
-float sceneClip(vec2 p)
+// MÅLARENS KLIPP (gfx::SceneClip) — TVÅ MASKER i render-målsbilder, läst av
+// scenens fem program och de egna programmens fragmentsteg (`glaze_clip`).
+// Blocket `GlazeClip` ligger på bindningspunkt 5 (bunden på NAMN efter
+// länkningen, `setupSceneClipProgram`) och maskerna `GlazeClipScreen` och
+// `GlazeClipWorld` på enhet 4 och 5 med det linjära, klampade samplerobjektet.
+// Täckningen är maskens ALFA; utanför maskens yta är den 0, och utan mask
+// samplas ingenting. Ett render-måls bild är speglad på GL (v = 1 är
+// överkanten, `Image::flippedV`): .z och .w i `flags` säger det för skärm-
+// respektive världsmasken, och uv:t vänds då innan samplingen. Bara i ett
+// fragmentsteg (fragmentet kastas där täckningen är 0).
+const char kGlslSceneClipSrc[] = R"glsl(
+layout(std140) uniform GlazeClip
 {
-    if (uSceneClipN == 0)
-        return 1.0;
-    float d = 1.0e30;
-    for (int i = 0; i < uSceneClipN; ++i)
-        d = min(d, dot(uSceneClip[i].xy, p) + uSceneClip[i].z);
-    float cov = clamp(d + 0.5, 0.0, 1.0);
-    if (cov <= 0.0)
-        discard;
+    vec4 rect;    // skärmmaskens yta: x, y, w, h i målets px
+    vec4 world;   // världsmaskens uv = local * xy + zw
+    vec4 flags;   // .x 1 = skärmmask, .y 1 = världsmask, .z/.w 1 = bilden speglad
+} glaze_clipData;
+uniform sampler2D GlazeClipScreen;
+uniform sampler2D GlazeClipWorld;
+
+// Maskens täckning i uv (y nedåt): alfan inne i [0, 1]², annars 0.
+float glaze_clipSample(sampler2D t, vec2 uv, float flipped)
+{
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))
+        return 0.0;
+    if (flipped > 0.5)
+        uv.y = 1.0 - uv.y;
+    return textureLod(t, uv, 0.0).a;
+}
+
+// SKÄRMMASKEN i p (fragmentets läge i målets px, ur en varying — aldrig
+// gl_FragCoord): täckningen 0–1, och där den är 0 KASTAS fragmentet — varken
+// färg eller djup. Utan skärmmask 1.
+float glaze_clipScreen(vec2 p)
+{
+    float cov = 1.0;
+    if (glaze_clipData.flags.x > 0.5) {
+        cov = glaze_clipSample(GlazeClipScreen,
+                               (p - glaze_clipData.rect.xy) /
+                                   glaze_clipData.rect.zw,
+                               glaze_clipData.flags.z);
+        if (cov <= 0.0)
+            discard;
+    }
+    return cov;
+}
+
+// BÅDA maskerna: skärmmaskens täckning gånger världsmaskens i `local`
+// (vertexens chunk-lokala xy, interpolerat). Kastar vid 0.
+float glaze_clip(vec2 px, vec2 local)
+{
+    float cov = glaze_clipScreen(px);
+    if (glaze_clipData.flags.y > 0.5) {
+        cov *= glaze_clipSample(GlazeClipWorld,
+                                local * glaze_clipData.world.xy +
+                                    glaze_clipData.world.zw,
+                                glaze_clipData.flags.w);
+        if (cov <= 0.0)
+            discard;
+    }
     return cov;
 }
 )glsl";
+
+// Klippets block på punkt 5 och maskernas samplers på enhet 4–5 — görs en
+// gång per länkat program som klistrat in `kGlslSceneClipSrc`. Ett block
+// eller en sampler som programmet inte använder har tagits bort av länkaren
+// och hoppas över.
+void setupSceneClipProgram(unsigned program)
+{
+    const GLuint block = pglGetUniformBlockIndex(program, "GlazeClip");
+    if (block != GL_INVALID_INDEX)
+        pglUniformBlockBinding(program, block, kClipBinding);
+    // glUniform1i kräver programmet bundet — det som var bundet binds tillbaka.
+    GLint bound = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &bound);
+    pglUseProgram(program);
+    const int screen = pglGetUniformLocation(program, "GlazeClipScreen");
+    const int world  = pglGetUniformLocation(program, "GlazeClipWorld");
+    if (screen >= 0)
+        pglUniform1i(screen, kClipScreenUnit);
+    if (world >= 0)
+        pglUniform1i(world, kClipWorldUnit);
+    pglUseProgram(static_cast<GLuint>(bound));
+}
 
 const char kGlslPaintSrc[] = R"glsl(
 // FÄRGEN — samma som HLSL:ns kHlslPaintSrc.

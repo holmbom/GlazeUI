@@ -10,13 +10,23 @@ man byter version.
 
 Versionen står på ETT ställe, [`glaze/version.h`](Glaze/widgets/include/glaze/version.h)
 (rot-CMakeLists läser den, `version_gate` mäter att de är lika), och varje
-version har git-taggen `vX.Y.Z`. En ny
-MAJOR eller MINOR (1.0.0, 0.2.0) taggas först när alla tester är utförda på
-alla tre OS; en PATCH (0.1.5) räcker med det OS den byggdes på. Det som
+version har git-taggen `vX.Y.Z`. En PATCH (0.2.1) är bara rättelser och
+bryter aldrig API:t — ett program byggt mot x.y.0 bygger mot varje x.y.n —
+och testas med de relevanta testerna på det OS den byggdes på. Ny
+funktionalitet eller ett brott gör versionen till en MINOR (0.3.0), som bör
+testas på alla tre OS men får släppas utan; en MAJOR (1.0.0) testas helt på
+alla tre. Det som
 görs efter en version samlas under **Nästa** och får sitt nummer när
 versionen sätts.
 
 ## Nästa
+
+## 0.3.0
+
+- **New** — klipp mot polygoner med hål och flera delar, utan gräns för antalet hörn: för hela ritytan (`Canvas::setClips`), per lager (`setLayerClips`) och i målaren (`Painter::save(ClipPolygon)`), i världen som ett prisma (terräng och föremål i 3D klipps lodrätt) eller på skärmen. Former, målarens ritning, bilder, meshar, draperingar och `renderToBitmap` klipps i varje pixel; etiketter och markörer på sitt ankare (hela eller dolda); HUD:en i `onPaintOverlay` klipps inte; och `hitTest` träffar inte det som klippts bort. Egna program klipps med förspelets `glaze_clip`. En ogiltig yta (en självkorsning, ett hål utanför) följer `setInvalidClip`: förvalet `Show` låter klippet vara, `Hide` låter ytan klippa bort sin del.
+- **New** — `Painter::drawCanvas`: en ritytas lager med en vald kamera i en rektangel, i den yta målaren ritar i — på en utskriftssida i sidans upplösning.
+- **Fix** — layouten mäter ett oförändrat delträd en gång: måtten cachas per widget tills något i delträdet, miljön eller språket ändras.
+- **Brytande** — halvplansklippet i `gfx/scene.h` (`ClipPlane`, `kMaxClipPlanes`) är ersatt av maskerna i `gfx::SceneClip`; flyttar en app en widget med de råa layoutfälten i `onTick` eller utanför en handler anropar den `invalidate()`.
 
 ## 0.2.0 — 2026-10-21
 

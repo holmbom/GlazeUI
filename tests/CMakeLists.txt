@@ -607,6 +607,22 @@ target_include_directories(painter_gate
                            PRIVATE ${CMAKE_SOURCE_DIR}/Glaze/widgets/src)
 add_test(NAME painter_gate COMMAND painter_gate)
 
+# print_gate  RITYTANS LAGER PÅ EN ANNAN YTA (`Painter::drawCanvas`): sidan
+#             ritas som utskriftens sida (ett offscreen-block, ett mål i sidans
+#             täthet, världen i mm) med en riktig Canvas ritad på den — två
+#             rutor med olika kameror och rätt mm-skala, rotation 180°, en
+#             delvis bortklippt ruta, ritytans eget klipp, en rityta i ett
+#             ANNAT fönster än sidans, och false för en rektangel utan yta, en
+#             ogiltig kamera och ett anrop ur ritytans egen ritning. Läser
+#             SIDAN, aldrig ritytans mål. Når `Glaze/widgets/src/` för
+#             `PaintContext`. 77 = ingen display => SKIPPED.
+add_executable(print_gate print_gate.cpp)
+target_link_libraries(print_gate PRIVATE glaze)
+target_include_directories(print_gate
+                           PRIVATE ${CMAKE_SOURCE_DIR}/Glaze/widgets/src)
+add_test(NAME print_gate COMMAND print_gate)
+set_tests_properties(print_gate PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+
 # dnd_gate  DRAG-AND-DROPS grind: lasten och effektmasken
 #           headless, sedan ROUTINGEN genom fönstrets riktiga ingång
 #           (`AppWindow::handleEvent`, protected — WinForms WndProc) i ett

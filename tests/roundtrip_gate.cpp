@@ -44,6 +44,13 @@
 // Prop — fallet "snap" faller) och sättaren bortdöpt i canvas.h
 // (calls_fixture kompilerar inte).
 //
+// Klippet: varje muterande klippmetod på ritytan är en Call-sats med
+// argumenten ordagranna (klammerlistorna, `glaze::ClipPolygon{…}`, den
+// designerade formen och `{}`), ingen Prop, och emitteras byte för byte.
+// SABOTAGEN som ska fälla det: en av metoderna som setter-fält för ritytan
+// (raden blir en Prop) och en sättare bortdöpt i canvas.h (calls_fixture
+// kompilerar inte).
+//
 // Exit 0 = allt grönt; 1 = minst ett fall föll (varje fall skriver sin rad).
 
 #include <cctype>
@@ -567,6 +574,51 @@ int main()
                    std::string::npos,
            "snap: karta.setLayerSnap(0, false) är en Call-sats, ordagrann, och "
            "emitteras");
+    }
+
+    // ---- KLIPPET: varje rad i fixturen är en Call-sats på `karta` med
+    // sina argument ordagranna, och emitteras som den stod. Listan är
+    // fixturens egna rader — en metod som saknas där fäller fallet.
+    {
+        bld::ReadResult r =
+            bld::readWindow(root() + "tests/fixtures/calls.h");
+        ok(r.ok, "klipp: calls.h läses (" + r.error + ")");
+        if (r.ok) {
+            const std::string gui = bld::emitGuiCpp(r.model, "calls.h", "\n");
+            const auto        stmts = anropen(r.model, "karta");
+            struct Rad {
+                const char* metod;
+                const char* argument;
+            };
+            static const Rad kRader[] = {
+                {"setClipSpace", "glaze::ClipSpace::Screen"},
+                {"setInvalidClip", "glaze::InvalidClip::Hide"},
+                {"addClip", "{{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, {20, 20}}}}"},
+                {"addClip", "glaze::ClipPolygon{{{0, 0}, {50, 0}, {50, 50}}, {}}"},
+                {"addClip", "{}"},
+                {"setClip", "1, {.outer = {{0, 0}, {10, 0}, {10, 10}}, .holes = {{{2, 2}, {4, 2}, {4, 4}}, {{5, 5}, {6, 5}, {6, 6}}}}"},
+                {"setClips", "{{{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, {20, 20}}}}, glaze::ClipPolygon{{{200, 0}, {300, 0}, {300, 80}}, {}}}"},
+                {"setClips", "{}"},
+                {"resetClip", ""},
+                {"setLayerClipSpace", "1, glaze::ClipSpace::World"},
+                {"addLayerClip", "1, {{{674000, 6580000}, {674100, 6580000}, {674100, 6580080}}, {{{674010, 6580010}, {674020, 6580010}, {674020, 6580020}}}}"},
+                {"setLayerClip", "1, 0, glaze::ClipPolygon{{{674000, 6580000}, {674050, 6580000}, {674050, 6580050}}, {}}"},
+                {"setLayerClips", "2, {{{{674000, 6580000}, {674100, 6580000}, {674100, 6580080}}, {}}}"},
+                {"setLayerClips", "2, {}"},
+                {"resetLayerClip", "2"}};
+            for (const Rad& rad : kRader) {
+                bool funnen = false;
+                for (const bld::Stmt* st : stmts)
+                    funnen = funnen || (st->kind == bld::Stmt::Kind::Call &&
+                                        st->name == rad.metod &&
+                                        st->value == rad.argument);
+                const std::string rad_text = std::string("    karta.") + rad.metod +
+                                         "(" + rad.argument + ");\n";
+                ok(funnen && gui.find(rad_text) != std::string::npos,
+                   std::string("klipp: karta.") + rad.metod + "(" + rad.argument +
+                       ") är en Call-sats, ordagrann, och emitteras");
+            }
+        }
     }
 
     // ---- DEN KORTA EVENT-FORMEN. Byte-identiteten ovan

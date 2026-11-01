@@ -179,6 +179,12 @@ void D3dRenderer::bindTarget(RenderTarget* t)
         context_->PSSetShaderResources(0, customSrvs_, none);
         customSrvs_ = 0;
     }
+    // Och klippmaskerna på t4–t5 — samma hazard.
+    if (clipSrvsBound_) {
+        ID3D11ShaderResourceView* none[2] = {};
+        context_->PSSetShaderResources(4, 2, none);
+        clipSrvsBound_ = false;
+    }
     context_->OMSetRenderTargets(activeRtv_ ? 1 : 0,
                                  activeRtv_ ? &activeRtv_ : nullptr,
                                  activeDsv_);

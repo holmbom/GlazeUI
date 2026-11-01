@@ -11,7 +11,8 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
 
 ## Filer
 
-- **`geometry.h`** (etapp 7) — `Point`/`Rect` i DOUBLE (en SWEREF-koordinat
+- **`geometry.h`** (etapp 7) — `ClipSpace {World, Screen}` och `ClipPolygon`
+  (ytterring + hål; en samling ytor är en union) för klippet; `Point`/`Rect` i DOUBLE (en SWEREF-koordinat
   får inte avrundas förrän den blivit relativ ett chunk-origo, T5),
   `Unit {Px, Mm, World}` och `Length` med `px()`/`mm()`/`world()`. **Ett
   naket tal är px** — konverteringen från float är implicit med flit, så
@@ -253,15 +254,19 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
   `Canvas::setLayerPainter`, efter lagrets former, och **`PaintArgs::layer`**
   bär lagrets plats (−1 i de två andra); i ett World- eller Terrain-lager i
   3D-målet börjar målaren med LAGRETS renderläge i stället för utan djup.
-  **`save(Rect)`** (REQ8 1) — KLIPPET: samma sparade läge, och det som ritas
-  till lägets slut klipps till rektangeln i den transform och rymd som gäller
-  vid anropet (vriden en fyrhörning, under tilt dess bild), snittad med
-  föräldern; därefter en yta på skärmen som ingen transform flyttar. Linjer,
-  ytor, text, markörer och bilder klipps i varje pixel (kantplanen i
-  `gfx::SceneUniforms::clip`, utanför kastat — inget djup), föremålen till
-  den omskrivna rektangeln (scissorn). Högst 8 kanter — fler loggas en gång
-  och de minsta hörnen skärs av; en rektangel utan yta eller med NaN klipper
-  bort allt.
+  **`save(Rect)`, `save(ClipPolygon)`, `save(vector<ClipPolygon>)`** — KLIPPET:
+  samma sparade läge, och det som ritas till lägets slut klipps till ytan i den
+  transform och rymd som gäller vid anropet — i världen ett PRISMA (lodrätt
+  genom scenen), efter `screenSpace` en yta på skärmen — snittad med föräldern;
+  flera ytor i ett anrop är en union och hål klipper bort. Låst när det sätts.
+  Allt (linjer, ytor, text, markörer, bilder, meshar, instanser, punkter) klipps
+  i varje pixel av masker i `gfx::SceneUniforms::clip`; ingen gräns på hörnen;
+  en OGILTIG yta följer `Canvas::setInvalidClip` (`InvalidClip::Show` förval:
+  klippet gäller inte; `Hide`: den ytan täcker ingenting). **`drawCanvas(canvas, rect, Camera | Camera3D)`** ritar
+  ritytans huvudvys lager i ett eget mål i rektangelns upplösning och sedan som
+  en bild på dess hörn; false (+ logg) vid en tom rektangel, en ogiltig kamera
+  eller ett anrop ur ritytans egen ritning. Ritar mot målarens renderare och
+  resurser, så ritytan får sitta i ett annat fönster (utskriftens förloppsfönster).
   Kontraktet: DETERMINISTISK ritning, inga trädändringar.
 - **`bitmap.h`** — `glaze::Bitmap` (etapp 3): appens egna RGBA8-pixlar (rak
   alfa, rad 0 överst, täta rader). Ett HANDTAG — kopior DELAR pixlarna

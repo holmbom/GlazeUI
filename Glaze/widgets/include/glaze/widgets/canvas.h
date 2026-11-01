@@ -763,6 +763,41 @@ public:
     // ritytans etiketter på terräng och en markföljande kamera står på.
     std::optional<double> heightAt(Point xy) const;
 
+    // ------------------------------------------------------------- KLIPPET
+    // RITYTANS KLIPP: rutnätet, lagren, `onPaint` och `onPaintLayer`
+    // ritas bara inom ytorna — bakgrunden (`setBackground`) fyller hela ytan (`ClipPolygon`,
+    // glaze/canvas/geometry.h) — ytorna är en UNION, och de klipper i varje
+    // pixel med kantutjämnad kant. ETIKETTERNA OCH MARKÖRERNA klipps på sitt
+    // ANKARE: syns platsen ritas de hela, annars döljs de och tar ingen plats
+    // i kollisionen. `onPaintOverlay` (HUD:en) klipps inte, och kanten,
+    // fokusringen och barnen klipps av widgetträdet som vanligt. Rymden är
+    // `clipSpace()` (World från start): i World är ytan ett PRISMA i
+    // världens XY, så terrängen, meshar och stående text klipps lodrätt där
+    // området slutar också under tilt (stående text och markörer på sitt
+    // ankare). Kollektionsvokabulären: `addClip` lägger till en yta,
+    // `setClip(index, …)` ersätter en, `setClips` fyller om allt — och
+    // `setClips({})` klipper bort ALLT, medan `resetClip()` tar bort klippet.
+    // Från start finns inget. Index utanför ⇒ `gfx::log` och ingen ändring.
+    // En ogiltig yta följer `setInvalidClip` (+ `gfx::log`). `hitTest` träffar
+    // inte det som klippts bort (rutmarkeringen, `hitTest(Rect, HitMode)`,
+    // prövar att RUTAN rör klippet, inte varje form); `castRay` och `heightAt`
+    // frågar scenen som förut. Sättarna ritar om. Gäller också `renderToBitmap` och
+    // `Painter::drawCanvas`.
+    void      setClipSpace(ClipSpace space);
+    ClipSpace clipSpace() const;
+    int       addClip(ClipPolygon polygon);
+    void      setClip(int index, ClipPolygon polygon);
+    void      setClips(std::vector<ClipPolygon> polygons);
+    void      resetClip();
+    bool      clipEnabled() const;
+    const std::vector<ClipPolygon>& clips() const;
+    // En OGILTIG yta (en självkorsning, ett hål utanför — se `ClipPolygon`):
+    // `InvalidClip::Show` (förval) låter klippet den ingår i vara — allt syns —
+    // och `Hide` låter den ogiltiga ytan klippa bort sin del. Gäller ritytans,
+    // lagrens och målarens klipp; sättaren ritar om.
+    void        setInvalidClip(InvalidClip mode);
+    InvalidClip invalidClip() const;
+
     // -------------------------------------------------------------- LAGREN
     int  addLayer(TrText name);
     // ERSÄTTER lagret helt (tilldelning): nytt namn, förvalda egenskaper och
@@ -835,6 +870,23 @@ public:
     // start; följer lagret i `moveLayer`, och `setLayer`/`setLayers` släcker den.
     void setLayerPainter(int layer, bool on);
     bool layerPainter(int layer) const;
+    // LAGRETS KLIPP — samma ytor, rymd och vokabulär som ritytans klipp
+    // (`setClips` ovan), men bara för lagret: dess former, dess
+    // `onPaintLayer` och — på terräng — dess drapering. Ritytans klipp gäller
+    // ovanpå (snittet). Följer lagret i `moveLayer`; `setLayer`/`setLayers`
+    // tar bort det. På terräng draperas lagret UPPIFRÅN: där gäller dess
+    // World-klipp (längs terrängen), inte ett Screen-klipp. Ett lager eller
+    // index utanför ⇒ `gfx::log` och ingen
+    // ändring (läsarna svarar World, false och en tom lista). En ogiltig yta
+    // följer `setInvalidClip`.
+    void      setLayerClipSpace(int layer, ClipSpace space);
+    ClipSpace layerClipSpace(int layer) const;
+    int       addLayerClip(int layer, ClipPolygon polygon);
+    void      setLayerClip(int layer, int index, ClipPolygon polygon);
+    void      setLayerClips(int layer, std::vector<ClipPolygon> polygons);
+    void      resetLayerClip(int layer);
+    bool      layerClipEnabled(int layer) const;
+    const std::vector<ClipPolygon>& layerClips(int layer) const;
     // Etiketterna TONAR in och ut när kollisionen visar eller döljer dem, i
     // stället för att växla (av från start).
     void      setLabelFade(bool on);
@@ -1065,6 +1117,9 @@ protected:
     void languageChanged() override;
 
 private:
+    // `Painter::drawCanvas` ritar ritytans scen på en annan yta och når
+    // därför scenen (src/canvas/painter.cpp).
+    friend class Painter;
     // Scenen innanför klippet: rutnätet, lagren och målaren i världen — i
     // 2D-vägen direkt, annars genom 3D-målet (src/canvas/target3d.h).
     void drawScene(const Ctx& c);

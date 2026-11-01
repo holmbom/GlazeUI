@@ -85,11 +85,21 @@ DISPLAY → surfacelös headless).
   **`kGlslClipSrc`** (uniformerna `uClipP0/P1/N` + `sdRoundRect` +
   `clipCoverage`), som VARJE fragmentshader som ritar i ett mål med
   klippstacken klistrar in efter `#version` — och MÅLARENS KLIPP (REQ8 1):
-  `uSceneClip[8]`/`uSceneClipN` + `sceneClip(p)`, som scenens sex program
-  multiplicerar alfan med (`discard` utanför — inget djup) och som laddas
-  upp per anrop med `setSceneClip` (linux_scene.cpp; inget anrop när varken
-  anropet eller programmet har ett klipp) efter `findSceneClip` i varje
-  programs init (en saknad location ⇒ programmet byggs inte). Loadern bär sedan etapp 3
+  **`kGlslSceneClipSrc`** (klistrad efter `kGlslClipSrc` i scenens sex program och
+  i de egna programmens FRAGMENTsteg): std140-blocket `GlazeClip` (`rect`,
+  `world`, `flags`; 48 byte i `clipUbo_`) på bindningspunkt **5**, samplers
+  `GlazeClipScreen`/`GlazeClipWorld` på enhet **4/5** med `samplerLinear_`,
+  `glaze_clipScreen(p)` (2D-programmen) och `glaze_clip(px, local)` (Line3 på
+  `vPpos`, Glyph3 på ankaret via varyingen `vClipLocal`, egna program) —
+  maskens ALFA, 0 utanför ytan, `discard` vid 0. p är alltid en varying
+  (`vPix`), aldrig `gl_FragCoord`. Ett render-måls bild är SPEGLAD (v = 1
+  överst): `flags.z/.w` bär `Image::flippedV` per mask och uv:t vänds före
+  samplingen. `setupSceneClipProgram` (gl_common.cpp) binder blocket och
+  enheterna på NAMN efter varje länkning; `bindSceneClip` (linux_scene.cpp,
+  också från `drawCustomMesh`) binder maskerna på enhet 4–5 vid varje anrop
+  med mask (den vita `whiteTex_` när en mask står kvar från förra anropet,
+  så ett mål aldrig är bundet som sin egen mask) och skriver blocket bara när
+  klippet ändrats. Samplers och block är GL-tillstånd, inte programmens. Loadern bär sedan etapp 3
   SAMPLEROBJEKTEN (`glGenSamplers`/`glBindSampler`/`glSamplerParameteri`).
   Färgens GLSL **`kGlslPaintSrc`** (etapp 4: `uPaint0`/`uPaint1`, sampler-
   enheten `uRamp` och `paintColor`) bor också här och klistras efter

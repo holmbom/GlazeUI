@@ -90,6 +90,17 @@ gfx::Rectf targetBox(const gfx::Rectf& box);
 int  defaultMultisample();
 bool validMultisample(int samples);
 
+// ----------------------------------------------------------- MÅLARNA
+// (painter.cpp) — `onPaint`, `onPaintLayer` och `onPaintOverlay` går EN väg: en
+// målare i ritningens läge (i världen, eller i de lokala px för overlayn),
+// lagret i args (−1 utanför ett lager) och, för ett lager i rymden, lagrets
+// renderläge som målarens start. Målaren tömmer sin sista sats när den går ur
+// räckvidd — innan anroparen släpper ett klipp.
+void paintWith(Canvas& yta, const Handler<PaintArgs>& h, PaintContext& p,
+               bool screen, int layer = -1, const RenderState* state = nullptr);
+// LAGRENS MÅLARE (scene.h `LayerPaint`) — tom utan `onPaintLayer`.
+LayerPaint layerPaintOf(Canvas& yta);
+
 // Det 3D-målet behöver av ritytan utöver ritningens läge.
 struct Target3DArgs {
     std::uint64_t   stamp   = 0;         // Widget::damageStamp — cachens nyckel
@@ -178,5 +189,21 @@ std::optional<Bitmap> renderBitmap3D(const PaintContext& canvas,
                                      const std::shared_ptr<SceneData>& scene,
                                      const Target3DArgs& args, int w, int h,
                                      gfx::Color background);
+
+// RITYTAN PÅ EN ANNAN YTA (`Painter::drawCanvas`): samma ritning som
+// `renderBitmap3D` — huvudvyns lager med `*args.camera`, lagrens
+// `onPaintLayer`, ritytans och lagrens klipp, kompletta draperingar,
+// etiketterna i en EGEN plats som varken rör skärmens eller bildens — men i
+// en ritning som REDAN pågår (en frame eller ett `beginOffscreen`-block,
+// utskriftssidans) och utan rutnät, `onPaint` och `onPaintOverlay`. Målet
+// är anroparens: skapas eller byts här när det saknas eller har fel mått
+// (w × h px, ritytans provtagning, djup), rensas till `background` och
+// lämnas obundet och upplöst, klart att ritas som bild. Ingen återläsning.
+// false (+ logg) när målet inte går att skapa.
+bool renderCanvasTarget(const PaintContext& canvas,
+                        const std::shared_ptr<SceneData>& scene,
+                        const Target3DArgs& args, int w, int h,
+                        gfx::Color background,
+                        std::unique_ptr<gfx::RenderTarget>& target);
 
 } // namespace glaze::detail

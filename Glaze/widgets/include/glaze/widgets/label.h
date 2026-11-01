@@ -307,6 +307,11 @@ protected:
     std::optional<float> heightForWidth(const Ctx& c,
                                         float width) const override;
 
+    // Grannen (`buddy`) är ett syskon och breddgruppen sträcker sig över
+    // fönstrets hela träd — mätcachen nycklar på förälderns respektive rotens
+    // generation.
+    MeasureScope measureScope() const override;
+
     // HELA TEXTEN som tooltip när `elide` faktiskt kortat den — jämfört
     // med `Draw::elide`, samma sanning som ritningen. En egen tooltip vinner.
     TrText toolTipAt(const Ctx& c, float x, float y) const override;

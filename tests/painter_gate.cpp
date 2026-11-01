@@ -88,33 +88,27 @@
 //      kollision (ZV3), målaren utan zoom (ZV4), en enda pool (MB1), kontot
 //      vid FÖRSTA ritningen (MB2), döda konton kvar (MB3). MÄTER INTE pixlar,
 //      draperingens konto (ingen bänk har två terrängytor) eller meshar.
-//   KL MÅLARENS KLIPP (`Painter::save(Rect)`), läst ur anropens
-//      `SceneUniforms::clip` och renderarens scissor vid anropet; förväntat värde är
-//      rektanglarnas geometri (planen är normerade — värdet är avståndet):
-//      KL1 axelparallellt: fyra plan, 40 px in i mitten och −5 px utanför
-//      varje kant, samma klipp på ytan och linjen i läget, scissorn är
-//      rektangeln, och efter läget inget klipp och ritytans scissor; KL2
-//      vridet 30°: planen ger kantavstånden i rektangelns egna koordinater
-//      (också i den omskrivna rutans hörn) och scissorn är den omskrivna
-//      rektangeln; KL3 nästlat (en axelparallell och en 45° vriden): sex
-//      kanter, det minsta av ytornas kantavstånd, och det yttre klippet igen
-//      efteråt; KL4 utan bredd, NaN, två klipp utan snitt och ett klipp
-//      utanför ritytan ritar ingenting och lämnar stacken i balans; KL5 tre
-//      vridna kvadrater (tolv kanter) blir åtta plan som bara släpper in det
-//      som ligger i alla tre; KL6 i världen under bäring, tilt och zoom är
-//      planen rektangelns bild där `toLocal` lägger hörnen; KL7 `meshDrawOk`
-//      avvisar för många plan och ett NaN-plan men läser inte planen efter
-//      `count`. Sabotage som SKA fälla dem:
-//      `d.uniforms.clip` bort ur `drawTransient` (KL1–KL6), klippet utan
-//      flush i `restore` (KL1 — ytan efter läget klipps), normalen utan
-//      normering (KL1/KL2 — värdena skalas), `intersectClip` bort (KL3 —
-//      bara den inre ytan, KL4 — de två utan snitt ritar), hörnet skuret
-//      med STÖRST yta i `cutCorners` (KL5 — två grannhörn skärs, mitten
-//      hamnar under 44), `popClip` bort ur
-//      `restore` (KL1, KL4 — scissorn står kvar), projektionen med
-//      skärmens matris också i världen (KL6), och `clipOk` bort (KL7). MÄTER
-//      INTE pixlarna (scene_pixel_gate K, scene3d_pixel_gate KL), föremålen i
-//      rymden (NullRenderer bygger inga program) eller klippet i 3D-målet.
+//   KL MÅLARENS KLIPP (`Painter::save(Rect)` och `save(ClipPolygon)`) som
+//      MASKER, läst ur anropens `SceneUniforms::clip` och maskfyllningarna
+//      (Fill-anrop i ett eget mål): KL1 axelparallellt — masken täcker
+//      rektangeln i hela pixlar, ytan och linjen i läget delar den, efter
+//      läget inget klipp; ett oförändrat klipp fylls inte om och ett ändrat
+//      gör det; KL2 vridet 30° — masken täcker den omskrivna rutan; KL3
+//      nästlat (snittet) — den inre fylls med den yttre bunden som klipp och
+//      förälderns ruta ligger i barnets px, och efter det inre läget gäller
+//      den yttre; KL4 tomt (utan bredd, NaN, utan snitt, utanför ritytan) ger
+//      den tomma masken och aldrig ett oklippt anrop; KL5 400 hörn med hål är
+//      EN mask och två ytor i ett anrop en union i samma mask; KL6 i världen
+//      under bäring, tilt och zoom täcker masken rektangelns bild där `toLocal`
+//      lägger hörnen. Sabotage som SKA fälla dem: `clip.apply` bort ur
+//      `drawTransient` (KL1–KL6), klippet utan flush i `restore` (KL1 — ytan
+//      efter läget klipps), `fitGrid` utan förälderns gitter (KL3 — barnets
+//      ruta), `parent` bort ur `ClipMasks::fill` (KL3 — snittet), `emptyScreen`
+//      som "inget klipp" (KL4), nyckeln utan ytornas koordinater (KL1 — ett
+//      ändrat klipp fylls inte om), `projectedAreas` med skärmens matris också i
+//      världen (KL6). MÄTER INTE pixlarna (scene_pixel_gate K, scene3d_pixel_gate
+//      KL), föremålen i rymden (NullRenderer bygger inga program) eller klippet
+//      i 3D-målet.
 //
 // VAD GRINDEN INTE MÄTER: pixlar (scene_pixel_gate gör det genom
 // den riktiga backenden — lagrens ordning efter en flytt syns bara i
@@ -1664,29 +1658,39 @@ void fallMB()
 
 // ------------------------------------------------------------------ KL
 //
-// MÅLARENS KLIPP. Förväntat värde är rektanglarnas egen geometri: planen är
-// normerade, så ett plans värde i en punkt är punktens avstånd till kanten,
-// och för en punkt INNE i ett konvext snitt är det minsta planvärdet
-// avståndet till snittets rand — det minsta av ytornas egna kantavstånd.
-// Utanför prövas bara punkter bortom en kants mitt, där kantens eget värde
-// är det minsta.
+// MÅLARENS KLIPP. Klippet är MASKER (src/canvas/clip.h): `save(…)` ger ett
+// rit-anrop vars `SceneUniforms::clip` bär maskens bild och dess ruta i målets
+// px, och masken fylls med Fill-programmet i ett EGET mål — de anropen har
+// ett mål (`Anrop::mål`), scenens ritas i framen. Grinden läser båda:
+// maskens ruta, förälderns ruta i barnets px (nästlingen), antalet fyllningar
+// (poolen) och att ett tomt klipp ger den tomma masken (1 × 1 utanför varje
+// rutnät).
 
-// Det minsta planvärdet i punkten (målets px); +∞ utan plan.
-double planVärde(const gfx::SceneClip& k, double x, double y)
+// Scenens anrop (framens eget mål) och maskfyllningarna (ett eget mål).
+std::vector<const Anrop*> scen(const Bänk& b)
 {
-    double m = std::numeric_limits<double>::infinity();
-    for (int i = 0; i < k.count; ++i)
-        m = std::min(m, static_cast<double>(k.planes[i].nx) * x +
-                            static_cast<double>(k.planes[i].ny) * y +
-                            static_cast<double>(k.planes[i].d));
-    return m;
+    std::vector<const Anrop*> v;
+    for (const Anrop& a : b.r.anrop)
+        if (!a.mål)
+            v.push_back(&a);
+    return v;
 }
 
-// Kantavståndet i rektangeln [−hw, hw] × [−hh, hh] (punkten i rektangelns
-// egna koordinater; positivt inne).
-double rutAvstånd(double x, double y, double hw, double hh)
+std::vector<const Anrop*> fyllningar(const Bänk& b)
 {
-    return std::min(std::min(x + hw, hw - x), std::min(y + hh, hh - y));
+    std::vector<const Anrop*> v;
+    for (const Anrop& a : b.r.anrop)
+        if (a.mål)
+            v.push_back(&a);
+    return v;
+}
+
+std::vector<gfx::MeshProgram> program(const std::vector<const Anrop*>& v)
+{
+    std::vector<gfx::MeshProgram> p;
+    for (const Anrop* a : v)
+        p.push_back(a->program);
+    return p;
 }
 
 constexpr double kRadPerGrad = 3.14159265358979323846 / 180.0;
@@ -1706,24 +1710,6 @@ std::string tal(double v)
     return b;
 }
 
-// Kantavståndet i en konvex fyrhörning (hörnen i ordning, åt vilket håll som
-// helst) — det minsta av kanternas tecknade avstånd, positivt inne.
-double polyAvstånd(const glaze::Point (&p)[4], double x, double y)
-{
-    double a = 0.0;
-    for (int i = 0; i < 4; ++i)
-        a += p[i].x * p[(i + 1) % 4].y - p[(i + 1) % 4].x * p[i].y;
-    const double s = a < 0.0 ? -1.0 : 1.0;
-    double       m = std::numeric_limits<double>::infinity();
-    for (int i = 0; i < 4; ++i) {
-        const glaze::Point& u = p[i];
-        const glaze::Point& v = p[(i + 1) % 4];
-        const double        l = std::hypot(v.x - u.x, v.y - u.y);
-        m = std::min(m, s * ((v.x - u.x) * (y - u.y) - (v.y - u.y) * (x - u.x)) / l);
-    }
-    return m;
-}
-
 bool nära(double a, double b, double tol = 1e-2)
 {
     return std::abs(a - b) <= tol;
@@ -1734,12 +1720,25 @@ bool sammaRekt(const gfx::Rectf& r, double x, double y, double w, double h)
     return nära(r.x, x) && nära(r.y, y) && nära(r.w, w) && nära(r.h, h);
 }
 
-std::string rekt(const Anrop& a)
+std::string rekt(const gfx::Rectf& r)
 {
-    if (!a.harScissor)
-        return "ingen scissor";
-    return tal(a.scissor.x) + ", " + tal(a.scissor.y) + ", " + tal(a.scissor.w) +
-           " × " + tal(a.scissor.h);
+    return tal(r.x) + ", " + tal(r.y) + ", " + tal(r.w) + " × " + tal(r.h);
+}
+
+// Omsluter maskens ruta punkterna [x0, x1] × [y0, y1] och är högst ett steg
+// (16 px) större? Maskens rutnät är hela pixlar, avrundat uppåt till 16.
+bool omsluter(const gfx::Rectf& r, double x0, double y0, double x1, double y1)
+{
+    const double slack = 16.0 + 2.0;
+    return r.x <= x0 + 1e-3 && r.y <= y0 + 1e-3 && r.x + r.w >= x1 - 1e-3 &&
+           r.y + r.h >= y1 - 1e-3 && r.w <= (x1 - x0) + slack &&
+           r.h <= (y1 - y0) + slack;
+}
+
+// Den tomma maskens ruta (clip.cpp `kEmptyOrigin`): 1 × 1 utanför varje gitter.
+bool tomRuta(const gfx::Rectf& r)
+{
+    return r.w == 1.0f && r.h == 1.0f && r.x < 0.0f && r.y < 0.0f;
 }
 
 void fallKL()
@@ -1747,14 +1746,16 @@ void fallKL()
     const gfx::Color kRöd{255, 0, 0, 255};
 
     // KL1 ETT AXELPARALLELLT KLIPP i de lokala px: ytan och linjen i läget
-    // bär samma fyra plan, scissorn är rektangeln, och efter läget ritas
-    // utan klipp med ritytans egen scissor.
+    // bär samma mask, masken täcker rektangeln (hela pixlar, avrundat uppåt
+    // till 16), efter läget ritas utan klipp. Ett oförändrat klipp fylls inte
+    // om, ett ändrat gör det.
     {
         Bänk b;
+        double bredd = 120.0;
         b.yta.onPaint = [&](glaze::Widget*, glaze::PaintArgs& e) {
             e.painter.screenSpace();
             {
-                auto k = e.painter.save(glaze::Rect{100, 50, 120, 80});
+                auto k = e.painter.save(glaze::Rect{100, 50, bredd, 80});
                 e.painter.fillRect({0, 0, 400, 300}, kRöd);
                 e.painter.drawLine({0, 90}, {400, 90}, {.width = 2.0f});
             }
@@ -1762,37 +1763,36 @@ void fallKL()
         };
         b.frame();
         const double ox = b.c.box.x, oy = b.c.box.y;   // skalan är 1
-        check(b.program() == std::vector<P>{P::Fill, P::Line, P::Fill},
+        const auto   s = scen(b);
+        const auto   m = fyllningar(b);
+        check(program(s) == std::vector<P>{P::Fill, P::Line, P::Fill},
               "KL1 klippet tömmer satsen: yta och linje i läget, ytan efter",
-              namn(b.program()));
-        if (b.r.anrop.size() == 3) {
-            const gfx::SceneClip& k = b.r.anrop[0].clip;
-            const double mitt  = planVärde(k, ox + 160, oy + 90);
-            const double vä    = planVärde(k, ox + 95, oy + 90);
-            const double hö    = planVärde(k, ox + 225, oy + 90);
-            const double upp   = planVärde(k, ox + 160, oy + 45);
-            const double ned   = planVärde(k, ox + 160, oy + 135);
-            check(k.count == 4 && nära(mitt, 40) && nära(vä, -5) && nära(hö, -5) &&
-                      nära(upp, -5) && nära(ned, -5),
-                  "KL1 fyra plan: 40 px in i mitten, −5 px utanför varje kant",
-                  std::to_string(k.count) + " plan: " + tal(mitt) + " / " +
-                      tal(vä) + " " + tal(hö) + " " + tal(upp) + " " + tal(ned));
-            check(b.r.anrop[1].clip == k,
-                  "KL1 linjen i samma läge har samma klipp");
-            check(b.r.anrop[0].harScissor &&
-                      sammaRekt(b.r.anrop[0].scissor, ox + 100, oy + 50, 120, 80),
-                  "KL1 scissorn är klippets rektangel", rekt(b.r.anrop[0]));
-            check(b.r.anrop[2].clip.count == 0 && b.r.anrop[2].harScissor &&
-                      sammaRekt(b.r.anrop[2].scissor, ox, oy, b.c.box.w, b.c.box.h),
-                  "KL1 efter läget: inget klipp, ritytans egen scissor tillbaka",
-                  std::to_string(b.r.anrop[2].clip.count) + " plan, " +
-                      rekt(b.r.anrop[2]));
+              namn(program(s)));
+        if (s.size() == 3) {
+            check(s[0]->clip.screen != nullptr &&
+                      sammaRekt(s[0]->clip.screenRect, ox + 100, oy + 50, 128, 80),
+                  "KL1 masken täcker rektangeln: hela pixlar, 120 → 128",
+                  rekt(s[0]->clip.screenRect));
+            check(s[1]->clip == s[0]->clip,
+                  "KL1 linjen i samma läge har samma mask");
+            check(s[2]->clip.screen == nullptr && s[2]->clip.world == nullptr,
+                  "KL1 efter läget: inget klipp");
         }
+        check(m.size() == 1 && m[0]->program == P::Fill &&
+                  m[0]->clip.screen == nullptr && b.res.clips().fills() == 1,
+              "KL1 EN fyllning i ett eget mål, utan förälder",
+              std::to_string(m.size()) + " / " +
+                  std::to_string(b.res.clips().fills()));
+        b.frame();
+        const std::uint64_t efter1 = b.res.clips().fills();
+        bredd                      = 90.0;
+        b.frame();
+        check(efter1 == 1 && b.res.clips().fills() == 2,
+              "KL1 oförändrat klipp byggs inte om, ett ändrat gör det",
+              std::to_string(efter1) + " → " + std::to_string(b.res.clips().fills()));
     }
 
-    // KL2 VRIDET 30°: fyrhörningens plan ger rektangelns egna kantavstånd i
-    // de vridna koordinaterna — också i det omskrivna rutans hörn, som ligger
-    // utanför — och scissorn är den omskrivna rektangeln.
+    // KL2 VRIDET 30°: masken täcker fyrhörningens omskrivna ruta.
     {
         Bänk b;
         b.yta.onPaint = [&](glaze::Widget*, glaze::PaintArgs& e) {
@@ -1804,169 +1804,139 @@ void fallKL()
         };
         b.frame();
         const double cx = b.c.box.x + 160, cy = b.c.box.y + 110;
-        if (b.r.anrop.size() != 1) {
-            check(false, "KL2 ett anrop", namn(b.program()));
+        const auto   s = scen(b);
+        if (s.size() != 1) {
+            check(false, "KL2 ett anrop", namn(program(s)));
         } else {
-            const gfx::SceneClip& k = b.r.anrop[0].clip;
-            const glaze::Point    q[] = {{0, 0},   {0, -45},  {65, 0},  {-65, 0},
-                                         {0, 45},  {50, 30},  {-70, -50},
-                                         {70, 50}, {-55, 35}};
-            bool        alla = k.count == 4;
-            std::string fick = std::to_string(k.count) + " plan:";
-            for (const glaze::Point& p : q) {
-                const glaze::Point s = vrid(p, 30.0);
-                const double       v = planVärde(k, cx + s.x, cy + s.y);
-                alla = alla && nära(v, rutAvstånd(p.x, p.y, 60, 40));
-                fick += " " + tal(v);
-            }
-            check(alla, "KL2 vriden: planen ger rektangelns kantavstånd i dess "
-                        "egna koordinater (också i den omskrivna rutans hörn)",
-                  fick);
             const double v30 = 30.0 * kRadPerGrad;
             const double hx  = 60 * std::cos(v30) + 40 * std::sin(v30);
             const double hy  = 60 * std::sin(v30) + 40 * std::cos(v30);
-            check(b.r.anrop[0].harScissor &&
-                      sammaRekt(b.r.anrop[0].scissor, cx - hx, cy - hy, 2 * hx, 2 * hy),
-                  "KL2 scissorn är den omskrivna rektangeln", rekt(b.r.anrop[0]));
+            check(s[0]->clip.screen != nullptr &&
+                      omsluter(s[0]->clip.screenRect, cx - hx, cy - hy, cx + hx,
+                               cy + hy),
+                  "KL2 vriden: masken täcker den omskrivna rutan", rekt(s[0]->clip.screenRect));
         }
     }
 
-    // KL3 NÄSTLAT: en axelparallell rektangel och en 45° vriden kvadrat runt
-    // samma mitt — snittet är kvadraten med topp och botten avskurna (sex
-    // kanter), och efter det inre läget gäller det yttre igen.
+    // KL3 NÄSTLAT: en axelparallell kvadrat och en 45° vriden kvadrat runt
+    // samma mitt. Den inre masken fylls MEDAN den yttre är bunden som klipp
+    // (förälderns ruta i barnets px), anropet i den inre ytan bär den inre
+    // masken och efter den gäller den yttre igen.
     {
         Bänk b;
         b.yta.onPaint = [&](glaze::Widget*, glaze::PaintArgs& e) {
             e.painter.screenSpace();
-            auto a = e.painter.save(glaze::Rect{100, 50, 120, 80});
+            auto yttre = e.painter.save(glaze::Rect{110, 60, 100, 100});
             {
-                auto s = e.painter.save();
-                e.painter.translate(160, 90);
+                e.painter.translate(160, 110);
                 e.painter.rotate(45);
-                auto k = e.painter.save(glaze::Rect{-40, -40, 80, 80});
+                auto inre = e.painter.save(glaze::Rect{-50, -50, 100, 100});
                 e.painter.fillRect({-300, -300, 600, 600}, kRöd);
             }
             e.painter.fillRect({0, 0, 400, 300}, kRöd);
         };
         b.frame();
-        const double cx = b.c.box.x + 160, cy = b.c.box.y + 90;
-        if (b.r.anrop.size() != 2) {
-            check(false, "KL3 två anrop", namn(b.program()));
-        } else {
-            const gfx::SceneClip& k = b.r.anrop[0].clip;
-            // Förväntat värde: det minsta av rektangelns och kvadratens kantavstånd.
-            const auto väntat = [&](double x, double y) {
-                const glaze::Point q = vrid({x - cx, y - cy}, -45.0);
-                return std::min(rutAvstånd(x - cx, y - cy, 60, 40),
-                                rutAvstånd(q.x, q.y, 40, 40));
-            };
-            const glaze::Point p[] = {{cx, cy}, {cx, cy - 35}, {cx, cy - 45},
-                                      {cx - 59.5, cy}, {cx + 20, cy + 25}};
-            bool        alla = k.count == 6;
-            std::string fick = std::to_string(k.count) + " plan:";
-            for (const glaze::Point& q : p) {
-                const double v = planVärde(k, q.x, q.y);
-                alla = alla && nära(v, väntat(q.x, q.y));
-                fick += " " + tal(v) + " (" + tal(väntat(q.x, q.y)) + ")";
-            }
-            check(alla, "KL3 nästlat: snittet — sex kanter, det minsta av de "
-                        "två ytornas kantavstånd",
-                  fick);
-            const double r = 40.0 * std::sqrt(2.0);
-            check(b.r.anrop[0].harScissor &&
-                      sammaRekt(b.r.anrop[0].scissor, cx - r, cy - 40, 2 * r, 80),
-                  "KL3 scissorn är snittets omskrivna rektangel",
-                  rekt(b.r.anrop[0]));
-            const gfx::SceneClip& yttre = b.r.anrop[1].clip;
-            check(yttre.count == 4 && nära(planVärde(yttre, cx, cy), 40) &&
-                      nära(planVärde(yttre, cx - 65, cy), -5),
-                  "KL3 efter det inre läget gäller det yttre klippet igen",
-                  std::to_string(yttre.count) + " plan");
+        const auto s = scen(b);
+        const auto m = fyllningar(b);
+        check(s.size() == 2 && m.size() == 2,
+              "KL3 två anrop i scenen och två fyllningar (yttre, inre)",
+              std::to_string(s.size()) + " / " + std::to_string(m.size()));
+        if (s.size() == 2 && m.size() == 2) {
+            check(s[0]->clip.screen && s[1]->clip.screen &&
+                      s[0]->clip.screen != s[1]->clip.screen,
+                  "KL3 inre ytan bär den inre masken, efter den gäller den yttre");
+            check(m[0]->clip.screen == nullptr && m[1]->clip.screen == s[1]->clip.screen,
+                  "KL3 den inre fylls med den yttre bunden som klipp (snittet)");
+            check(sammaRekt(m[1]->clip.screenRect, 0, 0, 112, 112),
+                  "KL3 förälderns ruta i barnets px (samma gitter)",
+                  rekt(m[1]->clip.screenRect));
         }
     }
 
-    // KL4 TOMT: utan bredd, med ett tal som inte är ändligt, två klipp utan
-    // snitt och ett klipp utanför ritytan ritar ingenting — och stacken är i
-    // balans efteråt (det sista anropet har ritytans egen scissor).
+    // KL4 TOMT: utan bredd, två klipp utan snitt och ett klipp utanför
+    // ritytan ger den TOMMA masken — aldrig ett oklippt anrop — och lämnar
+    // nästa anrop utan klipp. Ett tal som inte är ändligt är en OGILTIG yta:
+    // med förvalet `InvalidClip::Show` gäller klippet inte.
     {
         Bänk b;
         b.yta.onPaint = [&](glaze::Widget*, glaze::PaintArgs& e) {
             e.painter.screenSpace();
             {
-                auto k = e.painter.save(glaze::Rect{50, 50, 0, 40});
+                auto k = e.painter.save(glaze::Rect{10, 10, 0, 50});
+                e.painter.fillRect({0, 0, 100, 100}, kRöd);
+            }
+            {
+                auto k = e.painter.save(glaze::Rect{10, 10, std::nan(""), 50});
+                e.painter.fillRect({0, 0, 100, 100}, kRöd);
+            }
+            {
+                auto a = e.painter.save(glaze::Rect{10, 10, 50, 50});
+                auto k = e.painter.save(glaze::Rect{200, 200, 50, 50});
                 e.painter.fillRect({0, 0, 400, 300}, kRöd);
             }
             {
-                auto k = e.painter.save(glaze::Rect{50, 50, std::nan(""), 40});
-                e.painter.fillRect({0, 0, 400, 300}, kRöd);
-            }
-            {
-                auto a = e.painter.save(glaze::Rect{0, 0, 50, 50});
-                auto k = e.painter.save(glaze::Rect{100, 100, 50, 50});
-                e.painter.fillRect({0, 0, 400, 300}, kRöd);
-                e.painter.drawLine({0, 0}, {400, 300}, {.width = 2.0f});
-            }
-            {
-                auto k = e.painter.save(glaze::Rect{500, 400, 50, 50});
-                e.painter.fillRect({0, 0, 800, 600}, kRöd);
+                auto k = e.painter.save(glaze::Rect{5000, 5000, 50, 50});
+                e.painter.fillRect({0, 0, 100, 100}, kRöd);
             }
             e.painter.fillRect({0, 0, 10, 10}, kRöd);
         };
         b.frame();
-        check(b.r.anrop.size() == 1 && b.r.anrop[0].clip.count == 0 &&
-                  b.r.anrop[0].harScissor &&
-                  sammaRekt(b.r.anrop[0].scissor, b.c.box.x, b.c.box.y,
-                            b.c.box.w, b.c.box.h),
-              "KL4 ett tomt klipp ritar ingenting, och stacken är i balans",
-              namn(b.program()));
+        const auto s = scen(b);
+        bool       tomma = s.size() == 5;
+        for (std::size_t i : {0u, 2u, 3u})
+            tomma = tomma && s[i]->clip.screen != nullptr &&
+                    tomRuta(s[i]->clip.screenRect);
+        check(tomma && s.size() == 5 && s[1]->clip.screen == nullptr &&
+                  s[4]->clip.screen == nullptr,
+              "KL4 tomt klipp = den tomma masken (utan bredd, utan snitt, "
+              "utanför), NaN klipper inte (Show), och nästa anrop är oklippt",
+              std::to_string(s.size()) + " anrop");
     }
 
-    // KL5 FLER ÄN ÅTTA KANTER: tre kvadrater vridna 0°, 30° och 60° runt
-    // samma mitt har ett tolvhörnigt snitt — det blir åtta plan, och varje
-    // punkt planen släpper in ligger i alla tre kvadraterna (klippet krymper,
-    // det växer aldrig). Mitten ligger kvar långt inne.
+    // KL5 MÅNGA HÖRN OCH HÅL: ett klipp med 400 hörn och ett hål är EN mask
+    // (ingen gräns på hörnen); två ytor i ett anrop är en UNION i samma mask.
     {
         Bänk b;
+        glaze::ClipPolygon ring;
+        for (int i = 0; i < 400; ++i) {
+            const double v = 2.0 * 3.14159265358979323846 * i / 400.0;
+            ring.outer.push_back({160 + 80 * std::cos(v), 110 + 80 * std::sin(v)});
+        }
+        std::vector<glaze::Point> hål;
+        for (int i = 0; i < 40; ++i) {
+            const double v = 2.0 * 3.14159265358979323846 * i / 40.0;
+            hål.push_back({160 + 30 * std::cos(v), 110 + 30 * std::sin(v)});
+        }
+        ring.holes.push_back(hål);
+        glaze::ClipPolygon a, c2;
+        a.outer  = {{20, 20}, {80, 20}, {80, 80}, {20, 80}};
+        c2.outer = {{200, 150}, {260, 150}, {260, 210}, {200, 210}};
         b.yta.onPaint = [&](glaze::Widget*, glaze::PaintArgs& e) {
             e.painter.screenSpace();
-            e.painter.translate(200, 150);
-            auto k0 = e.painter.save(glaze::Rect{-50, -50, 100, 100});
-            e.painter.rotate(30);
-            auto k1 = e.painter.save(glaze::Rect{-50, -50, 100, 100});
-            e.painter.rotate(30);
-            auto k2 = e.painter.save(glaze::Rect{-50, -50, 100, 100});
-            e.painter.fillRect({-300, -300, 600, 600}, kRöd);
+            {
+                auto k = e.painter.save(ring);
+                e.painter.fillRect({0, 0, 400, 300}, kRöd);
+            }
+            {
+                auto k = e.painter.save(std::vector<glaze::ClipPolygon>{a, c2});
+                e.painter.fillRect({0, 0, 400, 300}, kRöd);
+            }
         };
         b.frame();
-        const double cx = b.c.box.x + 200, cy = b.c.box.y + 150;
-        if (b.r.anrop.size() != 1) {
-            check(false, "KL5 ett anrop", namn(b.program()));
-        } else {
-            const gfx::SceneClip& k = b.r.anrop[0].clip;
-            bool krymper = true;
-            int  inne    = 0;
-            for (double y = -60; y <= 60; y += 1.5)
-                for (double x = -60; x <= 60; x += 1.5) {
-                    if (planVärde(k, cx + x, cy + y) < 0.0)
-                        continue;
-                    ++inne;
-                    for (double g : {0.0, 30.0, 60.0}) {
-                        const glaze::Point q = vrid({x, y}, -g);
-                        krymper = krymper && rutAvstånd(q.x, q.y, 50, 50) >= -1e-3;
-                    }
-                }
-            check(k.count == gfx::kMaxClipPlanes && krymper && inne > 0 &&
-                      planVärde(k, cx, cy) > 44.0,
-                  "KL5 tolv kanter blir åtta: planen släpper bara in det som "
-                  "ligger i alla tre, och mitten ligger kvar långt inne",
-                  std::to_string(k.count) + " plan, " + std::to_string(inne) +
-                      " punkter inne, mitten " + tal(planVärde(k, cx, cy)));
-        }
+        const auto s = scen(b);
+        const auto m = fyllningar(b);
+        check(s.size() == 2 && s[0]->clip.screen && s[1]->clip.screen &&
+                  b.res.clips().fills() == 2,
+              "KL5 400 hörn + hål är en mask, två ytor i ett anrop en mask",
+              std::to_string(s.size()) + " anrop, " +
+                  std::to_string(b.res.clips().fills()) + " fyllningar");
+        check(m.size() >= 3,
+              "KL5 unionen ritar båda ytorna i samma mask (en fyllning per yta)",
+              std::to_string(m.size()));
     }
 
-    // KL6 I VÄRLDEN under bäring 30°, tilt 40° och zoom 2: planen är
-    // fyrhörningen där ritytans `toLocal` lägger rektangelns hörn —
-    // mittpunkten och 4 px utanför varje kants mitt.
+    // KL6 I VÄRLDEN under bäring 30°, tilt 40° och zoom 2: masken täcker
+    // rektangelns bild — där ritytans `toLocal` lägger hörnen.
     {
         Bänk b;
         b.yta.setCenter(500.0, 500.0);
@@ -1979,74 +1949,24 @@ void fallKL()
         };
         b.frame();
         const glaze::Point hörn[4] = {{490, 495}, {510, 495}, {510, 505}, {490, 505}};
-        glaze::Point       px[4];
-        bool               synlig = true;
-        for (int i = 0; i < 4; ++i) {
-            const std::optional<glaze::Point> l = b.yta.toLocal(hörn[i]);
+        double x0 = 1e30, y0 = 1e30, x1 = -1e30, y1 = -1e30;
+        bool   synlig = true;
+        for (const glaze::Point& h : hörn) {
+            const std::optional<glaze::Point> l = b.yta.toLocal(h);
             synlig = synlig && l.has_value();
-            if (l)
-                px[i] = {b.c.box.x + l->x, b.c.box.y + l->y};
-        }
-        if (!synlig || b.r.anrop.size() != 1) {
-            check(false, "KL6 rektangelns hörn på ytan och ett anrop",
-                  namn(b.program()));
-        } else {
-            const gfx::SceneClip& k = b.r.anrop[0].clip;
-            const double mx = (px[0].x + px[1].x + px[2].x + px[3].x) / 4.0;
-            const double my = (px[0].y + px[1].y + px[2].y + px[3].y) / 4.0;
-            bool         alla = k.count == 4 &&
-                        nära(planVärde(k, mx, my), polyAvstånd(px, mx, my));
-            std::string fick = std::to_string(k.count) + " plan, mitten " +
-                               tal(planVärde(k, mx, my)) + " (" +
-                               tal(polyAvstånd(px, mx, my)) + ")";
-            for (int i = 0; i < 4; ++i) {
-                // 4 px ut från kantens mitt, vinkelrätt — bort från mitten.
-                const glaze::Point& u = px[i];
-                const glaze::Point& v = px[(i + 1) % 4];
-                const double        ex = (u.x + v.x) / 2.0, ey = (u.y + v.y) / 2.0;
-                const double        l  = std::hypot(v.x - u.x, v.y - u.y);
-                double              nx = -(v.y - u.y) / l, ny = (v.x - u.x) / l;
-                if (nx * (mx - ex) + ny * (my - ey) > 0.0) {
-                    nx = -nx;
-                    ny = -ny;
-                }
-                const double värde = planVärde(k, ex + 4.0 * nx, ey + 4.0 * ny);
-                alla = alla && nära(värde, -4.0, 0.05);
-                fick += " " + tal(värde);
+            if (l) {
+                x0 = std::min(x0, b.c.box.x + l->x);
+                y0 = std::min(y0, b.c.box.y + l->y);
+                x1 = std::max(x1, b.c.box.x + l->x);
+                y1 = std::max(y1, b.c.box.y + l->y);
             }
-            check(alla, "KL6 i världen under bäring och tilt: planen är "
-                        "rektangelns bild på ytan",
-                  fick);
         }
-    }
-
-    // KL7 FASADENS REGEL: ett klipp med fler plan än kMaxClipPlanes eller ett
-    // aktivt plan som inte är ändligt avvisas av `meshDrawOk` — ett plan
-    // efter `count` läses inte.
-    {
-        Inspelare             r;
-        const gfx::LineVertex v[4]{};
-        const std::uint32_t   idx[6] = {0, 1, 2, 0, 2, 3};
-        gfx::MeshDraw         d;
-        d.program    = gfx::MeshProgram::Line;
-        d.vertices   = r.uploadTransient(gfx::BufferKind::Vertex, v, sizeof v);
-        d.indices    = r.uploadTransient(gfx::BufferKind::Index, idx, sizeof idx);
-        d.indexCount = 6;
-        d.uniforms.clip.count = gfx::kMaxClipPlanes + 1;
-        r.drawMesh(d);
-        const std::size_t förMånga = r.anrop.size();
-        d.uniforms.clip.count           = 1;
-        d.uniforms.clip.planes[0]       = gfx::ClipPlane{std::nanf(""), 0.0f, 0.0f, 0.0f};
-        r.drawMesh(d);
-        const std::size_t nan = r.anrop.size();
-        d.uniforms.clip.planes[0] = gfx::ClipPlane{1.0f, 0.0f, -5.0f, 0.0f};
-        d.uniforms.clip.planes[1] = gfx::ClipPlane{std::nanf(""), 0.0f, 0.0f, 0.0f};
-        r.drawMesh(d);
-        check(förMånga == 0 && nan == 0 && r.anrop.size() == 1,
-              "KL7 meshDrawOk avvisar för många plan och ett NaN-plan, och "
-              "läser inte planen efter count",
-              std::to_string(förMånga) + " / " + std::to_string(nan) + " / " +
-                  std::to_string(r.anrop.size()));
+        const auto s = scen(b);
+        check(synlig && s.size() == 1 && s[0]->clip.screen &&
+                  omsluter(s[0]->clip.screenRect, x0, y0, x1, y1),
+              "KL6 i världen under bäring och tilt: masken täcker rektangelns "
+              "bild på ytan",
+              s.size() == 1 ? rekt(s[0]->clip.screenRect) : namn(program(s)));
     }
 }
 

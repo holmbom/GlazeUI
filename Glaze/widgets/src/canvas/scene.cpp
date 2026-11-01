@@ -1139,6 +1139,8 @@ void drawChunks(const PaintContext& f, RunData& run, float op, bool draw,
         if (image)
             d.image = image;
         d.state = state;
+        f.clip.apply(d.uniforms.clip, k.kind == PartKind::Line3, ch->originX,
+                     ch->originY);
         if (tiles) {
             drawTiledChunk(f, *ch, *tiles, d);
             continue;
@@ -1232,6 +1234,12 @@ void drawGlyphs(const PaintContext& f, const std::shared_ptr<RunData>& run,
             d.labels    = labels.tex;
             d.labelBase = static_cast<std::uint32_t>(base);
         }
+        // Etiketterna och markörerna klipps på sitt ANKARE i placeringen
+        // (labels.cpp) — en etikett vars plats syns ritas hel. Draperingens
+        // liggande text har ingen placering (`labels` utan läge): den målas
+        // på marken och klipps i varje pixel som marken.
+        if (!labels.state)
+            f.clip.apply(d.uniforms.clip, false, g.originX, g.originY);
         d.state = state;
         f.c->r->drawMesh(d);
     }
@@ -1313,6 +1321,7 @@ void drawGrid(const PaintContext& f, double size, gfx::Color color, float minPx,
     d.uniforms.pxPerWidthUnit = hairline ? 1.0f : f.c->scale;
     d.uniforms.widthSpace     = gfx::WidthSpace::Screen;
     d.uniforms.opacity        = f.opacity;
+    f.clip.apply(d.uniforms.clip, false, ox, oy);
     f.c->r->drawMesh(d);
 }
 
@@ -1368,6 +1377,15 @@ void prepareRun(const PaintContext& f, const SceneData& sc, RunData& run,
 bool has(GroundPart parts, GroundPart p)
 {
     return (static_cast<unsigned>(parts) & static_cast<unsigned>(p)) != 0;
+}
+
+// Ritningens läge för lager `li`: samma, med lagrets klipp (snittet med
+// ritytans) — `lf.clips` byggdes i förberedelsen.
+PaintContext inLayer(const PaintContext& f, const LayerFrame& lf, std::size_t li)
+{
+    PaintContext l = f;
+    l.clip         = lf.clips.of(li);
+    return l;
 }
 
 // LAGRETS MÅLARE (scene.h `LayerPaint`) — i ritningens läge med
@@ -1445,6 +1463,8 @@ LayerFrame prepareLayers(const PaintContext& f,
     if (residentFirst)
         prepareUploads(f, sc);
     lf.labels = updateLabels(f, scene, sources, labelFade);
+    // Ritytans och lagrens klipp som masker — byggda här, före målet.
+    lf.clips = prepareClips(f, sc, ClipUse::Scene);
     return lf;
 }
 
@@ -1515,35 +1535,36 @@ void drawGround(const PaintContext& f, const SceneData& sc,
         // Utanför lagrets zoomintervall (eller helt genomskinligt) ritas
         // ingenting — men lagret hålls RESIDENT, så zoomen som tar in det
         // ritar i stället för att ladda upp.
-        const bool  draw = layerDrawn(f, L);
-        const float op   = std::min(L.opacity, 1.0f) * f.opacity;
+        const bool         draw = layerDrawn(f, L);
+        const float        op   = std::min(L.opacity, 1.0f) * f.opacity;
+        const PaintContext fl   = inLayer(f, lf, li);   // lagrets klipp
         for (const std::shared_ptr<RunData>& run : L.runs) {
             if (run->key.kind == PartKind::Pass)
                 continue;   // passen ritas först (`drawPasses`)
             if (isGlyphKind(run->key.kind)) {
                 const CanvasResources::GlyphEnv env =
-                    glyphEnv(f, sc, lf, LayerPlacement::Ground, *run);
+                    glyphEnv(fl, sc, lf, LayerPlacement::Ground, *run);
                 if (run->key.ground) {
                     // LIGGANDE text och markörer ligger med marken.
                     if (draw && mark2D)
-                        drawGlyphs(f, run, env, op,
+                        drawGlyphs(fl, run, env, op,
                                    has(parts, GroundPart::Drape) ? ingen : lf.labels,
                                    mark);
                 } else if (draw && has(parts, GroundPart::Labels)) {
-                    drawGlyphs(f, run, env, op, lf.labels, mark);
+                    drawGlyphs(fl, run, env, op, lf.labels, mark);
                 }
             } else if (isObjectKind(run->key.kind)) {
                 if (has(parts, GroundPart::Geometry))
-                    drawObjects(f, sc, lf, *run, op, draw, mark);
+                    drawObjects(fl, sc, lf, *run, op, draw, mark);
             } else if (mark2D) {
-                drawChunks(f, *run, op, draw, mark);
+                drawChunks(fl, *run, op, draw, mark);
             }
         }
         // MÅLAREN efter lagrets former, på marken utan djup — också med
         // terräng, där den inte draperas (draperingen ritas inte om varje
         // bildruta).
         if (draw && has(parts, GroundPart::Geometry))
-            paintLayer(f, paint, L, li, op, nullptr);
+            paintLayer(fl, paint, L, li, op, nullptr);
     }
 }
 
@@ -1556,9 +1577,10 @@ void drawTerrain(const PaintContext& f, const SceneData& sc, const LayerFrame& l
         const bool             draw = layerDrawn(f, L);
         const float            op   = std::min(L.opacity, 1.0f) * f.opacity;
         const gfx::RenderState geo  = gfxState(L.state, false);
+        const PaintContext     fl   = inLayer(f, lf, li);
         for (const std::shared_ptr<RunData>& run : L.runs)
             if (isObjectKind(run->key.kind))
-                drawObjects(f, sc, lf, *run, op, draw, geo);
+                drawObjects(fl, sc, lf, *run, op, draw, geo);
     }
 }
 
@@ -1573,44 +1595,46 @@ void drawWorld(const PaintContext& f, const SceneData& sc, const LayerFrame& lf,
         const float            op    = std::min(L.opacity, 1.0f) * f.opacity;
         const gfx::RenderState geo   = gfxState(L.state, false);
         const gfx::RenderState label = gfxState(L.state, true);
+        const PaintContext     fl    = inLayer(f, lf, li);
         for (const std::shared_ptr<RunData>& run : L.runs) {
             if (run->key.kind == PartKind::Pass)
                 continue;   // passen ritas först (`drawPasses`)
             if (isGlyphKind(run->key.kind)) {
                 if (draw)
-                    drawGlyphs(f, run, glyphEnv(f), op, lf.labels, label);
+                    drawGlyphs(fl, run, glyphEnv(fl), op, lf.labels, label);
             } else if (isObjectKind(run->key.kind)) {
                 // Terrängens meshar ritas med marken (`drawTerrain`).
                 if (lf.placement[li] != LayerPlacement::Terrain)
-                    drawObjects(f, sc, lf, *run, op, draw, geo);
+                    drawObjects(fl, sc, lf, *run, op, draw, geo);
             } else {
-                drawChunks(f, *run, op, draw, geo);
+                drawChunks(fl, *run, op, draw, geo);
             }
         }
         // MÅLAREN efter lagrets former, med lagrets renderläge som start —
         // djuptestad som lagret.
         if (draw)
-            paintLayer(f, paint, L, li, op, &L.state);
+            paintLayer(fl, paint, L, li, op, &L.state);
     }
 }
 
-void drawPasses(const PaintContext& f, const SceneData& sc)
+void drawPasses(const PaintContext& f, const SceneData& sc, const LayerFrame& lf)
 {
-    for (const std::shared_ptr<LayerData>& Lp : sc.layers) {
-        const LayerData& L = *Lp;
+    for (std::size_t li = 0; li < sc.layers.size(); ++li) {
+        const LayerData& L = *sc.layers[li];
         if (!L.visible || L.passes == 0 || !layerDrawn(f, L))
             continue;
         // Utan djup — passet ligger under allt — men med lagrets blandning.
         gfx::RenderState st = gfxState(L.state, false);
         st.depth      = gfx::DepthTest::Off;
         st.depthWrite = false;
-        const float op = std::min(L.opacity, 1.0f) * f.opacity;
+        const float        op = std::min(L.opacity, 1.0f) * f.opacity;
+        const PaintContext fl = inLayer(f, lf, li);
         for (const std::shared_ptr<RunData>& run : L.runs) {
             if (run->key.kind != PartKind::Pass)
                 continue;
             for (const std::shared_ptr<ShapeEntry>& e : run->objects)
                 if (e->alive)
-                    drawScreenPass(f, sc, e->shape, op, st);
+                    drawScreenPass(fl, sc, e->shape, op, st);
         }
     }
 }

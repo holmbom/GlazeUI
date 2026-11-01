@@ -141,7 +141,7 @@ enum SceneLog : std::uint32_t {
     kLogRampMissing  = 1u << 19,
     // Linjens streck och spetsgräns (Line-programmet).
     kLogStroke       = 1u << 20,
-    // Klippets kantplan.
+    // Klippets masker.
     kLogClip         = 1u << 31,
     // Etiketternas synlighet.
     kLogLabels       = 1u << 22,
@@ -203,24 +203,41 @@ bool strokeOk(const SceneUniforms& u)
     return prev > 0.0f;
 }
 
-// Klippet: ett antal planen ryms i (skuggarnas loop läser så många)
-// och de aktiva planen ändliga — ett NaN hade gett varje backend sitt eget
-// svar på jämförelsen.
-bool clipOk(const SceneClip& c)
+// Klippets masker: en mask som finns är en giltig bild, skärmmaskens yta har
+// en storlek och ändliga mått, och världsmaskens affin är ändlig — ett NaN
+// hade gett varje backend sitt eget svar på jämförelsen. Svaret är orsaken, nullptr när
+// klippet är i ordning. (Att en mask är det bundna målets egen bild prövas av
+// `imageDrawOk`.)
+const char* clipWhy(const SceneClip& c)
 {
-    if (c.count < 0 || c.count > kMaxClipPlanes)
-        return false;
-    for (int i = 0; i < c.count; ++i) {
-        const ClipPlane& p = c.planes[i];
-        if (!std::isfinite(p.nx) || !std::isfinite(p.ny) || !std::isfinite(p.d))
-            return false;
+    if ((c.screen && !c.screen->valid()) || (c.world && !c.world->valid()))
+        return "en klippmask (SceneUniforms::clip) är ingen giltig bild";
+    if (c.screen) {
+        const Rectf& r = c.screenRect;
+        if (!std::isfinite(r.x) || !std::isfinite(r.y) ||
+            !std::isfinite(r.w) || !std::isfinite(r.h) || !(r.w > 0.0f) ||
+            !(r.h > 0.0f))
+            return "skärmmaskens yta (SceneUniforms::clip.screenRect) saknar "
+                   "storlek eller är inte ändlig";
     }
-    return true;
+    if (c.world)
+        for (const float v : c.worldUv)
+            if (!std::isfinite(v))
+                return "världsmaskens affin (SceneUniforms::clip.worldUv) är inte ändlig";
+    return nullptr;
 }
 } // namespace
 
 bool Renderer::meshDrawOk(const MeshDraw& d, bool programSupported)
 {
+    // Klippet gäller varje program, också de egna: maskerna är giltiga bilder
+    // med ändliga mått och inget av dem är det bundna målets egen bild.
+    const SceneClip& klipp = d.uniforms.clip;
+    if (const char* why = clipWhy(klipp))
+        return meshVerdict(d, why, kLogClip);
+    if ((klipp.screen && !imageDrawOk(*klipp.screen)) ||
+        (klipp.world && !imageDrawOk(*klipp.world)))
+        return false;
     // Egna program har egna regler (vertexCount, strömmarna, blocken).
     if (d.program == MeshProgram::Custom)
         return customDrawOk(d, programSupported);
@@ -262,10 +279,6 @@ bool Renderer::meshDrawOk(const MeshDraw& d, bool programSupported)
         why = "strecken eller spetsgränsen är ogiltiga (SceneUniforms::dash/"
               "miterLimit — bygg strecken med makeDash)";
         bit = kLogStroke;
-    } else if (!clipOk(d.uniforms.clip)) {
-        why = "klippet är ogiltigt (SceneUniforms::clip — ett antal utanför "
-              "0–kMaxClipPlanes eller ett plan som inte är ändligt)";
-        bit = kLogClip;
     } else if (d.labels &&
                (!d.labels->valid() || d.labels->format() != ImageFormat::R8 ||
                 d.labelBase >= kMaxLabelIndex)) {

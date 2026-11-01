@@ -238,6 +238,14 @@
 //               `maxZoom`) designerade SIST i deklarationsordning, MarkerStyle
 //               med sina fyra, och minnesbudgeten `setMemoryBudget(268435456)`
 //               som setter-fält (heltal, 256 MiB).
+//               KLIPPET: `setClipSpace(glaze::ClipSpace::Screen)`, ytorna i
+//               kollektionsvokabulären — `addClip`/`setClip`/`setClips`/
+//               `resetClip` och lagrens `addLayerClip`/`setLayerClip`/
+//               `setLayerClips`/`resetLayerClip` — med `glaze::ClipPolygon`
+//               som klammerlista `{ytterring, {hål…}}` (positionell, med
+//               typnamn och designerad `.outer`/`.holes`), `{}` som en tom
+//               yta och `setClips({})`. Båda fälten anges alltid: en utelämnad
+//               `holes` kompilerar men varnar för saknat fältvärde.
 //   tabell      KOLUMNHUVUDET PÅ FLERA RADER: huvudets
 //               två setter-fält (`setHeaderLines(4)`, `setHeaderVAlign(
 //               glaze::VAlign::Bottom)`) och kolumnaggregatets FJÄRDE fält —

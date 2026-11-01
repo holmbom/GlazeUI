@@ -6141,6 +6141,203 @@ void fallLagerordning()
           namnen());
 }
 
+// KLIPPET — varje muterande klippmetod är en metodanropssats previewn UTFÖR
+// med de riktiga sättarna, mätt på ritytans EGNA läsare (`clips()`,
+// `clipSpace()`, `clipEnabled()` och lagrens `layerClips()`,
+// `layerClipSpace()`, `layerClipEnabled()`), aldrig på modellen. Ytan är
+// `glaze::ClipPolygon{ytterring, {hål…}}` eller bara `{ytterring, {hål…}}`
+// (positionell och designerad), `{}` en tom yta, `setClips({})` ett PÅSLAGET
+// och tomt klipp (allt bortklippt) medan `resetClip()` slår av det.
+// Avslagen är OPAKA rader som lämnar ritytan orörd: fel argumentantal, ett
+// index som inte är ett heltal, en felskriven rymd (`Screen` utan prefix),
+// designerare i fel ordning, en punkt som inte avkodas — och ATOMISKT: ett fel
+// i en listas SISTA yta muterar ingenting. Ett lager eller index utanför är
+// VÄLFORMAT — utfört, ritytans egen logg och ingen ändring, som i C++.
+// SABOTAGEN som ska fälla fallet: en metod bort ur `kMetoder` i apply_props
+// (raden blir opak), hålen ignorerade i `parseKlippyta`, `setClips({})`
+// tolkad som `resetClip()`, lagrets rymd satt på ritytan.
+//
+// INTE HÄR: att klippet RITAS rätt (scene_pixel_gate, painter_gate) och att
+// raderna kompilerar (calls_fixture) och round-trippar (roundtrip_gate);
+// fixturens rader körs av `fallCallsRityta`.
+void fallKlipp()
+{
+    auto w = build("glaze::Canvas", {});
+    if (!w)
+        return;
+    auto* c = dynamic_cast<glaze::Canvas*>(w.get());
+    check(c != nullptr, "klipp: registret ger en riktig glaze::Canvas", "");
+    if (!c)
+        return;
+    const auto anrop = [&](const char* metod, const std::string& args) {
+        return bld::applyCall(*w, {metod, args}, "preview_gate");
+    };
+    const auto punkt = [](const glaze::Point& p, double x, double y) {
+        return p.x == x && p.y == y;
+    };
+    check(anrop("setLayers", "{\"A\", \"B\", \"C\"}") && c->layerCount() == 3 &&
+              !c->clipEnabled() && c->clips().empty() &&
+              c->clipSpace() == glaze::ClipSpace::World &&
+              !c->layerClipEnabled(1) && c->layerClips(1).empty() &&
+              c->layerClipSpace(1) == glaze::ClipSpace::World,
+          "klipp: från start finns inget klipp och rymden är World", "");
+
+    // ---- RYMDEN.
+    check(anrop("setClipSpace", "glaze::ClipSpace::Screen") &&
+              c->clipSpace() == glaze::ClipSpace::Screen &&
+              anrop("setClipSpace", "glaze::ClipSpace::World") &&
+              c->clipSpace() == glaze::ClipSpace::World,
+          "klipp: setClipSpace(glaze::ClipSpace::Screen) och World utförs", "");
+    check(!anrop("setClipSpace", "Screen") &&
+              !anrop("setClipSpace", "glaze::ClipSpace::Skärm") &&
+              !anrop("setClipSpace", "") &&
+              !anrop("setClipSpace", "glaze::ClipSpace::Screen, 1") &&
+              c->clipSpace() == glaze::ClipSpace::World,
+          "klipp: en rymd utan prefix, okänd eller med fel antal är opak — "
+          "ritytan orörd", "");
+
+    // ---- EN OGILTIG YTA: setInvalidClip. Förvalet är Show.
+    // Sabotage: en saknad gren för setInvalidClip i apply_props.cpp, eller
+    // Hide och Show förväxlade i parseOgiltigtKlipp — fallet faller.
+    check(c->invalidClip() == glaze::InvalidClip::Show &&
+              anrop("setInvalidClip", "glaze::InvalidClip::Hide") &&
+              c->invalidClip() == glaze::InvalidClip::Hide &&
+              anrop("setInvalidClip", "glaze::InvalidClip::Show") &&
+              c->invalidClip() == glaze::InvalidClip::Show,
+          "klipp: setInvalidClip(glaze::InvalidClip::Hide) och Show utförs, "
+          "förvalet är Show", "");
+    check(!anrop("setInvalidClip", "Hide") &&
+              !anrop("setInvalidClip", "glaze::InvalidClip::Dölj") &&
+              c->invalidClip() == glaze::InvalidClip::Show,
+          "klipp: setInvalidClip utan prefix eller okänd är opak — ritytan orörd",
+          "");
+
+    // ---- YTORNA I RITYTAN: addClip, setClip, setClips, resetClip.
+    check(anrop("addClip",
+                "{{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, {20, 20}}}}") &&
+              c->clipEnabled() && c->clips().size() == 1 &&
+              c->clips()[0].outer.size() == 3 &&
+              punkt(c->clips()[0].outer[1], 100, 0) &&
+              punkt(c->clips()[0].outer[2], 100, 80) &&
+              c->clips()[0].holes.size() == 1 &&
+              c->clips()[0].holes[0].size() == 3 &&
+              punkt(c->clips()[0].holes[0][2], 20, 20),
+          "klipp: addClip({ytterring, {hål}}) — ytterringen och hålet lagras", "");
+    check(anrop("addClip", "glaze::ClipPolygon{{{0, 0}, {50, 0}, {50, 50}}, {}}") &&
+              anrop("addClip", "{}") && c->clips().size() == 3 &&
+              c->clips()[1].outer.size() == 3 && c->clips()[1].holes.empty() &&
+              c->clips()[2].outer.empty() && c->clips()[2].holes.empty(),
+          "klipp: addClip med typnamn och utan hål, och {} är en tom yta", "");
+    check(anrop("setClip",
+                "1, {.outer = {{0, 0}, {10, 0}, {10, 10}}, .holes = {{{2, 2}, "
+                "{4, 2}, {4, 4}}, {{5, 5}, {6, 5}, {6, 6}}}}") &&
+              c->clips().size() == 3 && c->clips()[1].outer.size() == 3 &&
+              punkt(c->clips()[1].outer[1], 10, 0) &&
+              c->clips()[1].holes.size() == 2 &&
+              punkt(c->clips()[1].holes[1][0], 5, 5) &&
+              c->clips()[0].holes.size() == 1,
+          "klipp: setClip(index, designerad yta) ersätter exakt den ytan", "");
+    check(anrop("setClip", "9, {}") && anrop("setClip", "-1, {}") &&
+              c->clips().size() == 3 && c->clips()[1].holes.size() == 2,
+          "klipp: setClip utanför intervallet är välformat — utfört, ingen "
+          "ändring", "");
+    check(anrop("setClips",
+                "{{{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, "
+                "{20, 20}}}}, glaze::ClipPolygon{{{200, 0}, {300, 0}, {300, "
+                "80}}, {}}}") &&
+              c->clips().size() == 2 && c->clips()[0].holes.size() == 1 &&
+              punkt(c->clips()[1].outer[0], 200, 0) &&
+              c->clips()[1].holes.empty(),
+          "klipp: setClips({yta, glaze::ClipPolygon{…}}) fyller om allt", "");
+    check(anrop("setClips", "{}") && c->clipEnabled() && c->clips().empty(),
+          "klipp: setClips({}) är PÅSLAGET och tomt — allt klipps bort", "");
+    check(anrop("resetClip", "") && !c->clipEnabled() && c->clips().empty(),
+          "klipp: resetClip() tar bort klippet", "");
+
+    // ---- AVSLAGEN — opaka, ritytan orörd, och ATOMISKT.
+    check(anrop("addClip", "{{{0, 0}, {5, 0}, {5, 5}}, {}}") &&
+              c->clips().size() == 1,
+          "klipp: en yta att jämföra mot (avslagen nedan)", "");
+    const bool avslag =
+        !anrop("addClip", "") && !anrop("addClip", "{}, {}") &&
+        !anrop("addClip", "{{{0, 0}, {1, x}}, {}}") &&
+        !anrop("addClip", "{.holes = {}, .outer = {}}") &&
+        !anrop("addClip", "{{{0, 0}, {1, 0}}, {{}}, 3}") &&
+        !anrop("addClip", "{{{0, 0}, {1, 0}}, {{{1, 2}, {3, y}}}}") &&
+        !anrop("addClip", "glaze::Polygon{}") &&
+        !anrop("setClip", "1") && !anrop("setClip", "x, {}") &&
+        !anrop("setClip", "0, {{{0, 0}, {1, 0}}, {{{1, 2}, {3, y}}}}") &&
+        !anrop("setClips", "") && !anrop("setClips", "{} {}") &&
+        !anrop("setClips", "{{{{0, 0}, {5, 0}, {5, 9}}, {}}, {{{0, 0}, {1, z}}, {}}}") &&
+        !anrop("setClips", "{{{{0, 0}, {5, 0}, {5, 9}}, {}}, 7}") &&
+        !anrop("resetClip", "1");
+    check(avslag && c->clips().size() == 1 && c->clips()[0].outer.size() == 3 &&
+              punkt(c->clips()[0].outer[2], 5, 5) && c->clips()[0].holes.empty() &&
+              c->clipEnabled() && c->clipSpace() == glaze::ClipSpace::World,
+          "klipp: felaktiga ytor, fel antal, fel designerarordning och ett fel i "
+          "listans SISTA yta är opaka — ritytan orörd (atomiskt)", "");
+    check(anrop("resetClip", "") && !c->clipEnabled(), "klipp: ritytan återställd", "");
+
+    // ---- LAGRENS KLIPP — samma vokabulär med lagret först.
+    check(anrop("setLayerClipSpace", "1, glaze::ClipSpace::Screen") &&
+              c->layerClipSpace(1) == glaze::ClipSpace::Screen &&
+              c->layerClipSpace(0) == glaze::ClipSpace::World &&
+              c->clipSpace() == glaze::ClipSpace::World,
+          "klipp: setLayerClipSpace sätter bara lagrets rymd", "");
+    check(anrop("addLayerClip",
+                "1, {{{674000, 6580000}, {674100, 6580000}, {674100, 6580080}}, "
+                "{{{674010, 6580010}, {674020, 6580010}, {674020, 6580020}}}}") &&
+              c->layerClipEnabled(1) && c->layerClips(1).size() == 1 &&
+              c->layerClips(1)[0].outer.size() == 3 &&
+              punkt(c->layerClips(1)[0].outer[2], 674100, 6580080) &&
+              c->layerClips(1)[0].holes.size() == 1 &&
+              punkt(c->layerClips(1)[0].holes[0][1], 674020, 6580010) &&
+              !c->layerClipEnabled(0) && !c->layerClipEnabled(2) &&
+              !c->clipEnabled(),
+          "klipp: addLayerClip(lager, yta) — bara det lagret får klippet", "");
+    check(anrop("addLayerClip", "1, {}") && c->layerClips(1).size() == 2 &&
+              anrop("setLayerClip",
+                    "1, 0, glaze::ClipPolygon{{{674000, 6580000}, {674050, "
+                    "6580000}, {674050, 6580050}}, {}}") &&
+              c->layerClips(1).size() == 2 &&
+              punkt(c->layerClips(1)[0].outer[2], 674050, 6580050) &&
+              c->layerClips(1)[0].holes.empty() &&
+              c->layerClips(1)[1].outer.empty(),
+          "klipp: setLayerClip(lager, index, yta) ersätter exakt den ytan", "");
+    check(anrop("setLayerClips",
+                "2, {{{{674000, 6580000}, {674100, 6580000}, {674100, "
+                "6580080}}, {}}}") &&
+              c->layerClips(2).size() == 1 && c->layerClipEnabled(2) &&
+              c->layerClips(1).size() == 2,
+          "klipp: setLayerClips(lager, {yta}) fyller om det lagrets ytor", "");
+    check(anrop("setLayerClips", "2, {}") && c->layerClipEnabled(2) &&
+              c->layerClips(2).empty() && anrop("resetLayerClip", "2") &&
+              !c->layerClipEnabled(2) && c->layerClipEnabled(1),
+          "klipp: setLayerClips(lager, {}) är påslaget och tomt, "
+          "resetLayerClip(lager) slår av just det lagret", "");
+    check(anrop("addLayerClip", "9, {}") && anrop("setLayerClip", "9, 0, {}") &&
+              anrop("setLayerClip", "1, 9, {}") &&
+              anrop("setLayerClips", "9, {}") && anrop("resetLayerClip", "9") &&
+              anrop("setLayerClipSpace", "9, glaze::ClipSpace::Screen") &&
+              c->layerClips(1).size() == 2 && c->layerClipEnabled(1) &&
+              c->layerClipSpace(1) == glaze::ClipSpace::Screen,
+          "klipp: ett lager eller index utanför är välformat — utfört, ritytans "
+          "egen logg och ingen ändring", "");
+    const bool lagerAvslag =
+        !anrop("addLayerClip", "1") && !anrop("addLayerClip", "x, {}") &&
+        !anrop("addLayerClip", "{}, 1") &&
+        !anrop("setLayerClip", "1, {}") && !anrop("setLayerClip", "1, 0") &&
+        !anrop("setLayerClips", "1") &&
+        !anrop("setLayerClips", "1, {{{{0, 0}, {5, 0}, {5, 9}}, {}}, {{{0, 0}, {1, z}}, {}}}") &&
+        !anrop("setLayerClipSpace", "1, Screen") &&
+        !anrop("setLayerClipSpace", "glaze::ClipSpace::Screen") &&
+        !anrop("resetLayerClip", "") && !anrop("resetLayerClip", "1, 2");
+    check(lagerAvslag && c->layerClips(1).size() == 2 && c->layerClipEnabled(1) &&
+              c->layerClipSpace(1) == glaze::ClipSpace::Screen,
+          "klipp: lagrets avslag — fel antal, index som inte är heltal, en rymd "
+          "utan prefix och ett fel i listans sista yta är opaka (atomiskt)", "");
+}
+
 // ============================================ RITYTAN I RYMDEN
 //
 // Regel 8 för rymden: varje rad `.glazeui` bär för ritytans 3D ska UTFÖRAS av
@@ -8267,6 +8464,7 @@ int main(int argc, char** argv)
     fallDatumvaljare();
     fallCanvas();
     fallLagerordning();
+    fallKlipp();
     fall3D();
     fallCallsRityta();
     fallBindningar();

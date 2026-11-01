@@ -1175,29 +1175,30 @@ saknad ⇒ inga bilder och en loggrad). Mesh-programmets GLSL i
 - [ ] **Förvalen orörda** — galleriets rityta och 3D-flikarna ser ut som förut
   (B14:s första fall kräver bildens EXAKTA texel, också på llvmpipe).
 
-## Målarens klipp — BLINT skriven GLSL (REQ8 1, 2026-10-14)
+## Klippmaskerna och `glaze_clip` — BLINT skriven GLSL
 
-Koden: uniformerna `uSceneClip[8]`/`uSceneClipN` och `sceneClip(p)` i
-`kGlslClipSrc` (`Glaze/gfx/src/backend_linux/gl_common.cpp` — också i
-UI-programmets fragmentshader, där funktionen aldrig anropas), anropet sist i
-Line-/Line3-, Fill-, Glyph-/Glyph3- och Image-programmens fragmentshader
+Koden: `kGlslSceneClipSrc` och `setupSceneClipProgram`
+(`Glaze/gfx/src/backend_linux/gl_common.cpp`) — std140-blocket `GlazeClip` på
+bindningspunkt 5, samplers `GlazeClipScreen`/`GlazeClipWorld` på enhet 4–5,
+`glaze_clipScreen(p)` och `glaze_clip(px, local)` — anropet sist i Line-/Line3-,
+Fill-, Glyph-/Glyph3- och Image-programmens fragmentshader
 (`linux_scene.cpp`, `linux_fill.cpp`, `linux_glyph.cpp`, `linux_image.cpp`;
-läget ur samma varying som klippmaskerna, aldrig `gl_FragCoord`) och
-`findSceneClip`/`setSceneClip` (`linux_scene.cpp` — locations-kontrollen i
-varje programs init: en saknad ⇒ programmet byggs inte och en loggrad).
-glaze-sidan (`Glaze/widgets/src/canvas/painter.cpp` `clipTo`) är densamma som
-på Windows.
+läget ur samma varying som klippmaskerna, aldrig `gl_FragCoord`),
+`bindSceneClip` (`linux_scene.cpp`, också från `drawCustomMesh` i
+`linux_program.cpp`) och förspelet för egna program (`glaze_clip` i
+fragmentsteget). Ett render-måls bild är SPEGLAD på GL: `flags.z`/`flags.w` i
+blocket vänder v före samplingen.
 
-- [ ] **Bygget**: Linux-blocket kompilerar utan varningar, och alla sex
-  scenprogram länkar (ingen "uniformer saknas" med `uSceneClip` i stderr)
-  under Wayland och X11.
-- [ ] **Grindarna**: `painter_gate` KL, `scene_pixel_gate` K1–K4 och
-  `scene3d_pixel_gate` KL1–KL3 gröna under Wayland och X11 — KL2 mäter att det
-  bortklippta inte skriver djup (`discard`).
-- [ ] **För ögat**: i `onPaint` en `save(glaze::Rect{…})` efter `rotate(30)`
-  kring en stor yta, en linje, en text och en bild — allt klipps till den
-  vridna rutan med en mjuk kant, inte speglat i y (GL:s y-flippfälla), och
-  efter lägets slut ritas utan klipp.
+- [ ] **Bygget**: Linux-blocket kompilerar utan varningar, alla sex scenprogram
+  länkar och inga programlogg-rader om `GlazeClip` eller `GlazeClipScreen`
+  finns i stderr, under Wayland och X11.
+- [ ] **Grindarna**: `geom_gate` (KY), `mesh_program_gate` (K1–K6),
+  `scene_pixel_gate` och `scene3d_pixel_gate` gröna under Wayland och X11.
+  *Rätt utfall:* K1/K3/K4 klipper rätt kvadrant (inte spegelvänt i y), K2
+  klipper inte, K5 klipper utanför `screenRect`.
+- [ ] **För ögat**: `demo` med en rityta vars lager klipps av ett polygonklipp
+  med hål — kanten är mjuk, hålet visar bakgrunden, och inget ritas utanför
+  klippet (yta, linje, text och bild) varken i 2D eller med tilt.
 
 ## Popupen som tar tangentbordet, textstorleken och gränserna i innehållsmått — Wayland OCH X11 (REQ8 21, 26, 27, 2026-10-14)
 
@@ -1354,3 +1355,31 @@ med taket `POINT_STAND_K` (fyra radier i världen).
 - [ ] **Demon**: 3D-fliken, ett punktmoln i ögonhöjd bakom en mesh (gå ned
   till markhöjd i förstapersonen). *Rätt utfall:* ingen linje av punkter som
   lyser igenom meshen eller molnet.
+
+## Ritytans klipp: `glaze_clip` i 3D-programmen och `drawCanvas` — BLINT skriven GLSL
+
+Koden: `Glaze/widgets/src/canvas/programs3d.cpp` (`kMeshGlslVertex`/
+`kMeshGlslFragment`: varyingen `vClip` (pixelklippets xy och w, fragmentets px
+är xy / w — aldrig `gl_FragCoord`) och `glaze_clip(vClip.xy / vClip.z,
+vWorld.xy)`; `kPointsGlsl*`: `vClipPx` (noperspective) och `vAnchor`),
+`clip.cpp` (masker som render-mål; GL:s y-vända mål) och `painter.cpp`
+(`Painter::drawCanvas`).
+
+- [ ] **Bygget**: Mesh- och Points-programmen länkar (båda varyingarna finns i
+  båda stegen) under Wayland och X11.
+- [ ] **Grindarna**: `painter_gate` (KL), `scene_pixel_gate` (M1–M4),
+  `scene3d_pixel_gate` (KL4–KL8) och `print_gate` (rastersidan; Linux saknar
+  utskrift) gröna under Wayland och X11. *Rätt utfall:* som på Windows;
+  särskilt KL4 (prismat under tilt — masken sampleras med `vClip`, inte med
+  `gl_FragCoord`), M3 (kantbandet högst 3 px) och KL8 (`renderToBitmap` är
+  spegelvänd om `flippedV` saknas på masken).
+- [ ] **För ögat**: ett lagerklipp med hål över en tiltad yta med terräng.
+  *Rätt utfall:* hålet visar bakgrunden, draperingen följer klippet, ingen
+  spegelvänd kant.
+
+- [ ] **Mätcachen** (`Glaze/widgets/src/widget.cpp` `measure`, `app.cpp`
+  handler-epoken): kör `measure_gate`, `layout_gate`, `groupbox_gate`,
+  `label_gate` och `lang_gate`, och byt i demon språk, UI, stil och
+  skärmskala medan galleriet är öppet.
+  *Rätt utfall:* grindarna gröna; varje byte mäter om allt (inga avklippta
+  eller för stora etiketter), och en tung panel går inte segt.

@@ -527,9 +527,9 @@ float lineDashDistance(constant PaintU& u, float t)
 fragment float4 linePs(LineOut i [[stage_in]],
                        constant ClipMasks& cm [[buffer(0)]],
                        constant PaintU& u [[buffer(1)]],
-                       constant SceneClip& sc [[buffer(4)]],
                        texture2d<float> ramp [[texture(0)]],
-                       sampler smp [[sampler(0)]])
+                       sampler smp [[sampler(0)]],
+                       GLAZE_CLIP_PARAMS)
 {
 #ifdef GLAZE_POS3
     const bool world  = false;   // Line3 extruderar alltid i skärmen
@@ -578,10 +578,15 @@ fragment float4 linePs(LineOut i [[stage_in]],
     if (alpha <= 0.0)
         discard_fragment();
 #endif
-    // Målarens klipp sist (kMslClipSrc) — utanför kastas fragmentet.
+    // Målarens klipp sist (kMslSceneClipSrc) — utanför kastas fragmentet.
+    // Line3 klipps på linjens punkt (`ppos`, chunk-lokal).
+#ifdef GLAZE_POS3
+    const float klipp = glaze_clip(i.pos.xy, i.ppos, GLAZE_CLIP_ARGS);
+#else
+    const float klipp = glaze_clipScreen(i.pos.xy, GLAZE_CLIP_ARGS);
+#endif
     return float4(col.rgb, col.a * alpha * u.paint1.y *
-                               clipCoverage(i.pos.xy, cm) *
-                               sceneClip(i.pos.xy, sc));
+                               clipCoverage(i.pos.xy, cm) * klipp);
 }
 )msl";
 
@@ -648,8 +653,8 @@ bool MetalRenderer::initScene()
             NSError*          err  = nil;
             const std::string src  = std::string(pos3 ? "#define GLAZE_POS3 1\n"
                                                       : "") +
-                                    kMslClipSrc + kMslPaintSrc + kMslStandSrc +
-                                    kLineMslSrc;
+                                    kMslClipSrc + kMslSceneClipSrc + kMslPaintSrc +
+                                    kMslStandSrc + kLineMslSrc;
             id<MTLLibrary> lib = compileMsl(@(src.c_str()), nil, &err);
             if (!lib) {
                 log("MSL (%s) misslyckades: %s — drawMesh ritar inget", name,
@@ -857,6 +862,8 @@ void MetalRenderer::noteUse(const MeshDraw& d) const
     buffert(d.instances.buffer);
     bild(d.image);
     bild(d.labels);
+    bild(d.uniforms.clip.screen);
+    bild(d.uniforms.clip.world);
     for (const Image* t : d.textures)
         bild(t);
 }
@@ -973,25 +980,37 @@ BufferSlice MetalRenderer::uploadTransient(BufferKind kind, const void* data,
 
 // ---------------------------------------------------------------- ritning
 
-// MSL-arrayens längd är skriven som en literal i källan.
-static_assert(kMaxClipPlanes == 8,
-              "SceneClip::planes i kMslClipSrc är deklarerad [8]");
-
-// Målarens klipp på fragmentbuffert 4 — bundet när encodern saknar
-// det eller anropets klipp skiljer från det bundna (metal_backend.h).
-// Antalet har `meshDrawOk` prövat.
+// Målarens klipp: blocket på fragmentbuffert 4 binds när encodern saknar det
+// eller anropets klipp skiljer från det bundna (metal_backend.h), maskerna på
+// texture(4–5) och samplern på sampler(4) vid varje anrop med mask (och när
+// en mask står kvar från förra anropet) — en bild kan ha bytt textur sedan
+// sist. Utan mask står den vita texturen på platserna. Maskerna och måtten har
+// `meshDrawOk` prövat.
 void MetalRenderer::bindSceneClip(const MeshDraw& d)
 {
     const SceneClip& k = d.uniforms.clip;
+    if (!sceneClipBound_ || k.screen || k.world || sceneClip_.screen ||
+        sceneClip_.world) {
+        id<MTLTexture> skärm =
+            k.screen ? static_cast<const MetalImage*>(k.screen)->texture()
+                     : whiteTex_;
+        id<MTLTexture> värld =
+            k.world ? static_cast<const MetalImage*>(k.world)->texture()
+                    : whiteTex_;
+        [encoder_ setFragmentTexture:skärm atIndex:4];
+        [encoder_ setFragmentTexture:värld atIndex:5];
+        [encoder_ setFragmentSamplerState:samplerLinear_ atIndex:4];
+    }
     if (sceneClipBound_ && k == sceneClip_)
         return;
     SceneClipBuf b{};
-    for (int i = 0; i < k.count; ++i) {
-        b.planes[i][0] = k.planes[i].nx;
-        b.planes[i][1] = k.planes[i].ny;
-        b.planes[i][2] = k.planes[i].d;
-    }
-    b.meta[0] = static_cast<float>(k.count);
+    b.rect[0] = k.screenRect.x;
+    b.rect[1] = k.screenRect.y;
+    b.rect[2] = k.screenRect.w;
+    b.rect[3] = k.screenRect.h;
+    std::memcpy(b.world, k.worldUv, sizeof b.world);
+    b.meta[0] = k.screen ? 1.0f : 0.0f;
+    b.meta[1] = k.world ? 1.0f : 0.0f;
     [encoder_ setFragmentBytes:&b length:sizeof b atIndex:4];
     sceneClip_      = k;
     sceneClipBound_ = true;

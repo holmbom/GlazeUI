@@ -154,10 +154,10 @@ bor i `src/backend_*/` — läcker en typ hit är abstraktionen bruten.
     filter, format, sin premultiplikation och v-spegling; ur samma
     renderer), `SceneUniforms::opacity` (anropets opacitet 0–1) och (REQ8 3)
     FÄRGJUSTERINGEN `saturation`/`contrast`/`brightness` (`adjustFactor`).
-    **KLIPPET (REQ8 1):** `SceneUniforms::clip` (sist) — `SceneClip`, högst
-    8 normerade kantplan i målets px; de inbyggda programmen kantutjämnar mot
-    närmaste plan och KASTAR fragmentet utanför (inget djup), de egna läser
-    det inte. `meshDrawOk` avvisar fler plan och NaN.
+    **KLIPPET:** `SceneUniforms::clip` (sist) — `SceneClip`: skärmmask (målets
+    px) och världsmask (chunk-lokalt xy), render-målsbilder vars alfa är
+    täckningen; 0 KASTAR fragmentet (inget djup). Egna program: `glaze_clip`.
+    `meshDrawOk` avvisar ogiltig mask, tom yta, NaN och målets egen bild.
     **RENDERLÄGET (CANVAS_3D etapp 0):** **`RenderState`** i `MeshDraw::state`
     — `DepthTest {Off, Less, LessEqual, Greater, GreaterEqual, Equal, Always}`
     med `depthWrite`, `depthBias`/`slopeBias`, `Blend {Alpha, Premultiplied,
@@ -286,7 +286,8 @@ bor i `src/backend_*/` — läcker en typ hit är abstraktionen bruten.
     (en yta större än en chunk delas med samma origo). Svaret är false när
     ringarna inte är en enkel yta (självkorsning, hål utanför — upptäckt med
     en areakontroll): earcuts trianglar står kvar, resten stängs med en
-    solfjäder, och det loggas EN gång per episod. **Gradienterna:**
+    solfjäder, och det loggas EN gång per episod. `buildClipPolygon(rings,
+    chunks)` är samma yta STRIKT: false, inget tillagt. **Gradienterna:**
     `GradientStop`, `buildGradientRamp(stops, GradientRamp&)` (256 × 4 byte,
     rak alfa, PREMULTIPLICERAD interpolering mellan stoppen, stabil sortering
     — två stopp på samma offset ger en skarp gräns) och `linearPaint`/

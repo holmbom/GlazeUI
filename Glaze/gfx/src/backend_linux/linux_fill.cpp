@@ -110,7 +110,8 @@ void main()
 }
 )glsl";
 
-// Fragmentshadern — klippmaskernas och färgens delar klistras FÖRE.
+// Fragmentshadern — klippmaskernas, målarens klipps och färgens delar
+// klistras FÖRE.
 const char kFillFsSrc[] = R"glsl(
 in vec4 vCol;
 noperspective in float vEdge;
@@ -124,7 +125,8 @@ void main()
     float cov = 1.0 - clamp(vEdge, 0.0, 1.0);
     vec2  pix = vPixH.xy / vPixH.z;
     frag = vec4(col.rgb,
-                col.a * cov * uPaint1.y * clipCoverage(pix) * sceneClip(pix));
+                col.a * cov * uPaint1.y * clipCoverage(pix) *
+                    glaze_clipScreen(pix));
 }
 )glsl";
 
@@ -159,10 +161,10 @@ bool GlRenderer::initFillProgram()
 {
     const StatTimer klocka(stats_.compileNs);   // programbygget
     const char* vsParts[] = {kGlslVersion, kFillVsSrc};
-    const char* fsParts[] = {kGlslVersion, kGlslClipSrc, kGlslPaintSrc,
-                             kFillFsSrc};
+    const char* fsParts[] = {kGlslVersion, kGlslClipSrc, kGlslSceneClipSrc,
+                             kGlslPaintSrc, kFillFsSrc};
     const unsigned vs = compileGlShader(GL_VERTEX_SHADER, vsParts, 2);
-    const unsigned fs = compileGlShader(GL_FRAGMENT_SHADER, fsParts, 4);
+    const unsigned fs = compileGlShader(GL_FRAGMENT_SHADER, fsParts, 5);
     if (!vs || !fs) {
         if (vs)
             pglDeleteShader(vs);
@@ -188,24 +190,23 @@ bool GlRenderer::initFillProgram()
     fillClipP1Loc_   = pglGetUniformLocation(fillProgram_, "uClipP1");
     fillClipNLoc_    = pglGetUniformLocation(fillProgram_, "uClipN");
     const int  rampLoc = pglGetUniformLocation(fillProgram_, "uRamp");
-    const bool klipp   = findSceneClip(fillProgram_, fillSceneClip_);
     // Samma regel som de andra programmen: en location som saknas betyder att
     // källan och C++-sidan glidit isär — glUniform hade tyst svalt -1.
     if (fillViewProjLoc_ < 0 || fillParamsLoc_ < 0 || fillPaint0Loc_ < 0 ||
         fillPaint1Loc_ < 0 || fillClipP0Loc_ < 0 || fillClipP1Loc_ < 0 ||
-        fillClipNLoc_ < 0 || rampLoc < 0 || !klipp) {
+        fillClipNLoc_ < 0 || rampLoc < 0) {
         log("GL: Fill-programmets uniformer saknas (uViewProj=%d uParams=%d "
-            "uPaint0=%d uPaint1=%d uClipP0=%d uClipP1=%d uClipN=%d uRamp=%d "
-            "uSceneClip=%d uSceneClipN=%d) — drawMesh ritar inga ytor",
+            "uPaint0=%d uPaint1=%d uClipP0=%d uClipP1=%d uClipN=%d uRamp=%d) — "
+            "drawMesh ritar inga ytor",
             fillViewProjLoc_, fillParamsLoc_, fillPaint0Loc_, fillPaint1Loc_,
-            fillClipP0Loc_, fillClipP1Loc_, fillClipNLoc_, rampLoc,
-            fillSceneClip_.planes, fillSceneClip_.count);
+            fillClipP0Loc_, fillClipP1Loc_, fillClipNLoc_, rampLoc);
         pglDeleteProgram(fillProgram_);
         fillProgram_ = 0;
         return false;
     }
     pglUseProgram(fillProgram_);
     pglUniform1i(rampLoc, 0);   // enhet 0, som UI:ts tex0
+    setupSceneClipProgram(fillProgram_);   // klippets block och maskernas enheter
 
     pglGenVertexArrays(1, &fillVao_);
     pglBindVertexArray(fillVao_);
@@ -227,7 +228,6 @@ void GlRenderer::shutdownFillProgram()
     fillVao_        = 0;
     fillProgram_    = 0;
     fillClipGen_    = 0;
-    fillSceneClip_  = SceneClipLocs{};
 }
 
 void GlRenderer::drawFillMesh(const MeshDraw& d)
@@ -243,7 +243,7 @@ void GlRenderer::drawFillMesh(const MeshDraw& d)
         ++stats_.programSwitches;
     }
     syncClipMasks(fillClipP0Loc_, fillClipP1Loc_, fillClipNLoc_, fillClipGen_);
-    setSceneClip(d, fillSceneClip_);
+    bindSceneClip(d);
 
     // Kameran och färgen — per anrop, räknas inte som uppladdning.
     pglUniformMatrix4fv(fillViewProjLoc_, 1, GL_FALSE, d.uniforms.viewProj);

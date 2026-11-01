@@ -90,6 +90,9 @@ struct LayerFrame {
     // Framens draperingar (target3d.cpp sätter den efter förberedelsen) —
     // terrängens meshar binder dem; nullptr utan terräng.
     const DrapeFrame*           drapes = nullptr;
+    // Klippet: ritytans och varje lagers (clip.h), byggt i förberedelsen —
+    // före målet — så ritningen bara binder maskerna.
+    ClipFrame                   clips;
     // En toning pågår — ritytan ritar nästa frame också (den invaliderar
     // sig själv).
     bool animating() const { return labels.animating; }

@@ -481,12 +481,22 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   (som lagrens 2D-väg). En mesh vars data inte ryms i ett segment (64 MiB)
   ritas inte (`meshTooBig`, loggat en gång). G9 I9 mäter målarens väg mot
   lagrets, pixel för pixel.
-  **REQ8 1:** KLIPPET — `save(Rect)` → `clipTo`: hörnen genom transformen och
-  rymdens matris (`matrixOf`), klippta mot ögats plan i det homogena
-  (`projectQuad`), snittade med föräldern (`intersectClip`, Sutherland–
-  Hodgman) och skurna till 8 hörn (`cutCorners`). Planen går med varje
-  `drawTransient`, och den omskrivna rektangeln ligger som scissor på
-  renderarens stack tills `restore` (föremålen klipps av den). Byte tömmer satsen.
+  **Klippet** — `save(…)` → `clipTo`: ytorna genom `xf` till `refineClip`
+  (clip.h): i världen ett prisma, efter `screenSpace` en skärmyta; snittet med
+  föräldern är en ny mask fylld medan förälderns är bunden. `drawTransient` och
+  föremålen binder `clip.apply(…)` (Line3/Glyph3 och objekten världsmasken);
+  byte tömmer satsen. `drawCanvas` (`PainterState::drawCanvas`) ritar ritytan i
+  `pageTarget(w, h)` med `renderCanvasTarget` (etikettplats `kPageLabels`) och
+  bilden på de fyra hörnen under klippet; false för en tom rektangel, en
+  ogiltig kamera och `SceneData::painting` (anrop ur ritytans egen ritning).
+- **`clip.h/.cpp`** — INTERN: KLIPPET SOM MASKER. `ClipMasks` (per fönster,
+  `CanvasResources::clips()`): render-mål nycklade på ytornas koordinater i
+  maskens px, rutnätet och förälderns nyckel; återanvänds två framer.
+  `refineClip` → `ClipScope{flat, tall}` (2D-programmen resp. det med höjd;
+  `ClipLook::apply` binder skärmmask + världsmask, `worldUv` i double);
+  `prepareClips` bygger ritytans och lagrens (`LayerFrame::clips`) före målet.
+  World → skärmmask homogent mot ögat; i 3D-målet också världsmask på markytans
+  gitter (`worldLimit`). `clipContains`/`clipTouches` är träffprovets.
 - **`placement.h/.cpp`** (etapp 9, E9) — INTERN: ETIKETTPLACERINGENS
   algoritm, en REN funktion utan renderer, kamera eller widget:
   `detail::placeLabels(span<const LabelBox>, screen)` → en flagga per

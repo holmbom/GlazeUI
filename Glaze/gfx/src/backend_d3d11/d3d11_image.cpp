@@ -359,8 +359,8 @@ void D3dRenderer::drawImage(Image& img, const Rectf& src, const Rectf& dst,
 
 namespace {
 
-// Klippmaskernas del (`kHlslClipSrc`) och färgjusteringen (`kHlslAdjustSrc`)
-// klistras FÖRE.
+// Klippmaskernas, målarens klipps och färgjusteringens delar (`kHlslClipSrc`,
+// `kHlslSceneClipSrc`, `kHlslAdjustSrc`) klistras FÖRE.
 const char kImageShaderSrc[] = R"hlsl(
 // SCENEN per rit-anrop — b2, samma buffert som Line-programmets i
 // Image-programmets egen form (`ImageCb`).
@@ -419,7 +419,8 @@ float4 imagePs(ImageOut i) : SV_Target
     t.rgb = glaze_colorAdjust(t.rgb, gAdjust.xyz);
     // Rak alfa som UI:t; opaciteten, klippmaskerna och målarens klipp rör
     // bara alfan.
-    t.a *= saturate(gParams.z) * clipCoverage(i.pos.xy) * sceneClip(i.pos.xy);
+    t.a *= saturate(gParams.z) * clipCoverage(i.pos.xy) *
+           glaze_clipScreen(i.pos.xy);
     return t;
 }
 )hlsl";
@@ -429,7 +430,8 @@ float4 imagePs(ImageOut i) : SV_Target
 bool D3dRenderer::initImageProgram()
 {
     const std::string src =
-        std::string(kHlslClipSrc) + kHlslAdjustSrc + kImageShaderSrc;
+        std::string(kHlslClipSrc) + kHlslSceneClipSrc + kHlslAdjustSrc +
+        kImageShaderSrc;
     ComPtr<ID3DBlob> vsb = compileHlsl(src, "imageVs", "vs_4_0");
     ComPtr<ID3DBlob> psb = compileHlsl(src, "imagePs", "ps_4_0");
 

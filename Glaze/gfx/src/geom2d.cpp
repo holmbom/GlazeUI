@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <iterator>
 #include <utility>
 
 #include "earcut.h"
@@ -319,20 +320,23 @@ double spannedArea(std::span<const Point2d> r)
 // arbetartråd, därav atomic.
 std::atomic<bool> g_polygonLogged{false};
 
-} // namespace
-
-bool buildPolygon(std::span<const std::vector<Point2d>> rings,
-                  const PolygonStyle& style, std::vector<FillChunk>& chunks)
-{
-    // Rensa ringarna till EN platt punktlista: bara ändliga punkter, ingen
-    // lika med den förra och ingen upprepad slutpunkt. Ytterringen MOTURS och
-    // hålen MEDURS, så ytan ligger till vänster om varje kant — det är det
-    // kantremsans "utåt" bygger på. Ringar utan area tas bort: deras kanter
-    // hade ritat en remsa men ingen yta.
+// Ringarna rensade till EN platt punktlista (ring k är [starts[k], starts[k +
+// 1]), den sista till listans slut) och origo i ytterringens första punkt.
+// Tom `starts` = ingen yta.
+struct SurfaceRings {
     std::vector<Point2d>       pts;
     std::vector<std::uint32_t> starts;
     Point2d                    o{};
-    double                     outerSpan = 0.0;
+};
+
+// Bara ändliga punkter, ingen lika med den förra och ingen upprepad
+// slutpunkt. Ytterringen MOTURS och hålen MEDURS, så ytan ligger till vänster
+// om varje kant — det är det kantremsans "utåt" bygger på. Ringar utan area
+// tas bort: deras kanter hade ritat en remsa men ingen yta.
+SurfaceRings cleanRings(std::span<const std::vector<Point2d>> rings)
+{
+    SurfaceRings s;
+    double       outerSpan = 0.0;
     for (std::size_t k = 0; k < rings.size(); ++k) {
         std::vector<Point2d> r;
         r.reserve(rings[k].size());
@@ -348,8 +352,8 @@ bool buildPolygon(std::span<const std::vector<Point2d>> rings,
             r.pop_back();
         if (k == 0) {
             if (r.size() < 3)
-                return true;   // ingen ytterring: ingen yta, inget fel
-            o = r.front();
+                return {};   // ingen ytterring: ingen yta
+            s.o = r.front();
         }
         if (r.size() < 3)
             continue;
@@ -358,45 +362,62 @@ bool buildPolygon(std::span<const std::vector<Point2d>> rings,
             outerSpan = span;
         if (span <= 1e-12 * outerSpan || outerSpan == 0.0)
             continue;   // på en linje — för ytterringen: ingen yta alls
-        if ((signedArea(r, o) > 0.0) != (k == 0))
+        if ((signedArea(r, s.o) > 0.0) != (k == 0))
             std::reverse(r.begin(), r.end());
-        starts.push_back(static_cast<std::uint32_t>(pts.size()));
-        pts.insert(pts.end(), r.begin(), r.end());
+        s.starts.push_back(static_cast<std::uint32_t>(s.pts.size()));
+        s.pts.insert(s.pts.end(), r.begin(), r.end());
     }
-    if (starts.empty() || outerSpan == 0.0)
-        return true;
+    return s;
+}
 
-    std::vector<std::uint32_t> tri;
-    const bool ok = triangulate(pts, starts, tri);
-
+// Ytans trianglar `tri` (index i `s.pts`) och en kantremsa per kant, i
+// `color`, till `chunks`.
+void appendSurface(std::vector<FillChunk>& chunks, const SurfaceRings& s,
+                   const std::vector<std::uint32_t>& tri, Color color)
+{
     // Kantquadarna: kanten g → h i en ring får vertex 4g … 4g+3 (början
     // inne/ute, slutet inne/ute), och de inre trianglarna använder kantens
     // början inne (4g) — samma punkt.
-    std::vector<FillPiece> v(pts.size() * 4);
-    std::vector<std::uint32_t> idx;
+    const std::vector<Point2d>& pts = s.pts;
+    std::vector<FillPiece>      v(pts.size() * 4);
+    std::vector<std::uint32_t>  idx;
     idx.reserve(tri.size() + pts.size() * 6);
     for (std::uint32_t t : tri)
         idx.push_back(t * 4);
-    for (std::size_t k = 0; k < starts.size(); ++k) {
-        const std::size_t b = starts[k];
-        const std::size_t e = k + 1 < starts.size() ? starts[k + 1] : pts.size();
+    for (std::size_t k = 0; k < s.starts.size(); ++k) {
+        const std::size_t b = s.starts[k];
+        const std::size_t e = k + 1 < s.starts.size() ? s.starts[k + 1] : pts.size();
         const std::size_t n = e - b;
         for (std::size_t j = 0; j < n; ++j) {
             const std::size_t g  = b + j;
             const std::size_t h  = b + (j + 1) % n;
             const std::size_t gp = b + (j + n - 1) % n;
             const std::size_t hn = b + (j + 2) % n;
-            for (std::uint8_t s = 0; s < 2; ++s) {
-                v[4 * g + s]     = FillPiece{pts[g], pts[gp], pts[h],
-                                             FillKind::EdgeStart, s};
-                v[4 * g + 2 + s] = FillPiece{pts[h], pts[g], pts[hn],
-                                             FillKind::EdgeEnd, s};
+            for (std::uint8_t sd = 0; sd < 2; ++sd) {
+                v[4 * g + sd]     = FillPiece{pts[g], pts[gp], pts[h],
+                                              FillKind::EdgeStart, sd};
+                v[4 * g + 2 + sd] = FillPiece{pts[h], pts[g], pts[hn],
+                                              FillKind::EdgeEnd, sd};
             }
             const auto q = static_cast<std::uint32_t>(4 * g);
             idx.insert(idx.end(), {q, q + 1, q + 2, q + 2, q + 1, q + 3});
         }
     }
-    appendFill(chunks, v, idx, style.color, o);
+    appendFill(chunks, v, idx, color, s.o);
+}
+
+} // namespace
+
+bool buildPolygon(std::span<const std::vector<Point2d>> rings,
+                  const PolygonStyle& style, std::vector<FillChunk>& chunks)
+{
+    const SurfaceRings s = cleanRings(rings);
+    if (s.starts.empty())
+        return true;   // ingen yta, inget fel
+
+    std::vector<std::uint32_t> tri;
+    const bool ok = triangulate(s.pts, s.starts, tri);
+    appendSurface(chunks, s, tri, style.color);
 
     if (ok) {
         g_polygonLogged.store(false);
@@ -406,6 +427,24 @@ bool buildPolygon(std::span<const std::vector<Point2d>> rings,
             "en yta lyckas igen");
     }
     return ok;
+}
+
+bool buildClipPolygon(std::span<const std::vector<Point2d>> rings,
+                      std::vector<FillChunk>& chunks)
+{
+    const SurfaceRings s = cleanRings(rings);
+    if (s.starts.empty())
+        return false;
+
+    std::vector<std::uint32_t> tri;
+    if (!triangulate(s.pts, s.starts, tri))
+        return false;
+
+    std::vector<FillChunk> built;
+    appendSurface(built, s, tri, Color{255, 255, 255, 255});
+    chunks.insert(chunks.end(), std::make_move_iterator(built.begin()),
+                  std::make_move_iterator(built.end()));
+    return true;
 }
 
 // ------------------------------------------------------- bilden på fyra hörn

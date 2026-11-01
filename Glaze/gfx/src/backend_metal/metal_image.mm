@@ -511,8 +511,8 @@ void MetalRenderer::drawImage(Image& img, const Rectf& src, const Rectf& dst,
 
 namespace {
 
-// Klippmaskernas del (`kMslClipSrc`) och färgjusteringen (`kMslAdjustSrc`)
-// klistras FÖRE.
+// Klippmaskernas, målarens klipps och färgjusteringens delar (`kMslClipSrc`,
+// `kMslSceneClipSrc`, `kMslAdjustSrc`) klistras FÖRE.
 const char kImageMslSrc[] = R"msl(
 struct ImageU {
     float4x4 viewProj;   // chunk-lokalt → pixelklipp
@@ -554,7 +554,7 @@ fragment float4 imagePs(ImageOut i [[stage_in]],
                         sampler smp0 [[sampler(0)]],
                         constant ClipMasks& cm [[buffer(0)]],
                         constant ImageU& u [[buffer(1)]],
-                        constant SceneClip& sc [[buffer(4)]])
+                        GLAZE_CLIP_PARAMS)
 {
     const int flags = int(u.params.w + 0.5);
     float4 t = tex0.sample(smp0, i.uvq.xy / i.uvq.z);
@@ -567,7 +567,7 @@ fragment float4 imagePs(ImageOut i [[stage_in]],
     // Rak alfa som UI:t; opaciteten, klippmaskerna och målarens klipp rör
     // bara alfan.
     t.a *= saturate(u.params.z) * clipCoverage(i.pos.xy, cm) *
-           sceneClip(i.pos.xy, sc);
+           glaze_clipScreen(i.pos.xy, GLAZE_CLIP_ARGS);
     return t;
 }
 )msl";
@@ -579,7 +579,8 @@ bool MetalRenderer::initImageProgram()
     @autoreleasepool {
         NSError*          err = nil;
         const std::string src =
-            std::string(kMslClipSrc) + kMslAdjustSrc + kImageMslSrc;
+            std::string(kMslClipSrc) + kMslSceneClipSrc + kMslAdjustSrc +
+            kImageMslSrc;
         id<MTLLibrary>    lib = compileMsl(@(src.c_str()), nil, &err);
         if (!lib) {
             log("MSL (Image) misslyckades: %s — drawMesh ritar inga bilder",

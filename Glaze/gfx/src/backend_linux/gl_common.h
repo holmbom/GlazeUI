@@ -122,10 +122,23 @@ extern const char kGlslVersion[];
 // px (varyingen vPix, aldrig gl_FragCoord — se linux_renderer.cpp). VARJE
 // fragmentshader som ritar i ett mål med klippstacken klistrar in den
 // direkt efter #version, annars gäller de rundade maskerna inte för
-// programmet. Och målarens klipp: uniformerna
-// `uSceneClip`/`uSceneClipN` och `sceneClip(p)`, som scenens program
-// multiplicerar alfan med och som KASTAR fragmentet utanför.
+// programmet.
 extern const char kGlslClipSrc[];
+
+// Målarens klipp — blocket `GlazeClip`, maskernas samplers `GlazeClipScreen`
+// och `GlazeClipWorld`, `glaze_clipScreen(p)` och `glaze_clip(px, local)`
+// (gfx/program.h), som KASTAR fragmentet där täckningen är 0. Bara i ett
+// fragmentsteg: klistras in efter #version och definitionerna i scenens fem
+// program och, i de egna programmens förspel, i fragmentsteget.
+extern const char kGlslSceneClipSrc[];
+
+// Klippets platser: blocket på bindningspunkt 5 och maskerna på enhet 4 och
+// 5 (samma tal som D3D11:s b5 och t4–t5). `setupSceneClipProgram` binder dem
+// på NAMN i ett länkat program som klistrat in `kGlslSceneClipSrc`.
+inline constexpr unsigned kClipBinding    = 5;
+inline constexpr int      kClipScreenUnit = 4;
+inline constexpr int      kClipWorldUnit  = 5;
+void setupSceneClipProgram(unsigned program);
 
 // Färgens GLSL — uniformerna `uPaint0`/`uPaint1`, rampen
 // `uRamp` (enhet 0) och `paintColor(p)`: 1 för enfärgat, rampens färg i

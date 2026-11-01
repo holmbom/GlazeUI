@@ -61,6 +61,9 @@ flat out vec4 vShape;     // .xy formens halva mått (em), .z storleken i px,
                           // .w glorians bredd i em
 flat out int  vFlags;
 flat out float vVis;      // etikettens synlighet 0–1
+#ifdef GLAZE_POS3
+flat out vec2 vClipLocal;   // ankarets chunk-lokala xy (klippet)
+#endif
 noperspective out vec2 vPix;
 
 // Synligheten: 1 utan bunden synlighet, annars texeln på basen + indexet,
@@ -138,6 +141,9 @@ void main()
     vPix   = vec2(0.0);
     vVis   = visibility();
 #ifdef GLAZE_POS3
+    vClipLocal = aAnchor.xy;
+#endif
+#ifdef GLAZE_POS3
     vec4 c = uViewProj * vec4(aAnchor, 1.0);
 #else
     vec4 c = uViewProj * vec4(aAnchor, 0.0, 1.0);
@@ -199,7 +205,8 @@ void main()
 }
 )glsl";
 
-// Fragmentshadern — klippmaskernas och färgens delar klistras FÖRE.
+// Fragmentshadern — klippmaskernas, målarens klipps och färgens delar
+// klistras FÖRE.
 const char kGlyphFsSrc[] = R"glsl(
 in vec2 vUv;
 flat in vec4 vCol;
@@ -207,6 +214,9 @@ flat in vec4 vHalo;
 flat in vec4 vShape;
 flat in int  vFlags;
 flat in float vVis;
+#ifdef GLAZE_POS3
+flat in vec2 vClipLocal;
+#endif
 noperspective in vec2 vPix;
 out vec4 frag;
 
@@ -249,8 +259,14 @@ void main()
         a   = fa + ha;
         rgb = a > 0.0 ? (vCol.rgb * fa + vHalo.rgb * ha) / a : vCol.rgb;
     }
-    frag = vec4(rgb, a * vVis * uPaint1.y * clipCoverage(vPix) *
-                         sceneClip(vPix));
+    // Målarens klipp (kGlslSceneClipSrc); Glyph3 klipps på ankaret, så hela
+    // etiketten syns eller inte.
+#ifdef GLAZE_POS3
+    float klipp = glaze_clip(vPix, vClipLocal);
+#else
+    float klipp = glaze_clipScreen(vPix);
+#endif
+    frag = vec4(rgb, a * vVis * uPaint1.y * clipCoverage(vPix) * klipp);
 }
 )glsl";
 
@@ -297,10 +313,10 @@ bool GlRenderer::buildGlyphProgram(bool pos3, GlyphProgram& p)
     const char* name   = pos3 ? "Glyph3" : "Glyph";
     const char* define = pos3 ? "#define GLAZE_POS3 1\n" : "";
     const char* vsParts[] = {kGlslVersion, define, kGlslStandSrc, kGlyphVsSrc};
-    const char* fsParts[] = {kGlslVersion, define, kGlslClipSrc, kGlslPaintSrc,
-                             kGlyphFsSrc};
+    const char* fsParts[] = {kGlslVersion, define,          kGlslClipSrc,
+                             kGlslSceneClipSrc, kGlslPaintSrc, kGlyphFsSrc};
     const unsigned vs = compileGlShader(GL_VERTEX_SHADER, vsParts, 4);
-    const unsigned fs = compileGlShader(GL_FRAGMENT_SHADER, fsParts, 5);
+    const unsigned fs = compileGlShader(GL_FRAGMENT_SHADER, fsParts, 6);
     if (!vs || !fs) {
         if (vs)
             pglDeleteShader(vs);
@@ -331,16 +347,14 @@ bool GlRenderer::buildGlyphProgram(bool pos3, GlyphProgram& p)
     p.clipN          = pglGetUniformLocation(p.program, "uClipN");
     const int  texLoc = pglGetUniformLocation(p.program, "uRamp");
     const int  lblLoc = pglGetUniformLocation(p.program, "uLabels");
-    const bool klipp  = findSceneClip(p.program, p.sceneClip);
     if (p.viewProj < 0 || p.params < 0 || p.paint0 < 0 || p.paint1 < 0 ||
         p.clipP0 < 0 || p.clipP1 < 0 || p.clipN < 0 || texLoc < 0 ||
-        lblLoc < 0 || !klipp) {
+        lblLoc < 0) {
         log("GL: %s-programmets uniformer saknas (uViewProj=%d uParams=%d "
             "uPaint0=%d uPaint1=%d uClipP0=%d uClipP1=%d uClipN=%d uRamp=%d "
-            "uLabels=%d uSceneClip=%d uSceneClipN=%d) — drawMesh ritar ingen "
-            "text",
+            "uLabels=%d) — drawMesh ritar ingen text",
             name, p.viewProj, p.params, p.paint0, p.paint1, p.clipP0, p.clipP1,
-            p.clipN, texLoc, lblLoc, p.sceneClip.planes, p.sceneClip.count);
+            p.clipN, texLoc, lblLoc);
         pglDeleteProgram(p.program);
         p = GlyphProgram{};
         return false;
@@ -348,6 +362,7 @@ bool GlRenderer::buildGlyphProgram(bool pos3, GlyphProgram& p)
     pglUseProgram(p.program);
     pglUniform1i(texLoc, 0);   // atlassidan på enhet 0, som UI:ts tex0
     pglUniform1i(lblLoc, 1);   // etiketternas synlighet på enhet 1
+    setupSceneClipProgram(p.program);   // klippets block och maskernas enheter
 
     pglGenVertexArrays(1, &p.vao);
     pglBindVertexArray(p.vao);
@@ -401,7 +416,7 @@ void GlRenderer::drawGlyphMesh(const MeshDraw& d)
         ++stats_.programSwitches;
     }
     syncClipMasks(gp.clipP0, gp.clipP1, gp.clipN, gp.clipGen);
-    setSceneClip(d, gp.sceneClip);
+    bindSceneClip(d);
 
     // Kameran, storlekens enhet, fältets mått och opaciteten — per anrop,
     // räknas inte som uppladdning.

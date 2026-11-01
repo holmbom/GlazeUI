@@ -52,6 +52,7 @@ std::atomic<bool> g_targetLogged{false};
 std::atomic<bool> g_viewLogged{false};
 std::atomic<bool> g_bitmapLogged{false};
 std::atomic<bool> g_bitmapImagesLogged{false};
+std::atomic<bool> g_pageLogged{false};
 
 // Målets genomskinliga start — kompositen lägger det över ritytans yta.
 const gfx::Color kClear{0, 0, 0, 0};
@@ -94,6 +95,7 @@ Target3DState renderView(PaintContext& f, const std::shared_ptr<SceneData>& scen
     // den — appens målning.
     std::optional<PhaseScope> fas{std::in_place, ProfilePhase::CanvasPrepare};
     LayerFrame                lf = prepareLayers(f, scene, a.labelFade, true);
+    f.clip                       = lf.clips.canvas;   // ritytans klipp (clip.h)
     if (main)
         prepareGrid(f, a.gridSize, a.gridColor, a.gridMinPx, a.gridWidthPx);
     // TERRÄNGEN: draperingarna ritas om här, i egna mål före
@@ -110,7 +112,7 @@ Target3DState renderView(PaintContext& f, const std::shared_ptr<SceneData>& scen
     fas.emplace(ProfilePhase::CanvasDraw);
     gfx::Renderer& r = *f.c->r;
     r.pushTarget(t, clear);
-    drawPasses(f, *scene);   // steg 1: helskärmspassen, utan djup
+    drawPasses(f, *scene, lf);   // steg 1: helskärmspassen, utan djup
     if (main)
         drawGrid(f, a.gridSize, a.gridColor, a.gridMinPx, a.gridWidthPx);
     drawTerrain(f, *scene, lf);   // steg 2: terrängen, draperad
@@ -146,6 +148,7 @@ PaintContext cameraContext(const PaintContext& canvas, const Ctx& c,
     f.view      = view;
     f.labelSlot = labelSlot;
     f.lighting  = canvas.lighting;
+    f.scene     = &scene;
     f.view3D    = viewView3D(cam, box, scene, view);
     return f;
 }
@@ -306,15 +309,18 @@ Target3DState drawTarget3D(const PaintContext& wf, PaintContext& tf,
 
     // CACHEN (target3d.h): ett mål ritas om bara när något det ritar kan ha
     // ändrats — med sin egen ruta.
+    const std::uint64_t klipp = clipVersions(*scene);
     const auto inaktuellt = [&](const CanvasResources::Target3D& m,
                                 const gfx::Rectf& r) {
-        return !m.drawn || m.stamp != a.stamp || m.box.x != r.x ||
+        return !m.drawn || m.stamp != a.stamp || m.clipKey != klipp ||
+               m.box.x != r.x ||
                m.box.y != r.y || m.box.w != r.w || m.box.h != r.h ||
                m.pxPerPx != c.scale || m.pxPerMm != c.pxPerMm;
     };
     const auto ritat = [&](CanvasResources::Target3D& m, const gfx::Rectf& r) {
         m.drawn   = true;
         m.stamp   = a.stamp;
+        m.clipKey = klipp;
         m.box     = r;
         m.pxPerPx = c.scale;
         m.pxPerMm = c.pxPerMm;
@@ -398,6 +404,48 @@ Target3DState drawTarget3D(const PaintContext& wf, PaintContext& tf,
 
 // ------------------------------------------------------------------ bilden
 
+namespace {
+
+// Ritläget för huvudvyn av en rityta ritad i ett mål med kartkameran
+// `canvas.world` (på målets ruta `box`): kartans 3D-vy över scenens z-spann.
+PaintContext mapContext(const PaintContext& canvas, const Ctx& c,
+                        const gfx::Rectf& box, const SceneData& scene, int labelSlot)
+{
+    PaintContext f;
+    f.c         = &c;
+    f.res       = canvas.res;
+    f.world     = canvas.world;
+    f.world.box = box;
+    f.screen    = localView(box, c.scale);
+    f.zoom      = f.world.pxPerUnit / c.scale;
+    f.opacity   = 1.0f;
+    f.view      = kMainView;
+    f.labelSlot = labelSlot;
+    f.lighting  = canvas.lighting;
+    f.scene     = &scene;
+    f.view3D    = mainView3D(nullptr, f.world, scene);
+    return f;
+}
+
+// Målet w × h för en ritning: provtagningen renderaren klarar och djup.
+// Nytt när det saknas eller har andra mått — det gamla kan bära ett rit-anrop
+// i framen och lämnas till anroparen.
+bool ensureTarget(gfx::Renderer& r, std::unique_ptr<gfx::RenderTarget>& t, int w,
+                  int h, int samples)
+{
+    const int s = r.supportedSamples(samples);
+    if (t && t->image().valid() && t->image().width() == w &&
+        t->image().height() == h && t->samples() == s && t->hasDepth())
+        return true;
+    gfx::TargetDesc d;
+    d.samples = s;
+    d.depth   = true;
+    t         = r.createRenderTarget(w, h, d);
+    return t && t->image().valid();
+}
+
+} // namespace
+
 std::optional<Bitmap> renderBitmap3D(const PaintContext& canvas,
                                      const std::shared_ptr<SceneData>& scene,
                                      const Target3DArgs& a, int w, int h,
@@ -413,11 +461,8 @@ std::optional<Bitmap> renderBitmap3D(const PaintContext& canvas,
     rebuildDirty(*scene);
     PaintContext f = cameraContext(canvas, bc, *a.camera, bc.box, *scene,
                                    kMainView, kBitmapLabels);
-    gfx::TargetDesc d;
-    d.samples = r.supportedSamples(a.samples);
-    d.depth   = true;
-    const std::unique_ptr<gfx::RenderTarget> t = r.createRenderTarget(w, h, d);
-    if (!t->image().valid()) {
+    std::unique_ptr<gfx::RenderTarget> t;
+    if (!ensureTarget(r, t, w, h, a.samples)) {
         r.endOffscreen();
         if (!g_bitmapLogged.exchange(true))
             gfx::log("Canvas::renderToBitmap: målet (%d × %d) gick inte att "
@@ -440,6 +485,35 @@ std::optional<Bitmap> renderBitmap3D(const PaintContext& canvas,
     if (!b.valid())
         return std::nullopt;   // Bitmap loggar orsaken
     return b;
+}
+
+bool renderCanvasTarget(const PaintContext& canvas,
+                        const std::shared_ptr<SceneData>& scene,
+                        const Target3DArgs& a, int w, int h, gfx::Color background,
+                        std::unique_ptr<gfx::RenderTarget>& target)
+{
+    const Ctx&     c = *canvas.c;
+    gfx::Renderer& r = *c.r;
+    Ctx            bc = c;
+    bc.box = gfx::Rectf{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)};
+    if (!ensureTarget(r, target, w, h, a.samples)) {
+        if (!g_pageLogged.exchange(true))
+            gfx::log("Painter::drawCanvas: målet (%d × %d) gick inte att skapa "
+                     "— ritytan ritas inte; loggas en gång",
+                     w, h);
+        return false;
+    }
+    rebuildDirty(*scene);
+    PaintContext f = a.camera
+                         ? cameraContext(canvas, bc, *a.camera, bc.box, *scene,
+                                         kMainView, kPageLabels)
+                         : mapContext(canvas, bc, bc.box, *scene, kPageLabels);
+    // Lagren och deras målare — varken rutnät eller `onPaint` (target3d.h).
+    Target3DArgs args = a;
+    args.gridSize     = 0.0;
+    args.paint        = nullptr;
+    renderView(f, scene, *target, background, args, true, DrapeMode::Complete);
+    return true;
 }
 
 } // namespace glaze::detail

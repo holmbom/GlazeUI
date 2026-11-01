@@ -420,6 +420,8 @@ void MainWindow::initializeComponent()
 - `setAcceptButton(okBtn);` pekar på en medlem med NAMN: byter noden namn i GlazeBuilder följer argumentet med, och tas noden bort försvinner raden. Ett namn som inte är en `glaze::Button` i trädet bevaras opakt (loggas, utförs inte). glaze-render och VS Code-previewn utför satsen, så standardknappens accent syns där; GlazeBuilders canvas utför inga fönsteranrop.
 - `onResize` är en event-koppling i båda formerna, `setSizeToContent(glaze::SizeToContent::Height);` ett naket fönsteranrop som previewn utför (glaze-render ritar den anpassade storleken; builderns canvas tar modellens) och `verktyg.setAllowedEdges({glaze::Dock::Top, glaze::Dock::Bottom});` ett metodanrop — ett okänt enumnamn eller en lista med `Fill` är opak.
 - `setSizeToContentMode(glaze::SizeToContentMode::GrowOnly);` är ett naket fönsteranrop i samma form (också `SizeToContentMode::GrowOnly` och bart), och `lblNamn.setWidthGroup("form");` en setter med en STRÄNGLITERAL — ett uttryck (`setWidthGroup(grupp)`) kompilerar men är opakt, för previewn kan inte räkna ut det. Luften efter en rad är den RÅA fältraden `rad.bottom = 12;`.
+- Ritytans klipp skrivs som platta anrop: `karta.addClip({{{0, 0}, {100, 0}, {100, 80}}, {}});`, `karta.setLayerClips(1, {…});`, `karta.setClipSpace(glaze::ClipSpace::Screen);` och `karta.setInvalidClip(glaze::InvalidClip::Hide);` — formerna i `canvas-layers`; previewn utför dem.
+
 <!-- END:glazeui-grammar -->
 
 <!-- BEGIN:rules | rules regler hårda-regler hard-rules agent-regler checklista checklist konventioner conventions förbjudet forbidden do-dont best-practice -->
@@ -1127,7 +1129,8 @@ Layoutfälten är RÅA fältrader (allt annat tillstånd är settrar):
 - Containrar och listor (`Panel`, `ListBox`, `ListView`, `TreeView`, `PropertyGrid`, `Splitter`, `TabControl` …) har ingen autostorlek — ge dem mått eller docka/sträck dem.
 - Ett dolt ankarmål räknas ändå (följaren lämnar ett hål, också när föräldern räknas ur innehållet); en dold dockad remsa skär ingenting.
 - Ett gammalt `right`/`bottom` på ett barn bundet bara uppifrån eller från vänster ändrar ingenting i layouten men blir LUFT när föräldern räknas ur innehållet — ta bort det om det inte är menat.
-- Layoutfälten har inga settrar: ändrar du dem utanför en handler, anropa `invalidate()`.
+- Layoutfälten har inga settrar: ändrar du dem utanför en handler — också i ritytans `onTick` — anropa `invalidate()`.
+- MÅTTEN CACHAS: en widget mäts en gång och svaret återanvänds tills något i dess delträd ändras (varje sättare invaliderar), utseendet, skalan eller språket byts, barnen ändras eller appen levererat ett event, en postad funktion eller en timer. Ett oförändrat delträd mäts alltså inte om per bildruta, och en stapel med många dockade remsor kostar en mätning per remsa.
 - `menuBar` (Top) och `statusBar` (Bottom) skär sina remsor ur innehållsytan, så inget hamnar under dem. Multiplicera aldrig med skalan i appkod.
 - `actualSize()` är widgetens storlek i logiska px ur samma layout som ritningen, och `toWindow(punkt)`/`fromWindow(punkt)` räknar mellan widgetens logiska punkt (`MouseArgs::local`) och fönstrets FYSISKA px (`ContextMenuArgs`, `Menu::popupAt`) — tomt utan ett öppet fönster. Storleksändringen själv är `onResize` (`events`).
 <!-- END:layout -->
@@ -1192,7 +1195,7 @@ Styckeformen som satser — previewn utför dem:
 - Indexen är APPENS även när en `ListView` är sorterad — `setRow(3, …)` är samma rad före och efter en sortering.
 - Listornas poster är `std::string`, inte `TrText`: fyll om dem i `onLanguageChanged()` vid språkbyte (`language`).
 - `setSelectedIndex` och de andra programmatiska settrarna fyrar inget `onChange`.
-- En egen komponent med en lista följer samma vokabulär — en avvikelse är ett fel, inte en variant.
+- En egen komponent med en lista följer samma vokabulär — en avvikelse är ett fel, inte en variant. Ritytans klipp gör det: `addClip`/`setClip(index, …)`/`setClips` och per lager `addLayerClip`/`setLayerClip`/`setLayerClips` (`canvas-layers`).
 - GCC:s `-Wextra` varnar för aggregat med utelämnade sista fält (`{"Bredd", "120"}`); formen är avsiktlig — lägg till `-Wno-missing-field-initializers`.
 <!-- END:collections -->
 
@@ -2593,6 +2596,7 @@ ram.adopt(svartvit);
 - Tom rubrik flyttar ingenting: rubrikbandet är reserverat ändå.
 - `disable()` dimmar rubriken men inte barnen.
 - AUTO-storleken räknas med `layout`s regel för en förälder ur innehållet: barn nere till höger (`anchors.right`/`bottom`) och SPÄNDA barn (deras mätta mått som minsta) ryms, och `right`/`bottom` på ett barn bundet bara uppifrån/från vänster är luft. Ett gammalt `right`/`bottom` gör ramen större — sätt måtten om ramen ska vara exakt.
+- Måtten CACHAS (`layout`): en gruppram med många barn mäts om bara när något i den ändras, inte per bildruta.
 
 <!-- END:widget-group-box -->
 
@@ -4246,6 +4250,8 @@ Ingen form — utskriften är ett anrop i en handler, som en dialog.
 - Bara det utskrivbara området kommer ut — rita innanför `printableArea()`.
 - `setPaper`/`setPaperSize`/`setOrientation`/`setCopies` EFTER dialogen öppnar samma skrivare på nytt vid nästa `run`, och `printableArea()` är hela papperet till dess — sätt formatet före `showDialog`.
 - macOS: dialogen är appmodal (inget ark), och jobbet skickas när sista sidan ritats, med systemets förloppspanel.
+- En RITYTA på sidan: `p.drawCanvas(karta, glaze::Rect{20, 20, 170, 120}, kamera)` ritar ritytans lager med kameran i rektangeln (mm på sidan), i sidans upplösning — ingen förrenderad bild behövs (`renderToBitmap` fungerar inte inuti `rita`, `canvas-painter`). Ritytan får sitta i ägarfönstret.
+
 <!-- END:print -->
 
 <!-- BEGIN:tooltip | tooltip tooltips verktygstips hjälptext hover-text settooltip tooltipwidget hint tips förklaring -->
@@ -4443,6 +4449,7 @@ Formlistan, kameran, lagren, minnesbudgeten (ett heltal i byte), den platta ytan
 - `onMouseUp` kommer också efter en panorering — skilj klick från drag (se `canvas-hit-test`).
 - `setBorder(false)` tar bara bort kanten — hörnen klipps fortfarande runda och fokusringen ritas UTANFÖR ytan, över grannen. Ytor som ska stå kant i kant vill ha `setFlat(true)`.
 - En rityta UTAN YTA (en inaktiv dockningsflik, ett mått på 0) ritas inte och TICKAR inte — `onTick`, glidningarna och trögheten pausar tills den syns igen. `zoomToRect`/`zoomToBox`/`panBy` räknas bara mot ytan den har JUST NU: utan yta väntar de till nästa ritning med yta, också efter att ritytan ritats en gång (REQ9 6).
+- KLIPPET (`setClips`, `setLayerClips`, `setInvalidClip`) står i `canvas-layers`, målarens (`save(ClipPolygon)`) och `drawCanvas` i `canvas-painter`.
 
 <!-- END:canvas -->
 
@@ -4575,7 +4582,7 @@ karta.addShape(glaze::Shape::text({240, 120}, {glaze::TextSpan{.text = "Stolpe"}
 
 <!-- END:canvas-shapes -->
 
-<!-- BEGIN:canvas-layers | layer layers lager lagerordning addlayer setlayers movelayer flytta-lager bring-forward send-backward addshape setshape setshapes removeshape draworder setlayerdraworder bykind strict opacity zoomrange collision kollision labelfade setlayerpainter målarens-plats onpaintlayer -->
+<!-- BEGIN:canvas-layers | layer layers lager lagerordning addlayer setlayers movelayer flytta-lager bring-forward send-backward addshape setshape setshapes removeshape draworder setlayerdraworder bykind strict opacity zoomrange collision kollision labelfade setlayerpainter målarens-plats onpaintlayer klipp clip clipping setclips addclip setlayerclips addlayerclip resetclip clippolygon clipspace invalidclip setinvalidclip ogiltig prisma polygonklipp -->
 ## Ritytans lager och formlista (`canvas-layers`)
 
 **Alias:** layer, layers, lager, lagerordning, addlayer, setlayers, movelayer, flytta-lager, bring-forward, send-backward, addshape, setshape, setshapes, removeshape, draworder, setlayerdraworder, bykind, strict, opacity, zoomrange, collision, kollision, labelfade, setlayerpainter, målarens-plats, onpaintlayer
@@ -4614,6 +4621,18 @@ karta.removeShape(1, vag);
 
 if (const glaze::Shape* s = karta.shape(2, 0); s && s->kind() == glaze::Shape::Kind::Text)
     setTitle(karta.layerName(2) + ": " + std::to_string(karta.shapeCount(2)));
+
+// KLIPPET — ytor med hål, utan gräns för antalet hörn; flera ytor är en union.
+// Etiketterna klipps på sitt ankare, HUD:en i onPaintOverlay inte alls.
+// I World (förval) är ytan ett PRISMA i världens XY: i 3D klipps terräng,
+// meshar och stående text lodrätt där området slutar, också under tilt.
+glaze::ClipPolygon område{{{674000, 6580000}, {676000, 6580000}, {676000, 6582000}},
+                          {{{675000, 6580500}, {675200, 6580500}, {675200, 6580700}}}};
+karta.setClips({område});                   // hela ritytan: bakgrund, rutnät, lager och målare
+karta.setLayerClips(0, {område});           // bara plattorna (snittet med ritytans)
+karta.setLayerClipSpace(2, glaze::ClipSpace::Screen);   // lokala logiska px
+karta.addLayerClip(2, {{{0, 0}, {300, 0}, {300, 200}, {0, 200}}, {}});
+karta.resetClip();                          // inget klipp — setClips({}) klipper bort ALLT
 ```
 
 ### .glazeui
@@ -4631,13 +4650,19 @@ karta.addShape(1, glaze::Shape::line({0, 10}, {100, 10}));
 karta.setShape(1, 0, glaze::Shape::marker({50, 0}));
 karta.removeShape(1, 1);
 karta.moveLayer(0, 3);
+karta.setClipSpace(glaze::ClipSpace::World);
+karta.setInvalidClip(glaze::InvalidClip::Hide);
+karta.addClip({{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, {20, 20}}}});
+karta.setLayerClips(1, {{{{0, 0}, {50, 0}, {50, 50}}, {}}});
+karta.resetLayerClip(1);
 ```
-`moveLayer` och `setLayerPainter` är TILLSTÅND och utförs i previewn (handlingarna som `easeTo` gör det inte); det `onPaintLayer` ritar kör previewn aldrig.
+En yta skrivs `{ytterring, {hål…}}`, med eller utan typnamnet `glaze::ClipPolygon` — ange alltid båda fälten (`{}` för inga hål) — och rymden med prefixet `glaze::ClipSpace::`. Klippet, `moveLayer` och `setLayerPainter` är TILLSTÅND och utförs i previewn (handlingarna som `easeTo` gör det inte); det `onPaintLayer` ritar kör previewn aldrig.
 
 ### Fallgropar
 - Index utanför ⇒ `gfx::log` och ingenting händer — listan växer aldrig tyst.
 - `Strict` med tusentals former som byter slag (yta + kontur, väg + namn) blir tusentals rit-anrop; ett stort kartlager vill ha `ByKind`.
 - Lagrets placering i 3D (`setLayerPlacement`) står i `canvas-3d`.
+- KLIPPET gäller rutnätet, lagren, `onPaint` och `onPaintLayer` per pixel; bakgrunden (`setBackground`) fyller hela ytan. Ett draperat lager klipps uppifrån — dess World-klipp gäller längs terrängen, ett Screen-klipp inte. Rutmarkeringen (`hitTest(Rect, HitMode)`) prövar att rutan rör klippet, inte varje form. Ett hål utan yta bortses från. ETIKETTER OCH MARKÖRER klipps på sitt ANKARE: syns platsen ritas de hela (också över kanten), annars döljs de och tar ingen plats. `onPaintOverlay` (HUD:en, skalan) klipps inte. `setClips({})` och `setLayerClips(i, {})` klipper bort ALLT; `resetClip()`/`resetLayerClip(i)` tar bort klippet. En OGILTIG yta (ytterringen eller ett hål korsar sig själv, ett hål går utanför ytterringen eller korsar ett annat, färre än tre olika punkter) loggas och följer `setInvalidClip`: `glaze::InvalidClip::Show` (förval) låter klippet den ingår i vara — allt syns — och `Hide` låter den ytan klippa bort sin del. Överlappande ytor, ringarnas riktning och upprepade punkter är INTE fel. Lagrets klipp följer lagret i `moveLayer` och försvinner med `setLayer`/`setLayers`. `hitTest` träffar inte det som klippts bort, men `castRay` och `heightAt` frågar scenen som förut. Kanten, fokusringen och barnen klipps av widgetträdet, inte av ritytans klipp.
 - **Lagerindexen är POSITIONER.** Efter `moveLayer` har lagren nya index — i `HitResult::layer`, `setLayerViews(i, …)`, `PaintArgs::layer` i `onPaintLayer` och för formerna utan lagerindex, som alltid går till plats 0. En app som visar lagren i en lista håller sin egen spegling plats → lager.
 - `moveLayer(i, i + 1)` står kvar: platsen räknas FÖRE flytten, så det är samma plats.
 - Etiketterna placeras om efter en flytt UTAN toning (också med `setLabelFade(true)`), och synlighetsbilden laddas upp hel — en byte per etikett; med terräng ritas draperingarna om (GPU-arbete, ingen data). Anropa den inte i `onPaint`.
@@ -4771,7 +4796,7 @@ Kalibreringen är ingen ritytegenskap utan appens (`glaze::app()`), och hör hem
 
 <!-- END:canvas-units -->
 
-<!-- BEGIN:canvas-painter | painter målare onpaint onpaintlayer onpaintoverlay paintargs hud overlay gummiband rubberband omedelbar immediate drawtext drawline drawpolyline invalidateoverlay screenspace measuretext textmetrics textmått textmätning heightforwidth setlayerpainter målarens-plats under-lager klipp klippning clip clipping cliprect save-rect -->
+<!-- BEGIN:canvas-painter | painter målare onpaint onpaintlayer onpaintoverlay paintargs hud overlay gummiband rubberband omedelbar immediate drawtext drawline drawpolyline invalidateoverlay screenspace measuretext textmetrics textmått textmätning heightforwidth setlayerpainter målarens-plats under-lager klipp klippning clip clipping cliprect save-rect clippolygon drawcanvas prisma -->
 ## Omedelbar ritning: onPaint, onPaintLayer, onPaintOverlay och Painter (`canvas-painter`)
 
 **Alias:** painter, målare, onpaint, onpaintlayer, onpaintoverlay, paintargs, hud, overlay, gummiband, rubberband, omedelbar, immediate, drawtext, drawline, drawpolyline, invalidateoverlay, screenspace, measuretext, textmetrics, textmått, textmätning, heightforwidth, setlayerpainter, målarens-plats, under-lager, klipp, klippning, clip, clipping, cliprect, save-rect
@@ -4787,7 +4812,9 @@ Det som ändras varje ritning ritas i handlers med en `glaze::Painter` (i `e.pai
 - `void drawText(Point at, const TrText& text, const TextStyle& style = {})` · `void drawMarker(Point at, const MarkerStyle& style = {})` · `void drawImage(const Rect& r, const ImageSource& source, const ImageStyle& style = {})` — opaciteten och FÄRGJUSTERINGEN (kontrast, ljushet, mättnad) som `Shape::image` (se `canvas-images`), gånger målarens ton
 - `void drawText(Point at, const std::vector<TextSpan>& spans, const TextStyle& style = {})` — en etikett i DELAR (se `canvas-shapes`) · `void drawImage(Point topLeft, Point topRight, Point bottomRight, Point bottomLeft, const ImageSource& source, const ImageStyle& style = {})` — bilden på fyra fria hörn, hörnen genom målarens transform.
 - `[[nodiscard]] Saved save()` · `void translate(double dx, double dy)` · `void rotate(double deg)` · `void scale(double sx, double sy)` · `void screenSpace()`
-- `[[nodiscard]] Saved save(const Rect& clip)` — KLIPPET (REQ8 1): samma sparade läge, och allt som ritas till lägets slut klipps till rektangeln i målarens transform och rymd — vriden en fyrhörning, under tilt eller med en 3D-kamera dess bild på skärmen. Nästlat är det snittet med det som redan gäller (det växer aldrig), och lägets slut lägger tillbaka det förra. Linjer, ytor, text, markörer och bilder — också i rymden — klipps i varje pixel och kantutjämnas; det som ligger utanför ritas inte och skriver inget djup. Föremålen i rymden (meshar, instanser, punkter) klipps till klippets omskrivna rektangel på skärmen. Högst 8 kanter (två godtyckligt vridna rektanglar ryms); en rektangel utan yta klipper bort allt.
+- `[[nodiscard]] Saved save(const Rect& clip)`, `save(const glaze::ClipPolygon& clip)` och `save(const std::vector<glaze::ClipPolygon>& clip)` — KLIPPET: samma sparade läge, och allt som ritas till lägets slut klipps till ytan i målarens transform och rymd. I världen är ytan ett PRISMA: under tilt och i en 3D-kamera klipps det som står i rymden lodrätt där ytan slutar; efter `screenSpace()` är den en yta på skärmen. Flera ytor i ett anrop är deras union, hålen klipper bort, och nästlat är det snittet med det som redan gäller (det växer aldrig). Allt målaren ritar — linjer, ytor, text, markörer, bilder, meshar, instanser och punkter — klipps i varje pixel och kantutjämnas; det som ligger utanför ritas inte och skriver inget djup. Ingen gräns för antalet hörn. En ogiltig yta följer ritytans `setInvalidClip` (Show: klippet gäller inte; Hide: den ytan täcker ingenting).
+- Ritytans klipp (`setClips`) gäller `onPaint` och `onPaintLayer` men inte `onPaintOverlay` — HUD:en ritas var klippet än går.
+- `bool drawCanvas(Canvas& canvas, const Rect& rect, const Camera& camera)` (och med `Camera3D`) — en ANNAN ritytas huvudvy med den kameran i rektangeln, i den upplösning målaren ritar i: lagren med ordning, opacitet, zoomintervall, klipp och `onPaintLayer`. Rutnätet, del-vyerna, `onPaint`/`onPaintOverlay` och kanten ritas inte, och ytan utanför formerna är genomskinlig. Ritas med målarens renderare, så ritytan får sitta i ett annat fönster (utskriftens sida, `print`). false (+ logg) utan renderare, inuti ritytans egen ritning, med en ogiltig kamera eller rektangel, eller när målet inte går att skapa.
 - `gfx::Sizef measureText(const TrText& text, const TextStyle& style = {})` · `gfx::Sizef measureText(const std::vector<TextSpan>& spans, const TextStyle& style = {})` (logiska px — delarna med sina egna stilar, samma låda som lagrets etikett; inget laddas upp) · `gfx::Sizef size() const`
 - `std::optional<TextMetrics> Canvas::measureText(const TrText& text, const TextStyle& style = {}, Unit unit = Unit::Px) const` · `… measureText(const std::vector<TextSpan>& spans, …) const` — SAMMA mätning UTANFÖR en ritning (i en handler, i `onLoad`), i px, mm eller världsenheter; `nullopt` utan öppet fönster. `struct TextMetrics { double width, height, lineHeight, baseline; int lines; bool truncated; }` — textblocket utan platta, luft och ankare; `baseline` är första radens under överkanten, en tom text är en rad. TAKET (`maxLines`/`maxHeight`) räknas med: `lines` är de synliga raderna och `truncated` att texten kortades med "…" (visa hela i en tooltip). Golvet och taket för storleken (`minSize`/`maxSize`) räknas vid kamerans mitt; zoomintervallet inte — måttet säger hur texten ser ut, inte om den syns.
 - `std::optional<TextMetrics> Canvas::measureText(const Ctx& c, const TrText& text, const TextStyle& style = {}, Unit unit = Unit::Px) const` · `… measureText(const Ctx& c, const std::vector<TextSpan>& spans, …) const` — samma mått i ritytans EGEN layout, med det Ctx layouten redan har (en subklass `heightForWidth`/`contentSize` — ett dokument som bryts efter bredden). Frågar aldrig layouten: tätheterna och fonterna ur `c` (`nullopt` utan `c.canvas`), kameran som den är satt eller härledd och en väntande `setMapScale` — men inte en väntande inramning (`zoomToRect`/`zoomToBox`/`panBy`). En 3D-ytas världsmått räknas vid den senast ritade ytan; en 3D-yta som aldrig ritats och har AUTO-mått svarar `nullopt` för ett mått som behöver världsenheten (px och mm mäts).
@@ -4912,9 +4939,9 @@ Bara kopplingen står i filen; det handlern ritar syns aldrig i previewn. Målar
 - Med terräng draperas lagrets målare inte (draperingen ritas inte om varje bildruta): i ett Ground-lager ritas den i markens steg på z = 0, utan djup.
 - `translate`/`rotate`/`scale` verkar på punkterna, inte på måtten: en linje i mm är lika bred efter `scale(2, 2)`.
 - `{ auto s = e.painter.save(); e.painter.screenSpace(); … }` — rymden och transformen läggs tillbaka när `s` går ur räckvidd.
-- `save(rect)` tolkar rektangeln i den transform och rymd som gäller NÄR den anropas, och klippet är sedan en yta på skärmen: en `translate`/`rotate`/`screenSpace` efteråt flyttar det inte. Lägg alltså transformen först och klippet sist. Utan `auto k =` dör klippet direkt (`[[nodiscard]]` varnar).
-- Föremålen i rymden (meshar, instanser, punkter) klipps bara till klippets OMSKRIVNA rektangel — under ett vridet klipp syns de i dess hörn. Linjer, ytor, text och bilder klipps exakt.
-- Fler än 8 kanter (tre eller fler nästlade klipp i olika vridning) loggas en gång, och de minsta hörnen skärs av: klippet blir något mindre, aldrig större.
+- `save(rect)` tolkar rektangeln i den transform och rymd som gäller NÄR den anropas, och klippet låses då — i världen ett prisma, efter `screenSpace` en yta på skärmen: en `translate`/`rotate`/`screenSpace` efteråt flyttar det inte. Lägg alltså transformen först och klippet sist. Utan `auto k =` dör klippet direkt (`[[nodiscard]]` varnar).
+- Stående text och markörer i rymden (`text3`, `marker3`) klipps på sitt ANKARE: hela etiketten syns eller ingen del av den.
+- Klippet ritas som en mask i ett eget mål, som byggs om bara när ytan, kameran eller målets storlek ändras. Ett klipp som byts varje bildruta kostar en maskfyllning per bildruta.
 - `Canvas::measureText` i en KONSTRUKTOR ger `nullopt` (inget fönster än) — mät i `onLoad`/`onShow`. Mått i mm och världsenheter räknas med skärmens täthet och kamerans skala i MITTEN, som etiketten byggs; under tilt är ett världsmått etikettens tänkta storlek.
 - I ritytans EGEN `heightForWidth`/`contentSize`: `measureText(c, …)` med krokens `c`. Formen utan Ctx frågar layouten (ytan resolvas, och en Panel resolvar sina barn), så därifrån hade den gått runt i sig själv — den loggar i stället en gång och svarar `nullopt`.
 - `{}` och `{{"abc"}}` är tvetydiga mellan texten och delarna (som i `Shape::text`); `{"abc"}` är text.
@@ -5179,6 +5206,7 @@ scen.setMultisample(4);
 - En form i rymden gör sitt lager till World (`Auto`); etiketter i ett World-lager djuptestas och kan skymmas. Lägg etiketter som ska synas överst i ett `Ground`-lager.
 - Verktygen och `easeTo` fyrar aldrig `onCameraChange`; de kräver en `Camera3D` (annars logg).
 - Med en `Camera3D` räknar `toWorld(lokal)`, `unitsPerPixelAt` och musens `e.world` mot marken z = 0.
+- KLIPPET i 3D är ett PRISMA i världens XY (`canvas-layers`): terrängen, meshar, punktmoln och linjer i rymden klipps lodrätt där ytan slutar, stående text och markörer på sitt ankare.
 
 <!-- END:canvas-3d -->
 
@@ -5331,6 +5359,7 @@ Terrängens meshar ur höjddata är koddata; liggande text och draperade vägar 
 - Innehållet kan SLÄPA några bilder under en stor ändring — en brickbatch över hela kartan, ett klassbyte vid zoom: det som hunnit draperas om visas nytt, resten i sin gamla upplösning eller med sitt förra innehåll tills budgeten hunnit ikapp.
 - Varje ändring i ett Ground-lager draperar om plattorna under det, och `setShapes` på HELA lagret gör det under hela lagret. Ändra bara det som ändrats (`setShape`, `addShape`/`removeShape` per bricka), och lägg en markör eller ett hover-sken som flyttas varje bild i ett eget litet lager eller i overlayn (`onPaintOverlay` med `project`) — inte i ett lager med tusentals former.
 - Den FÖRSTA `heightAt` efter en terrängändring (en ny platta, `setShape`, `Mesh::setPositions`, synlighet, placering, ett nytt Terrain-lager) bygger om rutnätet. Tusentals uppslag per bild (en redigerare som lägger en linje på marken) hör hemma i en cache i appen per geometriversion, inte i varje bild.
+- Ett World-klipp på ett draperat lager klipps i draperingen, alltså längs terrängen, och ritytans klipp klipper terrängens yta lodrätt (`canvas-layers`).
 
 <!-- END:canvas-terrain -->
 
@@ -5467,6 +5496,7 @@ fragment float4 fsMain(VsOut i [[stage_in]],
 - Ett fel rapporteras med raden i appens EGEN källa (förspelet räknas inte) — läs `programError(namn)`.
 - I GLSL: läs aldrig fragmentets läge ur `gl_FragCoord.y` (målen är y-vända); ta det ur en varying.
 - Läser programmet en plats meshen saknar ritas anropet med reserven.
+- KLIPPET är opt-in: ett eget program klipps av ritytans och lagrets klipp först när fragmentsteget anropar förspelets `glaze_clip(px, local)` — `px` fragmentets läge i målets px (i GLSL ur en varying), `local` vertexens chunk-lokala xy. Den kastar fragmentet där täckningen är 0. I MSL skrivs `GLAZE_CLIP_PARAMS` sist bland fragmentfunktionens parametrar och `GLAZE_CLIP_ARGS` som tredje argument (`gfx/program.h`). Platserna t4–t5/s4–s5 och blocket b5 (GL enhet 4–5 och punkt 5, Metal texture 4–5 och buffer 4) är förspelets.
 
 <!-- END:canvas-shaders -->
 
@@ -5773,6 +5803,8 @@ Medlemsraden `Meter level;` i regionen och satserna `level.name = "level";`, `le
 - **En egen ICKE-VISUELL komponent** (det som står som medlem utan att ritas, som `glaze::Timer`) ärver `glaze::Component` (`name`, `setProp`, `setTextToken`) och registreras med `GLAZE_REGISTER_COMPONENT("MinTyp", MinTyp, ::glaze::PreviewForm::Inert)` — previewformen saknar förval: `Inert` lovar att konstruktorn och settrarna inte gör något mot OS:et (previewn skapar den och kör dess setter-rader), `StandIn` att previewn aldrig ska skapa den (raderna bevaras och utförs inte). Den står i regionen och adopteras aldrig.
 - `childrenExtent(c, bredd)` är autostorleken ur barnen med bredden GIVEN — Top/Bottom-remsorna och barnen med två kända sidokanter tar `heightForWidth` med sin bredd. `wantsTextInput()` är publik ("tar widgeten text?").
 - `childrenExtent(c)` (protected, för en komposit vars AUTO-mått kommer ur barnen — `GroupBox`s mönster) räknar med `layout`s regel "När föräldern räknas ur innehållet": barn nere till höger, spända barn med sitt mätta mått som minsta och `right`/`bottom` som luft på ett barn bundet bara uppifrån/från vänster. En komposit som byggts mot den äldre regeln (där sådana barn inte bidrog) kan alltså bli större än förut.
+- MÅTTEN CACHAS (`layout`): `contentSize`/`heightForWidth` anropas bara när något ändrats. Varje sättare som ändrar något måtten läser ska anropa `invalidate()`. Beror måttet på något UTANFÖR widgeten (ett syskon, namnlisten), overrida `MeasureScope measureScope() const` och svara `Parent` eller `Root` — då nycklas cachen på förälderns eller rotens delträd. Mät andra widgets med `measure(w, c)`/`measureHeightForWidth(w, c, bredd)`, aldrig med deras `contentSize` direkt.
+
 <!-- END:custom-widget -->
 
 <!-- BEGIN:language | language språk translation översättning i18n l10n localization tr trtext setlanguage loadlanguage language.bin langtxt glazelanguage strings.h fallback -->
@@ -5864,6 +5896,8 @@ NUMRET, aldrig konstanten — verktygen kan inte slå upp `app::str::Hello`:
 - `glaze::tr(id).str()` på en temporär kompilerar inte — lägg `tr(id)` i ett namngivet `TrText` först.
 - Det som INTE är `TrText` (listornas poster, ihopsatta strängar) fyller du om i `onLanguageChanged()`; titeln och `TrText`-fälten byts av ramverket.
 - I `.glazeui` är `setTitle(glaze::tr(app::str::Title))` och `setText(glaze::tr(app::str::Hello))` OPAKA rader: de kompilerar och bevaras, men previewn ritar dem inte (ingen titel, ingen text) — verktygen läser bara numret. `glazelanguage` byggs i GlazeUI-repot (`cmake`); headern genereras vid `pack` och committas.
+- Ett språkbyte gör alla cachade mått inaktuella (`layout`): widgetarna mäts om med de nya texterna utan att appen gör något.
+
 <!-- END:language -->
 
 <!-- BEGIN:assets | assets bilder images icons ikoner assets.bin loadassets img assethandle glazeassets resx resurser resources png setimg -->

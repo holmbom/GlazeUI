@@ -25,6 +25,10 @@
 //       och tecknen, dollyns steg (en rad 1/√2, en tangent 1/2), tickens tak
 //       0,1 s — och att en kamera UTANFÖR spannen aldrig dras in med ett
 //       hopp (elevationen och avståndet).
+//   KP  KLIPPET I 3D-MÅLET (`setClips`, `setLayerClips`): ett satt eller
+//       ändrat klipp ritar om 3D-målet EN gång, ett oförändrat inte
+//       (`targetRenders`); `hitTest(lokal, HitOptions)` träffar inte det som
+//       klippts bort; `moveLayer` tar lagrets klipp med sig.
 //   P   PANORERINGEN i FLYGLÄGET — de
 //       bindningar som motsvarar ett flygläge (tests/orbit_fly.h), med
 //       samma referens: i SIDLED följer målplanets punkt pekaren, och fram/bak
@@ -507,6 +511,7 @@ struct Värd : glaze::AppWindow {
 
     void synkront();
     void tick1();
+    void klipp3D();   // KP
     void blink();
     void klar() { close(); }
 };
@@ -1108,6 +1113,77 @@ void Värd::synkront()
     }
 }
 
+// KP. KLIPPET I 3D-MÅLET (`Canvas::setClips`, `setLayerClips`): en röd yta på
+// marken sedd rakt uppifrån, ritytan med ett världsklipp x −2–2. (1) Ett satt
+// eller ändrat klipp ritar om 3D-målet EN gång, ett oförändrat klipp ritar
+// inte om (`targetRenders` +0); (2) lagrets klipp ritar om på samma sätt;
+// (3) `hitTest(lokal, HitOptions)` träffar ytan innanför klippet men inte
+// utanför, och lagrets klipp snittas med ritytans; (4) `moveLayer` tar lagrets
+// klipp med sig och `setLayer` tar bort det.
+void Värd::klipp3D()
+{
+    nollställ(kamera({0.0, 0.0, 0.0}, 10.0, 0.0f, 90.0f));
+    yta.setShapes({});
+    yta.setLayers({"Grund", "Extra"});
+    yta.setLayerPlacement(0, glaze::LayerPlacement::World);
+    yta.addShape(0, glaze::Shape::rect({-100, -100, 200, 200},
+                                       gfx::Color{255, 0, 0, 255}));
+    rita();
+    const auto yta2 = [](double x0, double y0, double x1, double y1) {
+        glaze::ClipPolygon p;
+        p.outer = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+        return p;
+    };
+    const std::uint64_t grund = målRitningar();
+    yta.setClips({yta2(-2, -2, 2, 2)});
+    rita();
+    const std::uint64_t efterSatt = målRitningar();
+    rita();
+    const std::uint64_t efterOförändrat = målRitningar();
+    check(efterSatt == grund + 1 && efterOförändrat == efterSatt,
+          "KP3D ett satt klipp ritar om 3D-målet en gång, ett oförändrat inte",
+          std::to_string(grund) + " → " + std::to_string(efterSatt) + " → " +
+              std::to_string(efterOförändrat));
+    yta.setLayerClips(0, {yta2(-1, -1, 1, 1)});
+    rita();
+    check(målRitningar() == efterOförändrat + 1,
+          "KP3D ett lagerklipp ritar om 3D-målet en gång",
+          std::to_string(målRitningar()) + " mot " +
+              std::to_string(efterOförändrat + 1));
+
+    // (3) Träffprovet: ritytans klipp x −2–2, lagrets (lager 0) x −1–1.
+    const auto lokalt = [&](double x, double y) {
+        return yta.toLocal(glaze::Point{x, y});
+    };
+    const auto mitt = lokalt(0.0, 0.0), mellan = lokalt(1.5, 0.0),
+               ute = lokalt(3.0, 0.0);
+    if (!mitt || !mellan || !ute) {
+        check(false, "KP3D punkterna har en bild på ytan");
+        return;
+    }
+    const glaze::HitOptions o;
+    check(!yta.hitTest(*mitt, o).empty() && yta.hitTest(*mellan, o).empty() &&
+              yta.hitTest(*ute, o).empty(),
+          "KP3D hitTest: innanför lagrets klipp träffar, mellan lagrets och "
+          "ritytans klipp och utanför inte");
+    yta.resetLayerClip(0);
+    check(!yta.hitTest(*mellan, o).empty() && yta.hitTest(*ute, o).empty(),
+          "KP3D utan lagerklipp gäller ritytans: träff vid 1,5, ingen vid 3");
+
+    // (4) moveLayer och setLayer.
+    // `moveLayer(0, 1)` står kvar (platsen räknas före flytten) — överst är
+    // `layerCount()`.
+    yta.addLayerClip(0, yta2(-1, -1, 1, 1));
+    const int överst = yta.layerCount() - 1;
+    yta.moveLayer(0, yta.layerCount());
+    check(överst > 0 && yta.layerClipEnabled(överst) && !yta.layerClipEnabled(0),
+          "KP3D moveLayer tar lagrets klipp med sig");
+    yta.setLayer(överst, "Ny");
+    check(!yta.layerClipEnabled(överst), "KP3D setLayer tar bort lagrets klipp");
+    yta.resetClip();
+    yta.setLayers({""});
+}
+
 // T. TICKNINGEN genom pumpen — en följd steg i fönstrets timer, så pumpen
 // ritar och postar emellan. Varje "slutar"-fall mäts i TVÅ steg: först en
 // paus där det som redan var på väg får landa, därefter ett fönster där
@@ -1277,6 +1353,7 @@ void fallMedFönster()
     glaze::app().post([&] {
         kördes = true;
         w.synkront();
+        w.klipp3D();
         // TVÅ steg: händelserna det synkrona steget postade körs före
         // tickningens mätning.
         glaze::app().post([&w] { w.tick1(); });   // stänger fönstret till sist

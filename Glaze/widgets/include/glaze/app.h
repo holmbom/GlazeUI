@@ -67,6 +67,14 @@ const Theme::Colors& osIconColors();
 // bara från UI-tråden och aldrig en apps väg: appen postar med `app().post`.
 void postFrameWork(std::function<void()> fn);
 
+// APPENS HANDLER-EPOK — stegas varje gång App levererar ett event, en
+// postad funktion eller en timer till appens kod, men inte för ritytans tick
+// och ramverkets egna animationer. Mätcachen (`Widget::measure`) har den i
+// nyckeln: i en handler får de råa layoutfälten ändras utan `invalidate()`.
+// Bor i app.cpp (inget statiskt tillstånd i en header) och skapar aldrig App.
+std::uint64_t handlerEpoch();
+void          bumpHandlerEpoch();
+
 // APPENS BINDNINGSTABELL FÖR RITYTORNA — det ritytan
 // ärver det den inte satt själv från (src/canvas/input_map.h). En LÄSFRÅGA:
 // den skapar ALDRIG App (och kör alltså aldrig `gfx::init`) — finns ingen App
@@ -412,6 +420,7 @@ private:
     // fönsters commit-kö töms framifrån — en modal dialog i en insamlad
     // handler levererar så resten i ordning (kontraktet i app_window.h).
     void drainCommitQueues();
+    bool hasCommits() const;   // väntar något fönster med ett commit?
 
     // Finns något postat just nu, i NÅGON av köerna? Läses av pumpen FÖRE
     // den blockerande väntan: en post som kom innan pumpen började (eller

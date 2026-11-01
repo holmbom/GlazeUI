@@ -2,3 +2,5 @@ build/
 build-*/
 .cache/
 .vscode/
+/doc/reqs/
+/doc/plans/

@@ -247,12 +247,24 @@ normalspårningen, startläget och de tre nya pekarna.
   försvinner vid clear/target-byte, så en mask som bara sattes i
   `applyClip` hade tappats vid framens första `clear`. Därför är
   `setClipMasks` (äger värdet) och `bindClipMasks` (skickar det) TVÅ
-  funktioner. **MÅLARENS KLIPP** (REQ8 1, BLINT SKRIVET): `struct SceneClip`
-  och `sceneClip(p, sc)` i `kMslClipSrc`, på fragmentbuffert **4** i
-  `linePs`/`fillPs`/`glyphPs`/`imagePs` (utanför de egna programmens 2 och
-  3) — `discard_fragment()` utanför, så inget djup skrivs. `bindSceneClip`
-  (metal_scene.mm) binder det när encodern saknar en bindning
-  (`sceneClipBound_`, nollad i `startEncoder`) eller klippet ändrats.
+  funktioner. **MÅLARENS KLIPP** (BLINT SKRIVET): `kMslSceneClipSrc` (metal_renderer.mm,
+  klistrad efter `kMslClipSrc` i scenens program och efter `kMslPrelude` i de
+  egna programmens förspel) — `struct GlazeClipBlock` (`rect`, `world`, `meta`;
+  48 byte) på fragmentbuffert **4**, skärmmasken på **texture(4)**,
+  världsmasken på **texture(5)** och en linjär klampad sampler på **sampler(4)**
+  (utanför de egna programmens buffertar 2 och 3). Entrypunkterna deklarerar
+  platserna med makrot **`GLAZE_CLIP_PARAMS`** (som sista parametrar) och
+  lämnar dem som **`GLAZE_CLIP_ARGS`** (`GlazeClipArgs`: blockpekare, två
+  texturer, sampler) till `glaze_clipScreen(p, clip)` (2D-programmen) och
+  `glaze_clip(px, local, clip)` (Line3 på `ppos`, Glyph3 på ankaret via
+  varyingen `clipLocal`, egna program). Täckningen är maskens ALFA (`level(0)`),
+  0 utanför ytan, `discard_fragment()` vid 0. Maskerna är bara texturer att
+  sampla: PSO:erna (`psoFor`) nycklas inte på klippet. `bindSceneClip`
+  (metal_scene.mm, också från `drawCustomMesh`) binder texturerna/samplern vid
+  varje anrop med mask (den vita `whiteTex_` på platserna annars, för en
+  obunden textur är ett valideringsfel) och blocket när encodern saknar en
+  bindning (`sceneClipBound_`, nollad i `startEncoder`) eller klippet ändrats;
+  `noteUse` stämplar maskernas bilder.
   **Readback** (GLAZE_RENDER): `captureRetained` — egen engångs-
   commandbuffer med blit → delad buffert + waitUntilCompleted (köordningen
   garanterar capture EFTER framens commit), BGRA→RGBA-swizzle; bakom

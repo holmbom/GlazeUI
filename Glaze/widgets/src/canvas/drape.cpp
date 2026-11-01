@@ -128,6 +128,7 @@ std::uint64_t contentKey(const PaintContext& f, const SceneData& sc,
         k.mix(static_cast<std::uint64_t>(ritas));
         k.mix(static_cast<double>(L.opacity));
         k.mix(static_cast<std::uint64_t>(L.order));
+        k.mix(L.clip.version);   // lagrets världsklipp bakas in
         if (!ritas)
             continue;
         for (const std::shared_ptr<RunData>& run : L.runs) {
@@ -224,6 +225,7 @@ std::uint64_t groundStamp(const PaintContext& f, const SceneData& sc)
             continue;
         k.mix(L.shapesVersion);
         k.mix(L.textVersion);
+        k.mix(L.clip.version);
         k.mix(static_cast<double>(L.opacity));
         k.mix(static_cast<std::uint64_t>(L.order));
         k.mix(static_cast<std::uint64_t>(layerDrawn(f, L)));
@@ -278,6 +280,10 @@ void renderDrape(const PaintContext& f, const SceneData& sc, gfx::RenderTarget& 
     df.view             = kMainView;
     df.labelSlot        = f.labelSlot;
     df.lighting         = f.lighting;
+    df.scene            = &sc;
+    // Lagrens världsklipp som skärmmasker i draperingens px — byggda före
+    // målet. Ett skärmklipp hör till en vy och bakas inte.
+    dl.clips = prepareClips(df, sc, ClipUse::Drape);
     gfx::Renderer& r = *f.c->r;
     r.pushTarget(t, kTransparent);
     drawGround(df, sc, dl, GroundPart::Drape);

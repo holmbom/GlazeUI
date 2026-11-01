@@ -90,32 +90,6 @@ using detail::wrapBearing;
 
 namespace {
 
-// MÅLARNA — `onPaint`, `onPaintLayer` och `onPaintOverlay` går EN väg: en
-// målare i ritningens läge (i världen, eller i de lokala px för overlayn),
-// lagret i args (−1 utanför ett lager) och, för ett lager i rymden, lagrets
-// renderläge som målarens start. Målaren tömmer sin sista sats när
-// den går ur räckvidd — innan anroparen släpper ett klipp.
-void måla(Canvas& yta, const Handler<PaintArgs>& h, detail::PaintContext& p,
-          bool screen, int lager = -1, const RenderState* läge = nullptr)
-{
-    Painter painter(p, screen);
-    if (läge)
-        painter.setRenderState(*läge);
-    PaintArgs e(painter);
-    e.layer = lager;
-    h(&yta, e);
-}
-
-// LAGRENS MÅLARE (scene.h `LayerPaint`) — tom utan `onPaintLayer`.
-detail::LayerPaint lagerMålare(Canvas& yta)
-{
-    if (!yta.onPaintLayer)
-        return {};
-    return [&yta](detail::PaintContext& p, int lager, const RenderState* läge) {
-        måla(yta, yta.onPaintLayer, p, false, lager, läge);
-    };
-}
-
 // 3D-MÅLETS ARGUMENT som ritningen och `renderToBitmap` delar — provtagningen,
 // rutnätet ur temat och stilen, appens `onPaint` och lagrens målare; kameran,
 // stämpeln, toningen och del-vyerna sätter anroparen.
@@ -129,9 +103,9 @@ detail::Target3DArgs målArgs(Canvas& yta, const Ctx& c)
     a.gridWidthPx = c.style->canvasGridWidth;
     if (yta.onPaint)
         a.paint = [&yta](detail::PaintContext& p) {
-            måla(yta, yta.onPaint, p, false);
+            detail::paintWith(yta, yta.onPaint, p, false);
         };
-    a.layerPaint = lagerMålare(yta);
+    a.layerPaint = detail::layerPaintOf(yta);
     return a;
 }
 
@@ -383,6 +357,7 @@ void Canvas::paintContext(const Ctx& c, detail::PaintContext& pc,
                        : cameraFor(box, c.scale).zoom;
     pc.opacity = isEnabled() ? 1.0f : 1.0f - c.style->iconFade;
     pc.lighting = &lighting_;   // meshernas ljus (src/canvas/scene3d.h)
+    pc.scene    = scene_.get();
 }
 
 bool Canvas::uses3DTarget() const
@@ -396,7 +371,8 @@ void Canvas::drawScene(const Ctx& c)
     if (!c.canvas)
         return;   // en Ctx utan fönstrets resurser (ingen renderer att ladda upp i)
     // Bilderna ritningen hämtar räknas på ritytans konto.
-    const detail::ImageAccount konto(c, scene_);
+    const detail::ImageAccount   konto(c, scene_);
+    const detail::PaintingScope  ritar(*scene_);
     detail::PaintContext pc;
     paintContext(c, pc, c.box);
 
@@ -425,17 +401,20 @@ void Canvas::drawScene(const Ctx& c)
     // rutnätet och lagren ritas, lagren förbereds däremellan, och `onPaint`
     // målar sist.
     c.canvas->dropViews(scene_->id, detail::kMainView);
-    std::optional<detail::PhaseScope> fas{std::in_place, ProfilePhase::CanvasDraw};
+    // Lagren förbereds först — också ritytans och lagrens klipp, som masker
+    // (src/canvas/clip.h) — och rutnätet, lagren och målarna ritas sedan
+    // innanför ritytans klipp.
+    std::optional<detail::PhaseScope> fas{std::in_place, ProfilePhase::CanvasPrepare};
+    const detail::LayerFrame lf =
+        detail::prepareLayers(pc, scene_, labelFade_, false);
+    pc.clip = lf.clips.canvas;
+    fas.emplace(ProfilePhase::CanvasDraw);
     detail::drawGrid(pc, gridSize_, c.theme->colors.canvasGrid,
                      c.style->canvasGridMin, c.style->canvasGridWidth);
     // Etiketterna tonar: nästa frame tar nästa steg (Progress-mönstret) —
     // och när toningen är framme ber ritytan inte om fler (regel 1).
-    fas.emplace(ProfilePhase::CanvasPrepare);
-    const detail::LayerFrame lf =
-        detail::prepareLayers(pc, scene_, labelFade_, false);
-    fas.emplace(ProfilePhase::CanvasDraw);
     // Lagrens målare i lagrens ordning, `onPaint` ovanpå dem.
-    const detail::LayerPaint lagren = lagerMålare(*this);
+    const detail::LayerPaint lagren = detail::layerPaintOf(*this);
     detail::drawGround(pc, *scene_, lf, detail::GroundPart::All, &lagren);
     labelsAnimating_ = lf.animating();
     if (labelsAnimating_)
@@ -446,7 +425,7 @@ void Canvas::drawScene(const Ctx& c)
     detail::prepareUploads(pc, *scene_);
     fas.emplace(ProfilePhase::CanvasPaint);
     if (onPaint)
-        måla(*this, onPaint, pc, false);
+        detail::paintWith(*this, onPaint, pc, false);
 }
 
 // OVERLAY-LAGRET: `onPaintOverlay` vid varje present, ovanpå allt
@@ -462,12 +441,16 @@ void Canvas::drawOverlay(const Ctx& c)
 {
     if (!c.canvas || !onPaintOverlay)
         return;
-    const detail::ImageAccount konto(c, scene_);
+    const detail::ImageAccount  konto(c, scene_);
+    const detail::PaintingScope ritar(*scene_);
     detail::PaintContext pc;
     paintContext(c, pc, c.box);
+    // Ritytans klipp gäller INTE overlayn: HUD:en (skalan, ett gummiband)
+    // ligger på skärmen ovanpå kartan och ska synas var klippet än går —
+    // målarens egna `save(…)` klipper den.
     Draw::clip(c, c.bounds(), surfaceRadius(c));
-    // Målaren tömmer sin sista sats innanför klippet (`måla`).
-    måla(*this, onPaintOverlay, pc, true);
+    // Målaren tömmer sin sista sats innanför klippet (`paintWith`).
+    detail::paintWith(*this, onPaintOverlay, pc, true);
     Draw::endClip(c);
 }
 
@@ -1500,6 +1483,146 @@ std::vector<Point3> Canvas::visibleRegion(const Plane3& plane, double maxDistanc
     return out;
 }
 
+// ------------------------------------------------------------------- klippet
+
+namespace {
+
+const std::vector<ClipPolygon>& noClips()
+{
+    static const std::vector<ClipPolygon> tom;
+    return tom;
+}
+
+// Giltigheten räknas om efter varje ändring, och en ogiltig yta loggas EN
+// gång här — inte i varje ritning.
+void clipChanged(detail::ClipState& k, const std::string& ägare, const char* op,
+                 std::size_t first, std::size_t last)
+{
+    ++k.version;
+    detail::revalidateClip(k, first, last);
+    for (std::size_t i = first; i < last && i < k.valid.size(); ++i)
+        if (!k.valid[i])
+            gfx::log("Canvas(%s)::%s: yta %zu är ogiltig (en självkorsning, ett hål "
+                     "utanför ytterringen eller för få punkter) — setInvalidClip "
+                     "avgör vad som syns",
+                     ägare.c_str(), op, i);
+}
+
+// Kollektionsvokabulären över ett klipp — ritytans och lagrens delar den.
+// Varje ändring stegar versionen; `ägare` och `op` står i loggen.
+int clipAdd(detail::ClipState& k, ClipPolygon p, const std::string& ägare,
+            const char* op)
+{
+    k.polygons.push_back(std::move(p));
+    k.enabled = true;
+    clipChanged(k, ägare, op, k.polygons.size() - 1, k.polygons.size());
+    return static_cast<int>(k.polygons.size()) - 1;
+}
+
+bool clipSet(detail::ClipState& k, int index, ClipPolygon p,
+             const std::string& ägare, const char* op)
+{
+    if (index < 0 || static_cast<std::size_t>(index) >= k.polygons.size()) {
+        gfx::log("Canvas(%s)::%s: yta %d finns inte (%zu ytor) — ignoreras",
+                 ägare.c_str(), op, index, k.polygons.size());
+        return false;
+    }
+    k.polygons[static_cast<std::size_t>(index)] = std::move(p);
+    clipChanged(k, ägare, op, static_cast<std::size_t>(index),
+                static_cast<std::size_t>(index) + 1);
+    return true;
+}
+
+void clipSetAll(detail::ClipState& k, std::vector<ClipPolygon> ps,
+                const std::string& ägare, const char* op)
+{
+    k.polygons = std::move(ps);
+    k.enabled  = true;
+    k.valid.clear();
+    clipChanged(k, ägare, op, 0, k.polygons.size());
+}
+
+void clipReset(detail::ClipState& k)
+{
+    k.polygons.clear();
+    k.valid.clear();
+    k.enabled = false;
+    ++k.version;
+}
+
+void clipSetSpace(detail::ClipState& k, ClipSpace s)
+{
+    if (k.space == s)
+        return;
+    k.space = s;
+    ++k.version;
+}
+
+} // namespace
+
+void Canvas::setClipSpace(ClipSpace space)
+{
+    clipSetSpace(scene_->clip, space);
+    invalidate();
+}
+
+ClipSpace Canvas::clipSpace() const
+{
+    return scene_->clip.space;
+}
+
+int Canvas::addClip(ClipPolygon polygon)
+{
+    const int i = clipAdd(scene_->clip, std::move(polygon), name, "addClip");
+    invalidate();
+    return i;
+}
+
+void Canvas::setClip(int index, ClipPolygon polygon)
+{
+    if (clipSet(scene_->clip, index, std::move(polygon), name, "setClip"))
+        invalidate();
+}
+
+void Canvas::setClips(std::vector<ClipPolygon> polygons)
+{
+    clipSetAll(scene_->clip, std::move(polygons), name, "setClips");
+    invalidate();
+}
+
+void Canvas::resetClip()
+{
+    clipReset(scene_->clip);
+    invalidate();
+}
+
+bool Canvas::clipEnabled() const
+{
+    return scene_->clip.enabled;
+}
+
+const std::vector<ClipPolygon>& Canvas::clips() const
+{
+    return scene_->clip.polygons;
+}
+
+void Canvas::setInvalidClip(InvalidClip mode)
+{
+    if (scene_->invalidClip == mode)
+        return;
+    scene_->invalidClip = mode;
+    // Maskerna, etiketterna och draperingarna nycklas på versionerna.
+    ++scene_->clip.version;
+    for (const std::shared_ptr<detail::LayerData>& L : scene_->layers)
+        ++L->clip.version;
+    invalidate();
+}
+
+InvalidClip Canvas::invalidClip() const
+{
+    return scene_->invalidClip;
+}
+
 // -------------------------------------------------------------------- lagren
 
 bool Canvas::layerOk(int layer, const char* op) const
@@ -1773,6 +1896,70 @@ bool Canvas::layerPainter(int layer) const
 {
     return layer >= 0 && static_cast<std::size_t>(layer) < scene_->layers.size() &&
            scene_->layers[static_cast<std::size_t>(layer)]->painter;
+}
+
+void Canvas::setLayerClipSpace(int layer, ClipSpace space)
+{
+    if (!layerOk(layer, "setLayerClipSpace"))
+        return;
+    clipSetSpace(scene_->layers[static_cast<std::size_t>(layer)]->clip, space);
+    invalidate();
+}
+
+ClipSpace Canvas::layerClipSpace(int layer) const
+{
+    return layer >= 0 && static_cast<std::size_t>(layer) < scene_->layers.size()
+               ? scene_->layers[static_cast<std::size_t>(layer)]->clip.space
+               : ClipSpace::World;
+}
+
+int Canvas::addLayerClip(int layer, ClipPolygon polygon)
+{
+    if (!layerOk(layer, "addLayerClip"))
+        return -1;
+    const int i = clipAdd(scene_->layers[static_cast<std::size_t>(layer)]->clip,
+                          std::move(polygon), name, "addLayerClip");
+    invalidate();
+    return i;
+}
+
+void Canvas::setLayerClip(int layer, int index, ClipPolygon polygon)
+{
+    if (!layerOk(layer, "setLayerClip"))
+        return;
+    if (clipSet(scene_->layers[static_cast<std::size_t>(layer)]->clip, index,
+                std::move(polygon), name, "setLayerClip"))
+        invalidate();
+}
+
+void Canvas::setLayerClips(int layer, std::vector<ClipPolygon> polygons)
+{
+    if (!layerOk(layer, "setLayerClips"))
+        return;
+    clipSetAll(scene_->layers[static_cast<std::size_t>(layer)]->clip,
+               std::move(polygons), name, "setLayerClips");
+    invalidate();
+}
+
+void Canvas::resetLayerClip(int layer)
+{
+    if (!layerOk(layer, "resetLayerClip"))
+        return;
+    clipReset(scene_->layers[static_cast<std::size_t>(layer)]->clip);
+    invalidate();
+}
+
+bool Canvas::layerClipEnabled(int layer) const
+{
+    return layer >= 0 && static_cast<std::size_t>(layer) < scene_->layers.size() &&
+           scene_->layers[static_cast<std::size_t>(layer)]->clip.enabled;
+}
+
+const std::vector<ClipPolygon>& Canvas::layerClips(int layer) const
+{
+    return layer >= 0 && static_cast<std::size_t>(layer) < scene_->layers.size()
+               ? scene_->layers[static_cast<std::size_t>(layer)]->clip.polygons
+               : noClips();
 }
 
 // ------------------------------------------------------------------ formerna
@@ -2260,7 +2447,8 @@ std::optional<Bitmap> Canvas::renderToBitmap(int w, int h, const Camera3D& camer
     detail::PaintContext pc;
     paintContext(c, pc, gfx::Rectf{0.0f, 0.0f, static_cast<float>(w),
                                    static_cast<float>(h)});
-    const detail::ImageAccount konto(c, scene_);
+    const detail::ImageAccount  konto(c, scene_);
+    const detail::PaintingScope ritar(*scene_);
     return detail::renderBitmap3D(pc, scene_, a, w, h, background(c));
 }
 
@@ -2979,6 +3167,55 @@ void Canvas::postCameraChange()
 
 // ------------------------------------------------------------------ träffprov
 
+namespace {
+
+// Marken (z = 0) under en pixel, eller tomt ovanför horisonten.
+std::optional<Point> groundAt(const detail::Projection& proj, double px, double py)
+{
+    double wx = 0.0, wy = 0.0;
+    if (proj.ground(px, py, wx, wy))
+        return Point{wx, wy};
+    return std::nullopt;
+}
+
+// Släpper klippet igenom punkten? Ett skärmklipp prövas på pekarens lokala px,
+// ett världsklipp på träffens punkt i världen — utan en sådan (pekaren ovanför
+// horisonten) räknas det som utanför.
+bool clipPasses(const detail::ClipState& k, InvalidClip mode, Point local,
+                const std::optional<Point>& world)
+{
+    if (!detail::clipApplies(k, mode))
+        return true;
+    if (k.space == ClipSpace::Screen)
+        return detail::clipContains(k, local);
+    return world && detail::clipContains(k, *world);
+}
+
+// Rör rutan `r` (lokala logiska px) klippets ytor? Ett världsklipp prövas på
+// rutans hörn på marken; hamnar något ovanför horisonten går rutan igenom.
+bool clipTouchesRect(const detail::ClipState& k, InvalidClip mode, const Rect& r,
+                     const detail::Projection& proj, const gfx::Rectf& box,
+                     float scale)
+{
+    if (!detail::clipApplies(k, mode))
+        return true;
+    const Point quad[4] = {{r.x, r.y}, {r.x + r.w, r.y}, {r.x + r.w, r.y + r.h},
+                           {r.x, r.y + r.h}};
+    if (k.space == ClipSpace::Screen)
+        return detail::clipTouches(k, quad);
+    Point world[4];
+    for (int i = 0; i < 4; ++i) {
+        const std::optional<Point> g = groundAt(
+            proj, box.x + quad[i].x * scale, box.y + quad[i].y * scale);
+        if (!g)
+            return true;
+        world[i] = *g;
+    }
+    return detail::clipTouches(k, world);
+}
+
+} // namespace
+
 std::vector<HitResult> Canvas::hitTest(Point local) const
 {
     const ProfileScope mät(detail::frameworkLabel(detail::FrameworkLabel::HitTest));
@@ -3005,12 +3242,17 @@ std::vector<HitResult> Canvas::hitTest(Point local) const
     q.zoom            = zoom;   // text och markörer utanför sitt intervall
     const CanvasResources::LabelState* labels =
         c.canvas ? c.canvas->findLabelState(scene_->id) : nullptr;
+    // KLIPPET (canvas.h): det som klippts bort träffas inte — pekaren utanför
+    // ritytans klipp ger ingen träff, och utanför ett lagers klipp ingen i det.
+    const std::optional<Point> mark = groundAt(proj, q.px, q.py);
+    if (!clipPasses(scene_->clip, scene_->invalidClip, local, mark))
+        return out;
     // Lagren uppifrån — bara de som ritas.
     for (int li = static_cast<int>(scene_->layers.size()) - 1; li >= 0; --li) {
         detail::LayerData& L = *scene_->layers[static_cast<std::size_t>(li)];
         if (!L.visible || !(L.opacity > 0.0f) ||
             (L.minZoom > 0.0 && zoom < L.minZoom) ||
-            (L.maxZoom > 0.0 && zoom > L.maxZoom))
+            (L.maxZoom > 0.0 && zoom > L.maxZoom) || !clipPasses(L.clip, scene_->invalidClip, local, mark))
             continue;
         for (const detail::LayerHit& h : detail::hitLayer(L, q, c.canvas, labels)) {
             HitResult r{li, h.index};
@@ -3109,6 +3351,7 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
     const int         vy    = viewUnder(box, c.scale, px, py);
     const gfx::View3D huvud = mainView3DFor(box, c.scale);
     gfx::View3D       v3    = huvud;
+    Point             klippLokal = local;   // skärmklippets lokala px (vyns egna)
     double            zoom = 0.0, pxPerWorld = 0.0;
     std::optional<detail::Projection> proj2d;
     if (vy == detail::kMainView) {
@@ -3124,6 +3367,7 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
         const View&      vw   = views_[static_cast<std::size_t>(vy - 1)];
         const Camera3D   cam  = detail::viewCamera(vw, is3D_ ? &cam3D_ : nullptr, &huvud);
         const gfx::Rectf rect = detail::viewRect(vw, box, c.scale);
+        klippLokal = Point{(px - rect.x) / c.scale, (py - rect.y) / c.scale};
         v3                    = detail::viewView3D(cam, rect, *scene_, vy);
         const gfx::MapView mv = detail::mapViewAt(cam, rect, yUp_);
         zoom                  = mv.pxPerUnit / c.scale;
@@ -3495,9 +3739,21 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
             return a.h.distance < b.h.distance;
         return a.ordning < b.ordning;
     });
+    // KLIPPET (canvas.h): en träff utanför ritytans eller lagrets klipp räknas
+    // inte — ett skärmklipp mot pekaren, ett världsklipp mot träffens punkt
+    // (pekarens markpunkt för det som saknar en).
+    const std::optional<Point> pekare = groundAt(proj3, px, py);
     out.reserve(kand.size());
-    for (const Kandidat& k : kand)
+    for (const Kandidat& k : kand) {
+        std::optional<Point> träff = pekare;
+        if (k.h.point)
+            träff = Point{k.h.point->x, k.h.point->y};
+        if (!clipPasses(scene_->clip, scene_->invalidClip, klippLokal, träff) ||
+            !clipPasses(scene_->layers[static_cast<std::size_t>(k.h.layer)]->clip, scene_->invalidClip,
+                        klippLokal, träff))
+            continue;
         out.push_back(k.h);
+    }
     return out;
 }
 
@@ -3539,11 +3795,15 @@ std::vector<HitResult> Canvas::hitTest(Rect local, HitMode mode) const
     const bool terräng = uses3DTarget() && detail::hasTerrain(pc, *scene_);
     const CanvasResources::LabelState* labels =
         c.canvas ? c.canvas->findLabelState(scene_->id) : nullptr;
+    // KLIPPET (canvas.h): rutan måste röra det som inte klippts bort.
+    if (!clipTouchesRect(scene_->clip, scene_->invalidClip, local, proj, box, c.scale))
+        return out;
     // Lagren uppifrån — bara de som ritas i huvudvyn.
     for (int li = static_cast<int>(scene_->layers.size()) - 1; li >= 0; --li) {
         detail::LayerData& L = *scene_->layers[static_cast<std::size_t>(li)];
         if (!drawnIn(L, detail::kMainView, q.zoom) ||
-            (terräng && detail::effectivePlacement(L) == LayerPlacement::Ground))
+            (terräng && detail::effectivePlacement(L) == LayerPlacement::Ground) ||
+            !clipTouchesRect(L.clip, scene_->invalidClip, local, proj, box, c.scale))
             continue;
         for (const detail::LayerHit& h :
              detail::hitLayerRect(L, q, r, mode == HitMode::Window, c.canvas,

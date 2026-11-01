@@ -48,8 +48,25 @@
 //    `glaze.viewProj`), `off` hörnets förskjutning i målets px (y nedåt), och
 //    svaret är hörnets z att lägga i klippet bredvid `c.xy + off * c.w` och
 //    `c.w`: djupet av planet genom ankaret parallellt med xy-planet där det
-//    ligger närmare än ankaret (gfx/scene.h `MeshProgram`). Prefixet `glaze_`
-//    är förspelets — appens egna namn får aldrig börja så.
+//    ligger närmare än ankaret (gfx/scene.h `MeshProgram`).
+//    Och KLIPPET — anropets två masker (gfx/scene.h `SceneClip`) som EN
+//    täckning 0–1, för ett program som vill klippas som ramverkets; ett
+//    program som inte anropar den klipps inte:
+//      HLSL      float glaze_clip(float2 px, float2 local)
+//      GLSL      float glaze_clip(vec2 px, vec2 local)
+//      MSL       float glaze_clip(float2 px, float2 local, GlazeClipArgs clip)
+//    `px` är fragmentets läge i målets fysiska px (i GLSL ur en varying,
+//    aldrig `gl_FragCoord`, se fallgropen nedan) och `local` vertexens
+//    chunk-lokala xy, interpolerat. Funktionen KASTAR fragmentet där
+//    täckningen är 0 och finns därför bara i fragmentsteget (i GLSL står den
+//    bara i fragmentkällans förspel). I MSL kan en ingångsfunktion inte ta
+//    en struct med resurser, så förspelet har två makron: `GLAZE_CLIP_PARAMS`
+//    skrivs SIST bland fragmentfunktionens parametrar (blocket, de två
+//    maskerna och samplern på sina platser, se 3. nedan) och `GLAZE_CLIP_ARGS`
+//    är `GlazeClipArgs`-värdet som lämnas vidare:
+//      fragment float4 fsMain(VOut i [[stage_in]], GLAZE_CLIP_PARAMS)
+//      { … glaze_clip(i.pos.xy, i.local, GLAZE_CLIP_ARGS) … }
+//    Prefixet `glaze_` är förspelets — appens egna namn får aldrig börja så.
 //
 // 2. PLATSERNA. Strömmarnas attribut adresseras med PLATS, aldrig med namn —
 //    `VertexAttrib::location`, och konventionen i `attrib::` nedan:
@@ -70,6 +87,10 @@
 //                  (enhet 0–3, på NAMN) · Metal texture(0–3)/sampler(0–3)
 //      strömmarna  vertexströmmen och instansströmmen: D3D11 slot 0 och 1,
 //                  Metal buffer(0) och buffer(1)
+//      klippet     förspelets egna, inte appens: blocket D3D11 b5 · GL
+//                  bindningspunkt 5 (`GlazeClip`, på NAMN) · Metal buffer(4),
+//                  maskerna D3D11 t4–t5/s4–s5 · GL `GlazeClipScreen` och
+//                  `GlazeClipWorld` (enhet 4–5) · Metal texture(4–5)/sampler(4)
 //    b0–b2 är UI:ts och scenens i D3D11. Texturerna samplas med bildens EGET
 //    filter, och SOM DE ÄR: ett render-måls bild är premultiplicerad i alla
 //    backends och på GL dessutom speglad (v = 1 är överkanten,

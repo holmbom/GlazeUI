@@ -513,6 +513,32 @@ void WidgetGallery::tredeFlik(glaze::TabPage* sida)
         forra         = v->name;
     }
 
+    // KLIPPET i 3D: ett PRISMA — en tandad yta med ett runt hål över kullen.
+    // Terrängen, ledningen, molnet och vägarna klipps lodrätt där ytan
+    // slutar, och etiketterna på sitt ankare; luta och vrid för att se det.
+    auto* klipp       = g->add<glaze::Button>("✂");
+    klipp->anchorLeft = {forra, 16};
+    klipp->anchorTop  = {"scen3dGa", 6};
+    klipp->name       = "scen3dKlipp";
+    klipp->setToolTip("Klipp scenen till en yta med hål (prisma)");
+    klipp->onClick    = [k] {
+        if (k->clipEnabled()) {
+            k->resetClip();
+            return;
+        }
+        const auto ring = [](double cx, double cy, double r, double tand, int n) {
+            std::vector<glaze::Point> p;
+            for (int i = 0; i < n; ++i) {
+                const double  a = i * 2.0 * kPi / n;
+                const double  q = r * (1.0 + tand * std::cos(7.0 * a));
+                const glaze::Point3 w = Q(cx + q * std::cos(a), cy + q * std::sin(a), 0.0);
+                p.push_back({w.x, w.y});
+            }
+            return p;
+        };
+        k->setClips({{ring(40, 30, 80, 0.12, 140), {ring(kKulleX, kKulleY, 14, 0.0, 48)}}});
+    };
+
     // KAMERAN: orbit kring ledningens mitt, snett från sydväst. Med en
     // Camera3D betyder gesterna orbiten — dra vrider och lutar, mittendrag
     // panorerar, hjulet går närmare.

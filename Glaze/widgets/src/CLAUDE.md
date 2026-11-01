@@ -100,7 +100,7 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   **`Widget::resolve()`** — placeringen: 0) FLEX-förälder (`placesChildren()`
   ⇒ förälderns `placeChild()` — Bar; barnets dock/anchors ignoreras), 1)
   DOCK-carving via SYSKONVANDRING (remsor ur förälderns childArea i
-  barnordning; Fill tar resten; dolda syskon skär inget; stateless O(n²)), 2)
+  barnordning; Fill tar resten; dolda syskon skär inget; O(n²) mätuppslag), 2)
   **KANTBINDNING per axel** (SYSKONANKARE). **GREN 2 BÖRJAR MED EN SKÄRNING**:
   ytan `a` är `carveSiblingDocks(*parent_, this, c)` när widgeten står i
   dockflödet, annars `c.area`, och alla `c.area`-läsningar nedanför läser `a`
@@ -112,8 +112,8 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   `inDockFlow_ = false` på SIN EGEN `topBar_`** — på INSTANSEN och inte på
   typen: en nästlad TopBar SKA skäras av sina dockade syskon.
   **REMSANS MÅTT är `dockedSize(w, area, c)`** (privat statisk):
-  `phys(contentSize)`, och för Top/Bottom höjden ur `heightForWidth(c, area.w
-  / c.scale)` när kroken svarar — med den yta som ÅTERSTÅR när remsan skärs, i
+  `phys(measure)`, och för Top/Bottom höjden ur `measureHeightForWidth(c,
+  area.w / c.scale)` när kroken svarar — med den yta som ÅTERSTÅR när remsan skärs, i
   dock-uppspelningen OCH i `carveSiblingDocks`, så en remsa är lika tjock för
   sig själv och för syskonen. `sz` räknas EFTER dock-grenen (layout_gate fall
   14). Fortsättningen på gren 2: en kant är BUNDEN av ett SYSKONANKARE eller
@@ -131,13 +131,13 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   under det YTTERSTA `resolve`-anropet (`ResolveScope`, ett djup
   + en karta som töms vid djup 0; nyckel widget OCH ctx — adress, yta, skala,
   stil — för en förälder kan resolva sina barn med ett eget Ctx), så varje
-  syskon löses högst en gång och resolve är tillståndslös utåt. UI-tråden.
+  syskon löses högst en gång; resolvets enda beständiga minne är mätcachen.
   Miss ⇒ **TYST** fallback (ingen `gfx::log` i `resolve()` — den körs 6+ ggr per
   frame; valideringen bor i `setProp`/`applyProp`/builderns
   `commitPropEdit`). **ENHETSBRYGGAN ligger i `resolve()`**: `contentSize()`
   svarar i LOGISKA px, `c.area` är FYSISK, och den lokala hjälparen
   `phys(logical, c)` räknar om på KONSUMTIONSsidan (`dockedSize` och
-  mätgrenen). Bas-`contentSize()` är den RÅA `{width, height}` (AXELREGELN
+  mätgrenen). **MÄTCACHEN** (`measure`/`measureHeightForWidth`, en privat `MeasureCache` per widget, fyra bredder, `nullopt` cachas): nyckeln är `subtreeGen_` (`invalidate()` stegar widgeten och ALLA förfäder utan deras damage; adopt/detach/transferChild stegar gamla och nya kedjan; `measureScope()` Parent/Root för syskon- och fönsterberoende mått som Label och AppIcon), miljön ur `Ctx` (UI, stil- och temaadress, skala, mm, fonter, ägarens `fullInvalidations_`), `detail::languageGeneration()`, `detail::handlerEpoch()` (App stegar den runt varje leverans till appens kod men inte ritytans tick) och de råa layoutfälten. Bas-`contentSize()` är den RÅA `{width, height}` (AXELREGELN
   bor i varje widgets egen, widgets/CLAUDE.md; dubbelankare sträcker över
   auto-måttet). **`childrenExtent(c[, bredd])`** — autostorlek UR BARNEN,
   opt-in för komposit-författare — är `extentOf(c, bredd, skip)`: en

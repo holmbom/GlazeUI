@@ -15,6 +15,7 @@
 #include <cstdint>
 
 #include "gfx/color.h"
+#include "gfx/geometry.h"  // Rectf — `SceneClip::screenRect`
 #include "gfx/program.h"   // egna program: ShaderProgram, VertexLayout,
                            // FrameUniforms
 
@@ -365,42 +366,43 @@ struct SceneDash {
     float perWorldUnit = 1.0f;   // mönsterenheter per världsenhet längs linjen
 };
 
-// KLIPPET (glaze `Painter::save(Rect)`) — en KONVEX yta i det BUNDNA
-// målets FYSISKA px (origo uppe till vänster, samma rymd som klippstacken),
-// skuren ur halvplan: fragmentet i pixelcentrum p ritas där VARJE plans
-// `nx·p.x + ny·p.y + d` ≥ 0. Med (nx, ny) av längd 1 är värdet avståndet i
-// px, och kanten kantutjämnas över en px som klippmaskerna (täckningen är
-// närmaste plans värde + ½); där täckningen är 0 kastas fragmentet — det
-// varken färgar eller skriver djup. Line, Fill, Glyph, Image och 3-varianterna
-// läser det, i fragmentsteget och med EN funktion i backendens förspel; de
-// egna programmen inte. `count` 0 = inget klipp, och planen efter `count`
-// läses inte.
-inline constexpr int kMaxClipPlanes = 8;
-struct ClipPlane {
-    float nx = 0.0f, ny = 0.0f;   // normalen INÅT
-    float d   = 0.0f;
-    float pad = 0.0f;             // float4 i alla tre språken
-};
-static_assert(sizeof(ClipPlane) == 16, "ClipPlane läses som en float4");
-
+// KLIPPET — TVÅ MASKER, båda bilder ur ett render-mål (premultiplicerade, så
+// ALFA är täckningen 0–1; färgen läses inte). Fragmentets täckning är
+// produkten av de två, och där den är 0 KASTAS fragmentet — det varken färgar
+// eller skriver djup. En mask som är nullptr klipper ingenting, och utan
+// någon mask samplas ingenting (en uniform gren). Maskerna byggs av den som
+// ritar (glaze fyller polygonerna med Fill-programmet i ett eget mål, med
+// kantremsan som kantutjämning) — gfx samplar dem bara.
+//
+// SKÄRMMASKEN samplas i fragmentets pixelcentrum p i det BUNDNA målets
+// fysiska px (samma p som klippstacken): uv = (p − screenRect.xy) /
+// screenRect.wh, och utanför `screenRect` är täckningen 0. Line, Fill,
+// Glyph, Image och 3-varianterna läser den.
+//
+// VÄRLDSMASKEN samplas i uv = xy · worldUv.xy + worldUv.zw, där xy är
+// vertexens CHUNK-LOKALA läge — anroparen räknar affinen per anrop i double
+// med chunkens origo inräknad, så stora koordinater håller. Bara program med
+// ett läge i världen läser den: Line3 och Glyph3 (stående text klipps på
+// ankaret, så hela etiketten syns eller inte) och de egna programmen genom
+// förspelets `glaze_clip` (gfx/program.h). Utanför [0, 1]² är täckningen 0.
+//
+// Maskernas bilder ska vara ur SAMMA renderer som anropet och får inte vara
+// det bundna målets egen bild.
 struct SceneClip {
-    int       count = 0;   // 0 = inget klipp; annars 1–kMaxClipPlanes plan
-    ClipPlane planes[kMaxClipPlanes];
+    const Image* screen = nullptr;
+    Rectf        screenRect{};
+    const Image* world = nullptr;
+    float        worldUv[4] = {1.0f, 1.0f, 0.0f, 0.0f};   // skala xy, förskjutning xy
 };
 
-// Samma klipp: samma antal och samma AKTIVA plan — backendarnas cache frågar
-// så, och ett plan efter `count` räknas inte.
+// Samma klipp: samma bilder och samma mått — backendarnas cache frågar så.
 inline bool operator==(const SceneClip& a, const SceneClip& b)
 {
-    if (a.count != b.count)
-        return false;
-    for (int i = 0; i < a.count && i < kMaxClipPlanes; ++i) {
-        const ClipPlane& p = a.planes[i];
-        const ClipPlane& q = b.planes[i];
-        if (p.nx != q.nx || p.ny != q.ny || p.d != q.d)
-            return false;
-    }
-    return true;
+    return a.screen == b.screen && a.world == b.world &&
+           a.screenRect.x == b.screenRect.x && a.screenRect.y == b.screenRect.y &&
+           a.screenRect.w == b.screenRect.w && a.screenRect.h == b.screenRect.h &&
+           a.worldUv[0] == b.worldUv[0] && a.worldUv[1] == b.worldUv[1] &&
+           a.worldUv[2] == b.worldUv[2] && a.worldUv[3] == b.worldUv[3];
 }
 
 // Per rit-anrop: kameran för just den här chunken och linjebreddens enhet.
@@ -447,9 +449,9 @@ struct SceneUniforms {
     float saturation = 1.0f;
     float contrast   = 1.0f;
     float brightness = 1.0f;
-    // KLIPPET (se `SceneClip`) — Line, Fill, Glyph, Image och
-    // 3-varianterna; förvalet klipper ingenting. `meshDrawOk` avvisar ett
-    // antal utanför 0–kMaxClipPlanes och ett aktivt plan som inte är ändligt.
+    // KLIPPET (se `SceneClip`) — förvalet klipper ingenting. `meshDrawOk`
+    // avvisar en mask som är det bundna målets egen bild, en `screenRect`
+    // utan yta eller som inte är ändlig, och en `worldUv` som inte är ändlig.
     SceneClip clip;
 };
 

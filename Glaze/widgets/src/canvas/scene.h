@@ -17,6 +17,7 @@
 #include <gfx/mat4.h>
 #include <gfx/scene.h>
 
+#include "clip.h"
 #include "glaze/canvas/shape.h"
 #include "glaze/canvas/style3d.h"
 #include "glaze/widget.h"
@@ -91,6 +92,8 @@ inline constexpr int kMainView = 0;
 // har sin egen kamera och placerar sina etiketter för sig, så skärmens
 // placering (träffprovet, toningen) står orörd (`PaintContext::labelSlot`).
 inline constexpr int kBitmapLabels = -1;
+// …och för en ritytas lager ritade på en annan yta (`Painter::drawCanvas`).
+inline constexpr int kPageLabels = -2;
 
 // Vad en del ritas med — och slagens ordning i ByKind: linjerna i rymden
 // efter de plana, och texten i rymden efter den plana — text överst.
@@ -302,6 +305,21 @@ struct ShapeSlot {
     RunData*                    objectRun = nullptr; // Mesh/Points/Pass-körningen
 };
 
+// ETT KLIPP SOM DATA — ritytans (`SceneData::clip`) och varje lagers
+// (`LayerData::clip`). `enabled` false = inget klipp (förvalet och
+// `resetClip`); true med tomma `polygons` = allt bortklippt (`setClips({})`).
+// `version` stegas av VARJE sättare som ändrar något av fälten — maskernas,
+// draperingens och 3D-målets nycklar läser den, aldrig ytorna själva.
+struct ClipState {
+    ClipSpace                 space   = ClipSpace::World;
+    bool                      enabled = false;
+    std::vector<ClipPolygon>  polygons;
+    // Går ytan att fylla? En per yta, räknad av sättaren (clip.h
+    // `clipPolygonValid`) — maskerna, etiketterna och träffprovet läser den.
+    std::vector<std::uint8_t> valid;
+    std::uint64_t             version = 1;
+};
+
 struct LayerData {
     LayerData();
 
@@ -334,6 +352,8 @@ struct LayerData {
     // MÅLARENS PLATS (`Canvas::setLayerPainter`): ritytans
     // `onPaintLayer` ritas i lagret, efter dess former (`LayerPaint` nedan).
     bool                painter = false;
+    // KLIPPET (`Canvas::setLayerClips`) — se `ClipState` nedan.
+    ClipState           clip;
 
     std::vector<ShapeSlot>                slots;
     std::vector<std::shared_ptr<RunData>> runs;   // i ritordning
@@ -387,6 +407,17 @@ struct SceneData {
     // MINNESBUDGETEN (`Canvas::setMemoryBudget`): bilderna och
     // draperingarna ritytan ritar, i byte; 0 = `App::canvasMemoryBudget()`.
     std::size_t                             memoryBudget = 0;
+    // RITYTANS KLIPP (`Canvas::setClips`) — bakgrunden, rutnätet, lagren och
+    // `onPaint`/`onPaintLayer`; etiketterna på ankaret (labels.cpp). Overlayn,
+    // kanten, fokusringen och barnen klipps inte av det.
+    ClipState                               clip;
+    // EN OGILTIG KLIPPYTA (`Canvas::setInvalidClip`) — ritytans, lagrens och
+    // målarens klipp.
+    InvalidClip                             invalidClip = InvalidClip::Show;
+    // Ritytan RITAR just nu (en ritning av dess lager, overlayn eller en
+    // bild) — `Painter::drawCanvas` ritar inte en rityta i sin egen ritning.
+    // UI-trådens, och en loggcache-lik markering, därför `mutable`.
+    mutable bool                            painting = false;
     // LAGRENS MÄNGD — stegas av varje sättare i canvas.cpp
     // som ändrar lagrens mängd, ordning, synlighet, placering eller vyer
     // (`addLayer`, `setLayers`, `removeLayer`, `moveLayer`,
@@ -407,6 +438,22 @@ struct SceneData {
     // TERRÄNGENS RUTNÄT (drape.cpp) — byggt lat av höjdfrågan och
     // regionnyckeln, ombyggt när det blivit inaktuellt.
     mutable std::shared_ptr<TerrainIndex>   terrainIndex;
+};
+
+// Markerar ritytan som ritande så länge objektet lever (`SceneData::painting`).
+class PaintingScope {
+public:
+    explicit PaintingScope(const SceneData& s) : s_(s), prev_(s.painting)
+    {
+        s_.painting = true;
+    }
+    ~PaintingScope() { s_.painting = prev_; }
+    PaintingScope(const PaintingScope&)            = delete;
+    PaintingScope& operator=(const PaintingScope&) = delete;
+
+private:
+    const SceneData& s_;
+    bool             prev_;
 };
 
 // RITYTANS KONTO i fönstrets bildcache: medan objektet lever räknas
@@ -519,6 +566,13 @@ struct PaintContext {
     // LJUSET för meshar (`Canvas::setLighting`) — ritytans;
     // nullptr ritar med `Lighting`s förval.
     const Lighting*  lighting  = nullptr;
+    // Scenen ritningen gäller — för klippets markyta (clip.cpp), som behöver
+    // höjden scenen når. nullptr: marken z = 0.
+    const SceneData* scene     = nullptr;
+    // KLIPPET som gäller ritningen (clip.h): ritytans — och i ett lagers
+    // ritning snittet med lagrets. Satt av den som förberett ritningen
+    // (`prepareLayers`); målaren börjar i det.
+    ClipScope        clip;
 };
 
 // LAGRETS MÅLARE: ritytans `onPaintLayer` för ett lager med
@@ -644,7 +698,8 @@ bool zoomInRange(double minZoom, double maxZoom, double zoom);
 // ritade lagrens pass i lagrens ordning, utan djup, med lagrets blandning och
 // opacitet (scene3d.h `drawScreenPass`). Programmen och texturerna har
 // förberedelsen redan hämtat. Bara i 3D-målet.
-void drawPasses(const PaintContext& f, const SceneData& scene);
+void drawPasses(const PaintContext& f, const SceneData& scene,
+                const LayerFrame& lf);
 
 } // namespace detail
 } // namespace glaze

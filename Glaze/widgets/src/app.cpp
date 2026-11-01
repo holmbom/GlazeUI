@@ -28,6 +28,28 @@
 namespace glaze {
 namespace {
 
+// Handler-epoken stegas före och efter varje leverans till appens kod, så en
+// mätning som gjordes inne i leveransen (efter att en handler rört de råa
+// layoutfälten) aldrig överlever den. `levereras` false: det fanns inget att
+// leverera, och epoken — och därmed mätcachen — står kvar.
+struct HandlerEpochScope {
+    explicit HandlerEpochScope(bool levereras = true) : på_(levereras)
+    {
+        if (på_)
+            detail::bumpHandlerEpoch();
+    }
+    ~HandlerEpochScope()
+    {
+        if (på_)
+            detail::bumpHandlerEpoch();
+    }
+    HandlerEpochScope(const HandlerEpochScope&)            = delete;
+    HandlerEpochScope& operator=(const HandlerEpochScope&) = delete;
+
+private:
+    bool på_;
+};
+
 // Modal-filtrets omfång: ENDAST input filtreras —
 // fönsterhändelser och timers släpps igenom, annars fryser omritningen i
 // bakgrundsfönster. MouseLeave släpps också igenom: den SLÄCKER bara
@@ -104,9 +126,12 @@ App::ThemeState& App::themeState()
 }
 
 // Utseendebyte = rita om ALLA öppna fönster (nästa repaint resolvar om —
-// händelsestyrt, ingen polling).
+// händelsestyrt, ingen polling). Stilen och temat ändras PÅ PLATS i
+// `themeState()` (adressen i en `Ctx` är densamma före och efter), så epoken
+// stegas här: mätcachens miljönyckel kan inte se skillnaden själv.
 void App::invalidateAll()
 {
+    detail::bumpHandlerEpoch();
     if (!instance_)
         return;
     for (AppWindow* w : instance_->windows_)
@@ -499,11 +524,20 @@ void App::pumpUntilClosed(AppWindow& w)
         // gälla samma varv.
         drainPosted();
         detail::profilePumpLap(detail::PumpPart::Posted);
-        detail::timerDrain();
+        {
+            const HandlerEpochScope epok(detail::timerHasDue());
+            detail::timerDrain();
+        }
         detail::profilePumpLap(detail::PumpPart::Timers);
-        drainCommitQueues();
+        {
+            const HandlerEpochScope epok(hasCommits());
+            drainCommitQueues();
+        }
         detail::profilePumpLap(detail::PumpPart::Commits);
-        flushPendingCloses();
+        {
+            const HandlerEpochScope epok(!pendingClose_.empty());
+            flushPendingCloses();
+        }
         detail::profilePumpLap(detail::PumpPart::Closes);
         if (!w.open_) {
             detail::profilePumpEnd(pumpDepth_);
@@ -567,13 +601,15 @@ void App::dispatch(const gfx::Event& e)
             // Inmatningens tid till fönstrets nästa bild.
             if (isInputEvent(e.type))
                 detail::profileInput(*win);
+            const HandlerEpochScope epok;
             win->handleEvent(e);
         }
         return;
     }
 
     switch (e.type) {
-    case gfx::EventType::Quit:
+    case gfx::EventType::Quit: {
+        const HandlerEpochScope epok;
         // Bara ägarkedjornas RÖTTER köas:
         // ett ägt fönster stängs i sin rots kaskad, och ett veto
         // där stoppar den också för de ägda. Köades varje fönster för sig
@@ -587,7 +623,9 @@ void App::dispatch(const gfx::Event& e)
             if (!win->owner_)
                 win->requestClose(CloseReason::AppQuit);
         break;
+    }
     case gfx::EventType::SystemThemeChanged: {
+        const HandlerEpochScope epok;
         // En KOPIA av registret: appens `event()`-krok får riva fönster
         // (kontraktet vid `AppWindow::close()`), och registret frågas innan
         // varje fönster rörs.
@@ -614,8 +652,11 @@ void App::dispatch(const gfx::Event& e)
         // windowId är 0 och registret routar på trayId. Modalfiltret ovan
         // gäller fönster; systemfältets motsvarighet (klicken lyfter modalen
         // i stället för att fyras) bor i dispatchen, som får toppen.
-        detail::trayDispatch(e, modalStack_.empty() ? nullptr
-                                                    : modalStack_.back());
+        {
+            const HandlerEpochScope epok;
+            detail::trayDispatch(e, modalStack_.empty() ? nullptr
+                                                        : modalStack_.back());
+        }
         break;
     case gfx::EventType::Timer:
         // APPENS TIMER: windowId 0 är appens — ingen
@@ -718,6 +759,20 @@ void App::setPostBudget(int ms)
 
 namespace detail {
 
+namespace {
+std::uint64_t g_handlerEpoch = 1;
+}
+
+std::uint64_t handlerEpoch()
+{
+    return g_handlerEpoch;
+}
+
+void bumpHandlerEpoch()
+{
+    ++g_handlerEpoch;
+}
+
 // RAMVERKETS EGNA POSTER — kontraktet står vid deklarationen
 // i app.h. Samma väg in som `App::post`, i den andra kön.
 void postFrameWork(std::function<void()> fn)
@@ -766,6 +821,13 @@ bool App::hasPosted() const
 void App::drainPosted()
 {
     runQueue(frame_, 0);
+    // Appens funktioner är användarkod, ramverkets poster ovan är det inte.
+    bool någon = false;
+    {
+        std::lock_guard<std::mutex> lås(postMutex_);
+        någon = !posted_.empty();
+    }
+    const HandlerEpochScope epok(någon);
     runQueue(posted_, postBudgetMs_);
 }
 
@@ -815,6 +877,14 @@ void App::runQueue(PostQueue& kö, int budgetMs)
 
 // En leverans får riva fönster — också andra än sitt eget — så vi går en
 // KOPIA av registret och frågar det innan varje fönster rörs.
+bool App::hasCommits() const
+{
+    for (const AppWindow* w : windows_)
+        if (!w->commitQueue_.empty())
+            return true;
+    return false;
+}
+
 void App::drainCommitQueues()
 {
     const std::vector<AppWindow*> kopia = windows_;

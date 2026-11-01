@@ -1358,14 +1358,16 @@ bool parsePunkter(const std::string& v, std::vector<glaze::Point>& ut)
     return true;
 }
 
-// Ringar `{{punkt, …}, …}` — ytterringen först, sedan hålen.
-bool parseRingar(const std::string& v, std::vector<std::vector<glaze::Point>>& ut)
+// Ringar `{{punkt, …}, …}` — ytterringen först, sedan hålen. En tom lista är
+// bara giltig när `tillåtTom` (hålen i en klippyta).
+bool parseRingar(const std::string& v, std::vector<std::vector<glaze::Point>>& ut,
+                 bool tillåtTom = false)
 {
     std::string inre;
     if (!skalaKlammer(v, inre))
         return false;
     std::vector<std::string> el;
-    if (!listElement(inre, el) || el.empty())
+    if (!listElement(inre, el) || (el.empty() && !tillåtTom))
         return false;
     std::vector<std::vector<glaze::Point>> r(el.size());
     for (std::size_t i = 0; i < el.size(); ++i)
@@ -2844,6 +2846,64 @@ bool parseVyer(const std::string& v, std::vector<glaze::View>& ut)
     return true;
 }
 
+// EN KLIPPYTA — glaze::ClipPolygon{…} eller {…}: ytterringen, sedan hålen
+// (positionellt eller designerat), och `{}` är en tom yta. Ringarna är samma
+// literalform som polygonformens.
+bool parseKlippyta(const std::string& v, glaze::ClipPolygon& ut)
+{
+    std::string inre;
+    if (!skalaTyp(v, {"glaze::ClipPolygon"}, true, inre))
+        return false;
+    glaze::ClipPolygon yta;
+    if (!trimma(inre).empty()) {
+        static const char* const kFält[] = {"outer", "holes"};
+        std::vector<std::pair<std::size_t, std::string>> f;
+        if (!aggregatFält(inre, kFält, f))
+            return false;
+        for (const auto& [k, val] : f)
+            if (!(k == 0 ? parsePunkter(val, yta.outer)
+                         : parseRingar(val, yta.holes, true)))
+                return false;
+    }
+    ut = std::move(yta);
+    return true;
+}
+
+// `{yta, …}` — `setClips`/`setLayerClips`; en tom lista klipper bort allt.
+bool parseKlippytor(const std::string& v, std::vector<glaze::ClipPolygon>& ut)
+{
+    std::string inre;
+    if (!skalaKlammer(v, inre))
+        return false;
+    std::vector<std::string> el;
+    if (!listElement(inre, el))
+        return false;
+    std::vector<glaze::ClipPolygon> ytor(el.size());
+    for (std::size_t i = 0; i < el.size(); ++i)
+        if (!parseKlippyta(el[i], ytor[i]))
+            return false;
+    ut = std::move(ytor);
+    return true;
+}
+
+// `glaze::ClipSpace::World` / `Screen`.
+bool parseKlipprymd(const std::string& v, glaze::ClipSpace& ut)
+{
+    return enumVärde(v, {"glaze::ClipSpace::"},
+                     {std::pair{"World", glaze::ClipSpace::World},
+                      std::pair{"Screen", glaze::ClipSpace::Screen}},
+                     ut);
+}
+
+// `glaze::InvalidClip::Show` / `Hide`.
+bool parseOgiltigtKlipp(const std::string& v, glaze::InvalidClip& ut)
+{
+    return enumVärde(v, {"glaze::InvalidClip::"},
+                     {std::pair{"Show", glaze::InvalidClip::Show},
+                      std::pair{"Hide", glaze::InvalidClip::Hide}},
+                     ut);
+}
+
 // `{heltal, …}` — lagrets vyer i `setLayerViews`.
 bool parseHeltalLista(const std::string& v, std::vector<int>& ut)
 {
@@ -4223,7 +4283,11 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
     // (`setLayerPainter(lager, på)`) är lagrets tillstånd och utförs — det
     // `onPaintLayer` ritar där kör previewn aldrig, som `onPaint`. Lagrets
     // snap (`setLayerSnap(lager, på)`) är också tillstånd och
-    // utförs — bara träffprovet läser den.
+    // utförs — bara träffprovet läser den. KLIPPET (`addClip`/`setClip`/
+    // `setClips`/`resetClip`, lagrens `addLayerClip` … och rymden
+    // `setClipSpace(glaze::ClipSpace::Screen)`) är ritytans tillstånd och
+    // utförs: ytan är `glaze::ClipPolygon{ytterring, {hål…}}` eller bara
+    // `{ytterring, {hål…}}`, samma ringliteraler som polygonformens.
     if (auto* cv = dynamic_cast<glaze::Canvas*>(&w)) {
         const std::string& mm = call.method;
         static const char* const kMetoder[] = {
@@ -4239,6 +4303,12 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
             "setElevationRange", "setDistanceRange", "setTicking",
             "zoomToBox",       "moveLayer",         "setChildAnchor",
             "clearChildAnchor", "setLayerPainter",  "setLayerSnap",
+            // KLIPPET — ytorna i kollektionsvokabulären, rymden och
+            // återställningen, för ritytan och för ett lager.
+            "setClipSpace",    "addClip",           "setClip",
+            "setClips",        "resetClip",         "setLayerClipSpace",
+            "addLayerClip",    "setLayerClip",      "setLayerClips",
+            "resetLayerClip",  "setInvalidClip",
             // BINDNINGARNA — en rad per bindning, PLATTA.
             "setBinding",      "removeBinding",     "clearBindings",
             "setSourceInvert", "clearSourceInvert", "setActionInvert",
@@ -4270,6 +4340,10 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
             std::vector<int>               vyNummer;
             glaze::View                    vy{};
             std::vector<glaze::View>       vyer;
+            glaze::ClipPolygon             klippyta;
+            std::vector<glaze::ClipPolygon> klippytor;
+            glaze::ClipSpace               klipprymd = glaze::ClipSpace::World;
+            glaze::InvalidClip             ogiltigt  = glaze::InvalidClip::Show;
             glaze::Box3                    låda{};
             glaze::Widget*                 barn = nullptr;
             glaze::Point                   punkt{};
@@ -4386,6 +4460,32 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
                                {std::pair{"Strict", glaze::DrawOrder::Strict},
                                 std::pair{"ByKind", glaze::DrawOrder::ByKind}},
                                ordning);
+            else if (mm == "setClipSpace")
+                ok = n == 1 && parseKlipprymd(a[0], klipprymd);
+            else if (mm == "setInvalidClip")
+                ok = n == 1 && parseOgiltigtKlipp(a[0], ogiltigt);
+            else if (mm == "addClip")
+                ok = n == 1 && parseKlippyta(a[0], klippyta);
+            else if (mm == "setClip")
+                ok = n == 2 && argInt(a, 0, index) && parseKlippyta(a[1], klippyta);
+            else if (mm == "setClips")
+                ok = n == 1 && parseKlippytor(a[0], klippytor);
+            else if (mm == "resetClip")
+                ok = n == 0;
+            else if (mm == "setLayerClipSpace")
+                ok = n == 2 && argInt(a, 0, lager) &&
+                     parseKlipprymd(a[1], klipprymd);
+            else if (mm == "addLayerClip")
+                ok = n == 2 && argInt(a, 0, lager) &&
+                     parseKlippyta(a[1], klippyta);
+            else if (mm == "setLayerClip")
+                ok = n == 3 && argInt(a, 0, lager) && argInt(a, 1, index) &&
+                     parseKlippyta(a[2], klippyta);
+            else if (mm == "setLayerClips")
+                ok = n == 2 && argInt(a, 0, lager) &&
+                     parseKlippytor(a[1], klippytor);
+            else if (mm == "resetLayerClip")
+                ok = n == 1 && argInt(a, 0, lager);
             else if (mm == "addShape")
                 ok = (n == 1 && parseForm(a[0], form)) ||
                      (n == 2 && argInt(a, 0, lager) && parseForm(a[1], form));
@@ -4488,6 +4588,28 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
                 cv->setLayerZoomRange(lager, x, y);
             else if (mm == "setLayerDrawOrder")
                 cv->setLayerDrawOrder(lager, ordning);
+            else if (mm == "setClipSpace")
+                cv->setClipSpace(klipprymd);
+            else if (mm == "setInvalidClip")
+                cv->setInvalidClip(ogiltigt);
+            else if (mm == "addClip")
+                cv->addClip(std::move(klippyta));
+            else if (mm == "setClip")
+                cv->setClip(index, std::move(klippyta));
+            else if (mm == "setClips")
+                cv->setClips(std::move(klippytor));
+            else if (mm == "resetClip")
+                cv->resetClip();
+            else if (mm == "setLayerClipSpace")
+                cv->setLayerClipSpace(lager, klipprymd);
+            else if (mm == "addLayerClip")
+                cv->addLayerClip(lager, std::move(klippyta));
+            else if (mm == "setLayerClip")
+                cv->setLayerClip(lager, index, std::move(klippyta));
+            else if (mm == "setLayerClips")
+                cv->setLayerClips(lager, std::move(klippytor));
+            else if (mm == "resetLayerClip")
+                cv->resetLayerClip(lager);
             else if (mm == "addShape") {
                 if (n == 1)
                     cv->addShape(std::move(form));

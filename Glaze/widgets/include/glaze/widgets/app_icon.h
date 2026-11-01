@@ -153,6 +153,10 @@ protected:
     gfx::Sizef contentSize(const Ctx& c) const override;
     void       draw(const Ctx& c) override;
 
+    // Platsen beror på namnlistens och menyradens tillstånd — mätcachen
+    // nycklar på rotens generation.
+    MeasureScope measureScope() const override { return MeasureScope::Root; }
+
     void mouseDown(const Ctx& c, float mx, float my) override;
 
 private:

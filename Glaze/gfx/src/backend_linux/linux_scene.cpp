@@ -5,7 +5,7 @@
 //   * UNIFORMER ÄR PER PROGRAM. Klippmaskerna lagras i renderern och
 //     laddas upp LAT till det program som ritar, styrt av en generation
 //     (`syncClipMasks`) — UI-programmet och Line-programmet har var sin.
-//     Målarens klipp följer rit-anropet (`setSceneClip`, nedan).
+//     Målarens klipp följer rit-anropet (`bindSceneClip`, nedan).
 //   * Buffertarna laddas upp via bindningspunkten GL_COPY_WRITE_BUFFER: den
 //     ingår varken i någon VAO eller i UI-batcherns GL_ARRAY_BUFFER, så en
 //     uppladdning mitt i en frame kan aldrig få UI:ts glBufferData att
@@ -580,9 +580,15 @@ void main()
     if (alpha <= 0.0)
         discard;
 #endif
-    // Målarens klipp sist (kGlslClipSrc) — utanför kastas fragmentet.
+    // Målarens klipp sist (kGlslSceneClipSrc) — utanför kastas fragmentet.
+    // Line3 klipps på linjens punkt (`vPpos`, chunk-lokal).
+#ifdef GLAZE_POS3
+    float klipp = glaze_clip(vPix, vPpos);
+#else
+    float klipp = glaze_clipScreen(vPix);
+#endif
     frag = vec4(col.rgb, col.a * alpha * uPaint1.y * clipCoverage(vPix) *
-                             sceneClip(vPix));
+                             klipp);
 }
 )glsl";
 
@@ -623,37 +629,41 @@ void GlRenderer::destroyBuffer(GlBuffer b)
 
 // ---------------------------------------------------------------- program
 
-// GLSL-arrayens längd är skriven som en literal i källan.
-static_assert(kMaxClipPlanes == 8,
-              "uSceneClip i kGlslClipSrc är deklarerad [8]");
-
-// Målarens klipp — scenprogrammens gemensamma uppslag och
-// uppladdning (linux_backend.h `SceneClipLocs`).
-bool GlRenderer::findSceneClip(unsigned program, SceneClipLocs& l)
-{
-    l        = SceneClipLocs{};
-    l.planes = pglGetUniformLocation(program, "uSceneClip");
-    l.count  = pglGetUniformLocation(program, "uSceneClipN");
-    return l.planes >= 0 && l.count >= 0;
-}
-
-void GlRenderer::setSceneClip(const MeshDraw& d, SceneClipLocs& l)
+// Målarens klipp (linux_backend.h `bindSceneClip`) — scenprogrammens
+// gemensamma bindning: maskerna på enhet 4–5 vid varje anrop med mask (och
+// den vita texturen när en mask står kvar från förra anropet) och blocket när
+// klippet skiljer från det blocket bär. Maskerna och måtten har `meshDrawOk`
+// prövat.
+void GlRenderer::bindSceneClip(const MeshDraw& d)
 {
     const SceneClip& k = d.uniforms.clip;
-    if (k.count == 0 && l.sent == 0)
+    if (!clipUbo_)
         return;
-    pglUniform1i(l.count, k.count);
-    if (k.count > 0) {
-        // Antalet har `meshDrawOk` prövat.
-        float v[kMaxClipPlanes][4] = {};
-        for (int i = 0; i < k.count; ++i) {
-            v[i][0] = k.planes[i].nx;
-            v[i][1] = k.planes[i].ny;
-            v[i][2] = k.planes[i].d;
-        }
-        pglUniform4fv(l.planes, k.count, &v[0][0]);
+    if (k.screen || k.world || sceneClip_.screen || sceneClip_.world) {
+        const auto unit = [this](int enhet, const Image* mask) {
+            pglActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(enhet));
+            glBindTexture(GL_TEXTURE_2D,
+                          mask ? static_cast<const GlImage*>(mask)->tex()
+                               : whiteTex_);
+            pglBindSampler(static_cast<GLuint>(enhet), samplerLinear_);
+        };
+        unit(kClipScreenUnit, k.screen);
+        unit(kClipWorldUnit, k.world);
+        pglActiveTexture(GL_TEXTURE0);   // resten av renderern förutsätter enhet 0
     }
-    l.sent = k.count;
+    if (k == sceneClip_)
+        return;
+    const float block[12] = {
+        k.screenRect.x, k.screenRect.y, k.screenRect.w, k.screenRect.h,
+        k.worldUv[0],   k.worldUv[1],   k.worldUv[2],   k.worldUv[3],
+        k.screen ? 1.0f : 0.0f,
+        k.world ? 1.0f : 0.0f,
+        k.screen && k.screen->flippedV() ? 1.0f : 0.0f,
+        k.world && k.world->flippedV() ? 1.0f : 0.0f};
+    pglBindBuffer(GL_UNIFORM_BUFFER, clipUbo_);
+    pglBufferData(GL_UNIFORM_BUFFER, static_cast<GLsizeiptr>(sizeof block),
+                  block, GL_STREAM_DRAW);
+    sceneClip_ = k;
 }
 
 // Line-programmet — eller med `pos3` dess Line3-variant (definitionen
@@ -665,9 +675,10 @@ bool GlRenderer::buildLineProgram(bool pos3, LineProgram& p)
     const char* vsParts[] = {kGlslVersion, pos3 ? kGlslPos3Define : "",
                              kGlslStandSrc, kLineVsSrc};
     const char* fsParts[] = {kGlslVersion, pos3 ? kGlslPos3Define : "",
-                             kGlslClipSrc, kGlslPaintSrc, kLineFsSrc};
+                             kGlslClipSrc, kGlslSceneClipSrc, kGlslPaintSrc,
+                             kLineFsSrc};
     const unsigned vs = compileGlShader(GL_VERTEX_SHADER, vsParts, 4);
-    const unsigned fs = compileGlShader(GL_FRAGMENT_SHADER, fsParts, 5);
+    const unsigned fs = compileGlShader(GL_FRAGMENT_SHADER, fsParts, 6);
     if (!vs || !fs) {
         if (vs)
             pglDeleteShader(vs);
@@ -697,20 +708,17 @@ bool GlRenderer::buildLineProgram(bool pos3, LineProgram& p)
     p.stroke   = pglGetUniformLocation(p.program, "uStroke");
     p.dash     = pglGetUniformLocation(p.program, "uDash");
     const int  rampLoc = pglGetUniformLocation(p.program, "uRamp");
-    const bool klipp   = findSceneClip(p.program, p.sceneClip);
     // Samma regel som UI-programmets klippuniformer (buildPipeline): en
     // location som saknas betyder att källan och C++-sidan glidit isär, och
     // glUniform hade tyst svalt -1.
     if (p.viewProj < 0 || p.params < 0 || p.clipP0 < 0 || p.clipP1 < 0 ||
         p.clipN < 0 || p.paint0 < 0 || p.paint1 < 0 || p.stroke < 0 ||
-        p.dash < 0 || rampLoc < 0 || !klipp) {
+        p.dash < 0 || rampLoc < 0) {
         log("GL: %s-programmets uniformer saknas (uViewProj=%d uParams=%d "
             "uClipP0=%d uClipP1=%d uClipN=%d uPaint0=%d uPaint1=%d "
-            "uStroke=%d uDash=%d uRamp=%d uSceneClip=%d uSceneClipN=%d) — "
-            "drawMesh ritar inget",
+            "uStroke=%d uDash=%d uRamp=%d) — drawMesh ritar inget",
             name, p.viewProj, p.params, p.clipP0, p.clipP1, p.clipN, p.paint0,
-            p.paint1, p.stroke, p.dash, rampLoc, p.sceneClip.planes,
-            p.sceneClip.count);
+            p.paint1, p.stroke, p.dash, rampLoc);
         pglDeleteProgram(p.program);
         p = LineProgram{};
         return false;
@@ -718,6 +726,7 @@ bool GlRenderer::buildLineProgram(bool pos3, LineProgram& p)
     pglUseProgram(p.program);
     pglUniform1i(rampLoc, 0);   // rampen på enhet 0, som UI:ts tex0
     pglUseProgram(program_);    // UI-pipelinen är den bundna
+    setupSceneClipProgram(p.program);   // klippets block och maskernas enheter
 
     // Programmets VAO: attributen påslagna en gång; pekarna sätts per
     // rit-anrop (vertexdelens offset).
@@ -740,6 +749,15 @@ void GlRenderer::releaseLineProgram(LineProgram& p)
 
 bool GlRenderer::initScene()
 {
+    // Klippets block på bindningspunkt 5: först inget klipp (nollor), som
+    // `sceneClip_` säger.
+    const float inget[12] = {};
+    pglGenBuffers(1, &clipUbo_);
+    pglBindBuffer(GL_UNIFORM_BUFFER, clipUbo_);
+    pglBufferData(GL_UNIFORM_BUFFER, static_cast<GLsizeiptr>(sizeof inget),
+                  inget, GL_STREAM_DRAW);
+    pglBindBufferBase(GL_UNIFORM_BUFFER, kClipBinding, clipUbo_);
+    sceneClip_ = SceneClip{};
     if (!buildLineProgram(false, line_))
         return false;
     // Line3 får misslyckas för sig (loggat) — Line står kvar.
@@ -755,6 +773,10 @@ void GlRenderer::shutdownScene()
         r = GlTransientRing{};
     releaseLineProgram(line3_);
     releaseLineProgram(line_);
+    if (clipUbo_)
+        pglDeleteBuffers(1, &clipUbo_);
+    clipUbo_   = 0;
+    sceneClip_ = SceneClip{};
 }
 
 void GlRenderer::beginSceneFrame()
@@ -900,7 +922,7 @@ void GlRenderer::drawMesh(const MeshDraw& d)
         ++stats_.programSwitches;
     }
     syncClipMasks(lp.clipP0, lp.clipP1, lp.clipN, lp.clipGen);
-    setSceneClip(d, lp.sceneClip);
+    bindSceneClip(d);
 
     // Kameran för just den här chunken — per anrop, räknas inte som
     // uppladdning (RenderStats).

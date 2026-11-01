@@ -12,6 +12,7 @@
 #include <gfx/platform.h>
 
 #include "build.h"
+#include "clip.h"
 #include "placement.h"
 
 namespace glaze::detail {
@@ -192,6 +193,42 @@ bool groundGeometry(const CanvasResources::LabelInfo& li, double sizePx,
     return true;
 }
 
+// Etikettens förhållande till klippet: inget klipp gäller, ankaret ligger
+// inne, eller det ligger utanför ritytans eller lagrets klipp. World prövar
+// ankarets xy (prismat), Screen dess plats i ritytans lokala logiska px.
+enum class LayerClipTest : std::uint8_t { None, Inside, Outside };
+
+LayerClipTest anchorClipped(const SceneData& sc, int layer,
+                            const CanvasResources::LabelInfo& li,
+                            const Projection& p, const gfx::Rectf& box,
+                            float scale)
+{
+    const ClipState* klipp[2] = {
+        &sc.clip, layer >= 0 && static_cast<std::size_t>(layer) < sc.layers.size()
+                      ? &sc.layers[static_cast<std::size_t>(layer)]->clip
+                      : nullptr};
+    bool   någon = false, skärm = false, synlig = false;
+    double sx = 0.0, sy = 0.0;
+    for (const ClipState* k : klipp) {
+        if (!k || !clipApplies(*k, sc.invalidClip))
+            continue;
+        någon = true;
+        Point q{li.anchor.x, li.anchor.y};
+        if (k->space == ClipSpace::Screen) {
+            if (!skärm) {
+                skärm  = true;
+                synlig = p.toScreen(li.anchor.x, li.anchor.y, li.z, sx, sy);
+            }
+            if (!synlig)
+                return LayerClipTest::Outside;
+            q = Point{(sx - box.x) / scale, (sy - box.y) / scale};
+        }
+        if (!clipContains(*k, q))
+            return LayerClipTest::Outside;
+    }
+    return någon ? LayerClipTest::Inside : LayerClipTest::None;
+}
+
 } // namespace
 
 std::int64_t LabelFrame::baseOf(std::uint64_t runId) const
@@ -259,8 +296,10 @@ LabelFrame updateLabels(const PaintContext& f,
         n += count;
     }
 
-    const bool sameRuns = st.placed && runs == st.runs;
-    const bool sameAll  = sameRuns && sameView(st.view, f.world) &&
+    const std::uint64_t clipKey  = clipVersions(*scene);
+    const bool          sameRuns = st.placed && runs == st.runs;
+    const bool sameAll  = sameRuns && st.clipKey == clipKey &&
+                          sameView(st.view, f.world) &&
                           sameView3D(st.view3D, f.view3D) &&
                           st.pxPerPx == f.c->scale && st.pxPerMm == f.c->pxPerMm;
     Span changed;
@@ -305,8 +344,18 @@ LabelFrame updateLabels(const PaintContext& f,
                     anyHideable = true;
                 if (!zoomInRange(li.minZoom, li.maxZoom, f.zoom))
                     continue;   // målet är redan kHidden
+                // KLIPPET på ANKARET: en etikett vars plats ritytans eller
+                // lagrets klipp tar bort döljs hel och tar ingen plats — en
+                // vars plats syns ritas hel, också över kanten.
+                const auto klippt = [&] {
+                    return anchorClipped(*scene, s.layer, li, proj, f.world.box,
+                                         f.c->scale);
+                };
                 if (!(li.collide && s.collide)) {
-                    st.target[i] = kVisible;   // alltid synlig, tar ingen plats
+                    const LayerClipTest ut = klippt();
+                    anyHideable = anyHideable || ut != LayerClipTest::None;
+                    if (ut != LayerClipTest::Outside)
+                        st.target[i] = kVisible;   // alltid synlig, tar ingen plats
                     continue;
                 }
                 anyHideable = true;
@@ -326,8 +375,12 @@ LabelFrame updateLabels(const PaintContext& f,
                 b.padding   = static_cast<float>(li.padding * unitPx * k);
                 b.priority  = li.priority;
                 b.layer     = s.layer;
-                // Helt utanför — också en låda som inte är ändlig.
-                når[i] = påYtan(labelBounds(b), yta) ? 1 : 0;
+                // Helt utanför — också en låda som inte är ändlig — och
+                // klippet prövas bara för det som når ytan.
+                når[i] = påYtan(labelBounds(b), yta) &&
+                                 klippt() != LayerClipTest::Outside
+                             ? 1
+                             : 0;
             }
         }
         // De som når ytan, i placeringens ordning.
@@ -360,6 +413,7 @@ LabelFrame updateLabels(const PaintContext& f,
         st.view3D  = f.view3D;
         st.pxPerPx = f.c->scale;
         st.pxPerMm = f.c->pxPerMm;
+        st.clipKey = clipKey;
         st.runs    = std::move(runs);
         if (!anyHideable) {
             // Ingen etikett kan döljas: ingen bild, alla synliga.

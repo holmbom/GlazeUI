@@ -111,6 +111,14 @@ struct PolygonStyle {
 bool buildPolygon(std::span<const std::vector<Point2d>> rings,
                   const PolygonStyle& style, std::vector<FillChunk>& chunks);
 
+// KLIPPETS YTA — som `buildPolygon` (samma ringar, samma kantremsa, vit och
+// täckande) men STRIKT: ringar som inte är en enkel yta med hål ger false
+// och INGENTING läggs till — ingen solfjäder, för ett klipp som ritar fel
+// yta är värre än ett tomt. Loggar inte; anroparen vet vad klippet gällde.
+// En yta utan ytterring (färre än tre giltiga punkter) är också false.
+bool buildClipPolygon(std::span<const std::vector<Point2d>> rings,
+                      std::vector<FillChunk>& chunks);
+
 // ---- BILDEN PÅ FYRA FRIA HÖRN — Image-programmets
 // projektiva vikter (`ImageVertex::q`, gfx/scene.h).
 

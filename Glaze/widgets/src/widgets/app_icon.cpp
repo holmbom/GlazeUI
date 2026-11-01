@@ -127,7 +127,7 @@ float AppIcon::reservedWidth(const Ctx& c, Row row) const
         return 0.0f;
     if (row == Row::Menu && !showsLarge())
         return 0.0f;
-    return contentSize(c).w;
+    return measure(*this, c).w;
 }
 
 gfx::Sizef AppIcon::contentSize(const Ctx& c) const

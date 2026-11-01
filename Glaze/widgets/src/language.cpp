@@ -34,6 +34,7 @@
 #include "glaze_language/language_file.h"
 
 #include "lang_builtin.h"
+#include "language_gen.h"
 
 namespace glaze {
 namespace {
@@ -534,5 +535,14 @@ void unloadLanguage()
     ++s.gen;
     App::languageChangedAll();
 }
+
+namespace detail {
+
+std::uint64_t languageGeneration()
+{
+    return store().gen;
+}
+
+} // namespace detail
 
 } // namespace glaze

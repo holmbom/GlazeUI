@@ -1002,6 +1002,62 @@ void fallDockKontrakt()
         ok(dold.mätningar == 0, "räknare: DOLD remsa mäts inte alls (fick " +
                                     std::to_string(dold.mätningar) + ")");
     }
+
+    // (3) MÄTCACHEN I EN DOCK-STAPEL: dock-uppspelningen mäter de föregående
+    // syskonen före varje barn (O(n²) i frågor), men ett oförändrat syskon
+    // mäts EN gång i alla. Varje remsa löses, sedan det lösa barnet, sedan alla
+    // en gång till — och räknaren står kvar på 1. SABOTAGE: en `measure` som
+    // går förbi cachen ger N·(N+1)/2 mätningar i stället för N.
+    {
+        constexpr int                      N = 8;
+        Yta                                rot;
+        std::vector<std::unique_ptr<Remsa>> remsor;
+        glaze::Panel                       lös;
+        for (int i = 0; i < N; ++i) {
+            remsor.push_back(std::make_unique<Remsa>(10.0f));
+            remsor.back()->dock = glaze::Dock::Top;
+            rot.adopt(*remsor.back());
+        }
+        lös.anchors = {true, true, true, true};
+        rot.adopt(lös);
+
+        glaze::Ctx c = ctxFör(st, f, 1.0f, gfx::Rectf{0, 0, 200, 400});
+        const glaze::Ctx cc = barnCtx(rot, c);
+        for (int varv = 0; varv < 2; ++varv) {
+            for (auto& r : remsor)
+                (void)r->resolve(cc);
+            (void)lös.resolve(cc);
+        }
+        int största = 0;
+        for (auto& r : remsor)
+            största = std::max(största, r->mätningar);
+        ok(största == 1, "cache: en stapel om " + std::to_string(N) +
+                             " remsor mäts EN gång per remsa, inte en per syskon "
+                             "(störst: " + std::to_string(största) + ")");
+        okNära(lös.resolve(cc).y, 10.0f * N, "cache: den lösa ytan efter stapeln");
+
+        // Ett invalidate() på EN remsa ommäter just den, inte de andra.
+        remsor[3]->invalidate();
+        for (auto& r : remsor)
+            (void)r->resolve(cc);
+        int ommätta = 0, orörda = 0;
+        for (int i = 0; i < N; ++i) {
+            if (remsor[i]->mätningar == 2)
+                ++ommätta;
+            if (remsor[i]->mätningar == 1)
+                ++orörda;
+        }
+        ok(remsor[3]->mätningar == 2 && ommätta == 1 && orörda == N - 1,
+           "cache: invalidate() på remsa 3 ommäter bara den (ommätta " +
+               std::to_string(ommätta) + ", orörda " + std::to_string(orörda) +
+               ")");
+
+        // En RÅ tjocklek satt i en handler (utan invalidate) syns genom epoken.
+        remsor[5]->tj = 20.0f;
+        glaze::detail::bumpHandlerEpoch();
+        okNära(lös.resolve(cc).y, 10.0f * (N - 1) + 20.0f,
+               "cache: en ny handler-epok mäter om en ändrad remsa");
+    }
 }
 
 // ============================= 15. skala ≠ 1 och sträckning mot skuren area

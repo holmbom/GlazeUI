@@ -1,12 +1,12 @@
 # TODO — GlazeUI
 
-Planer: [doc/plans/](doc/plans/) · arkiv: [doc/plans/archive/](doc/plans/archive/) · research: [doc/research/](doc/research/)
+Planer: `doc/plans/` och arkivet `doc/plans/archive/` (lokala — committas inte) · research: [doc/research/](doc/research/)
 
 ## Regler
 
 1. **TRE RADER PER POST** — status + rubrik + länk på rad 1, sedan **max två rader** text. Allt annat bor i planfilen.
-2. **Ingen historik här.** Utfört arbete står i arkivet och i commit-loggen. Resonemang, mätningar och öppna frågor hör hemma i `doc/plans/` (ofärdig plan) eller `doc/research/` (mätning) — med länk.
-3. **Ny rad → 🐛 eller 💡**, ingen planfil. Blir det en arbetsström: fil i `doc/plans/`, länka, byt till 🔴. En bugg behåller 🐛 efter lägeskoden.
+2. **Ingen historik här.** Utfört arbete står i arkivet och i commit-loggen. Resonemang, mätningar och öppna frågor hör hemma i `doc/plans/` (ofärdig plan, lokal) eller `doc/research/` (mätning, med länk).
+3. **Ny rad → 🐛 eller 💡**, ingen planfil. Blir det en arbetsström: planfil i `doc/plans/` (lokal, ingen länk), byt till 🔴. En bugg behåller 🐛 efter lägeskoden.
 4. **Uppdatera ALLTID** när status ändras.
 5. **🟢 → Eriks test → arkiv.** Kod klar men otestad = 🟢. Efter godkänt test: planfilen till `archive/`, raden bort härifrån.
 6. **Ordning:** 🐛 → 💡 → 💭 → ☁️ → 🔴 → 🟠 → 🟢, med 📖/🔬 sist. Buggar överst — trasigt går före önskat.
@@ -28,6 +28,8 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 
 ### Resten av fas 1
 
+- 🐛 **`scene3d_pixel_gate` K2: ett grafikkort listas två gånger** — [gpu_util.h](Glaze/gfx/src/gpu_util.h)
+  På en dator med Intel- och NVIDIA-kort ger DXGI Intel-kortet två gånger med samma id, så `gfx::gpuAdapters()` har en dubblett och K2 fäller. Rättelsen: slå ihop kort med samma id i uppräkningen.
 - 🐛 **macOS: en utloggning avbryts av appen också när den inte vetar** — [metal_platform.mm](Glaze/gfx/src/backend_metal/metal_platform.mm)
   `applicationShouldTerminate` svarar `NSTerminateCancel` och köar `Quit`, så systemet ser ett avbrott. Rättelsen: `NSTerminateLater` och `replyToApplicationShouldTerminate:` när App stängt allt (eller fått ett veto).
 - 💡 **`DockHost::placeChild` räknar hela dockningslayouten en gång per barn** — [dock_host.cpp](Glaze/widgets/src/widgets/dock_host.cpp)
@@ -55,6 +57,8 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 - 💡 **Linfysik: nedhäng efter temperatur, töjning, vind och is**
   Linor mellan fästpunkter som hänger korrekt (kedjekurva med elasticitet och värmeutvidgning), belastade av simulerad vind och is, med temperaturen som parameter.
   Öppet: en generell förmåga i ramverket eller appens beräkning.
+- 🟢 **Polygonklipp, ritytan på utskriftssidan och mätcache (0.3.0)**
+  Klipp mot polygoner med hål per lager, för hela ritytan och i målaren (prisma i 3D); `Painter::drawCanvas` på sidan; mätningen cachad per delträd.
 - 🟠 **Windows- och Mac-testet** — [doc/os/](doc/os/)
   Kvar är rader som kräver hårdvara eller handtest: mus, skärmskalning och VS Code på Windows; andra skärm, PC-tangentbord och Intel-Mac på macOS.
   Stängs när `doc/os/windows/TESTS.md` och `doc/os/macos/TESTS.md` är TOMMA.

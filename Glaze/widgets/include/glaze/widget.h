@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -1913,13 +1914,27 @@ protected:
     // flexen). Statisk basmedlem eftersom C++ inte låter en subklass nå
     // skyddade medlemmar via en Widget-referens direkt.
     //
-    // RÅ FÖRMEDLARE: svarar i samma enhet som `contentSize`, alltså
+    // FÖRMEDLAREN MED CACHE: svarar i samma enhet som `contentSize`, alltså
     // LOGISKA px. Anroparen multiplicerar med `c.scale` när svaret ska
     // möta `c.area` (`Bar::placeChild` gör det, `Widget::resolve` gör det).
-    static gfx::Sizef measure(const Widget& w, const Ctx& c)
-    {
-        return w.contentSize(c);
-    }
+    // Svaret återanvänds tills något i widgetens delträd ändras (varje
+    // sättare som ändrar det `contentSize` läser anropar `invalidate()`),
+    // miljön byts (UI, stil, tema, skala, språk), barnen läggs till, tas bort
+    // eller flyttas, eller appen levererat ett event, en postad funktion eller
+    // en timer till appens kod (där får de råa layoutfälten ändras utan
+    // `invalidate()`). Ändrar en widget sina mått på annat sätt — i
+    // `onTick` eller utanför en handler — kallar den `invalidate()` själv.
+    static gfx::Sizef measure(const Widget& w, const Ctx& c);
+
+    // VEMS GENERATION MITT MÅTT BEROR PÅ. Mätcachen nycklar på
+    // delträdets generation, och den räcker bara när `contentSize` och
+    // `heightForWidth` läser widgeten själv och dess barn. Läser de något
+    // utanför delträdet svarar widgeten med den widget vars förändringar
+    // den ser: `Parent` när den mäter ett syskon (ett etikettgrannskap),
+    // `Root` när den läser en godtycklig widget i fönstret (en breddgrupp,
+    // programikonens plats). Basens svar är `Self`.
+    enum class MeasureScope : std::uint8_t { Self, Parent, Root };
+    virtual MeasureScope measureScope() const { return MeasureScope::Self; }
 
     // Har widgeten, eller någon i dess delträd, en ÖPPEN POPUP
     // (`hasOpenPopup()`)? Statisk basmedlem och inte en fri funktion:
@@ -1942,13 +1957,11 @@ protected:
     std::unique_ptr<Widget> severChild(Widget* w, bool alive);
 
     // `measure`s PARHÄST för `heightForWidth` — samma skäl (en subklass når
-    // inte en annan widgets skyddade krok), samma enhet (logiska px).
+    // inte en annan widgets skyddade krok), samma enhet (logiska px) och
+    // samma cache, med bredden i nyckeln.
     static std::optional<float> measureHeightForWidth(const Widget& w,
                                                       const Ctx& c,
-                                                      float width)
-    {
-        return w.heightForWidth(c, width);
-    }
+                                                      float width);
 
     // Tillstånd -> färgROLL. De två kombinationerna varenda kontroll gör
     // likadant: text som dämpas när widgeten är inaktiverad, och en kant
@@ -2872,6 +2885,48 @@ private:
     // widgeten och nollas aldrig. Ett räkneverk och ingen flagga — `dirty_`
     // ovan förbrukas av ritningen, det här läses av den som cachar.
     std::uint64_t invalidations_ = 0;
+
+    // MÄTCACHEN (`measure`/`measureHeightForWidth`, widget.cpp): svaren i
+    // LOGISKA px med nyckeln de räknades under. `subtreeGen_` stegas av
+    // `invalidate()` på widgeten och på varje ättling (vandringen uppåt), och
+    // av barnens tillägg, borttagning och flytt — nyckeln läser den, plus
+    // miljön (UI, stil, tema, skala, mm-täthet), språkgenerationen, appens
+    // handler-epok och widgetens egna råa layoutfält. `nullopt` från
+    // `heightForWidth` cachas också. Instansens egna fält: inget delat
+    // tillstånd, ingen mutex — layouten går i UI-tråden.
+    struct MeasureKey {
+        std::uint64_t gen        = 0;   // delträdets (eller förälderns) generation
+        std::uint64_t env        = 0;   // miljöns nyckel ur Ctx
+        std::uint64_t lang       = 0;   // språkgenerationen
+        std::uint64_t epoch      = 0;   // appens handler-epok
+        std::uint64_t layoutHash = 0;   // de råa layoutfälten
+        bool operator==(const MeasureKey&) const = default;
+    };
+    struct MeasureCache {
+        bool       hasSize = false;
+        MeasureKey sizeKey;
+        gfx::Sizef size{};
+        struct ForWidth {
+            MeasureKey           key;
+            float                width = 0.0f;
+            std::optional<float> height;
+        };
+        static constexpr std::size_t kWidths = 4;   // de senaste bredderna
+        std::array<ForWidth, kWidths> widths{};
+        std::size_t                   widthCount = 0;
+        std::size_t                   widthNext  = 0;
+    };
+    mutable MeasureCache measureCache_;
+    std::uint64_t        subtreeGen_ = 1;
+
+    // Nyckeln `w` mäts under just nu (widget.cpp).
+    static MeasureKey measureKey(const Widget& w, const Ctx& c);
+
+    // Ger widgeten och varje förfader en ny, aldrig förut använd generation.
+    // Generationerna delas ut ur EN räknare, så en widget som flyttas till ett
+    // annat träd aldrig kan få ett värde en cachepost redan bär.
+    bool ancestorsAlive() const;
+    void stepSubtreeGen();
 
     // `lifeToken()`s ägare — LAT (tom tills någon frågar), och den dör med
     // widgeten, så varje utdelad `weak_ptr` går ut i samma ögonblick.

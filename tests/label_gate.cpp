@@ -36,6 +36,19 @@
 //       (samma inre vänsterkant) ⇒ samma x, gruppens bredd + 8
 //   W8  `setProp("widthGroup", "form")`
 //
+// MÄTCACHEN — en etikett vars mått beror på andra widgets:
+//   M1  grannens höjd: `g.invalidate()` når den grannande etiketten (förälderns
+//       generation), och en etikett utan granne eller grupp ommäts inte av ett
+//       syskons ändring
+//   M2  breddgruppen: en ny text hos en medlem i en ANNAN panel når
+//       medlemmarna (rotens generation); en dold panel likaså
+//   M3  räknaren: en etikett utan grupp och granne mäts en gång, en grannande
+//       en gång per förändring i sin förälder, en grupp en gång per förändring
+//       i fönstret
+//   SABOTAGE: en `measureScope` som alltid svarar Self (M1, M2 ger gammalt
+//   svar), alltid Root (M3:s första fall räknar om), eller Parent för gruppen
+//   (M2:s medlem i den andra panelen står kvar).
+//
 // GLORIAN — tillståndet, inte pixlarna:
 //   H1  förval: ingen gloria, bredden 0      H4  negativ bredd ⇒ no-op
 //   H2  `setHalo(gfx::Color{…})` lagras      H5  `setHaloWidth(2.5)`
@@ -529,6 +542,153 @@ void fallBreddgrupp()
           "W8: setProp(\"widthGroup\", \"form\")", viaProp.widthGroup());
 }
 
+// MÄTCACHEN. En etikett som mäter ett syskon (grannen) eller hela fönstrets
+// träd (breddgruppen) nycklas på förälderns respektive rotens generation.
+namespace {
+
+// Ett syskon med ett mått man kan ändra, och en räknare.
+struct Granne final : glaze::Widget {
+    explicit Granne(float h) : bh(h) {}
+    void        draw(const glaze::Ctx&) override {}
+    float       bh;
+    mutable int mätningar = 0;
+
+protected:
+    gfx::Sizef contentSize(const glaze::Ctx&) const override
+    {
+        ++mätningar;
+        return gfx::Sizef{10.0f, bh};
+    }
+};
+
+// En etikett som räknar sina egna mätningar.
+struct RäknadEtikett : glaze::Label {
+    using glaze::Label::Label;
+    mutable int mätningar = 0;
+
+protected:
+    gfx::Sizef contentSize(const glaze::Ctx& c) const override
+    {
+        ++mätningar;
+        return glaze::Label::contentSize(c);
+    }
+};
+
+} // namespace
+
+void fallMatcache()
+{
+    std::printf("\n=== M. mätcachen ===\n");
+    StegFont   f(8.0f);
+    Inspelning rec;
+    glaze::Ctx c = ctxFör(f, &rec);
+
+    // ---- M1. Grannen: syskonets ändring når etiketten.
+    {
+        Yta           rot;
+        glaze::Label  namn("Namn");
+        Granne        granne(20.0f);
+        granne.name = "g";
+        namn.setBuddy("g");
+        rot.adopt(namn);
+        rot.adopt(granne);
+        check(Meter::measure(namn, c).h == 20.0f,
+              "M1: etiketten är lika hög som grannen",
+              std::to_string(Meter::measure(namn, c).h));
+        check(Meter::measure(namn, c).h == 20.0f && granne.mätningar == 1,
+              "M1: grannen mäts en gång för två frågor",
+              std::to_string(granne.mätningar));
+        granne.bh = 40.0f;
+        granne.invalidate();
+        check(Meter::measure(namn, c).h == 40.0f,
+              "M1: grannens invalidate() når etiketten",
+              std::to_string(Meter::measure(namn, c).h));
+    }
+
+    // ---- M2. Breddgruppen över två paneler: en ny text hos en medlem når
+    // de andra, och så gör en dold panel.
+    {
+        Yta          rot;
+        glaze::Panel p1, p2;
+        glaze::Label l1("ab"), l2("abcdef");
+        l1.setWidthGroup("form");
+        l2.setWidthGroup("form");
+        rot.adopt(p1);
+        rot.adopt(p2);
+        p1.adopt(l1);
+        p2.adopt(l2);
+        check(Meter::measure(l1, c).w == 48.0f, "M2: gruppen är sex steg",
+              std::to_string(Meter::measure(l1, c).w));
+        l2.setText("abcdefghij");
+        check(Meter::measure(l1, c).w == 80.0f,
+              "M2: en ny text i den andra panelen når medlemmen — tio steg",
+              std::to_string(Meter::measure(l1, c).w));
+        p2.hide();
+        check(Meter::measure(l1, c).w == 16.0f,
+              "M2: en dold panel lämnar gruppen — två steg",
+              std::to_string(Meter::measure(l1, c).w));
+        p2.show();
+        check(Meter::measure(l1, c).w == 80.0f, "M2: visad igen — tio steg",
+              std::to_string(Meter::measure(l1, c).w));
+    }
+
+    // ---- M3. Omfånget syns i räknaren.
+    {
+        Yta           rot;
+        glaze::Panel  p1, p2;
+        RäknadEtikett ensam("ab"), grannande("ab"), grupp("ab");
+        Granne        syskon(10.0f), granne(10.0f);
+        glaze::Label  främmande("abcdef");
+        syskon.name = "syskon";
+        granne.name = "granne";
+        grannande.setBuddy("granne");
+        grupp.setWidthGroup("g");
+        främmande.setWidthGroup("g");
+        rot.adopt(p1);
+        rot.adopt(p2);
+        p1.adopt(ensam);
+        p1.adopt(grannande);
+        p1.adopt(granne);
+        p1.adopt(syskon);
+        p1.adopt(grupp);
+        p2.adopt(främmande);
+
+        for (glaze::Widget* w :
+             std::initializer_list<glaze::Widget*>{&ensam, &grannande, &grupp})
+            Meter::measure(*w, c);
+        check(ensam.mätningar == 1 && grannande.mätningar == 1 &&
+                  grupp.mätningar == 1,
+              "M3: första mätningen — en vardera");
+
+        syskon.invalidate();   // ett syskon i samma panel
+        for (glaze::Widget* w :
+             std::initializer_list<glaze::Widget*>{&ensam, &grannande, &grupp})
+            Meter::measure(*w, c);
+        check(ensam.mätningar == 1,
+              "M3: en etikett utan granne och grupp rörs inte av ett syskon",
+              std::to_string(ensam.mätningar));
+        check(grannande.mätningar == 2,
+              "M3: en grannande etikett ommäts när föräldern ändras",
+              std::to_string(grannande.mätningar));
+        check(grupp.mätningar == 2,
+              "M3: en gruppmedlem ommäts när fönstret ändras",
+              std::to_string(grupp.mätningar));
+
+        främmande.setText("abcdefgh");   // en annan panel
+        for (glaze::Widget* w :
+             std::initializer_list<glaze::Widget*>{&ensam, &grannande, &grupp})
+            Meter::measure(*w, c);
+        check(ensam.mätningar == 1 && grannande.mätningar == 2,
+              "M3: en ändring i en annan panel rör varken den ensamma eller "
+              "den grannande",
+              std::to_string(ensam.mätningar) + "," +
+                  std::to_string(grannande.mätningar));
+        check(grupp.mätningar == 3 && Meter::measure(grupp, c).w == 64.0f,
+              "M3: gruppmedlemmen ommäts och ser den nya bredden — åtta steg",
+              std::to_string(grupp.mätningar) + " mätningar");
+    }
+}
+
 // GLORIAN — tillståndet och textvägen. Konturens PIXLAR mäts inte här.
 void fallGloria()
 {
@@ -569,6 +729,7 @@ int main(int argc, char** argv)
     fallGrannen();
     fallFärgen();
     fallBreddgrupp();
+    fallMatcache();
     fallGloria();
 
     std::printf("%s  %d fall, %d fel\n", g_fails ? "FEL " : "OK  ", g_cases,

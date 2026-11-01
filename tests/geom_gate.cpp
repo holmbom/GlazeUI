@@ -62,6 +62,15 @@
 //   Y6  CHUNKGRÄNSEN: en cirkel med 20 000 punkter (80 000 vertex) delas i
 //       chunkar ≤ 65 536 med samma origo, alla index inom sin chunk och
 //       arean bevarad; två små ytor delar en chunk med förskjutna index.
+//   KY  KLIPPETS YTA (`buildClipPolygon`): KY1 den konkava L-formen har arean
+//       5, är vit och har buildPolygons kantremsa (24 vertex); KY2 tre hål; KY3
+//       400 hörn (den z-ordnade vägen) och KY4 SWEREF-koordinater med hål mot
+//       skosnörsarean; KY5 en självkorsning och KY6 ett hål utanför ger false
+//       och lämnar `chunks` orörd (också när den redan bar en yta); KY7 två
+//       punkter, tre på en linje, inga ringar och bara icke-ändliga punkter
+//       är false (där buildPolygon svarar true utan yta); KY8 dubbletter, upprepad
+//       slutpunkt och icke-ändliga punkter tas bort; KY9 ytan läggs efter de
+//       gamla chunkarna, som är orörda.
 //
 // VAD GRINDEN PÅSTÅR OM TEXTEN (referensen är det RIKTIGA euklidiska avståndet
 // och en egen font med kända steg — aldrig sdf.cpp:s formel):
@@ -159,6 +168,11 @@
 // (S5g — fyllningen på sida 0 hamnar i glorians äldre chunk); q = 1 alltid
 // och q0 ↔ q2 (Q1), konvexitetstestet bort (Q2) och ringen tillbaka i fel
 // z-ordning (Q4).
+// För KY SKA sabotagen nedan fälla dem (skrivna): ytan byggd direkt i `chunks`
+// innan trianguleringen svarat (KY5, KY6, KY7 — chunks ändrad), `ok` från
+// trianguleringen ignorerad så att solfjädern returneras med true (KY5, KY6),
+// ingen ytterring svarar true (KY7), hålen ignorerade (KY2, KY4), den
+// upprepade slutpunkten kvar (KY8) och kantremsan borta (KY1, 24 vertex).
 // För S6 (skrivet) SKA sabotagen
 // fälla den: `atlas.glyph()` i mätningen (S6b), `layLines` som letar
 // radbrytningen på en tom glyfpekare i stället för kodpunkten (S6a, S6c —
@@ -864,6 +878,182 @@ void fallOgiltigt()
     std::vector<gfx::FillChunk> c;
     check(gfx::buildPolygon(Ringar{{{0, 0}, {1, 0}, {0, 1}}}, ytstil(), c),
           "Y4 en giltig yta efter en ogiltig svarar true");
+}
+
+// ------------------------------------------------------------------ KY
+// KLIPPETS YTA (`buildClipPolygon`): samma ringar och samma kantremsa som
+// `buildPolygon`, vit och täckande, men STRIKT — ringar som inte är en enkel
+// yta med hål ger false och ingenting läggs till.
+bool ärVit(const std::vector<gfx::FillChunk>& ch)
+{
+    for (const gfx::FillChunk& c : ch)
+        for (const gfx::FillVertex& v : c.vertices)
+            if (v.color.r != 255 || v.color.g != 255 || v.color.b != 255 ||
+                v.color.a != 255)
+                return false;
+    return true;
+}
+
+std::size_t vertexAntal(const std::vector<gfx::FillChunk>& ch)
+{
+    std::size_t n = 0;
+    for (const gfx::FillChunk& c : ch)
+        n += c.vertices.size();
+    return n;
+}
+
+// Samma chunkar som före anropet: antal, vertex, index och origo.
+bool orörda(const std::vector<gfx::FillChunk>& före,
+            const std::vector<gfx::FillChunk>& efter)
+{
+    if (före.size() != efter.size())
+        return false;
+    for (std::size_t i = 0; i < före.size(); ++i)
+        if (före[i].vertices.size() != efter[i].vertices.size() ||
+            före[i].indices != efter[i].indices ||
+            före[i].originX != efter[i].originX ||
+            före[i].originY != efter[i].originY)
+            return false;
+    return true;
+}
+
+// En yta att lägga klippet efter: kvadraten 6 × 6.
+std::vector<gfx::FillChunk> förYta()
+{
+    std::vector<gfx::FillChunk> ch;
+    gfx::buildPolygon(Ringar{{{0, 0}, {6, 0}, {6, 6}, {0, 6}}}, ytstil(), ch);
+    return ch;
+}
+
+void fallKlippytan()
+{
+    // KY1 den konkava L-formen: arean 5, vit, och exakt buildPolygons vertex.
+    {
+        const Ringar                L = {{{0, 0}, {3, 0}, {3, 1}, {1, 1}, {1, 3}, {0, 3}}};
+        std::vector<gfx::FillChunk> k, y;
+        const bool okK = gfx::buildClipPolygon(L, k);
+        gfx::buildPolygon(L, ytstil(), y);
+        check(okK && std::abs(täckt(k) - 5.0) < 1e-9 && indexInom(k),
+              "KY1 L-formen täcker 5", area(täckt(k)));
+        check(ärVit(k) && !k.empty(),
+              "KY1 klippets yta är vit och täckande (alfa 255)");
+        check(vertexAntal(k) == vertexAntal(y) && vertexAntal(k) == 24,
+              "KY1 samma kantremsa som buildPolygon (6 kanter = 24 vertex)",
+              std::to_string(vertexAntal(k)) + " mot " +
+                  std::to_string(vertexAntal(y)));
+    }
+
+    // KY2 flera hål: 20 × 20 med tre hål 4 × 4 = 400 − 48.
+    {
+        const Ringar hål = {{{0, 0}, {20, 0}, {20, 20}, {0, 20}},
+                            {{2, 2}, {6, 2}, {6, 6}, {2, 6}},
+                            {{10, 3}, {14, 3}, {14, 7}, {10, 7}},
+                            {{5, 12}, {9, 12}, {9, 16}, {5, 16}}};
+        std::vector<gfx::FillChunk> k;
+        const bool ok = gfx::buildClipPolygon(hål, k);
+        check(ok && std::abs(täckt(k) - 352.0) < 1e-9 && indexInom(k) &&
+                  vertexAntal(k) == 16 * 4,
+              "KY2 tre hål: 352 och 16 kanter med kantquadar", area(täckt(k)));
+    }
+
+    // KY3 hundratals hörn (den z-ordnade vägen) och KY4 SWEREF med hål.
+    {
+        std::mt19937 g(20261101u);
+        const Ringar stor = {stjärna(g, 0.0, 0.0, 10.0, 400, 0.3)};
+        std::vector<gfx::FillChunk> k;
+        const bool ok = gfx::buildClipPolygon(stor, k);
+        const double facit = skosnöre(stor[0]);
+        check(ok && std::abs(täckt(k) - facit) / facit < 1e-5 && indexInom(k),
+              "KY3 400 hörn: arean stämmer", area(täckt(k)) + " mot " + area(facit));
+
+        Ringar sw = {stjärna(g, 674321.0, 6580123.0, 300.0, 250, 0.3)};
+        double swFacit = skosnöre(sw[0]);
+        sw.push_back(stjärna(g, 674321.0, 6580123.0, 20.0, 12, 0.5));
+        swFacit -= skosnöre(sw.back());
+        std::vector<gfx::FillChunk> s;
+        const bool okSw = gfx::buildClipPolygon(sw, s);
+        check(okSw && std::abs(täckt(s) - swFacit) / swFacit < 1e-5 &&
+                  indexInom(s),
+              "KY4 SWEREF-koordinater med hål: arean stämmer",
+              area(täckt(s)) + " mot " + area(swFacit));
+    }
+
+    // KY5 en självkorsning (fluga) ger false och `chunks` är orörd — också
+    // när det redan fanns en chunk (ytan läggs aldrig i den).
+    {
+        std::vector<gfx::FillChunk> k = förYta();
+        const auto                  före = k;
+        const bool ok = gfx::buildClipPolygon(
+            Ringar{{{0, 0}, {4, 4}, {4, 0}, {0, 4}}}, k);
+        check(!ok && orörda(före, k),
+              "KY5 en självkorsning ger false och lämnar chunks orörd",
+              std::to_string(k.size()) + " chunkar");
+        std::vector<gfx::FillChunk> tom;
+        const bool okTom = gfx::buildClipPolygon(
+            Ringar{{{0, 0}, {4, 4}, {4, 0}, {0, 4}}}, tom);
+        check(!okTom && tom.empty(),
+              "KY5 en självkorsning i en tom lista lämnar den tom");
+    }
+
+    // KY6 ett hål utanför ytterringen: false, orörd.
+    {
+        std::vector<gfx::FillChunk> k = förYta();
+        const auto                  före = k;
+        const bool ok = gfx::buildClipPolygon(
+            Ringar{{{0, 0}, {4, 0}, {4, 4}, {0, 4}},
+                   {{10, 10}, {12, 10}, {12, 12}, {10, 12}}},
+            k);
+        check(!ok && orörda(före, k),
+              "KY6 ett hål utanför ytterringen ger false och lämnar chunks orörd");
+    }
+
+    // KY7 färre än tre punkter, ingen yta alls och ingen ring: false, orörd —
+    // till skillnad från buildPolygon, där ingen yta inte är något fel.
+    {
+        std::vector<gfx::FillChunk> k = förYta();
+        const auto                  före = k;
+        const bool a = gfx::buildClipPolygon(Ringar{{{0, 0}, {5, 5}}}, k);
+        const bool b = gfx::buildClipPolygon(Ringar{{{0, 0}, {5, 5}, {10, 10}}}, k);
+        const bool c = gfx::buildClipPolygon(Ringar{}, k);
+        const bool d = gfx::buildClipPolygon(
+            Ringar{{{0, 0}, {NAN, 5}, {INFINITY, 1}}}, k);
+        check(!a && !b && !c && !d && orörda(före, k),
+              "KY7 två punkter, tre på en linje, inga ringar och bara "
+              "icke-ändliga punkter: false och chunks orörd");
+    }
+
+    // KY8 dubbletter, en upprepad slutpunkt och icke-ändliga punkter tas bort:
+    // fortfarande kvadraten 4 × 4, med samma vertex som buildPolygon.
+    {
+        const Ringar skräp = {{{0, 0}, {0, 0}, {2, 0}, {4, 0}, {4, 0}, {4, 2},
+                               {4, 4}, {2, 4}, {0, 4}, {0, 2}, {0, 0}}};
+        std::vector<gfx::FillChunk> k, y;
+        const bool ok = gfx::buildClipPolygon(skräp, k);
+        gfx::buildPolygon(skräp, ytstil(), y);
+        check(ok && std::abs(täckt(k) - 16.0) < 1e-9 && indexInom(k) &&
+                  vertexAntal(k) == vertexAntal(y),
+              "KY8 dubbletter och upprepad slutpunkt: 16, som buildPolygon",
+              area(täckt(k)));
+        const Ringar ickeÄndlig = {
+            {{0, 0}, {NAN, 5}, {6, 0}, {INFINITY, 1}, {6, 6}, {0, 6}}};
+        std::vector<gfx::FillChunk> b;
+        check(gfx::buildClipPolygon(ickeÄndlig, b) &&
+                  std::abs(täckt(b) - 36.0) < 1e-9,
+              "KY8 icke-ändliga punkter hoppas över: 6 × 6 = 36", area(täckt(b)));
+    }
+
+    // KY9 ytan läggs till EFTER det som fanns: den gamla chunken är orörd.
+    {
+        std::vector<gfx::FillChunk> k = förYta();
+        const auto                  före = k;
+        const bool ok = gfx::buildClipPolygon(
+            Ringar{{{20, 20}, {24, 20}, {24, 24}, {20, 24}}}, k);
+        check(ok && k.size() > före.size() &&
+                  orörda(före, {k.begin(), k.begin() + 1}) &&
+                  std::abs(täckt(k) - 52.0) < 1e-9,
+              "KY9 ytan läggs efter de gamla chunkarna, som är orörda",
+              area(täckt(k)));
+    }
 }
 
 // ------------------------------------------------------------------ Y5
@@ -3339,6 +3529,7 @@ int main(int argc, char** argv)
     fallSlumpytor();
     fallDegenererat();
     fallOgiltigt();
+    fallKlippytan();
     fallRemsansRiktning();
     fallYtornasChunkar();
     fallSdfVärden();

@@ -20,6 +20,7 @@
 
 #include "../image_cache.h"
 #include "build.h"
+#include "camera_math.h"
 #include "instances.h"
 #include "mesh_data.h"
 #include "programs3d.h"
@@ -27,6 +28,7 @@
 #include "resources.h"
 #include "scene.h"
 #include "scene3d.h"
+#include "target3d.h"
 #include "transform3d.h"
 
 namespace glaze {
@@ -34,6 +36,10 @@ namespace glaze {
 namespace detail {
 
 namespace {
+
+// Målarens ogiltiga klippyta loggas EN gång per process (`clipTo`) — här i
+// filen och inte som en statisk lokal i en inline-medlem (delat läge).
+std::atomic<bool> g_ogiltigtKlippLoggat{false};
 constexpr double kPi = 3.14159265358979323846;
 
 // Målarens förval: inget djup — ovanpå lagren, som före renderläget
@@ -87,191 +93,26 @@ bool meshTooBig(std::size_t bytes)
                  bytes);
     return true;
 }
-
-// ---- KLIPPETS GEOMETRI — konvexa polygoner i målets FYSISKA px, i
-// double. Hörnen ligger MOTURS i matematisk mening (positiv area med x höger
-// och y uppåt; i målets px med y nedåt är det medurs på skärmen), så insidan
-// ligger till VÄNSTER om varje kant: normalen (−dy, dx).
-using ClipPoly = std::vector<gfx::Point2d>;
-
-// Två hörn närmare än så här (px) är ett, och en kant som viker av mindre än
-// så här (sinus för vinkeln) är ingen — en yta under kClipMinArea px² syns
-// inte.
-constexpr double kClipSamePx   = 1e-6;
-constexpr double kClipStraight = 1e-9;
-constexpr double kClipMinArea  = 1e-6;
-// Hur nära ögats plan ett hörn får ligga, som andel av hörnens största W —
-// närmare går dess bild mot oändligheten.
-constexpr double kClipNearW = 1e-6;
-
-// Ett snitt med fler hörn än planen loggas en gång per process (painter.h).
-std::atomic<bool> g_clipEdgesLogged{false};
-
-double twiceArea(const ClipPoly& p)
-{
-    double a = 0.0;
-    for (std::size_t i = 0, n = p.size(); i < n; ++i) {
-        const gfx::Point2d& u = p[i];
-        const gfx::Point2d& v = p[(i + 1) % n];
-        a += u.x * v.y - v.x * u.y;
-    }
-    return a;
-}
-
-// Polygonen utan dubbla hörn och utan hörn mitt på en rak kant, moturs —
-// tom när den inte har någon yta.
-ClipPoly normalized(const ClipPoly& p)
-{
-    ClipPoly q;
-    for (const gfx::Point2d& v : p)
-        if (q.empty() || std::abs(v.x - q.back().x) > kClipSamePx ||
-            std::abs(v.y - q.back().y) > kClipSamePx)
-            q.push_back(v);
-    while (q.size() > 1 && std::abs(q.front().x - q.back().x) <= kClipSamePx &&
-           std::abs(q.front().y - q.back().y) <= kClipSamePx)
-        q.pop_back();
-    for (std::size_t i = 0; q.size() >= 3 && i < q.size();) {
-        const std::size_t   n = q.size();
-        const gfx::Point2d& a = q[(i + n - 1) % n];
-        const gfx::Point2d& b = q[i];
-        const gfx::Point2d& c = q[(i + 1) % n];
-        const double ux = b.x - a.x, uy = b.y - a.y;
-        const double vx = c.x - b.x, vy = c.y - b.y;
-        if (std::abs(ux * vy - uy * vx) <=
-            kClipStraight * std::hypot(ux, uy) * std::hypot(vx, vy)) {
-            // Grannen före kan nu ligga på en rak kant — den prövas igen.
-            q.erase(q.begin() + static_cast<std::ptrdiff_t>(i));
-            i = i > 0 ? i - 1 : 0;
-        } else {
-            ++i;
-        }
-    }
-    const double a = q.size() >= 3 ? twiceArea(q) : 0.0;
-    if (!(std::abs(a) > 2.0 * kClipMinArea))
-        return {};
-    if (a < 0.0)
-        std::reverse(q.begin(), q.end());
-    return q;
-}
-
-// p klippt med halvplanet a·x + b·y + c ≥ 0 (Sutherland–Hodgman).
-ClipPoly clipHalfPlane(const ClipPoly& p, double a, double b, double c)
-{
-    ClipPoly out;
-    for (std::size_t i = 0, n = p.size(); i < n; ++i) {
-        const gfx::Point2d& u  = p[i];
-        const gfx::Point2d& v  = p[(i + 1) % n];
-        const double        du = a * u.x + b * u.y + c;
-        const double        dv = a * v.x + b * v.y + c;
-        if (du >= 0.0)
-            out.push_back(u);
-        if ((du >= 0.0) != (dv >= 0.0)) {
-            const double t = du / (du - dv);
-            out.push_back({u.x + (v.x - u.x) * t, u.y + (v.y - u.y) * t});
-        }
-    }
-    return out;
-}
-
-// Snittet av två konvexa polygoner, båda moturs: p klippt med varje kant av q.
-ClipPoly intersectClip(ClipPoly p, const ClipPoly& q)
-{
-    for (std::size_t i = 0, n = q.size(); i < n && !p.empty(); ++i) {
-        const gfx::Point2d& u = q[i];
-        const gfx::Point2d& v = q[(i + 1) % n];
-        const double        a = -(v.y - u.y), b = v.x - u.x;
-        p = clipHalfPlane(p, a, b, -(a * u.x + b * u.y));
-    }
-    return normalized(p);
-}
-
-// Högst `max` hörn: hörnet vars triangel med grannarna har minst yta skärs av
-// (grannarna förbinds) tills polygonen ryms — den förblir konvex, krymper och
-// växer aldrig.
-void cutCorners(ClipPoly& p, std::size_t max)
-{
-    while (p.size() > max) {
-        std::size_t bäst  = 0;
-        double      minst = 0.0;
-        for (std::size_t i = 0, n = p.size(); i < n; ++i) {
-            const gfx::Point2d& a = p[(i + n - 1) % n];
-            const gfx::Point2d& b = p[i];
-            const gfx::Point2d& c = p[(i + 1) % n];
-            const double        yta =
-                std::abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
-            if (i == 0 || yta < minst) {
-                minst = yta;
-                bäst  = i;
-            }
-        }
-        p.erase(p.begin() + static_cast<std::ptrdiff_t>(bäst));
-    }
-}
-
-// Rektangelns fyra hörn (i rymden, efter transformen) genom matrisen till
-// målets px. I det HOMOGENA först klippta mot ögats plan — W ≥ kClipNearW ×
-// det största W, för ett hörn bakom ögat har ingen bild — och sedan delade
-// med W. `o` är matrisens origo (RTC). Tom när hela rektangeln ligger bakom
-// ögat.
-ClipPoly projectQuad(const gfx::Mat4d& m, const Point (&c)[4], const Point& o)
-{
-    struct Hom {
-        double x, y, w;
-    };
-    Hom    h[4];
-    double maxW = 0.0;
-    for (int i = 0; i < 4; ++i) {
-        double out[4];
-        m.transform(c[i].x - o.x, c[i].y - o.y, 0.0, 1.0, out);
-        h[i] = Hom{out[0], out[1], out[3]};
-        maxW = std::max(maxW, out[3]);
-    }
-    if (!(maxW > 0.0))
-        return {};
-    const double golv = maxW * kClipNearW;
-    ClipPoly     p;
-    for (int i = 0; i < 4; ++i) {
-        const Hom&   u  = h[i];
-        const Hom&   v  = h[(i + 1) % 4];
-        const double du = u.w - golv, dv = v.w - golv;
-        if (du >= 0.0)
-            p.push_back({u.x / u.w, u.y / u.w});
-        if ((du >= 0.0) != (dv >= 0.0)) {
-            const double t = du / (du - dv);
-            const double w = u.w + (v.w - u.w) * t;
-            p.push_back({(u.x + (v.x - u.x) * t) / w, (u.y + (v.y - u.y) * t) / w});
-        }
-    }
-    return p;
-}
 } // namespace
 
 struct PainterState {
-    PainterState(PaintContext& c, bool s) : ctx(c), screen(s) {}
+    PainterState(PaintContext& c, bool s) : ctx(c), screen(s), clip(c.clip) {}
 
     PaintContext& ctx;
     bool          screen;   // ritytans lokala px (annars världen)
     Xform         xf;
     RenderState   state = kNoDepth;   // setRenderState
 
-    // KLIPPET: ytan som gäller — en konvex polygon i målets fysiska
-    // px (`on` utan hörn: ingenting syns) — dess kantplan till rit-anropen
-    // och dess omskrivna rektangel, scissorn på renderarens klippstack.
-    struct Clip {
-        bool           on = false;
-        ClipPoly       poly;
-        gfx::SceneClip planes;
-        gfx::Rectf     bounds{};
-    };
-    Clip clip;
+    // KLIPPET som gäller (clip.h): maskerna rit-anropen binder. Börjar i
+    // ritningens (ritytans, lagrets) och snittas av varje `save(…)`.
+    ClipScope clip;
 
     struct Level {
         bool        screen;
         Xform       xf;
         RenderState state;
-        Clip        clip;
+        ClipScope   clip;
         bool        clipped = false;   // läget satte ett klipp (`clipTo`)
-        bool        scissor = false;   //   …och lade dess scissor på stacken
     };
     std::vector<Level> saved;
 
@@ -352,9 +193,13 @@ struct PainterState {
         imageUniforms(key, d.uniforms);
         strokeUniforms(key, pxPerUnit(ctx, vy, Unit::World),
                        pxPerUnit(ctx, vy, key.dashUnit), d.uniforms);
-        // KLIPPET — satsen töms vid varje klippbyte, så det som
-        // gäller nu är det satsen byggdes under.
-        d.uniforms.clip = clip.planes;
+        // KLIPPET — satsen töms vid varje klippbyte, så det som gäller nu
+        // är det satsen byggdes under. Det med höjd (Line3, Glyph3) ser
+        // världsmasken; allt i skärmrymden bara skärmmasken.
+        clip.apply(d.uniforms.clip,
+                   !keyScreen && (prog == gfx::MeshProgram::Line3 ||
+                                  prog == gfx::MeshProgram::Glyph3),
+                   ox, oy);
         if (prog == gfx::MeshProgram::Glyph || prog == gfx::MeshProgram::Glyph3) {
             // GOLVET OCH TAKET — som lagrens `drawGlyphs`.
             const GlyphLimits lim =
@@ -484,9 +329,6 @@ struct PainterState {
 
     void add(const Shape& s)
     {
-        // Ett tomt klipp visar ingenting.
-        if (clip.on && clip.poly.empty())
-            return;
         // SYNLIGHETEN EFTER ZOOM — i världen; skärmrymden har ingen.
         if (!screen && !visibleAtZoom(s, ctx.zoom))
             return;
@@ -764,6 +606,7 @@ struct PainterState {
         dr.userBytes = sizeof(MeshUniforms);
         dr.textures  = b.textures;
         dr.state     = objectState();
+        clip.apply(dr.uniforms.clip, !screen, origin.x, origin.y);
         ctx.c->r->drawMesh(dr);
     }
 
@@ -824,11 +667,13 @@ struct PainterState {
             dr.program       = gfx::MeshProgram::Custom;
             dr.shader        = b.program;
             dr.layout        = &layout;
-            dr.frame         = frameAt(view, x.apply(set->blocks[block]));
+            const Point3 blockOrigin = x.apply(set->blocks[block]);
+            dr.frame         = frameAt(view, blockOrigin);
             dr.user          = &b.u;
             dr.userBytes     = sizeof(MeshUniforms);
             dr.textures      = b.textures;
             dr.state         = objectState();
+            clip.apply(dr.uniforms.clip, !screen, blockOrigin.x, blockOrigin.y);
             ctx.c->r->drawMesh(dr);
         };
         for (const InstanceCell& c : set->cells) {
@@ -923,11 +768,13 @@ struct PainterState {
             dr.layout        = &layout;
             dr.vertexCount   = kPointQuadVertices;
             dr.instanceCount = c.count;
-            dr.frame         = frameAt(view, x.apply(c.origin));
+            const Point3 chunkOrigin = x.apply(c.origin);
+            dr.frame         = frameAt(view, chunkOrigin);
             dr.user          = &u;
             dr.userBytes     = sizeof(PointUniforms);
             dr.textures      = textures;
             dr.state         = objectState();
+            clip.apply(dr.uniforms.clip, !screen, chunkOrigin.x, chunkOrigin.y);
             ctx.c->r->drawMesh(dr);
         }
     }
@@ -1021,83 +868,49 @@ struct PainterState {
         gfx::buildMarkers(pts, ml, glyphs);
     }
 
-    // KLIPPET (painter.h `save(Rect)`) på det nyss sparade läget:
-    // rektangelns fyra hörn genom transformen och rymdens matris till målets
-    // px, snittade med det klipp som redan gäller. Det som väntar ritas först,
-    // med det gamla klippet. Ytans omskrivna rektangel inom ritytan går till
-    // renderarens klippstack — scissorn, som också föremålen lyder — och
-    // läget minns det, så `restore` tar bort den.
-    void clipTo(const Rect& r)
+    // KLIPPET (painter.h `save(…)`) på det nyss sparade läget: ytorna i
+    // målarens rymd genom transformen, snittade med det som redan gäller —
+    // i världen ett prisma, efter `screenSpace` en yta på skärmen (clip.h).
+    // Det som väntar ritas först, med det gamla klippet.
+    // `kändGiltig`: ytorna är redan prövade (en rektangel med yta och
+    // ändliga hörn) — ingen triangulering bara för att fråga.
+    void clipTo(std::vector<ClipPolygon> ytor, bool kändGiltig = false)
     {
         flush();
-        Level& nivå  = saved.back();
-        nivå.clipped = true;
-        const bool fanns = clip.on;
-        clip.on     = true;
-        clip.planes = gfx::SceneClip{};
-        if (fanns && clip.poly.empty())
-            return;   // redan tomt — snittet förblir tomt
-        ClipPoly yta;
-        if (!std::isfinite(r.x) || !std::isfinite(r.y) || !std::isfinite(r.w) ||
-            !std::isfinite(r.h)) {
-            gfx::log("Painter::save: klippet (%g, %g, %g, %g) har ett tal som "
-                     "inte är ändligt — ingenting ritas till lägets slut",
-                     r.x, r.y, r.w, r.h);
-        } else {
-            const Point hörn[4] = {xf.apply({r.x, r.y}), xf.apply({r.x + r.w, r.y}),
-                                   xf.apply({r.x + r.w, r.y + r.h}),
-                                   xf.apply({r.x, r.y + r.h})};
-            yta = normalized(projectQuad(
-                matrixOf(screen, hörn[0].x, hörn[0].y, 0.0), hörn, hörn[0]));
-            if (fanns && !yta.empty())
-                yta = intersectClip(std::move(yta), clip.poly);
+        saved.back().clipped = true;
+        for (ClipPolygon& y : ytor) {
+            for (Point& p : y.outer)
+                p = xf.apply(p);
+            for (std::vector<Point>& h : y.holes)
+                for (Point& p : h)
+                    p = xf.apply(p);
         }
-        if (yta.size() > static_cast<std::size_t>(gfx::kMaxClipPlanes)) {
-            if (!g_clipEdgesLogged.exchange(true))
-                gfx::log("Painter::save: klippet har %zu kanter — de minsta "
-                         "hörnen skärs av till %d; loggas en gång",
-                         yta.size(), gfx::kMaxClipPlanes);
-            cutCorners(yta, static_cast<std::size_t>(gfx::kMaxClipPlanes));
+        // En OGILTIG yta (`Canvas::setInvalidClip`): med Show gäller klippet
+        // inte alls, med Hide täcker den ytan ingenting.
+        const InvalidClip läge = ctx.scene ? ctx.scene->invalidClip : InvalidClip::Show;
+        std::vector<ClipPolygon> giltiga;
+        for (ClipPolygon& y : ytor)
+            if (kändGiltig || clipPolygonValid(y))
+                giltiga.push_back(std::move(y));
+        if (giltiga.size() != ytor.size()) {
+            // En gång per process: ritningen upprepas varje bildruta.
+            if (!g_ogiltigtKlippLoggat.exchange(true))
+                gfx::log("Painter::save: en klippyta är ogiltig (en självkorsning, ett "
+                         "hål utanför ytterringen eller för få punkter) — %s",
+                         läge == InvalidClip::Show ? "klippet gäller inte"
+                                                   : "den klipper bort sin del");
+            if (läge == InvalidClip::Show)
+                return;
         }
-        // Den omskrivna rektangeln inom ritytan (det utanför syns inte ändå);
-        // utan något kvar är ytan tom.
-        if (!yta.empty()) {
-            double x0 = yta[0].x, y0 = yta[0].y, x1 = x0, y1 = y0;
-            for (const gfx::Point2d& p : yta) {
-                x0 = std::min(x0, p.x);
-                y0 = std::min(y0, p.y);
-                x1 = std::max(x1, p.x);
-                y1 = std::max(y1, p.y);
-            }
-            const gfx::Rectf& b = ctx.screen.box;
-            x0 = std::max(x0, static_cast<double>(b.x));
-            y0 = std::max(y0, static_cast<double>(b.y));
-            x1 = std::min(x1, static_cast<double>(b.x) + b.w);
-            y1 = std::min(y1, static_cast<double>(b.y) + b.h);
-            if (x1 > x0 && y1 > y0)
-                clip.bounds = gfx::Rectf{static_cast<float>(x0), static_cast<float>(y0),
-                                         static_cast<float>(x1 - x0),
-                                         static_cast<float>(y1 - y0)};
-            else
-                yta.clear();
-        }
-        clip.poly = std::move(yta);
-        if (clip.poly.empty())
-            return;
-        // Kantplanen: normalen (−dy, dx) normerad, så värdet är avståndet i px.
-        clip.planes.count = static_cast<int>(clip.poly.size());
-        for (std::size_t i = 0, n = clip.poly.size(); i < n; ++i) {
-            const gfx::Point2d& u  = clip.poly[i];
-            const gfx::Point2d& v  = clip.poly[(i + 1) % n];
-            const double        l  = std::hypot(v.x - u.x, v.y - u.y);
-            const double        nx = -(v.y - u.y) / l, ny = (v.x - u.x) / l;
-            clip.planes.planes[i] =
-                gfx::ClipPlane{static_cast<float>(nx), static_cast<float>(ny),
-                               static_cast<float>(-(nx * u.x + ny * u.y)), 0.0f};
-        }
-        ctx.c->r->pushClip(clip.bounds);
-        nivå.scissor = true;
+        clip = refineClip(ctx, clip, screen ? ClipSpace::Screen : ClipSpace::World,
+                          giltiga);
     }
+
+    // EN RITYTA PÅ YTAN (painter.h `drawCanvas`): ritytans lager i ett eget
+    // mål i rektangelns upplösning, sedan målets bild på rektangelns fyra
+    // hörn under målarens klipp. `cam2` eller `cam3` är kameran.
+    bool drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& scene,
+                    const Rect& rect, const Camera* cam2, const Camera3D* cam3);
 
     // xf = xf · m — m verkar FÖRST på punkterna (som i en ritstack).
     void compose(const Xform& m)
@@ -1111,6 +924,125 @@ struct PainterState {
         xf.f = t.d * m.c + t.e * m.f + t.f;
     }
 };
+
+namespace {
+
+// Kartkameran användbar? Ändliga tal och en zoom över noll.
+bool validCamera(const Camera& c)
+{
+    return std::isfinite(c.center.x) && std::isfinite(c.center.y) &&
+           std::isfinite(c.zoom) && c.zoom > 0.0 && std::isfinite(c.bearing) &&
+           std::isfinite(c.pitch);
+}
+
+// Ritytans målare i ritningens läge (target3d.h) — EN väg för `onPaint`,
+// `onPaintLayer` och `onPaintOverlay`.
+const gfx::Color kPageClear{0, 0, 0, 0};
+
+} // namespace
+
+bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& scene,
+                              const Rect& rect, const Camera* cam2,
+                              const Camera3D* cam3)
+{
+    const auto fail = [&](const char* why) {
+        gfx::log("Painter::drawCanvas(%s): %s — ritytan ritas inte",
+                 canvas.name.c_str(), why);
+        return false;
+    };
+    if (!ctx.res || !ctx.c || !ctx.c->r)
+        return fail("målaren har ingen renderare");   // lang_gate:rad loggens skäl, ingen användartext
+    if (scene->painting)
+        return fail("ritytan ritar redan (anropet kom ur dess egen ritning)");   // lang_gate:rad loggens skäl, ingen användartext
+    if (!std::isfinite(rect.x) || !std::isfinite(rect.y) || !std::isfinite(rect.w) ||
+        !std::isfinite(rect.h) || !(rect.w > 0.0) || !(rect.h > 0.0))
+        return fail("rektangeln har ingen yta eller ett tal som inte är ändligt");   // lang_gate:rad loggens skäl, ingen användartext
+    if (cam3 ? !validCamera3D(*cam3) : !validCamera(*cam2))
+        return fail("ogiltig kamera");   // lang_gate:rad loggens skäl, ingen användartext
+
+    // Det som väntar ritas före — med det gamla klippet.
+    flush();
+
+    // Rektangelns hörn (z-ordning: övre vänster, övre höger, nedre vänster,
+    // nedre höger) genom transformen till målets px: målet får rektangelns
+    // upplösning, och en vriden rektangel sina sidors längd.
+    Point c[4];
+    imageCorners(rect, view().yUp, c);
+    for (Point& q : c)
+        q = xf.apply(q);
+    const Projection pr = screen ? Projection(ctx.screen)
+                          : ctx.view3D ? Projection(*ctx.view3D)
+                                       : Projection(ctx.world);
+    double sx[4], sy[4];
+    for (int i = 0; i < 4; ++i)
+        if (!pr.toScreen(c[i].x, c[i].y, sx[i], sy[i]))
+            return fail("rektangeln ligger bakom kameran");   // lang_gate:rad loggens skäl, ingen användartext
+    const double bredd = std::hypot(sx[1] - sx[0], sy[1] - sy[0]);
+    const double höjd  = std::hypot(sx[2] - sx[0], sy[2] - sy[0]);
+    if (!std::isfinite(bredd) || !std::isfinite(höjd))
+        return fail("rektangeln har inga mått på ytan");   // lang_gate:rad loggens skäl, ingen användartext
+    gfx::Renderer& r   = *ctx.c->r;
+    const int      max = std::max(1, r.maxTextureSize());
+    const int      w   = static_cast<int>(std::clamp(std::ceil(bredd), 1.0, double(max)));
+    const int      h   = static_cast<int>(std::clamp(std::ceil(höjd), 1.0, double(max)));
+
+    // Ritytans ritläge i målet: ytans resurser och ljus, och kartkameran på
+    // målets ruta (en 3D-kamera sätts av `renderCanvasTarget`).
+    const gfx::Rectf box{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)};
+    const Lighting   ljus = canvas.lighting();
+    PaintContext     pc;
+    pc.c        = ctx.c;
+    pc.res      = ctx.res;
+    pc.lighting = &ljus;
+    pc.scene    = scene.get();
+    if (cam2)
+        pc.world = mapView(*cam2, canvas.yUp(), canvas.maxPitch(), box, ctx.c->scale);
+    else
+        pc.world.yUp = canvas.yUp();
+    Target3DArgs a;
+    a.samples    = canvas.multisample();
+    a.camera     = cam3;
+    a.labelFade  = canvas.labelFade();
+    a.layerPaint = layerPaintOf(canvas);
+
+    const ImageAccount  konto(*ctx.c, scene);
+    const PaintingScope ritar(*scene);
+    std::unique_ptr<gfx::RenderTarget>& mål = ctx.res->pageTarget(w, h);
+    if (!renderCanvasTarget(pc, scene, a, w, h, kPageClear, mål))
+        return false;   // målet gick inte att skapa — loggat
+
+    // Bilden på de fyra hörnen, under målarens klipp. Målet lever framen ut
+    // (`pageTarget`).
+    std::vector<ImageChunk> quads;
+    buildImageQuad(c, quads);
+    key       = RunKey{};
+    key.kind  = PartKind::Image;
+    keyScreen = screen;
+    for (const ImageChunk& q : quads)
+        drawTransient(gfx::MeshProgram::Image, q.vertices, q.indices, q.originX,
+                      q.originY, &mål->image());
+    return true;
+}
+
+void paintWith(Canvas& yta, const Handler<PaintArgs>& h, PaintContext& p, bool screen,
+               int layer, const RenderState* state)
+{
+    Painter painter(p, screen);
+    if (state)
+        painter.setRenderState(*state);
+    PaintArgs e(painter);
+    e.layer = layer;
+    h(&yta, e);
+}
+
+LayerPaint layerPaintOf(Canvas& yta)
+{
+    if (!yta.onPaintLayer)
+        return {};
+    return [&yta](PaintContext& p, int layer, const RenderState* state) {
+        paintWith(yta, yta.onPaintLayer, p, false, layer, state);
+    };
+}
 
 } // namespace detail
 
@@ -1265,6 +1197,32 @@ Painter::Saved Painter::save()
 
 Painter::Saved Painter::save(const Rect& clip)
 {
+    // En rektangel UTAN YTA är ett tomt klipp — allt klipps bort — och inte
+    // en ogiltig yta; ett tal som inte är ändligt är ogiltigt
+    // (`InvalidClip`). Annars en yta med fyra hörn, samma väg som varje klipp.
+    if (std::isfinite(clip.x) && std::isfinite(clip.y) && std::isfinite(clip.w) &&
+        std::isfinite(clip.h) && !(clip.w > 0.0 && clip.h > 0.0))
+        return save(std::vector<ClipPolygon>{});
+    ClipPolygon y;
+    y.outer = {{clip.x, clip.y},
+               {clip.x + clip.w, clip.y},
+               {clip.x + clip.w, clip.y + clip.h},
+               {clip.x, clip.y + clip.h}};
+    Saved s = save();
+    s_->clipTo({std::move(y)}, std::isfinite(clip.x) && std::isfinite(clip.y) &&
+                                   std::isfinite(clip.w) && std::isfinite(clip.h));
+    return s;
+}
+
+Painter::Saved Painter::save(const ClipPolygon& clip)
+{
+    Saved s = save();
+    s_->clipTo({clip});
+    return s;
+}
+
+Painter::Saved Painter::save(const std::vector<ClipPolygon>& clip)
+{
     Saved s = save();
     s_->clipTo(clip);
     return s;
@@ -1281,17 +1239,24 @@ void Painter::restore()
     if (s_->saved.empty())
         return;
     const detail::PainterState::Level& l = s_->saved.back();
-    // Läget och klippet är rit-anropets: det som väntar ritas med dem, och
-    // lägets scissor tas bort efteråt.
+    // Läget och klippet är rit-anropets: det som väntar ritas med dem.
     if (!detail::sameState(s_->state, l.state) || l.clipped)
         s_->flush();
-    if (l.scissor)
-        s_->ctx.c->r->popClip();
     s_->screen = l.screen;
     s_->xf     = l.xf;
     s_->state  = l.state;
     s_->clip   = l.clip;
     s_->saved.pop_back();
+}
+
+bool Painter::drawCanvas(Canvas& canvas, const Rect& rect, const Camera& camera)
+{
+    return s_->drawCanvas(canvas, canvas.scene_, rect, &camera, nullptr);
+}
+
+bool Painter::drawCanvas(Canvas& canvas, const Rect& rect, const Camera3D& camera)
+{
+    return s_->drawCanvas(canvas, canvas.scene_, rect, nullptr, &camera);
 }
 
 void Painter::translate(double dx, double dy)

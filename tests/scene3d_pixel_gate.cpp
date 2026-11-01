@@ -7579,21 +7579,22 @@ void fallL1()
 // på en röd mark (z = 0, ett World-lager) klipper rektangeln x −2–2, y −1–1
 // i världen. Förväntat värde är ritytans `toLocal` för rektangelns hörn (planet z = 0)
 // — 4 logiska px innanför kanten ritas, 4 px utanför inte.
-//   KL1 Line3 och Glyph3 (en linje och en markör i rymden, på marken) klipps
-//       av klippets kanter: inne sin färg, ute marken.
+//   KL1 Line3 (en linje i rymden, på marken) klipps av klippets kanter: inne
+//       sin färg, ute marken. Glyph3 (en markör) klipps på sitt ANKARE: hel
+//       med ankaret innanför, ingen med det utanför.
 //   KL2 DJUPET: med Less och skrivning skriver det bortklippta INTE djup — en
 //       blå Line3 på z = 1 i klippet och efter läget en grön på z = 0,5 längs
-//       samma väg: inne vinner den blå (närmare), ute syns den gröna. Hade
+//       samma väg: inne vinner den blå (närmare), ute syns den gröna (prövad
+//       långt nog ute: prismats kant på z = 1 ligger i bilden utanför markens). Hade
 //       klippet bara nollat alfan hade den osynliga blå skymt den gröna.
-//   KL3 FÖREMÅLEN (en mesh ur `drawTriangles3`) klipps till klippets
-//       omskrivna rektangel — här, axelparallellt, klippet själv.
+//   KL3 FÖREMÅLEN (en mesh ur `drawTriangles3`, strax över marken) klipps
+//       av `glaze_clip` i Mesh-programmet i varje pixel.
 // Sabotage som SKA fälla dem: sceneClip bort ur
 // Line- eller Glyph-skuggaren (KL1 för den varianten), `discard` bort ur
-// sceneClip — bara alfan nollad (KL2: ute röd i stället för grön), scissorn
-// inte pålagd i `clipTo` (KL3: meshen utanför). MÄTER INTE den vridna eller
-// tiltade ramen i 3D-målet (scene_pixel_gate K2/K4 gör det i 2D-vägen), och
-// inte att föremålen under ett VRIDET klipp når klippets omskrivna rutas hörn
-// (det är den dokumenterade gränsen, inget löfte).
+// sceneClip — bara alfan nollad (KL2: ute röd i stället för grön),
+// `glaze_clip` bort ur Mesh-programmet (KL3: meshen utanför). MÄTER INTE den
+// vridna eller tiltade ramen i 3D-målet för målarens klipp (scene_pixel_gate
+// K2/K4 gör det i 2D-vägen); KL4–KL8 nedan mäter ritytans och lagrets.
 
 // En kant i de lokala px: dess punkt `p` och normalen INÅT (mot `inne`).
 struct KlippKant {
@@ -7674,24 +7675,33 @@ void fallKL1()
           px(vidKant(k.r, b, k.vä, 4)) + " " + px(vidKant(k.r, b, k.hö, 4)) +
               " | " + px(vidKant(k.r, b, k.vä, -4)) + " " +
               px(vidKant(k.r, b, k.hö, -4)));
-    // Markören i rymden (Glyph3), 60 px, mitt på den högra kanten.
-    y.onPaint = [&](glaze::Widget*, glaze::PaintArgs& e) {
-        glaze::Painter& p = e.painter;
-        auto            s = p.save(glaze::Rect{-2, -1, 4, 2});
-        p.drawMarker3({2, 0, 0},
-                      glaze::MarkerStyle{.size = glaze::px(60.0f), .fill = kGrön});
+    // Markören i rymden (Glyph3), 60 px, klipps på sitt ANKARE: ankaret
+    // strax innanför den högra kanten ger hela markören — också förbi kanten
+    // — och ankaret strax utanför ingen alls.
+    const auto markör = [&](double ax) {
+        y.onPaint = [&, ax](glaze::Widget*, glaze::PaintArgs& e) {
+            glaze::Painter& p = e.painter;
+            auto            s = p.save(glaze::Rect{-2, -1, 4, 2});
+            p.drawMarker3({ax, 0, 0.05},
+                          glaze::MarkerStyle{.size = glaze::px(60.0f), .fill = kGrön});
+        };
+        return k.r.bild();
     };
-    b = k.r.bild();
+    b = markör(1.9);
     if (g_ritfel)
         return;
-    check(ärFärg(vidKant(k.r, b, k.hö, 4), kGrön, 8) &&
-              ärFärg(vidKant(k.r, b, k.hö, 20), kGrön, 8) &&
-              ärFärg(vidKant(k.r, b, k.hö, -4), kRöd, 8) &&
-              ärFärg(vidKant(k.r, b, k.hö, -20), kRöd, 8),
-          "KL1 målarens Glyph3 klipps: den halva markören innanför kanten",
-          px(vidKant(k.r, b, k.hö, 4)) + " " + px(vidKant(k.r, b, k.hö, 20)) +
-              " | " + px(vidKant(k.r, b, k.hö, -4)) + " " +
-              px(vidKant(k.r, b, k.hö, -20)));
+    const std::string inne = px(vidKant(k.r, b, k.hö, 4)) + " " +
+                             px(vidKant(k.r, b, k.hö, -4));
+    const bool hel = ärFärg(vidKant(k.r, b, k.hö, 4), kGrön, 8) &&
+                     ärFärg(vidKant(k.r, b, k.hö, -4), kGrön, 8);
+    b = markör(2.1);
+    if (g_ritfel)
+        return;
+    check(hel && ärFärg(vidKant(k.r, b, k.hö, 4), kRöd, 8) &&
+              ärFärg(vidKant(k.r, b, k.hö, -4), kRöd, 8),
+          "KL1 målarens Glyph3 klipps på ankaret: hel innanför, ingen utanför",
+          inne + " | " + px(vidKant(k.r, b, k.hö, 4)) + " " +
+              px(vidKant(k.r, b, k.hö, -4)));
 }
 
 void fallKL2()
@@ -7714,12 +7724,14 @@ void fallKL2()
     if (g_ritfel)
         return;
     const std::uint8_t* inne = b.at(k.r.x(k.mitt.x), k.r.y(k.mitt.y));
-    check(ärFärg(inne, kBlå, 8) && ärFärg(vidKant(k.r, b, k.vä, -4), kGrön, 8) &&
-              ärFärg(vidKant(k.r, b, k.hö, -4), kGrön, 8),
+    // Prismats kant för den blå linjen på z = 1 ligger i bilden längre ut än
+    // markens (perspektivet) — 30 px utanför är den alltid bortklippt.
+    check(ärFärg(inne, kBlå, 8) && ärFärg(vidKant(k.r, b, k.vä, -30), kGrön, 8) &&
+              ärFärg(vidKant(k.r, b, k.hö, -30), kGrön, 8),
           "KL2 det bortklippta skriver inget djup: inne den närmare blå, ute "
           "den gröna bakom den",
-          px(inne) + " | " + px(vidKant(k.r, b, k.vä, -4)) + " " +
-              px(vidKant(k.r, b, k.hö, -4)));
+          px(inne) + " | " + px(vidKant(k.r, b, k.vä, -30)) + " " +
+              px(vidKant(k.r, b, k.hö, -30)));
 }
 
 void fallKL3()
@@ -7728,8 +7740,9 @@ void fallKL3()
     if (!k.öppna(0.0))
         return;
     const glaze::MeshStyle           blå{.color = kBlå, .lit = false};
-    const std::vector<glaze::Point3> ruta = {{-3, -3, 0.5}, {3, -3, 0.5}, {3, 3, 0.5},
-                                             {-3, -3, 0.5}, {3, 3, 0.5},  {-3, 3, 0.5}};
+    // Strax över marken: prismats kant ligger då där markens gör i bilden.
+    const std::vector<glaze::Point3> ruta = {{-3, -3, 0.05}, {3, -3, 0.05}, {3, 3, 0.05},
+                                             {-3, -3, 0.05}, {3, 3, 0.05},  {-3, 3, 0.05}};
     k.r.f.yta.onPaint = [&](glaze::Widget*, glaze::PaintArgs& e) {
         auto s = e.painter.save(glaze::Rect{-2, -1, 4, 2});
         e.painter.drawTriangles3(ruta, blå);
@@ -7741,9 +7754,204 @@ void fallKL3()
     check(ärFärg(inne, kBlå, 8) && ärFärg(vidKant(k.r, b, k.vä, 4), kBlå, 8) &&
               ärFärg(vidKant(k.r, b, k.vä, -4), kRöd, 8) &&
               ärFärg(vidKant(k.r, b, k.hö, -4), kRöd, 8),
-          "KL3 målarens mesh klipps till klippets rektangel (scissorn)",
+          "KL3 målarens mesh klipps i varje pixel av prismat",
           px(inne) + " " + px(vidKant(k.r, b, k.vä, 4)) + " | " +
               px(vidKant(k.r, b, k.vä, -4)) + " " + px(vidKant(k.r, b, k.hö, -4)));
+}
+
+// ----------------------------------------------------------- KL4–KL8
+//
+// RITYTANS OCH LAGRETS KLIPP I 3D-MÅLET (`Canvas::setClips` i `ClipSpace::World`,
+// `setLayerClips`): ett PRISMA — polygonen i världens XY sträcker sig lodrätt.
+//   KL4 PRISMAT: en lodrät vägg (en mesh) bakom ett klipp x −2–2 klipps vid
+//       x = ±2 på HELA höjden under tilt — också högt upp, där en yta på marken
+//       hade klippt annorlunda (kanterna lutar mot flyktpunkten). Referensen
+//       är ritytans `project` av väggens kant (±2, 0, z).
+//   KL5 PUNKTMOLNET klipps på punktens ankare: punkterna vid x < 0 syns, de
+//       vid x > 0 inte.
+//   KL6 DRAPERINGEN: ett Ground-lager på en terräng med ett eget världsklipp
+//       (x < 0) ritar sin röda linje bara dit — draperingen bakas med klippet
+//       i sitt mål.
+//   KL7 ETIKETTEN PÅ ANKARET: en stor markör i rymden (Glyph3) vars ankare ligger
+//       innanför klippet ritas HEL även där dess pixlar ligger utanför kanten.
+//   KL8 `renderToBitmap` ritar med klippet: rött innanför, bakgrund utanför.
+//   Sabotage som SKA fälla dem: världsmasken bort ur `tall`-looken (KL4, KL5,
+//   KL7), `glaze_clip` bort ur Mesh- eller Points-programmet (KL4 respektive
+//   KL5), lagrets klippversion bort ur draperingens innehållsnyckel (KL6 — ett
+//   ändrat klipp ritar inte om), `drawGlyphs` med `flat`-looken för Glyph3 (KL7),
+//   klippet bort ur `renderBitmap3D` (KL8). MÄTER INTE det vridna prismat i en
+//   del-vy eller ett klipp i `ClipSpace::Screen` i 3D-målet.
+
+glaze::ClipPolygon prismaYta(double x0, double y0, double x1, double y1)
+{
+    glaze::ClipPolygon p;
+    p.outer = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+    return p;
+}
+
+void fallKL4()
+{
+    Rit3 r;
+    if (!r.öppna())
+        return;
+    glaze::Canvas& y = r.f.yta;
+    y.setCamera(glaze::Camera3D{.target = {0, 0, 1.5}, .distance = 12,
+                                .elevation = 30});
+    y.setLayerPlacement(0, glaze::LayerPlacement::World);
+    y.addShape(0, glaze::Shape::rect({-100, -100, 200, 200}, kRöd));
+    const std::vector<glaze::Point3> vägg = {{-6, 0, 0}, {6, 0, 0}, {6, 0, 4},
+                                             {-6, 0, 0}, {6, 0, 4}, {-6, 0, 4}};
+    y.addShape(0, glaze::Shape::mesh(glaze::Mesh::fromWorld(vägg), {},
+                                     {.color = kBlå, .lit = false}));
+    y.setClipSpace(glaze::ClipSpace::World);
+    y.addClip(prismaYta(-2, -50, 2, 50));
+    const Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    int         ok = 0, prov = 0;
+    std::string fick;
+    for (const double z : {0.4, 2.0, 3.6}) {
+        const auto hö = y.project({2, 0, z});
+        const auto vä = y.project({-2, 0, z});
+        if (!hö || !vä)
+            continue;
+        ++prov;
+        const bool inne = ärFärg(b.at(r.x(hö->x - 4), r.y(hö->y)), kBlå, 8) &&
+                          ärFärg(b.at(r.x(vä->x + 4), r.y(vä->y)), kBlå, 8);
+        const bool ute = !ärFärg(b.at(r.x(hö->x + 4), r.y(hö->y)), kBlå, 40) &&
+                         !ärFärg(b.at(r.x(vä->x - 4), r.y(vä->y)), kBlå, 40);
+        ok += inne && ute;
+        fick += " z" + tal(z) + (inne ? " inne" : " INTE-inne") + (ute ? " ute" : " INTE-ute");
+    }
+    check(prov == 3 && ok == 3,
+          "KL4 prismat: väggen klipps lodrätt vid x = ±2 på tre höjder under tilt",
+          fick);
+}
+
+void fallKL5()
+{
+    Rit3 r;
+    if (!r.öppna())
+        return;
+    glaze::Canvas& y = r.f.yta;
+    y.setCamera(uppifrånKamera({0, 0, 0}, 10));
+    const Uppifrån u = uppifrån(r, 10);
+    y.addShape(glaze::Shape::pointCloud(
+        glaze::PointCloud({{-4, 0, 0}, {-2, 3, 0}, {2, -3, 0}, {4, 0, 0}},
+                          {0, 0, 0}, {kRöd, kRöd, kRöd, kRöd}),
+        {.size = glaze::px(16.0f), .color = kVit}));
+    y.setClipSpace(glaze::ClipSpace::World);
+    y.addClip(prismaYta(-50, -50, 0, 50));
+    const Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    const auto vid = [&](double x, double yy) { return b.at(u.x(x), u.y(yy)); };
+    check(ärFärg(vid(-4, 0), kRöd, 8) && ärFärg(vid(-2, 3), kRöd, 8) &&
+              !ärFärg(vid(2, -3), kRöd, 40) && !ärFärg(vid(4, 0), kRöd, 40),
+          "KL5 punktmolnet klipps på ankaret: x < 0 syns, x > 0 inte",
+          px(vid(-4, 0)) + " " + px(vid(-2, 3)) + " | " + px(vid(2, -3)) + " " +
+              px(vid(4, 0)));
+}
+
+void fallKL6()
+{
+    Rit3 r;
+    if (!r.öppna())
+        return;
+    glaze::Canvas& y = r.f.yta;
+    y.setCamera(kLutKamera);
+    const int T = y.addLayer("terräng");
+    y.setLayerPlacement(T, glaze::LayerPlacement::Terrain);
+    y.addShape(T, glaze::Shape::mesh(platta(false), {},
+                                     {.color = kPlattGrå, .lit = false}));
+    const int G = y.addLayer("vägar");
+    y.addShape(G, glaze::Shape::polyline({{-6, 2}, {6, 2}},
+                                         {.paint = kRöd, .width = glaze::px(5.0f)}));
+    y.setLayerClipSpace(G, glaze::ClipSpace::World);
+    y.addLayerClip(G, prismaYta(-50, -50, 0, 50));
+    Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    const Hålkamera h = hålkamera(kLutKamera, r.box);
+    const auto prov = [&](const Bild& bild, double x) {
+        double sx = 0.0, sy = 0.0;
+        return h.proj(x, 2.0, plattH(x, 2.0), sx, sy) && rödNära(bild, sx, sy, 2);
+    };
+    const bool vä = prov(b, -5.0) && prov(b, -2.5);
+    const bool hö = prov(b, 2.5) || prov(b, 5.0);
+    check(vä && !hö,
+          "KL6 lagrets klipp bakas in i draperingen: linjen syns vid x < 0, inte vid x > 0",
+          std::string(vä ? "vänster ok" : "vänster SAKNAS") + (hö ? ", höger SYNS" : ""));
+    // Ett ändrat klipp ritar om draperingen: nu x > 0.
+    const std::uint64_t före = draperingar(r);
+    y.setLayerClips(G, {prismaYta(0, -50, 50, 50)});
+    b = r.bild();
+    if (g_ritfel)
+        return;
+    check(draperingar(r) > före && prov(b, 2.5) && prov(b, 5.0) && !prov(b, -5.0),
+          "KL6 ett ändrat lagerklipp ritar om draperingen",
+          std::to_string(före) + " → " + std::to_string(draperingar(r)));
+}
+
+void fallKL7()
+{
+    KlippBänk k;
+    if (!k.öppna(0.0))
+        return;
+    glaze::Canvas& y = k.r.f.yta;
+    y.setLayerClipSpace(0, glaze::ClipSpace::World);
+    // Gränsen vid x = 1,2 — ankaret vid x = 1 ligger innanför, markören är
+    // 120 px bred och sticker långt förbi kanten.
+    y.addLayerClip(0, prismaYta(-100, -100, 1.2, 100));
+    y.addShape(0, glaze::Shape::marker3({1, 0, 0.05},
+                                        glaze::MarkerStyle{.size = glaze::px(120.0f),
+                                                           .fill = kGrön}));
+    const Bild b = k.r.bild();
+    if (g_ritfel)
+        return;
+    const auto a = y.toLocal(glaze::Point{1.0, 0.0});
+    const auto g = y.toLocal(glaze::Point{1.2, 0.0});
+    if (!a || !g) {
+        check(false, "KL7 ankaret och gränsen har en bild på ytan");
+        return;
+    }
+    // 40 logiska px till höger om kanten ligger markörens pixlar — utanför
+    // klippet, men markören hör till ankaret.
+    const double bort = g->x + 30.0;
+    check(ärFärg(b.at(k.r.x(a->x), k.r.y(a->y)), kGrön, 8) &&
+              ärFärg(b.at(k.r.x(bort), k.r.y(a->y)), kGrön, 8),
+          "KL7 en etikett klipps på ankaret: hel, också förbi kanten",
+          px(b.at(k.r.x(a->x), k.r.y(a->y))) + " " +
+              px(b.at(k.r.x(bort), k.r.y(a->y))));
+}
+
+void fallKL8()
+{
+    Rit3 r;
+    if (!r.öppna())
+        return;
+    glaze::Canvas& y = r.f.yta;
+    const glaze::Camera3D kam{.target = {0, 0, 0}, .distance = 10, .elevation = 90,
+                              .nearPlane = 1, .farPlane = 100};
+    y.setCamera(kam);
+    y.setLayerPlacement(0, glaze::LayerPlacement::World);
+    y.addShape(0, glaze::Shape::rect({-100, -100, 200, 200}, kRöd));
+    y.setClipSpace(glaze::ClipSpace::World);
+    y.addClip(prismaYta(-2, -2, 2, 2));
+    r.bild();
+    if (g_ritfel)
+        return;
+    const std::optional<glaze::Bitmap> bm = y.renderToBitmap(200, 200, kam);
+    if (!bm) {
+        check(false, "KL8 renderToBitmap gav ingen bild");
+        return;
+    }
+    // Mitten (i klippet) röd, hörnet (utanför) inte.
+    const std::uint8_t* mitt = bm->pixels() + (100 * 200 + 100) * 4;
+    const std::uint8_t* hörn = bm->pixels() + (10 * 200 + 10) * 4;
+    check(ärFärg(mitt, kRöd, 8) && !ärFärg(hörn, kRöd, 40),
+          "KL8 renderToBitmap ritar med klippet: rött i klippet, inte utanför",
+          px(mitt) + " | " + px(hörn));
 }
 
 int main(int argc, char** argv)
@@ -7871,6 +8079,11 @@ int main(int argc, char** argv)
     if (!g_ritfel) fallKL1();
     if (!g_ritfel) fallKL2();
     if (!g_ritfel) fallKL3();
+    if (!g_ritfel) fallKL4();
+    if (!g_ritfel) fallKL5();
+    if (!g_ritfel) fallKL6();
+    if (!g_ritfel) fallKL7();
+    if (!g_ritfel) fallKL8();
 
     std::printf(g_fel ? "=== scene3d_pixel_gate: %d FEL av %d ===\n"
                       : "=== scene3d_pixel_gate: allt grönt (%d fel av %d) ===\n",

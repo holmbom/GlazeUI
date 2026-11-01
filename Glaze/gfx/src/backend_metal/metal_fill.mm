@@ -154,15 +154,15 @@ vertex FillOut fillVs(FillIn i [[stage_in]], constant PaintU& u [[buffer(1)]])
 fragment float4 fillPs(FillOut i [[stage_in]],
                        constant ClipMasks& cm [[buffer(0)]],
                        constant PaintU& u [[buffer(1)]],
-                       constant SceneClip& sc [[buffer(4)]],
                        texture2d<float> ramp [[texture(0)]],
-                       sampler smp [[sampler(0)]])
+                       sampler smp [[sampler(0)]],
+                       GLAZE_CLIP_PARAMS)
 {
     const float4 col = i.col * paintColor(u, ramp, smp, i.world);
     const float  cov = 1.0 - saturate(i.edge);
     return float4(col.rgb, col.a * cov * u.paint1.y *
                                clipCoverage(i.pos.xy, cm) *
-                               sceneClip(i.pos.xy, sc));
+                               glaze_clipScreen(i.pos.xy, GLAZE_CLIP_ARGS));
 }
 )msl";
 
@@ -198,7 +198,8 @@ bool MetalRenderer::initFillProgram()
     @autoreleasepool {
         NSError*          err = nil;
         const std::string src =
-            std::string(kMslClipSrc) + kMslPaintSrc + kFillMslSrc;
+            std::string(kMslClipSrc) + kMslSceneClipSrc + kMslPaintSrc +
+            kFillMslSrc;
         id<MTLLibrary> lib = compileMsl(@(src.c_str()), nil, &err);
         if (!lib) {
             log("MSL (Fill) misslyckades: %s — drawMesh ritar inga ytor",

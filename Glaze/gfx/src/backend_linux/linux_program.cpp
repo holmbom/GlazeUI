@@ -5,8 +5,10 @@
 // rit-anrop. GL-skillnaderna:
 //
 //   * GLSL 330 saknar layout(binding): blocken binds på NAMN
-//     (glUniformBlockBinding — GlazeFrame på punkt 3, GlazeUser på 4) och
-//     samplers på namn (GlazeTexture0–3 får enhet 0–3) när programmet skapas.
+//     (glUniformBlockBinding — GlazeFrame på punkt 3, GlazeUser på 4,
+//     förspelets GlazeClip på 5) och samplers på namn (GlazeTexture0–3 får
+//     enhet 0–3, förspelets GlazeClipScreen och GlazeClipWorld enhet 4–5) när
+//     programmet skapas.
 //   * Platserna är layout(location = N) i källan; programmet länkas utan
 //     glBindAttribLocation. Reflektionen (de aktiva attributen) ger platserna
 //     och slaget — ett heltalsattribut går med glVertexAttribIPointer
@@ -37,7 +39,9 @@ constexpr GLuint kUserBinding  = 4;
 // FÖRSPELET (gfx/program.h) — efter `#version` och definitionerna, före
 // `#line 1` och appens källa. GlazeFrame som `glaze` (std140, samma form som
 // FrameUniforms) och glaze_toClip — och därefter färgjusteringen
-// (`kGlslAdjustSrc`, gl_common.cpp) i båda stegen.
+// (`kGlslAdjustSrc`, gl_common.cpp) och de skärmvända hörnens djup i båda
+// stegen och klippet (`kGlslSceneClipSrc`) i fragmentsteget, där `discard`
+// finns.
 const char kGlslPrelude[] = R"glsl(
 layout(std140) uniform GlazeFrame
 {
@@ -168,6 +172,10 @@ std::string samplerReflection(unsigned prog, int textures,
                             &size, &type, name);
         if (!samplerType(type))
             continue;
+        // Klippets maskers samplers är förspelets (enhet 4–5).
+        if (std::strcmp(name, "GlazeClipScreen") == 0 ||
+            std::strcmp(name, "GlazeClipWorld") == 0)
+            continue;
         int slot = -1;
         for (int s = 0; s < kMaxProgramTextures; ++s)
             if (std::strcmp(name, ("GlazeTexture" + std::to_string(s)).c_str()) ==
@@ -212,7 +220,8 @@ std::string uniformReflection(unsigned prog)
     pglGetProgramiv(prog, GL_ACTIVE_UNIFORM_BLOCKS, &blocks);
     const int kända =
         (pglGetUniformBlockIndex(prog, "GlazeFrame") != GL_INVALID_INDEX) +
-        (pglGetUniformBlockIndex(prog, "GlazeUser") != GL_INVALID_INDEX);
+        (pglGetUniformBlockIndex(prog, "GlazeUser") != GL_INVALID_INDEX) +
+        (pglGetUniformBlockIndex(prog, "GlazeClip") != GL_INVALID_INDEX);
     if (blocks > kända)
         return "har ett uniform-block utöver GlazeFrame och GlazeUser — det "
                "hade aldrig fått något värde";
@@ -328,8 +337,9 @@ std::unique_ptr<ShaderProgram> GlRenderer::createProgram(const ProgramDesc& d)
         const char* vsParts[] = {kGlslVersion,   defs.c_str(), kGlslPrelude,
                                  kGlslAdjustSrc, kGlslStandSrc, "#line 1\n",
                                  d.glslVertex.c_str()};
-        const char* fsParts[] = {kGlslVersion,   defs.c_str(), kGlslPrelude,
-                                 kGlslAdjustSrc, kGlslStandSrc, "#line 1\n",
+        const char* fsParts[] = {kGlslVersion,      defs.c_str(), kGlslPrelude,
+                                 kGlslAdjustSrc,    kGlslStandSrc,
+                                 kGlslSceneClipSrc, "#line 1\n",
                                  d.glslFragment.c_str()};
         std::string    text;
         const unsigned vs =
@@ -393,6 +403,8 @@ std::unique_ptr<ShaderProgram> GlRenderer::createProgram(const ProgramDesc& d)
             if (texLoc[s] >= 0)
                 pglUniform1i(texLoc[s], s);
         pglUseProgram(static_cast<GLuint>(bound));
+        // Och förspelets klipp: blocket på punkt 5, maskerna på enhet 4–5.
+        setupSceneClipProgram(prog);
     }
 
     if (!err.empty()) {
@@ -459,6 +471,10 @@ void GlRenderer::drawCustomMesh(const MeshDraw& d)
                                                           : samplerNearest_);
     }
     pglActiveTexture(GL_TEXTURE0);
+
+    // Klippet: blocket på punkt 5 och maskerna på enhet 4–5, för programmets
+    // `glaze_clip`.
+    bindSceneClip(d);
 
     // Strömmarna: attributen på och av efter layouten, pekarna med delens
     // offset — instansdelen också (ingen baseInstance i GL 3.3), med

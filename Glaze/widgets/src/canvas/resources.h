@@ -17,6 +17,7 @@
 #include <gfx/scene.h>
 #include <gfx/sdf.h>
 
+#include "clip.h"
 #include "glaze/canvas/shape.h"
 #include "scene.h"
 
@@ -87,6 +88,9 @@ public:
     // DRAPERINGARNA: terrängens draperingsmål — drape.h.
     // Rivs och trimmas med resten.
     detail::DrapeCache& drapes() { return *drapes_; }
+    // KLIPPMASKERNA: ritytans, lagrens och målarens klipp som bilder —
+    // clip.h. Rivs och trimmas med resten.
+    detail::ClipMasks& clips() { return *clips_; }
 
     // Framens början: släpper det vars källa dött (en chunk eller körning
     // som byggts om, en rityta som rivits), tömmer atlaserna över taket
@@ -208,6 +212,9 @@ public:
         // målet när ritytan tonar, annars samma).
         std::vector<std::uint8_t>   target, shown;
         std::uint64_t               fadeMs = 0;   // senaste tonsteget
+        // Ritytans och lagrens klippversioner placeringen gjordes med
+        // (clip.h `clipVersions`) — ett ändrat klipp placerar om.
+        std::uint64_t               clipKey = 0;
         std::unique_ptr<gfx::Image> tex;   // nullptr = ingen etikett kolliderar
     };
     // Bildens bredd i texlar; raderna växer med antalet etiketter.
@@ -250,6 +257,7 @@ public:
         std::uint64_t                          stamp = 0;       // damageStamp
         gfx::Rectf                             box{};           // ritytans ruta
         float                                  pxPerPx = 0.0f, pxPerMm = 0.0f;
+        std::uint64_t                          clipKey = 0;     // klippversionerna
     };
     // Målet för ritytan och vyn — skapat, eller ersatt (och då oritat) när
     // måtten eller provtagningen ändrats. `target` är ogiltigt när målet inte
@@ -262,6 +270,12 @@ public:
     // renderToBitmap, så de står kvar. 0 = ritytan ritar i 2D igen.
     void          dropViews(std::uint64_t sceneId, int firstView);
     std::size_t   targetCount() const { return targets_.size(); }
+    // MÅLET FÖR EN RITYTA PÅ EN ANNAN YTA (`Painter::drawCanvas`): ett mål
+    // w × h som inte används av något annat anrop i den här framen — ritytans
+    // bild ritas på målarens yta efteråt, så målet måste leva framen ut. Ett
+    // som inte använts på två framer släpps i `trim`. Tomt (`nullptr`) tills
+    // `renderCanvasTarget` skapat det.
+    std::unique_ptr<gfx::RenderTarget>& pageTarget(int w, int h);
     // Hur många gånger ett 3D-mål RITATS (inte kompositats) — 3D-cachens
     // räknare (scene3d_pixel_gate G3).
     std::uint64_t targetRenders() const { return targetRenders_; }
@@ -328,6 +342,12 @@ private:
 
     // 3D-målen per (rityta, vy) och hur många gånger de ritats.
     std::map<std::pair<std::uint64_t, int>, Target3D> targets_;
+    struct PageTarget {
+        std::unique_ptr<gfx::RenderTarget> target;
+        int                                w = 0, h = 0;
+        std::uint64_t                      used = 0;   // framens löpnummer
+    };
+    std::vector<std::unique_ptr<PageTarget>> pageTargets_;
     std::uint64_t                                     targetRenders_ = 0;
     std::unique_ptr<GridMesh>                         groundPlane_;
 
@@ -344,6 +364,7 @@ private:
     // draperingar — `drapes`.
     std::unique_ptr<detail::ObjectResidency> objects_;
     std::unique_ptr<detail::DrapeCache>      drapes_;
+    std::unique_ptr<detail::ClipMasks>       clips_;
 
     // [familj] (UI, Mono); tömda (nollställda) över taket i `trim`.
     std::array<std::unique_ptr<gfx::SdfAtlas>, 2> atlases_{};

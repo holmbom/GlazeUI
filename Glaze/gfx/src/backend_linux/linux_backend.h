@@ -629,20 +629,17 @@ private:
     };
     GlTransientRing transient_[2];   // [0] vertex, [1] index
 
-    // MÅLARENS KLIPP: kantplanen som uniformer PER PROGRAM
-    // (kGlslClipSrc: `uSceneClip`/`uSceneClipN`) — ett scenprograms locations
-    // och hur många plan det senast fick. `findSceneClip` slår upp dem efter
-    // länkningen (false när någon saknas — källan och C++-sidan har glidit
-    // isär), och `setSceneClip` laddar upp anropets klipp med programmet
-    // bundet: inget klipp nu och inget förut ⇒ inget GL-anrop (länkningen
-    // nollar uniformerna, så programmet börjar utan klipp).
-    struct SceneClipLocs {
-        int planes = -1;
-        int count  = -1;
-        int sent   = 0;
-    };
-    bool findSceneClip(unsigned program, SceneClipLocs& l);
-    void setSceneClip(const MeshDraw& d, SceneClipLocs& l);
+    // MÅLARENS KLIPP: blocket `GlazeClip` (std140, 48 byte: skärmmaskens yta,
+    // världsmaskens uv-affin och flaggorna) i `clipUbo_` på bindningspunkt 5,
+    // maskerna på enhet 4–5 (gl_common.h, kGlslSceneClipSrc). Platserna är
+    // GL-tillstånd och inte programmens, så `bindSceneClip` gäller varje
+    // scenprogram: blocket skrivs bara när anropets klipp skiljer från
+    // `sceneClip_`, och maskerna binds om vid varje anrop med mask — och en
+    // gång efter sista masken, till den vita texturen, så att en mask som
+    // blir målet inte står kvar på enheten.
+    void bindSceneClip(const MeshDraw& d);
+    unsigned  clipUbo_ = 0;
+    SceneClip sceneClip_;   // det blocket bär
 
     // LINE-PROGRAMMET och dess LINE3-variant (samma
     // källa med GLAZE_POS3, punkterna i xyz): två länkade program med var
@@ -661,7 +658,6 @@ private:
         int      stroke   = -1;   // konturen: spetsgränsen och strecken
         int      dash     = -1;
         unsigned clipGen  = 0;    // vad programmet senast fick av maskerna
-        SceneClipLocs sceneClip;  // målarens klipp
     };
     LineProgram line_, line3_;
     bool buildLineProgram(bool pos3, LineProgram& p);
@@ -684,7 +680,6 @@ private:
     int      imageClipP1Loc_   = -1;
     int      imageClipNLoc_    = -1;
     unsigned imageClipGen_     = 0;   // vad Image-programmet senast fick
-    SceneClipLocs imageSceneClip_;    // målarens klipp
 
     // FILL-PROGRAMMET (linux_fill.cpp): ytorna ur
     // `FillVertex` och färgen — se d3d11_fill.cpp. Egna uniformer och egen
@@ -705,7 +700,6 @@ private:
     int      fillClipP1Loc_   = -1;
     int      fillClipNLoc_    = -1;
     unsigned fillClipGen_     = 0;   // vad Fill-programmet senast fick
-    SceneClipLocs fillSceneClip_;    // målarens klipp
 
     // GLYPH-PROGRAMMET (linux_glyph.cpp): text och
     // markörer som billboards — se d3d11_glyph.cpp. Och dess GLYPH3-variant
@@ -725,7 +719,6 @@ private:
         int      clipP1   = -1;
         int      clipN    = -1;
         unsigned clipGen  = 0;    // vad programmet senast fick av maskerna
-        SceneClipLocs sceneClip;  // målarens klipp
     };
     GlyphProgram glyph_, glyph3_;
     bool buildGlyphProgram(bool pos3, GlyphProgram& p);

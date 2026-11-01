@@ -755,6 +755,59 @@ void WidgetGallery::ritytaFlik(glaze::TabPage* sida)
         ner->setToolTip(glaze::tr(demo::str::KartaLagerBak));
         ner->onClick    = [this, k] { kartaLagerSteg(*k, -1); };
 
+        // KLIPPET: ritytan klipps till en tandad yta med ett runt HÅL över
+        // torget, och plattorna dessutom till en cirkel — lagrets klipp är
+        // snittet med ritytans. I World är ytan ett prisma: luta kartan
+        // (Ctrl+drag), så följer kanten marken.
+        auto* klipp       = g->add<glaze::Button>("✂");
+        klipp->anchorLeft = {"kartaLagerNer", 12};
+        klipp->anchorTop  = {"g25kSep", 18};
+        klipp->name       = "kartaKlipp";
+        klipp->setToolTip("Klipp kartan till en yta med hål");
+        klipp->onClick    = [k] {
+            if (k->clipEnabled()) {
+                k->resetClip();
+                k->resetLayerClip(kPlattLager);
+                return;
+            }
+            const auto ring = [](double cx, double cy, double r, double tand,
+                                 int n) {
+                std::vector<glaze::Point> p;
+                for (int i = 0; i < n; ++i) {
+                    const double a = i * 2.0 * kPi / n;
+                    const double q = r * (1.0 + tand * std::cos(7.0 * a));
+                    p.push_back(P(cx + q * std::cos(a), cy + q * std::sin(a)));
+                }
+                return p;
+            };
+            k->setClips({{ring(0, 0, 100, 0.12, 140), {ring(-20, -40, 25, 0.0, 48)}}});
+            k->setLayerClips(kPlattLager, {{ring(0, 0, 70, 0.0, 96), {}}});
+        };
+        // UTSKRIFTEN: kartan på sidan med `drawCanvas` — vänster med skärmens
+        // kamera, höger vriden 45° och inzoomad, i sidans upplösning.
+        auto* skriv       = g->add<glaze::Button>("⎙");
+        skriv->anchorLeft = {"kartaKlipp", 4};
+        skriv->anchorTop  = {"g25kSep", 18};
+        skriv->name       = "kartaSkrivUt";
+        skriv->setToolTip("Skriv ut kartan (två kameror på en sida)");
+        skriv->onClick    = [this, k] {
+            glaze::PrintJob jobb;
+            jobb.setTitle("Karta");
+            jobb.setPaper(glaze::PaperSize::A4);
+            jobb.setOrientation(glaze::PageOrientation::Landscape);
+            if (!jobb.showDialog(*this))
+                return;
+            jobb.run(*this, 1, [k](int, glaze::Painter& p) {
+                glaze::Camera vänster = k->camera();
+                glaze::Camera höger   = vänster;
+                höger.zoom *= 2.0;
+                höger.bearing = 45.0f;
+                p.drawCanvas(*k, glaze::Rect{15, 30, 128, 90}, vänster);
+                p.drawCanvas(*k, glaze::Rect{154, 30, 128, 90}, höger);
+                return false;
+            });
+        };
+
         fot(g, demo::str::KartaFot, "karta", 8);
     }
 

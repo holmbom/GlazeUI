@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <vector>
 
 // RITYTANS GEOMETRI OCH ENHETER — de minsta
 // typerna ritytans scen byggs av. Världens koordinater är DOUBLE hela vägen
@@ -37,6 +38,36 @@ struct Rect {
     double w = 0.0;
     double h = 0.0;
 };
+
+// KLIPPETS RYMD (`Canvas::setClipSpace`, `setLayerClipSpace`):
+//   World   världens XY, LODRÄTT genom scenen — ett PRISMA: i 2D en yta på
+//           kartan som följer kameran, i 3D klipps terrängen, meshar och
+//           stående text där området slutar, oavsett tilt och höjd (stående
+//           text och markörer på sitt ankare: hela etiketten eller ingen).
+//   Screen  ritytans LOKALA LOGISKA px, (0, 0) i övre vänstra hörnet och y
+//           nedåt — en yta på skärmen som ingen kamera flyttar.
+enum class ClipSpace : std::uint8_t { World, Screen };
+
+// En KLIPPYTA: ytterringen och dess HÅL, i klippets rymd. Orienteringen
+// spelar ingen roll och en upprepad slutpunkt tas bort. Ingen gräns för
+// antalet hörn. Flera ytor i en samling är deras UNION (de får överlappa).
+// OGILTIG är en yta vars ytterring eller hål korsar sig själv, vars hål går
+// utanför ytterringen eller korsar ett annat hål, vars ytterring har färre än
+// tre olika punkter (eller alla på en linje), eller som har en punkt som inte
+// är ändlig — vad som då händer väljer `InvalidClip`. Ett HÅL utan yta (färre
+// än tre punkter, alla på en linje) bortses från.
+struct ClipPolygon {
+    std::vector<Point>              outer;
+    std::vector<std::vector<Point>> holes;
+};
+
+// EN OGILTIG KLIPPYTA (`Canvas::setInvalidClip`):
+//   Show  förvalet — klippet den ingår i (ritytans, lagrets eller målarens
+//         `save`) GÄLLER INTE: allt det hade klippt syns.
+//   Hide  den ogiltiga ytan täcker ingenting: det som bara den hade släppt
+//         igenom klipps bort, och utan någon giltig yta klipps allt bort.
+// Båda loggar ytan (`gfx::log`).
+enum class InvalidClip : std::uint8_t { Show, Hide };
 
 enum class Unit : std::uint8_t { Px, Mm, World };
 

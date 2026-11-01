@@ -31,8 +31,9 @@ namespace {
 
 // FÖRSPELET (gfx/program.h) — GlazeFrame som struct och glaze_toClip, som
 // tar blocket som argument (MSL har inga globala block), och därefter
-// färgjusteringen (`kMslAdjustSrc` nedan) och de skärmvända
-// hörnens djup (`kMslStandSrc`). Efter förspelet
+// klippet (`kMslSceneClipSrc`, metal_renderer.mm), färgjusteringen
+// (`kMslAdjustSrc` nedan) och de skärmvända hörnens djup (`kMslStandSrc`).
+// Efter förspelet
 // står `#line 1 "<namn>"` (createProgram).
 const char kMslPrelude[] = R"msl(
 #include <metal_stdlib>
@@ -253,8 +254,8 @@ std::unique_ptr<ShaderProgram> MetalRenderer::createProgram(
         @autoreleasepool {
             // Förspelet, `#line 1 "<namn>"` och appens källa; definitionerna
             // går genom kompilatorn.
-            const std::string src = std::string(kMslPrelude) + kMslAdjustSrc +
-                                    kMslStandSrc + "#line 1 \"" +
+            const std::string src = std::string(kMslPrelude) + kMslSceneClipSrc +
+                                    kMslAdjustSrc + kMslStandSrc + "#line 1 \"" +
                                     programSourceName(d) +
                                     "\"\n" + d.msl;
             NSString* source = [NSString stringWithUTF8String:src.c_str()];
@@ -379,6 +380,9 @@ void MetalRenderer::drawCustomMesh(const MeshDraw& d)
         [encoder_ setVertexSamplerState:samplerFor(im.filter()) atIndex:at];
         [encoder_ setFragmentSamplerState:samplerFor(im.filter()) atIndex:at];
     }
+    // Klippet: blocket på buffer(4), maskerna på texture(4–5) och samplern på
+    // sampler(4), för programmets `glaze_clip`.
+    bindSceneClip(d);
     applyMeshState(d.state);   // renderläget
 
     // Strömmarna — instansdelen MED OFFSET.

@@ -9,6 +9,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -18,6 +19,7 @@
 #include "glaze/app.h"
 #include "glaze/app_window.h"
 #include "glaze/draw.h"
+#include "language_gen.h"
 #include "menu_query.h"
 #include "prop_parse.h"
 
@@ -253,6 +255,159 @@ void Widget::setToolTip(TrText t)
         f->toolTipChanged(*this);
 }
 
+// ---------------------------------------------------------- MÄTCACHEN
+//
+// Nyckeln är allt ett svar beror på: widgetens (eller förälderns, eller
+// rotens — `measureScope`) generation, miljön ur `Ctx`, språkgenerationen,
+// appens handler-epok och widgetens egna råa layoutfält. Kontraktet står vid
+// `measure` i widget.h.
+namespace {
+
+// EN räknare för alla generationer, så ett värde aldrig delas ut två gånger.
+std::uint64_t g_nästaGen = 1;
+
+std::uint64_t nyGen()
+{
+    return ++g_nästaGen;
+}
+
+std::uint64_t blanda(std::uint64_t h, std::uint64_t v)
+{
+    return h ^ (v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2));
+}
+
+std::uint64_t bitar(float f)
+{
+    std::uint32_t u;
+    std::memcpy(&u, &f, sizeof u);
+    return u;
+}
+
+std::uint64_t adress(const void* p)
+{
+    return static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(p));
+}
+
+std::uint64_t blandaText(std::uint64_t h, const std::string& s)
+{
+    return s.empty() ? blanda(h, 0) : blanda(h, std::hash<std::string>{}(s));
+}
+
+// Det ett mått beror på i `Ctx`. `style` och `theme` ändras PÅ PLATS i appens
+// utseendetillstånd — `App::invalidateAll` stegar då epoken, och fönstrets
+// helomritning (`fullInvalidations_`) stegas av samma byte. `area` och `box`
+// är med flit utanför: `contentSize` får inte läsa dem (kontraktet i
+// widget.h).
+std::uint64_t miljö(const Ctx& c)
+{
+    std::uint64_t h = blanda(0, static_cast<std::uint64_t>(c.ui));
+    h = blanda(h, adress(c.style));
+    h = blanda(h, adress(c.theme));
+    h = blanda(h, bitar(c.scale));
+    h = blanda(h, bitar(c.pxPerMm));
+    h = blanda(h, adress(c.r));
+    h = blanda(h, adress(c.font));
+    h = blanda(h, adress(c.headingFont));
+    h = blanda(h, adress(c.textFonts));
+    return h;
+}
+
+std::uint64_t layoutfält(const Widget& w)
+{
+    std::uint64_t h = blanda(0, bitar(w.x));
+    h = blanda(h, bitar(w.y));
+    h = blanda(h, bitar(w.width));
+    h = blanda(h, bitar(w.height));
+    h = blanda(h, bitar(w.right));
+    h = blanda(h, bitar(w.bottom));
+    h = blanda(h, static_cast<std::uint64_t>(w.dock));
+    h = blanda(h, (w.anchors.left ? 1u : 0u) | (w.anchors.top ? 2u : 0u) |
+                      (w.anchors.right ? 4u : 0u) | (w.anchors.bottom ? 8u : 0u));
+    for (const SiblingAnchor* a :
+         {&w.anchorLeft, &w.anchorTop, &w.anchorRight, &w.anchorBottom}) {
+        h = blandaText(h, a->to);
+        h = blanda(h, bitar(a->gap));
+    }
+    return h;
+}
+
+} // namespace
+
+// Lever trädet över widgeten? En lånad widget får överleva sitt fönster
+// (`appWindow()` nullptr), och då kan förfäderna redan vara döda — de följs
+// inte. Ett fristående träd (ingen ägare, förhandsvisningen) lever.
+bool Widget::ancestorsAlive() const
+{
+    return !owner_ || !ownerLife_.expired();
+}
+
+void Widget::stepSubtreeGen()
+{
+    const std::uint64_t g = nyGen();
+    subtreeGen_           = g;
+    if (!ancestorsAlive())
+        return;
+    for (Widget* w = parent_; w; w = w->parent_)
+        w->subtreeGen_ = g;
+}
+
+Widget::MeasureKey Widget::measureKey(const Widget& w, const Ctx& c)
+{
+    const Widget* källa = &w;
+    switch (w.ancestorsAlive() ? w.measureScope() : MeasureScope::Self) {
+    case MeasureScope::Self:
+        break;
+    case MeasureScope::Parent:
+        if (w.parent_)
+            källa = w.parent_;
+        break;
+    case MeasureScope::Root:
+        while (källa->parent_)
+            källa = källa->parent_;
+        break;
+    }
+    MeasureKey k;
+    k.gen = källa->subtreeGen_;
+    k.env = miljö(c);
+    if (const AppWindow* f = w.liveOwner())
+        k.env = blanda(k.env, f->fullInvalidations_);
+    k.lang       = detail::languageGeneration();
+    k.epoch      = detail::handlerEpoch();
+    k.layoutHash = layoutfält(w);
+    return k;
+}
+
+gfx::Sizef Widget::measure(const Widget& w, const Ctx& c)
+{
+    const MeasureKey key = measureKey(w, c);
+    MeasureCache&    m   = w.measureCache_;
+    if (m.hasSize && m.sizeKey == key)
+        return m.size;
+    const gfx::Sizef s = w.contentSize(c);
+    m.hasSize          = true;
+    m.sizeKey          = key;
+    m.size             = s;
+    return s;
+}
+
+std::optional<float> Widget::measureHeightForWidth(const Widget& w,
+                                                   const Ctx& c, float width)
+{
+    const MeasureKey key = measureKey(w, c);
+    MeasureCache&    m   = w.measureCache_;
+    for (std::size_t i = 0; i < m.widthCount; ++i)
+        if (m.widths[i].width == width && m.widths[i].key == key)
+            return m.widths[i].height;
+    const std::optional<float> h = w.heightForWidth(c, width);
+    MeasureCache::ForWidth&    p = m.widths[m.widthNext];
+    p.key                        = key;
+    p.width                      = width;
+    p.height                     = h;
+    m.widthNext                  = (m.widthNext + 1) % MeasureCache::kWidths;
+    m.widthCount = std::min(m.widthCount + 1, MeasureCache::kWidths);
+    return h;
+}
+
 // Basens mätning: fälten rakt av. `width`/`height` ÄR logiska px (det står
 // vid deklarationen), och mätvägen talar samma enhet —
 // så det finns ingen omräkning kvar att göra här. `c` är oanvänd och det
@@ -468,7 +623,8 @@ gfx::Sizef Widget::extentOf(const Ctx& c, std::optional<float> width,
     const auto forWidth = [&](const Widget& ch, gfx::Sizef m,
                               std::optional<float> w) {
         if (w)
-            if (const std::optional<float> h = ch.heightForWidth(c, *w))
+            if (const std::optional<float> h =
+                    measureHeightForWidth(ch, c, *w))
                 m.h = *h;
         return m;
     };
@@ -692,6 +848,7 @@ Widget* Widget::adopt(Widget& w)
     w.parent_ = this;
     w.setOwnerForTree(liveOwner());
     children_.push_back(&w);
+    w.stepSubtreeGen();   // mätcachen: barnet och den nya kedjan
     // Containern får veta EFTER länkningen — flikkontrollen döljer
     // en sida som inte är den valda. Före invalideringen, så att den ytan
     // redan har sin slutliga synlighet när den ritas om.
@@ -811,10 +968,12 @@ void Widget::detach(Widget& w)
     if (f)
         f->detachTree(w);
 
+    w.stepSubtreeGen();   // mätcachen: den gamla kedjan, medan den finns
     children_.erase(std::remove(children_.begin(), children_.end(), &w),
                     children_.end());
     w.parent_ = nullptr;
     w.setOwnerForTree(nullptr);   // EFTER fönsterstädningen
+    w.stepSubtreeGen();           // …och barnet som egen rot
     // Containern får veta — barnet är ute ur trädet men LEVER
     // fortfarande: ett ägt barn förstörs av `unadopt` först när vi är klara.
     childRemoved(w);
@@ -885,6 +1044,9 @@ bool Widget::transferChild(Widget& w, Widget& to)
 // RIVNINGSVÄGEN — kontraktet står vid deklarationen i widget.h.
 std::unique_ptr<Widget> Widget::severChild(Widget* w, bool alive)
 {
+    // Mätcachen: bara jag och barnet. Det här är rivningsvägen, så
+    // förfäderna kan redan vara döda och vandras inte.
+    subtreeGen_ = nyGen();
     children_.erase(std::remove(children_.begin(), children_.end(), w),
                     children_.end());
     std::unique_ptr<Widget> ut;
@@ -901,6 +1063,7 @@ std::unique_ptr<Widget> Widget::severChild(Widget* w, bool alive)
         w->owner_  = nullptr;
         w->ownerLife_.reset();
         ++w->attachGen_;
+        w->subtreeGen_ = nyGen();
     }
     return ut;
 }
@@ -927,6 +1090,7 @@ std::unique_ptr<Widget> Widget::releaseOwned(Widget& w)
 // ägarvakten: den är widgetens egen och gäller också utan fönster.
 void Widget::invalidate()
 {
+    stepSubtreeGen();   // mätcachen: jag och förfäderna, men inte deras damage
     ++invalidations_;
     dirty_ = true;
     if (AppWindow* f = liveOwner())
@@ -1362,10 +1526,10 @@ gfx::Rectf resolveSibling(const Widget& w, const Ctx& c)
 gfx::Sizef Widget::dockedSize(const Widget& w, const gfx::Rectf& area,
                               const Ctx& c)
 {
-    gfx::Sizef s = phys(w.contentSize(c), c);
+    gfx::Sizef s = phys(measure(w, c), c);
     if (w.dock == Dock::Top || w.dock == Dock::Bottom)
         if (const std::optional<float> h =
-                w.heightForWidth(c, area.w / c.scale))
+                measureHeightForWidth(w, c, area.w / c.scale))
             s.h = *h * c.scale;
     return s;
 }
@@ -1457,7 +1621,7 @@ gfx::Rectf Widget::resolve(const Ctx& c) const
     // hjälparen ovan). `sz` är fysisk från och med här och möter `c.area`
     // i alla grenar nedan. Den står EFTER dock-grenen, som mäter genom
     // `dockedSize` — så varje remsa mäts exakt en gång per resolve.
-    const gfx::Sizef sz = phys(contentSize(c), c);
+    const gfx::Sizef sz = phys(measure(*this, c), c);
 
     float px, py;
     float pw = sz.w, ph = sz.h;
@@ -1558,7 +1722,8 @@ gfx::Rectf Widget::resolve(const Ctx& c) const
     // en bottenbunden etikett växer uppåt från sin kant.
     float h = sz.h;
     if (bL && bR && !(bT && bB))
-        if (const std::optional<float> hw = heightForWidth(c, pw / c.scale))
+        if (const std::optional<float> hw =
+                measureHeightForWidth(*this, c, pw / c.scale))
             h = *hw * c.scale;
 
     if (bT && bB) {

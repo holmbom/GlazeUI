@@ -363,8 +363,8 @@ void main()
 }
 )glsl";
 
-// Fragmentshadern — klippmaskernas del (kGlslClipSrc) och färgjusteringen
-// (kGlslAdjustSrc) klistras FÖRE.
+// Fragmentshadern — klippmaskernas, målarens klipps och färgjusteringens delar
+// (kGlslClipSrc, kGlslSceneClipSrc, kGlslAdjustSrc) klistras FÖRE.
 const char kImageFsSrc[] = R"glsl(
 uniform sampler2D uTex;
 uniform vec4 uParams;
@@ -386,7 +386,8 @@ void main()
     // Rak alfa som UI:t; opaciteten, klippmaskerna och målarens klipp rör
     // bara alfan.
     vec2 pix = vClip.xy / vClip.z;
-    t.a *= clamp(uParams.z, 0.0, 1.0) * clipCoverage(pix) * sceneClip(pix);
+    t.a *= clamp(uParams.z, 0.0, 1.0) * clipCoverage(pix) *
+           glaze_clipScreen(pix);
     frag = t;
 }
 )glsl";
@@ -402,10 +403,10 @@ bool GlRenderer::initImageProgram()
 {
     const StatTimer klocka(stats_.compileNs);   // programbygget
     const char* vsParts[] = {kGlslVersion, kImageVsSrc};
-    const char* fsParts[] = {kGlslVersion, kGlslClipSrc, kGlslAdjustSrc,
-                             kImageFsSrc};
+    const char* fsParts[] = {kGlslVersion, kGlslClipSrc, kGlslSceneClipSrc,
+                             kGlslAdjustSrc, kImageFsSrc};
     const unsigned vs = compileGlShader(GL_VERTEX_SHADER, vsParts, 2);
-    const unsigned fs = compileGlShader(GL_FRAGMENT_SHADER, fsParts, 4);
+    const unsigned fs = compileGlShader(GL_FRAGMENT_SHADER, fsParts, 5);
     if (!vs || !fs) {
         if (vs)
             pglDeleteShader(vs);
@@ -429,24 +430,23 @@ bool GlRenderer::initImageProgram()
     imageClipP1Loc_   = pglGetUniformLocation(imageProgram_, "uClipP1");
     imageClipNLoc_    = pglGetUniformLocation(imageProgram_, "uClipN");
     const int  texLoc = pglGetUniformLocation(imageProgram_, "uTex");
-    const bool klipp  = findSceneClip(imageProgram_, imageSceneClip_);
     // Samma regel som de andra programmen: en location som saknas betyder
     // att källan och C++-sidan glidit isär — glUniform hade tyst svalt -1.
     if (imageViewProjLoc_ < 0 || imageParamsLoc_ < 0 || imageAdjustLoc_ < 0 ||
         imageClipP0Loc_ < 0 || imageClipP1Loc_ < 0 || imageClipNLoc_ < 0 ||
-        texLoc < 0 || !klipp) {
+        texLoc < 0) {
         log("GL: Image-programmets uniformer saknas (uViewProj=%d uParams=%d "
-            "uAdjust=%d uClipP0=%d uClipP1=%d uClipN=%d uTex=%d uSceneClip=%d "
-            "uSceneClipN=%d) — drawMesh ritar inga bilder",
+            "uAdjust=%d uClipP0=%d uClipP1=%d uClipN=%d uTex=%d) — drawMesh "
+            "ritar inga bilder",
             imageViewProjLoc_, imageParamsLoc_, imageAdjustLoc_,
-            imageClipP0Loc_, imageClipP1Loc_, imageClipNLoc_, texLoc,
-            imageSceneClip_.planes, imageSceneClip_.count);
+            imageClipP0Loc_, imageClipP1Loc_, imageClipNLoc_, texLoc);
         pglDeleteProgram(imageProgram_);
         imageProgram_ = 0;
         return false;
     }
     pglUseProgram(imageProgram_);
     pglUniform1i(texLoc, 0);   // enhet 0, som UI:ts tex0
+    setupSceneClipProgram(imageProgram_);   // klippets block och maskernas enheter
 
     // Programmets VAO: attributen påslagna en gång; pekarna per rit-anrop.
     pglGenVertexArrays(1, &imageVao_);
@@ -470,7 +470,6 @@ void GlRenderer::shutdownImageProgram()
     imageVao_        = 0;
     imageProgram_    = 0;
     imageClipGen_    = 0;
-    imageSceneClip_  = SceneClipLocs{};
 }
 
 void GlRenderer::drawImageMesh(const MeshDraw& d)
@@ -491,7 +490,7 @@ void GlRenderer::drawImageMesh(const MeshDraw& d)
     }
     syncClipMasks(imageClipP0Loc_, imageClipP1Loc_, imageClipNLoc_,
                   imageClipGen_);
-    setSceneClip(d, imageSceneClip_);
+    bindSceneClip(d);
 
     // Kameran, opaciteten, bildens flaggor och färgjusteringen — per anrop,
     // räknas inte som uppladdning (RenderStats).

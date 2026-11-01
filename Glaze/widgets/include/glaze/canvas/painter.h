@@ -5,6 +5,7 @@
 
 #include <gfx/geometry.h>
 
+#include "glaze/canvas/camera.h"
 #include "glaze/canvas/geometry.h"
 #include "glaze/canvas/shape.h"
 #include "glaze/canvas/style3d.h"   // RenderState
@@ -50,6 +51,7 @@ struct PaintContext;   // src/canvas/scene.h — ritningens fönsterresurser
 struct PainterState;   // src/canvas/painter.cpp
 } // namespace detail
 
+class Canvas;   // glaze/widgets/canvas.h — `Painter::drawCanvas`
 class Painter;
 
 // Args till `onPaint`/`onPaintLayer`/`onPaintOverlay` — målaren är giltig
@@ -158,23 +160,42 @@ public:
     };
     [[nodiscard]] Saved save();
     // KLIPPET: samma sparade läge, och det som ritas till lägets
-    // slut KLIPPS till rektangeln `clip` — i målarens transform och rymd, som
-    // en form: vriden en fyrhörning, under tilt eller i en 3D-kamera dess bild
-    // på skärmen (den del som ligger framför ögat). Ett nästlat klipp är
-    // SNITTET med det som redan gäller, så det kan aldrig växa:
+    // slut KLIPPS till ytan — i målarens transform och rymd, som en form.
+    // I världen är ytan ett PRISMA (`ClipSpace::World`): under tilt och i en
+    // 3D-kamera klipps det som står i rymden lodrätt där ytan slutar; efter
+    // `screenSpace` är den en yta på skärmen. Ett nästlat klipp är SNITTET
+    // med det som redan gäller, så det kan aldrig växa; flera ytor i ett
+    // anrop är deras UNION, och hålen klipper bort:
     //     { auto k = e.painter.save(glaze::Rect{0, 0, 200, 120}); … }
-    // Klippet blir en yta på skärmen när det sätts — en senare `translate`,
-    // `rotate`, `scale` eller `screenSpace` flyttar det inte. Linjerna,
-    // ytorna, texten, markörerna och bilderna — också i rymden — klipps i
+    //     { auto k = e.painter.save(glaze::ClipPolygon{ytter, {hål}}); … }
+    // Klippet låses när det sätts — en senare `translate`, `rotate`, `scale`
+    // eller `screenSpace` flyttar det inte. Allt målaren ritar — linjer,
+    // ytor, text, markörer, bilder, meshar, instanser och punkter — klipps i
     // varje pixel och kantutjämnas som formerna; det som hamnar utanför ritas
-    // inte alls, inte heller i djupet. FÖREMÅLEN I RYMDEN (meshar, instanser,
-    // punkter) klipps till klippets OMSKRIVNA rektangel på skärmen: exakt för
-    // ett klipp som är axelparallellt där. Ytan har högst 8 kanter — snittet
-    // av två godtyckligt vridna rektanglar ryms alltid; fler ⇒ `gfx::log` en
-    // gång och de minsta hörnen skärs av (klippet krymper, det växer aldrig).
-    // En rektangel utan yta klipper bort allt; ett tal som inte är ändligt ⇒
-    // `gfx::log` och samma sak.
+    // inte alls, inte heller i djupet. Ingen gräns för antalet hörn. En
+    // rektangel utan yta och en tom lista klipper bort allt. En
+    // OGILTIG yta (`ClipPolygon`) följer ritytans `setInvalidClip`: med Show
+    // (förval) gäller klippet inte, med Hide täcker den ytan ingenting
+    // (+ `gfx::log` en gång).
     [[nodiscard]] Saved save(const Rect& clip);
+    [[nodiscard]] Saved save(const ClipPolygon& clip);
+    [[nodiscard]] Saved save(const std::vector<ClipPolygon>& clip);
+
+    // EN RITYTA PÅ YTAN: `canvas` huvudvys lager ritade med `camera` i
+    // rektangeln `rect` (målarens transform och rymd, som en bild — på en
+    // utskriftssida mm) — i den yta målaren ritar i och i dess upplösning:
+    // lagrens ordning, opacitet, zoomintervall, klipp och `onPaintLayer`, och
+    // ritytans eget klipp. Etiketterna placeras för den här kameran utan att
+    // röra skärmens. Rutnätet, del-vyerna, `onPaint`/`onPaintOverlay` och
+    // ritytans kant ritas inte; ytan utanför formerna är genomskinlig. Ritas
+    // i ett eget mål och sedan som en bild, under målarens klipp — med
+    // MÅLARENS renderare och resurser, så ritytan får sitta i ett annat
+    // fönster (utskriftssidan ritas i jobbets förloppsfönster). false
+    // (+ `gfx::log`): ingen renderare, ritningen sker i ritytans egen
+    // ritning, en ogiltig kamera eller rektangel, eller ett mål som inte gick
+    // att skapa.
+    bool drawCanvas(Canvas& canvas, const Rect& rect, const Camera& camera);
+    bool drawCanvas(Canvas& canvas, const Rect& rect, const Camera3D& camera);
 
     void translate(double dx, double dy);
     void rotate(double deg);   // moturs med y uppåt, som `Shape::arc`

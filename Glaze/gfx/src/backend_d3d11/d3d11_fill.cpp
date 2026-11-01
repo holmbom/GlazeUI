@@ -24,8 +24,8 @@
 namespace gfx {
 namespace {
 
-// Klippmaskernas del (`kHlslClipSrc`) och färgens (`kHlslPaintSrc`) klistras
-// FÖRE.
+// Klippmaskernas, målarens klipps och färgens delar (`kHlslClipSrc`,
+// `kHlslSceneClipSrc`, `kHlslPaintSrc`) klistras FÖRE.
 const char kFillShaderSrc[] = R"hlsl(
 struct FillIn
 {
@@ -141,7 +141,7 @@ float4 fillPs(FillOut i) : SV_Target
     // Rak alfa som UI:t; klippmaskerna och målarens klipp gäller ytan som
     // allt annat.
     return float4(col.rgb, col.a * cov * gPaint1.y * clipCoverage(i.pos.xy) *
-                               sceneClip(i.pos.xy));
+                               glaze_clipScreen(i.pos.xy));
 }
 )hlsl";
 
@@ -217,7 +217,8 @@ void D3dRenderer::bindPaintRamp(const MeshDraw& d)
 bool D3dRenderer::initFillProgram()
 {
     const std::string src =
-        std::string(kHlslClipSrc) + kHlslPaintSrc + kFillShaderSrc;
+        std::string(kHlslClipSrc) + kHlslSceneClipSrc + kHlslPaintSrc +
+        kFillShaderSrc;
     ComPtr<ID3DBlob> vsb = compileHlsl(src, "fillVs", "vs_4_0");
     ComPtr<ID3DBlob> psb = compileHlsl(src, "fillPs", "ps_4_0");
 

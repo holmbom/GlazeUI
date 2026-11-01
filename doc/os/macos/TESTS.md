@@ -147,3 +147,61 @@ byggs och körs den aldrig. Shared-vägen (Apple silicon) grindas av sviten.
   (panorera, zooma, vrid). *Rätt utfall:* fallen gröna; kartan utan
   artefakter — inga linjer eller bilder med gammalt eller halvt innehåll
   efter en ändring.
+
+## Klippmaskerna och `glaze_clip` — BLINT skriven MSL
+
+Koden: `kMslSceneClipSrc` (`Glaze/gfx/src/backend_metal/metal_renderer.mm`) —
+`struct GlazeClipBlock` på fragmentbuffert 4, skärmmasken på texture(4),
+världsmasken på texture(5), samplern på sampler(4), makron
+`GLAZE_CLIP_PARAMS`/`GLAZE_CLIP_ARGS`, `glaze_clipScreen` och `glaze_clip` —
+anropet sist i `linePs`, `fillPs`, `glyphPs` och `imagePs`
+(`metal_scene.mm`, `metal_fill.mm`, `metal_glyph.mm`, `metal_image.mm`),
+`bindSceneClip` (`metal_scene.mm`, också från `drawCustomMesh` i
+`metal_program.mm`) och förspelet för egna program (`kMslPrelude` +
+`kMslSceneClipSrc`). Maskerna är bara texturer att sampla — inga nya PSO:er.
+
+- [ ] **Bygget**: biblioteken kompilerar (inga MSL-fel i loggen vid start) —
+  särskilt `GlazeClipArgs` med en `constant`-pekare, texturer och en sampler som
+  struct-medlemmar, och `any(uv < 0.0)` på en `float2`.
+- [ ] **Grindarna**: `geom_gate` (KY), `mesh_program_gate` (K1–K6),
+  `scene_pixel_gate` och `scene3d_pixel_gate` gröna, med `MTL_DEBUG_LAYER=1` —
+  inga valideringsfel om obundna texturer på plats 4–5.
+  *Rätt utfall:* K1/K3/K4 klipper rätt kvadrant, K2 klipper inte, K5 klipper
+  utanför `screenRect`.
+- [ ] **För ögat**: `demo` med en rityta vars lager klipps av ett polygonklipp
+  med hål — kanten är mjuk, hålet visar bakgrunden, och inget ritas utanför
+  klippet (yta, linje, text och bild) varken i 2D eller med tilt.
+
+## Ritytans klipp: `glaze_clip` i 3D-programmen och ritytan på utskriftssidan — BLINT skriven
+
+Koden: `Glaze/widgets/src/canvas/programs3d.cpp` (`kMeshMsl`, `kPointsMsl`:
+fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
+`glaze_clip(i.pos.xy, …, clip)`; punktmolnet klipper på punktens ankare),
+`clip.cpp` (masker som render-mål, nästade `pushTarget` mitt i en ritning),
+`painter.cpp` (`Painter::drawCanvas`) och `target3d.cpp`
+(`renderCanvasTarget`).
+
+- [ ] **Bygget**: Mesh- och Points-programmen kompilerar med den extra
+  fragmentparametern (inga MSL-fel vid första ritningen av en mesh eller ett
+  punktmoln).
+- [ ] **Grindarna**: `painter_gate` (KL), `scene_pixel_gate` (M1–M4),
+  `scene3d_pixel_gate` (KL4–KL8) och `print_gate` gröna, med
+  `MTL_DEBUG_LAYER=1`. *Rätt utfall:* KL4 klipper väggen lodrätt på tre
+  höjder, KL5 släpper bara punkterna vid x < 0, KL6 bakar lagrets klipp i
+  draperingen, KL7 ritar markören hel förbi kanten, KL8 klipper bilden.
+- [ ] **Nästlade mål**: ett lagerklipp med hål över en tiltad yta i 3D-målet
+  och ett `save(ClipPolygon)` i `onPaint` samtidigt — maskfyllningen ligger
+  mitt i 3D-målets MSAA-ritning. *Rätt utfall:* ytan under målaren är oskadad
+  (MSAA-innehållet förloras inte när masken pushas och poppas).
+- [ ] **Utskriften**: en app som ritar en rityta på sidan med
+  `Painter::drawCanvas` (två rutor, olika kameror) och skriver till PDF.
+  *Rätt utfall:* rutorna har rätt mm-mått och rätt kameror, ritytans eget
+  klipp och lagrens klipp gäller, och en karta med bilder har fullt skarpa
+  bilder (sidan ritas om tills uppladdningen hunnit).
+
+- [ ] **Mätcachen** (`Glaze/widgets/src/widget.cpp` `measure`, `app.cpp`
+  handler-epoken): kör `measure_gate`, `layout_gate`, `groupbox_gate`,
+  `label_gate` och `lang_gate`, och byt i demon språk, UI, stil och
+  skärmskala medan galleriet är öppet.
+  *Rätt utfall:* grindarna gröna; varje byte mäter om allt (inga avklippta
+  eller för stora etiketter), och en tung panel går inte segt.

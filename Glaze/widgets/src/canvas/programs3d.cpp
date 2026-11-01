@@ -253,6 +253,10 @@ float4 fsMain(VsOut i, bool front : SV_IsFrontFace) : SV_Target
     }
     c.rgb = lerp(c.rgb, u.fogColor.rgb, fogAmount(i.world) * u.fogColor.a);
     c.a  *= u.surface.x * glaze.scale.z;
+    // Klippet (gfx/program.h `glaze_clip`): skärmmasken i fragmentets px och
+    // världsmasken i det chunk-lokala xy — där täckningen är 0 kastas
+    // fragmentet.
+    c.a  *= glaze_clip(i.pos.xy, i.world.xy);
     return c;
 }
 )hlsl";
@@ -309,6 +313,7 @@ layout(location = 12) in vec4 aInstColor;
 #endif
 
 out vec3 vWorld;   // chunk-lokalt
+out vec3 vClip;    // pixelklippets xy och w — fragmentets px är xy / w
 out vec4 vColor;
 #if defined(HAS_NORMAL)
 out vec3 vNormal;
@@ -354,8 +359,10 @@ void main()
 #if defined(INSTANCED)
     p = rowsPoint(aInst0, aInst1, aInst2, p);
 #endif
-    gl_Position = glaze_toClip(glaze.viewProj * vec4(p, 1.0));
-    vWorld      = p;
+    vec4 clipPos = glaze.viewProj * vec4(p, 1.0);
+    gl_Position  = glaze_toClip(clipPos);
+    vClip        = vec3(clipPos.xy, clipPos.w);
+    vWorld       = p;
     vec4 c = u.color;
 #if defined(HAS_COLOR)
     c *= aColor;
@@ -386,6 +393,7 @@ void main()
 
 const char kMeshGlslFragment[] = R"glsl(
 in vec3 vWorld;
+in vec3 vClip;
 in vec4 vColor;
 #if defined(HAS_NORMAL)
 in vec3 vNormal;
@@ -475,6 +483,9 @@ void main()
     }
     c.rgb = mix(c.rgb, u.fogColor.rgb, fogAmount(vWorld) * u.fogColor.a);
     c.a  *= u.surface.x * glaze.scale.z;
+    // Klippet (gfx/program.h `glaze_clip`) — px ur varyingen, inte
+    // gl_FragCoord; där täckningen är 0 kastas fragmentet.
+    c.a  *= glaze_clip(vClip.xy / vClip.z, vWorld.xy);
     frag  = c;
 }
 )glsl";
@@ -640,6 +651,7 @@ fragment float4 fsMain(VsOut i [[stage_in]],
                        , texture2d<float> drapeTex [[texture(DRAPE_SLOT)]]
                        , sampler drapeSampler [[sampler(DRAPE_SLOT)]]
 #endif
+                       , GLAZE_CLIP_PARAMS
                        )
 {
     // Framsidan — en speglande transform vänder vindningen.
@@ -703,6 +715,9 @@ fragment float4 fsMain(VsOut i [[stage_in]],
     }
     c.rgb = mix(c.rgb, u.fogColor.rgb, fogAmount(i.world, glaze, u) * u.fogColor.a);
     c.a  *= u.surface.x * glaze.scale.z;
+    // Klippet (gfx/program.h `glaze_clip`): där täckningen är 0 kastas
+    // fragmentet.
+    c.a  *= glaze_clip(i.pos.xy, i.world.xy, GLAZE_CLIP_ARGS);
     return c;
 }
 )msl";
@@ -760,6 +775,7 @@ struct VsOut
 #if defined(HAS_SCALAR)
     nointerpolation float scalar : TEXCOORD3;
 #endif
+    nointerpolation float2 anchor : TEXCOORD4; // punktens chunk-lokala xy
 };
 
 // STÅENDE (markdjupet): hörnet `off` px från punktens pixelklipp `c` står
@@ -796,6 +812,7 @@ VsOut vsMain(VsIn i, uint vid : SV_VertexID)
         o.pos = glaze_toClip(float4(c.xy + off * c.w,
                                     pointZ(c, off, i.pos, r * perPx), c.w));
     o.offset   = off;
+    o.anchor   = i.pos.xy;
     float4 col = u.color;
 #if defined(HAS_COLOR)
     col *= i.color;
@@ -833,6 +850,9 @@ float4 fsMain(VsOut i) : SV_Target
 #endif
     c.rgb  = lerp(c.rgb, u.fogColor.rgb, i.shape.y);
     c.a   *= saturate(0.5 - sd) * u.marker.w * glaze.scale.z;
+    // Klippet (gfx/program.h `glaze_clip`) på punktens ankare — hela punkten
+    // syns eller inte; skärmmasken i fragmentets px.
+    c.a   *= glaze_clip(i.pos.xy, i.anchor);
     if (c.a <= 0.0)
         discard;   // marginalen skriver inget djup
     return c;
@@ -861,6 +881,8 @@ layout(location = 4) in float aScalar;
 #endif
 
 noperspective out vec2 vOffset;   // px från punktens mitt
+noperspective out vec2 vClipPx;   // fragmentets läge i målets px
+flat out vec2 vAnchor;            // punktens chunk-lokala xy
 flat out vec4 vColor;
 flat out vec2 vShape;             // radien i px, dimmans andel
 #if defined(HAS_SCALAR)
@@ -891,11 +913,15 @@ void main()
     vec2  corner = vec2((vid == 2 || vid == 3 || vid == 5) ? 1.0 : -1.0,
                         (vid == 1 || vid == 4 || vid == 5) ? 1.0 : -1.0);
     vec2  off    = corner * (r + 1.0);   // kantutjämningen når ½ px utanför
-    if (c.w <= 0.0 || c.z < 0.0 || c.z > c.w)
+    vClipPx = vec2(0.0);
+    if (c.w <= 0.0 || c.z < 0.0 || c.z > c.w) {
         gl_Position = vec4(-2.0, -2.0, 0.0, 1.0);   // utanför och utan yta
-    else
+    } else {
         gl_Position = glaze_toClip(vec4(c.xy + off * c.w,
                                         pointZ(c, off, aPos, r * perPx), c.w));
+        vClipPx = c.xy / c.w + off;
+    }
+    vAnchor  = aPos.xy;
     vOffset  = off;
     vec4 col = u.color;
 #if defined(HAS_COLOR)
@@ -913,6 +939,8 @@ void main()
 
 const char kPointsGlslFragment[] = R"glsl(
 noperspective in vec2 vOffset;
+noperspective in vec2 vClipPx;
+flat in vec2 vAnchor;
 flat in vec4 vColor;
 flat in vec2 vShape;
 #if defined(HAS_SCALAR)
@@ -943,6 +971,8 @@ void main()
 #endif
     c.rgb  = mix(c.rgb, u.fogColor.rgb, vShape.y);
     c.a   *= clamp(0.5 - sd, 0.0, 1.0) * u.marker.w * glaze.scale.z;
+    // Klippet (gfx/program.h `glaze_clip`) på punktens ankare.
+    c.a   *= glaze_clip(vClipPx, vAnchor);
     if (c.a <= 0.0)
         discard;   // marginalen skriver inget djup
     frag = c;
@@ -980,6 +1010,7 @@ struct VsOut
 #if defined(HAS_SCALAR)
     float scalar [[flat]];
 #endif
+    float2 anchor [[flat]];                    // punktens chunk-lokala xy
 };
 
 // STÅENDE med punktens tak — HLSL-källans `pointZ` rad för rad.
@@ -1018,6 +1049,7 @@ vertex VsOut vsMain(VsIn i [[stage_in]],
                    c.w),
             glaze);
     o.offset   = off;
+    o.anchor   = i.pos.xy;
     float4 col = u.color;
 #if defined(HAS_COLOR)
     col *= i.color;
@@ -1039,6 +1071,7 @@ fragment float4 fsMain(VsOut i [[stage_in]],
                        , texture2d<float> ramp [[texture(RAMP_SLOT)]]
                        , sampler rampSampler [[sampler(RAMP_SLOT)]]
 #endif
+                       , GLAZE_CLIP_PARAMS
                        )
 {
     // Avståndsfältet i px: cirkeln radien, kvadraten max-normen.
@@ -1057,6 +1090,8 @@ fragment float4 fsMain(VsOut i [[stage_in]],
 #endif
     c.rgb  = mix(c.rgb, u.fogColor.rgb, i.shape.y);
     c.a   *= saturate(0.5 - sd) * u.marker.w * glaze.scale.z;
+    // Klippet (gfx/program.h `glaze_clip`) på punktens ankare.
+    c.a   *= glaze_clip(i.pos.xy, i.anchor, GLAZE_CLIP_ARGS);
     if (c.a <= 0.0)
         discard_fragment();   // marginalen skriver inget djup
     return c;

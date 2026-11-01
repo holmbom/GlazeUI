@@ -87,7 +87,8 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
 ## Filer
 
 - **`label.cpp` / `button.cpp` / `checkbox.cpp`** — de tre kortaste
-  mallarna. Label har **`align`** (argumentet till `Draw::text`) och
+  mallarna. Labels mått beror på syskon: `measureScope()` svarar `Parent`
+  för en buddy och `Root` för en breddgrupp (mätcachen, widget.h). Label har **`align`** (argumentet till `Draw::text`) och
   **`Role::Heading`**, som bär STORLEKEN: `roleCtx()` kopierar Ctx:t och
   byter `font` till `c.headingFont`, i BÅDE `draw()` och `contentSize()` —
   mäts rubriken med brödtextens font ljuger autostorleken, och det är
@@ -743,8 +744,8 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   kandidat hade SAMMA upplösta text men fel sort (en separator bär en TOM
   literal). Posttillstånden `setItemIcon/Enabled/Checked` går genom
   `itemAtPath` till `detail::setMenuItem*` (menu.cpp).
-- **`app_icon.cpp`** — PROGRAMIKONEN (PROGRAMIKON). `contentSize`
-  är geometrins enda källa: FRISTÅENDE (registret, previewn) namnlistens
+- **`app_icon.cpp`** — PROGRAMIKONEN. `contentSize` (`measureScope()`
+  `Root` — den läser namnlistens och menyradens tillstånd) är geometrins enda källa: FRISTÅENDE (registret, previewn) namnlistens
   kvadrat, utan synlig TopBar eller med `noIcon` {0, 0}, annars kvadraten
   namnlist [+ menyrad när `showsLarge()` — stor begärd, synlig menyrad] med
   axelregeln på barernas `height`; `reservedWidth` läser den. `draw` ritar
