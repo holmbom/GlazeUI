@@ -376,7 +376,9 @@ struct SceneDash {
 //
 // SKÄRMMASKEN samplas i fragmentets pixelcentrum p i det BUNDNA målets
 // fysiska px (samma p som klippstacken): uv = (p − screenRect.xy) /
-// screenRect.wh, och utanför `screenRect` är täckningen 0. Line, Fill,
+// screenRect.wh, och utanför `screenRect` är täckningen 0. En NEGATIV bredd
+// eller höjd speglar masken längs axeln (en världsmask bunden som skärmmask
+// under en karta med y uppåt); noll är ingen yta. Line, Fill,
 // Glyph, Image och 3-varianterna läser den.
 //
 // VÄRLDSMASKEN samplas i uv = xy · worldUv.xy + worldUv.zw, där xy är

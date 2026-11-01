@@ -313,11 +313,14 @@ struct ShapeSlot {
 struct ClipState {
     ClipSpace                 space   = ClipSpace::World;
     bool                      enabled = false;
-    std::vector<ClipPolygon>  polygons;
+    std::vector<Polygon>  polygons;
     // Går ytan att fylla? En per yta, räknad av sättaren (clip.h
     // `clipPolygonValid`) — maskerna, etiketterna och träffprovet läser den.
     std::vector<std::uint8_t> valid;
-    std::uint64_t             version = 1;
+    // VERSIONEN ur scenens löpnummer, ny vid varje ändring: lika version är
+    // lika ytor i hela processen, och maskens nyckel bär den i stället för
+    // hörnen (clip.h `refineClip`).
+    std::uint64_t             version = nextSceneId();
 };
 
 struct LayerData {

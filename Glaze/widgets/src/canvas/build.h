@@ -88,7 +88,8 @@ void strokeUniforms(const RunKey& k, float pxPerWorld, float pxPerDashUnit,
 // (Opaciteten multipliceras av anroparen med lagrets eller målarens ton.)
 void imageUniforms(const RunKey& k, gfx::SceneUniforms& u);
 
-// Ringarna till Fill-programmets trianglar och kantremsor.
+// Ytans delars ringar till Fill-programmets trianglar och kantremsor: ett
+// bygganrop per del, alla i samma chunklista.
 void buildFillPart(const Shape& s, std::vector<gfx::FillChunk>& chunks,
                    const Xform& xf = kIdentity);
 

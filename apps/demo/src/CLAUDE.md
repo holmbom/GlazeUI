@@ -252,7 +252,8 @@ tre-fils-modellen och de hårda reglerna.
       i `onDropDown`, FÖRE öppningen — samma två inaktiverade bredvid; en tom
       historik fylls på igen, så knappen behåller sin pil) · 10 GroupBox (två
       ramar UTAN MÅTT som autosizar ur sina barn,
-      en aktiv och en inaktiverad vars barn släcks för sig).
+      en aktiv och en inaktiverad vars barn släcks för sig, och en STRÄCKT ram
+      med en radbruten etikett vars höjd följer bredden).
     **Tabeller och träd** — 13 TreeView (det aktiva byggt med `addNode`s
       SVAR, det inaktiverade med MASSFORMEN `setNodes`; omordning med
       `allowDrag` + `allowDrop`, och de två FILERNA är löv för släppet —
@@ -432,7 +433,8 @@ tre-fils-modellen och de hårda reglerna.
   bild, REQ3_RITYTAN B10). REQ3_RITYTAN visar också TEXT MED TAK (anteckningen
   nordost om Ekparken, id 1935, liggande i sin ruta och kortad med "…"),
   GOLV OCH TAK ("Kyrkbacken" i världsenheter mellan 2 och 6 mm) och
-  SYNLIGHET EFTER ZOOM (husens namn från zoom 2). Ytor (`DrawOrder::ByKind` — alla fyllningar, sedan alla
+  SYNLIGHET EFTER ZOOM (husens namn från zoom 2). HOLMARNA i Lillsjön är EN
+  form i två delar (holmen med en tjärn och ett skär — `Shape::polygons(vector<Polygon>)`). Ytor (`DrawOrder::ByKind` — alla fyllningar, sedan alla
   kanter; i indexordning hade varje hus med kontur kostat två rit-anrop),
   vägar (två konturer per väg i mm, alla kanter före alla fyllningar, och de
   tre skarvarna Round/Miter/Bevel; stigen streckad i mm med runda ändar) och

@@ -88,7 +88,7 @@
 //      kollision (ZV3), målaren utan zoom (ZV4), en enda pool (MB1), kontot
 //      vid FÖRSTA ritningen (MB2), döda konton kvar (MB3). MÄTER INTE pixlar,
 //      draperingens konto (ingen bänk har två terrängytor) eller meshar.
-//   KL MÅLARENS KLIPP (`Painter::save(Rect)` och `save(ClipPolygon)`) som
+//   KL MÅLARENS KLIPP (`Painter::save(Rect)` och `save(Polygon)`) som
 //      MASKER, läst ur anropens `SceneUniforms::clip` och maskfyllningarna
 //      (Fill-anrop i ett eget mål): KL1 axelparallellt — masken täcker
 //      rektangeln i hela pixlar, ytan och linjen i läget delar den, efter
@@ -98,7 +98,7 @@
 //      förälderns ruta ligger i barnets px, och efter det inre läget gäller
 //      den yttre; KL4 tomt (utan bredd, NaN, utan snitt, utanför ritytan) ger
 //      den tomma masken och aldrig ett oklippt anrop; KL5 400 hörn med hål är
-//      EN mask och två ytor i ett anrop en union i samma mask; KL6 i världen
+//      EN mask och två ytor i ett anrop en union i samma mask; KL6 i världen och KL7 världsmasken i 2D
 //      under bäring, tilt och zoom täcker masken rektangelns bild där `toLocal`
 //      lägger hörnen. Sabotage som SKA fälla dem: `clip.apply` bort ur
 //      `drawTransient` (KL1–KL6), klippet utan flush i `restore` (KL1 — ytan
@@ -109,6 +109,19 @@
 //      världen (KL6). MÄTER INTE pixlarna (scene_pixel_gate K, scene3d_pixel_gate
 //      KL), föremålen i rymden (NullRenderer bygger inga program) eller klippet
 //      i 3D-målet.
+//   FD FORMEN I FLERA DELAR (`Shape::polygons(std::vector<Polygon>, …)`) i
+//      lagren och i målaren: två delar med var sitt hål ger EN form med 64
+//      vertex (8 + 8 kanter à 4) och 144 index (2 × (8 trianglar + 8 · 6)) i
+//      ETT Fill-anrop: FD1 tillägget laddar upp bara formens 2 624 byte i
+//      samma buffert och `partCount` är 2; FD2 `Painter::draw` ger ETT
+//      transient Fill-anrop med samma 64 vertex och 144 index; FD3 en ersättare
+//      med samma antal vertex skrivs på plats (bara formens intervall), en
+//      med en del ombygger lagret och hela objektet byts — partCount 1; FD4
+//      borttagningen laddar upp bara formens 144 index, och de är
+//      degenererade i båda delarna. Sabotage som SKA fälla FD: `buildFillPart`
+//      med bara den första delen (FD1–FD3 — 32 vertex), med alla ringar som
+//      EN yta (FD1 vertexen), `replaceShapeAt` som jämför bara den första
+//      delens vertex (FD3 — på plats trots ändrad form).
 //
 // VAD GRINDEN INTE MÄTER: pixlar (scene_pixel_gate gör det genom
 // den riktiga backenden — lagrens ordning efter en flytt syns bara i
@@ -1897,7 +1910,7 @@ void fallKL()
     // (ingen gräns på hörnen); två ytor i ett anrop är en UNION i samma mask.
     {
         Bänk b;
-        glaze::ClipPolygon ring;
+        glaze::Polygon ring;
         for (int i = 0; i < 400; ++i) {
             const double v = 2.0 * 3.14159265358979323846 * i / 400.0;
             ring.outer.push_back({160 + 80 * std::cos(v), 110 + 80 * std::sin(v)});
@@ -1908,7 +1921,7 @@ void fallKL()
             hål.push_back({160 + 30 * std::cos(v), 110 + 30 * std::sin(v)});
         }
         ring.holes.push_back(hål);
-        glaze::ClipPolygon a, c2;
+        glaze::Polygon a, c2;
         a.outer  = {{20, 20}, {80, 20}, {80, 80}, {20, 80}};
         c2.outer = {{200, 150}, {260, 150}, {260, 210}, {200, 210}};
         b.yta.onPaint = [&](glaze::Widget*, glaze::PaintArgs& e) {
@@ -1918,7 +1931,7 @@ void fallKL()
                 e.painter.fillRect({0, 0, 400, 300}, kRöd);
             }
             {
-                auto k = e.painter.save(std::vector<glaze::ClipPolygon>{a, c2});
+                auto k = e.painter.save(std::vector<glaze::Polygon>{a, c2});
                 e.painter.fillRect({0, 0, 400, 300}, kRöd);
             }
         };
@@ -1968,6 +1981,197 @@ void fallKL()
               "bild på ytan",
               s.size() == 1 ? rekt(s[0]->clip.screenRect) : namn(program(s)));
     }
+
+    // KL7 ETT VÄRLDSKLIPP I 2D med rak kamera är en VÄRLDSMASK: en panorering
+    // fyller inte om den. Vid bäring 30° faller klippet tillbaka på
+    // skärmmasken, och då fyller en panorering om. Sabotage som SKA fälla
+    // KL7: världsmaskens nyckel med kamerans mitt (panoreringen fyller om),
+    // eller världsmasken också vid vriden kamera (ingen ny fyllning vid
+    // panorering under bäring 30°).
+    {
+        Bänk b;
+        b.yta.setCenter(500.0, 500.0);
+        b.yta.setClips({glaze::Polygon{
+            {{450, 450}, {550, 450}, {550, 550}, {450, 550}}, {}}});
+        b.yta.addShape(glaze::Shape::rect({400, 400, 200, 200}, kRöd));
+        b.frame();
+        const std::uint64_t f0 = b.res.clips().fills();
+        b.yta.setCenter(510.0, 505.0);
+        b.frame();
+        const std::uint64_t f1 = b.res.clips().fills();
+        check(f0 >= 1 && f1 == f0,
+              "KL7 rak kamera: en panorering fyller inte om världsmasken",
+              std::to_string(f0) + " → " + std::to_string(f1));
+        b.yta.setBearing(30.0f);
+        b.frame();
+        const std::uint64_t f2 = b.res.clips().fills();
+        b.yta.setCenter(520.0, 510.0);
+        b.frame();
+        const std::uint64_t f3 = b.res.clips().fills();
+        check(f2 > f1 && f3 > f2,
+              "KL7 bäring 30°: skärmmasken, och en panorering fyller om",
+              std::to_string(f1) + " → " + std::to_string(f2) + " → " +
+                  std::to_string(f3));
+    }
+}
+
+// FD. FORMEN I FLERA DELAR i lagren och målaren. Delarna ligger i de lokala px
+// (200, 150) ± — synliga vid förvald kamera. Facit är handräknat: en kvadrat
+// med ett hål har 8 kanter à 4 vertex och, eftersom en triangulering utan
+// extra punkter har n + 2h − 2 trianglar, 8 + 2 − 2 = 8 trianglar = 24 index
+// plus 8 · 6 kantindex; två sådana delar är 64 vertex och 144 index.
+constexpr std::size_t kDelformVertex = 64;
+constexpr std::size_t kDelformIndex  = 144;
+constexpr std::size_t kDelformByte =
+    kDelformVertex * sizeof(gfx::FillVertex) + kDelformIndex * 4;
+
+glaze::Shape delform(double dx, double dy, gfx::Color fyll)
+{
+    using glaze::Point;
+    const auto ruta = [&](double x, double y, double sida) {
+        return std::vector<Point>{{x + dx, y + dy},
+                                  {x + sida + dx, y + dy},
+                                  {x + sida + dx, y + sida + dy},
+                                  {x + dx, y + sida + dy}};
+    };
+    return glaze::Shape::polygons(
+        {glaze::Polygon{ruta(20, 20, 80), {ruta(40, 40, 40)}},
+         glaze::Polygon{ruta(140, 20, 80), {ruta(160, 40, 40)}}},
+        fyll);
+}
+
+// En rektangel utan kontur: 4 kanter à 4 vertex, 2 trianglar och 4 · 6 index.
+glaze::Shape fyrkant(gfx::Color fyll)
+{
+    return glaze::Shape::rect({20, 120, 40, 40}, fyll);
+}
+constexpr std::size_t kFyrkantIndex = 30;
+
+std::string indexAntal(const Bänk& b)
+{
+    return b.r.anrop.empty() ? std::string("0")
+                             : std::to_string(b.r.anrop[0].indexCount);
+}
+
+void fallFD()
+{
+    const gfx::Color röd{255, 0, 0, 255}, blå{0, 0, 255, 255};
+
+    // FD1 TILLÄGGET.
+    {
+        Bänk b;
+        b.yta.addShape(fyrkant(röd));
+        b.frame();
+        b.r.resetStats();
+        b.yta.addShape(delform(0, 0, blå));
+        b.frame();
+        check(b.r.stats().bytesUploaded == kDelformByte &&
+                  b.r.stats().buffersCreated == 0,
+              "FD1 tillägget laddar upp bara den nya formens byte, i samma buffert",
+              std::to_string(b.r.stats().bytesUploaded) + " byte (facit " +
+                  std::to_string(kDelformByte) + "), " +
+                  std::to_string(b.r.stats().buffersCreated) + " nya buffertar");
+        check(b.program() == std::vector<P>{P::Fill} &&
+                  b.r.anrop[0].indexCount == kFyrkantIndex + kDelformIndex,
+              "FD1 fyrkanten och flerdelsformen är ETT Fill-anrop",
+              namn(b.program()) + ", " + indexAntal(b) + " index");
+        const glaze::Shape* f = b.yta.shape(0, 1);
+        check(f && f->partCount() == 2 && b.yta.shapeCount() == 2,
+              "FD1 lagrets form har två delar");
+    }
+
+    // FD2 MÅLAREN: en form i `draw` är ETT transient anrop med alla delarna.
+    {
+        Bänk b;
+        b.yta.onPaint = [&](glaze::Widget*, glaze::PaintArgs& e) {
+            e.painter.draw(delform(0, 0, blå));
+        };
+        b.frame();
+        check(b.program() == std::vector<P>{P::Fill} &&
+                  b.r.anrop[0].indexCount == kDelformIndex,
+              "FD2 Painter::draw: ETT Fill-anrop med 144 index",
+              namn(b.program()) + ", " + indexAntal(b) + " index");
+        const auto* vb = b.r.anrop.empty()
+                             ? nullptr
+                             : static_cast<const Buffert*>(b.r.anrop[0].vb);
+        check(vb && vb->data.size() == kDelformVertex * sizeof(gfx::FillVertex),
+              "FD2 Painter::draw: 64 vertex i den transienta bufferten",
+              vb ? std::to_string(vb->data.size()) + " byte" : "ingen buffert");
+        check(b.r.stats().buffersCreated == 0,
+              "FD2 målaren skapar inga buffertar");
+    }
+
+    // FD3 ERSÄTTNINGEN av hela objektet.
+    {
+        Bänk b;
+        b.yta.addShape(delform(0, 0, blå));
+        b.yta.addShape(fyrkant(röd));
+        b.frame();
+        b.r.resetStats();
+        b.yta.setShape(0, delform(10, 5, blå));   // samma antal vertex
+        b.frame();
+        check(b.r.stats().bytesUploaded == kDelformByte &&
+                  b.r.stats().buffersCreated == 0,
+              "FD3 en ersättare med samma antal vertex skrivs på plats — bara "
+              "formens intervall",
+              std::to_string(b.r.stats().bytesUploaded) + " byte (facit " +
+                  std::to_string(kDelformByte) + "), " +
+                  std::to_string(b.r.stats().buffersCreated) + " nya buffertar");
+        b.r.resetStats();
+        b.yta.setShape(0, glaze::Shape::rect({20, 20, 80, 80}, blå));   // en del
+        b.frame();
+        const glaze::Shape* f = b.yta.shape(0, 0);
+        check(b.r.stats().buffersCreated >= 2 && f && f->partCount() == 1 &&
+                  b.r.anrop.size() == 1 &&
+                  b.r.anrop[0].indexCount == 2 * kFyrkantIndex,
+              "FD3 en form med en del ombygger lagret: hela objektet är bytt, "
+              "partCount 1",
+              std::to_string(b.r.stats().buffersCreated) + " nya buffertar, " +
+                  (f ? std::to_string(f->partCount()) : std::string("ingen")) +
+                  " delar");
+        b.yta.setShape(0, delform(0, 0, blå));
+        b.frame();
+        const glaze::Shape* g = b.yta.shape(0, 0);
+        check(g && g->partCount() == 2 && b.r.anrop.size() == 1 &&
+                  b.r.anrop[0].indexCount == kFyrkantIndex + kDelformIndex,
+              "FD3 tillbaka till två delar: partCount 2 och 144 + 30 index");
+    }
+
+    // FD4 BORTTAGNINGEN. Tjugo fyrkanter först, så att den borttagna formen
+    // ligger under kompakteringens fjärdedel.
+    {
+        Bänk b;
+        for (int i = 0; i < 20; ++i)
+            b.yta.addShape(fyrkant(röd));
+        b.yta.addShape(delform(0, 0, blå));
+        b.frame();
+        b.r.resetStats();
+        b.yta.removeShape(20);
+        b.frame();
+        check(b.r.stats().bytesUploaded == kDelformIndex * 4 &&
+                  b.r.stats().buffersCreated == 0,
+              "FD4 borttagningen laddar upp bara formens 144 index",
+              std::to_string(b.r.stats().bytesUploaded) + " byte (facit " +
+                  std::to_string(kDelformIndex * 4) + "), " +
+                  std::to_string(b.r.stats().buffersCreated) + " nya buffertar");
+        bool degenererad = false, levande = false;
+        if (!b.r.anrop.empty()) {
+            const auto*                ib = static_cast<const Buffert*>(b.r.anrop[0].ib);
+            std::vector<std::uint32_t> idx(20 * kFyrkantIndex + kDelformIndex);
+            if (ib->data.size() >= idx.size() * 4) {
+                std::memcpy(idx.data(), ib->data.data(), idx.size() * 4);
+                const std::size_t borta = 20 * kFyrkantIndex;
+                degenererad             = true;
+                for (std::size_t i = borta + 1; i < borta + kDelformIndex; ++i)
+                    degenererad = degenererad && idx[i] == idx[borta];
+                const std::size_t sista = 19 * kFyrkantIndex;
+                for (std::size_t i = sista + 1; i < sista + kFyrkantIndex; ++i)
+                    levande = levande || idx[i] != idx[sista];
+            }
+        }
+        check(degenererad && levande && b.yta.shapeCount() == 20,
+              "FD4 hela flerdelsformens index är degenererade, grannen orörd");
+    }
 }
 
 int main(int argc, char** argv)
@@ -1997,6 +2201,7 @@ int main(int argc, char** argv)
     fallZV();
     fallMB();
     fallKL();
+    fallFD();
 
     std::printf(g_fel ? "=== painter_gate: %d FEL av %d ===\n"
                       : "=== painter_gate: allt grönt (%d fel av %d) ===\n",

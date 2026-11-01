@@ -199,11 +199,13 @@ std::optional<Bitmap> renderBitmap3D(const PaintContext& canvas,
 // är anroparens: skapas eller byts här när det saknas eller har fel mått
 // (w × h px, ritytans provtagning, djup), rensas till `background` och
 // lämnas obundet och upplöst, klart att ritas som bild. Ingen återläsning.
-// false (+ logg) när målet inte går att skapa.
+// false (+ logg) när målet inte går att skapa. `labelsAnimating` säger om
+// etiketterna fortfarande tonar — då är bilden ett mellanläge.
 bool renderCanvasTarget(const PaintContext& canvas,
                         const std::shared_ptr<SceneData>& scene,
                         const Target3DArgs& args, int w, int h,
                         gfx::Color background,
-                        std::unique_ptr<gfx::RenderTarget>& target);
+                        std::unique_ptr<gfx::RenderTarget>& target,
+                        bool& labelsAnimating);
 
 } // namespace glaze::detail

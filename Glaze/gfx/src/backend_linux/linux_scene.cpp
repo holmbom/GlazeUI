@@ -639,7 +639,7 @@ void GlRenderer::bindSceneClip(const MeshDraw& d)
     const SceneClip& k = d.uniforms.clip;
     if (!clipUbo_)
         return;
-    if (k.screen || k.world || sceneClip_.screen || sceneClip_.world) {
+    if (rebindClipMasks(k, sceneClip_)) {
         const auto unit = [this](int enhet, const Image* mask) {
             pglActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(enhet));
             glBindTexture(GL_TEXTURE_2D,
@@ -653,16 +653,10 @@ void GlRenderer::bindSceneClip(const MeshDraw& d)
     }
     if (k == sceneClip_)
         return;
-    const float block[12] = {
-        k.screenRect.x, k.screenRect.y, k.screenRect.w, k.screenRect.h,
-        k.worldUv[0],   k.worldUv[1],   k.worldUv[2],   k.worldUv[3],
-        k.screen ? 1.0f : 0.0f,
-        k.world ? 1.0f : 0.0f,
-        k.screen && k.screen->flippedV() ? 1.0f : 0.0f,
-        k.world && k.world->flippedV() ? 1.0f : 0.0f};
+    const SceneClipBlock block = packSceneClip(k);   // ../scene_clip.h
     pglBindBuffer(GL_UNIFORM_BUFFER, clipUbo_);
     pglBufferData(GL_UNIFORM_BUFFER, static_cast<GLsizeiptr>(sizeof block),
-                  block, GL_STREAM_DRAW);
+                  &block, GL_STREAM_DRAW);
     sceneClip_ = k;
 }
 

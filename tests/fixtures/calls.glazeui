@@ -200,6 +200,9 @@ void CallsFixture::initializeComponent()
     karta.addShape(1, glaze::Shape::arc({674050, 6580050}, 20, 0, 90, glaze::Stroke{gfx::Color{0, 128, 0}, glaze::world(2)}));
     karta.addShape(2, glaze::Shape::polygon({{674000, 6580000}, {674040, 6580000}, {674040, 6580030}}, gfx::Color{255, 0, 0}, glaze::Stroke{.width = 2}));
     karta.addShape(2, glaze::Shape::polygon({{{674000, 6580000}, {674040, 6580000}, {674040, 6580040}, {674000, 6580040}}, {{674010, 6580010}, {674020, 6580010}, {674020, 6580020}}}, glaze::Paint::linear({674000, 6580000}, {674040, 6580000}, {{0, gfx::Color{255, 0, 0}}, {1, gfx::Color{0, 0, 255}}}), std::nullopt));
+    karta.addShape(2, glaze::Shape::polygons(std::vector<glaze::Polygon>{glaze::Polygon{{{674000, 6580000}, {674040, 6580000}, {674040, 6580040}, {674000, 6580040}}, {{{674010, 6580010}, {674020, 6580010}, {674020, 6580020}}}}, glaze::Polygon{{{674060, 6580000}, {674090, 6580000}, {674090, 6580030}}, {}}}, gfx::Color{255, 0, 0}, glaze::Stroke{.width = 2}));
+    karta.addShape(2, glaze::Shape::polygons({glaze::Polygon{.outer = {{674100, 6580000}, {674120, 6580000}, {674120, 6580020}}, .holes = {}}, glaze::Polygon{{{674130, 6580000}, {674150, 6580000}, {674150, 6580020}}, {}}}, gfx::Color{0, 0, 255, 128}));
+    karta.addShape(2, glaze::Shape::polygons({{{{674200, 6580000}, {674240, 6580000}, {674240, 6580040}}, {{{674210, 6580010}, {674220, 6580010}, {674220, 6580020}}}}, {{{674250, 6580000}, {674270, 6580000}, {674270, 6580020}}, {}}}, gfx::Color{0, 128, 0}));
     karta.addShape(2, glaze::Shape::rect(glaze::Rect{674005, 6580005, 20, 10}, glaze::Paint::radial({674015, 6580010}, 0, 12, {{.offset = 0, .color = gfx::Color{255, 255, 255}}, {.offset = 1, .color = gfx::Color{0, 0, 0}}})));
     karta.addShape(2, glaze::Shape::ellipse({674100, 6580100}, 30, 15, gfx::Color{0, 255, 0, 128}));
     karta.addShape(2, glaze::Shape::circle({674100, 6580100}, 8, gfx::Color{}, glaze::Stroke{.paint = gfx::Color{255, 255, 255}}));
@@ -284,15 +287,15 @@ void CallsFixture::initializeComponent()
     karta.setClipSpace(glaze::ClipSpace::Screen);
     karta.setInvalidClip(glaze::InvalidClip::Hide);
     karta.addClip({{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, {20, 20}}}});
-    karta.addClip(glaze::ClipPolygon{{{0, 0}, {50, 0}, {50, 50}}, {}});
+    karta.addClip(glaze::Polygon{{{0, 0}, {50, 0}, {50, 50}}, {}});
     karta.addClip({});
     karta.setClip(1, {.outer = {{0, 0}, {10, 0}, {10, 10}}, .holes = {{{2, 2}, {4, 2}, {4, 4}}, {{5, 5}, {6, 5}, {6, 6}}}});
-    karta.setClips({{{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, {20, 20}}}}, glaze::ClipPolygon{{{200, 0}, {300, 0}, {300, 80}}, {}}});
+    karta.setClips({{{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, {20, 20}}}}, glaze::Polygon{{{200, 0}, {300, 0}, {300, 80}}, {}}});
     karta.setClips({});
     karta.resetClip();
     karta.setLayerClipSpace(1, glaze::ClipSpace::World);
     karta.addLayerClip(1, {{{674000, 6580000}, {674100, 6580000}, {674100, 6580080}}, {{{674010, 6580010}, {674020, 6580010}, {674020, 6580020}}}});
-    karta.setLayerClip(1, 0, glaze::ClipPolygon{{{674000, 6580000}, {674050, 6580000}, {674050, 6580050}}, {}});
+    karta.setLayerClip(1, 0, glaze::Polygon{{{674000, 6580000}, {674050, 6580000}, {674050, 6580050}}, {}});
     karta.setLayerClips(2, {{{{674000, 6580000}, {674100, 6580000}, {674100, 6580080}}, {}}});
     karta.setLayerClips(2, {});
     karta.resetLayerClip(2);

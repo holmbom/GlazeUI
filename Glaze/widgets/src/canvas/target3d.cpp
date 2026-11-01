@@ -129,27 +129,38 @@ Target3DState renderView(PaintContext& f, const std::shared_ptr<SceneData>& scen
     return Target3DState{lf.animating(), drapes.pending() > 0};
 }
 
-// Ritläget för en 3D-kamera i rutan `box` (målets px) med Ctx:t `c`: 3D-vyn,
-// kamerans kartskugga (det som mäts "i mitten" — camera_math `mapViewAt`),
-// vyn och etiketternas plats — och det som är ritytans och inte vyns
-// (fönstrets resurser, meshernas ljus, y-riktningen) ur ritytans ritläge
-// `canvas`.
-PaintContext cameraContext(const PaintContext& canvas, const Ctx& c,
-                           const Camera3D& cam, const gfx::Rectf& box,
-                           const SceneData& scene, int view, int labelSlot)
+// Ritläget i ett mål med kartvyn `world` (på målets ruta `world.box`) och
+// Ctx:t `c`: skärmens vy, zoomen, vyn och etiketternas plats — och det som är
+// ritytans och inte vyns (fönstrets resurser, meshernas ljus) ur ritytans
+// ritläge `canvas`. 3D-vyn sätter anroparen.
+PaintContext targetContext(const PaintContext& canvas, const Ctx& c,
+                           const gfx::MapView& world, const SceneData& scene,
+                           int view, int labelSlot)
 {
     PaintContext f;
     f.c         = &c;
     f.res       = canvas.res;
-    f.world     = mapViewAt(cam, box, canvas.world.yUp);
-    f.screen    = localView(box, c.scale);
-    f.zoom      = f.world.pxPerUnit / c.scale;
+    f.world     = world;
+    f.screen    = localView(world.box, c.scale);
+    f.zoom      = world.pxPerUnit / c.scale;
     f.opacity   = 1.0f;   // tonen är kompositens
     f.view      = view;
     f.labelSlot = labelSlot;
     f.lighting  = canvas.lighting;
     f.scene     = &scene;
-    f.view3D    = viewView3D(cam, box, scene, view);
+    return f;
+}
+
+// Ritläget för en 3D-kamera i rutan `box` (målets px): 3D-vyn och kamerans
+// kartskugga (det som mäts "i mitten" — camera_math `mapViewAt`), med
+// y-riktningen ur ritytans ritläge `canvas`.
+PaintContext cameraContext(const PaintContext& canvas, const Ctx& c,
+                           const Camera3D& cam, const gfx::Rectf& box,
+                           const SceneData& scene, int view, int labelSlot)
+{
+    PaintContext f = targetContext(canvas, c, mapViewAt(cam, box, canvas.world.yUp),
+                                   scene, view, labelSlot);
+    f.view3D       = viewView3D(cam, box, scene, view);
     return f;
 }
 
@@ -411,19 +422,10 @@ namespace {
 PaintContext mapContext(const PaintContext& canvas, const Ctx& c,
                         const gfx::Rectf& box, const SceneData& scene, int labelSlot)
 {
-    PaintContext f;
-    f.c         = &c;
-    f.res       = canvas.res;
-    f.world     = canvas.world;
-    f.world.box = box;
-    f.screen    = localView(box, c.scale);
-    f.zoom      = f.world.pxPerUnit / c.scale;
-    f.opacity   = 1.0f;
-    f.view      = kMainView;
-    f.labelSlot = labelSlot;
-    f.lighting  = canvas.lighting;
-    f.scene     = &scene;
-    f.view3D    = mainView3D(nullptr, f.world, scene);
+    gfx::MapView world = canvas.world;
+    world.box          = box;
+    PaintContext f = targetContext(canvas, c, world, scene, kMainView, labelSlot);
+    f.view3D       = mainView3D(nullptr, f.world, scene);
     return f;
 }
 
@@ -490,8 +492,10 @@ std::optional<Bitmap> renderBitmap3D(const PaintContext& canvas,
 bool renderCanvasTarget(const PaintContext& canvas,
                         const std::shared_ptr<SceneData>& scene,
                         const Target3DArgs& a, int w, int h, gfx::Color background,
-                        std::unique_ptr<gfx::RenderTarget>& target)
+                        std::unique_ptr<gfx::RenderTarget>& target,
+                        bool& labelsAnimating)
 {
+    labelsAnimating = false;
     const Ctx&     c = *canvas.c;
     gfx::Renderer& r = *c.r;
     Ctx            bc = c;
@@ -512,7 +516,9 @@ bool renderCanvasTarget(const PaintContext& canvas,
     Target3DArgs args = a;
     args.gridSize     = 0.0;
     args.paint        = nullptr;
-    renderView(f, scene, *target, background, args, true, DrapeMode::Complete);
+    labelsAnimating =
+        renderView(f, scene, *target, background, args, true, DrapeMode::Complete)
+            .labelsAnimating;
     return true;
 }
 

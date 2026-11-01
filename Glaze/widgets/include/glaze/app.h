@@ -67,11 +67,14 @@ const Theme::Colors& osIconColors();
 // bara från UI-tråden och aldrig en apps väg: appen postar med `app().post`.
 void postFrameWork(std::function<void()> fn);
 
-// APPENS HANDLER-EPOK — stegas varje gång App levererar ett event, en
-// postad funktion eller en timer till appens kod, men inte för ritytans tick
-// och ramverkets egna animationer. Mätcachen (`Widget::measure`) har den i
-// nyckeln: i en handler får de råa layoutfälten ändras utan `invalidate()`.
-// Bor i app.cpp (inget statiskt tillstånd i en header) och skapar aldrig App.
+// APPENS HANDLER-EPOK — stegas före och efter varje körd handler (`Handler`,
+// widget.h `detail::HandlerCall`) och varje postad funktion i appens kö, när
+// appens råa krok (`AppWindow::event`, `acceleratorFallback`) tagit en
+// händelse, och av `App::invalidateAll`. Inte av en händelse som ingen
+// handler tar emot, ramverkets egna poster, ritytans tick eller målarna.
+// Mätcachen (`Widget::measure`) har den i nyckeln: i en handler får de råa
+// layoutfälten ändras utan `invalidate()`. Bor i app.cpp (inget statiskt
+// tillstånd i en header) och skapar aldrig App.
 std::uint64_t handlerEpoch();
 void          bumpHandlerEpoch();
 
@@ -420,7 +423,6 @@ private:
     // fönsters commit-kö töms framifrån — en modal dialog i en insamlad
     // handler levererar så resten i ordning (kontraktet i app_window.h).
     void drainCommitQueues();
-    bool hasCommits() const;   // väntar något fönster med ett commit?
 
     // Finns något postat just nu, i NÅGON av köerna? Läses av pumpen FÖRE
     // den blockerande väntan: en post som kom innan pumpen började (eller
@@ -459,8 +461,9 @@ private:
     using PostQueue = std::vector<std::function<void()>>;
     void enqueue(PostQueue& kö, std::function<void()> fn);
     // Kör snapshoten av `kö`; `budgetMs` > 0 slutar efter den funktion som
-    // tog budgeten, 0 kör allt.
-    void runQueue(PostQueue& kö, int budgetMs);
+    // tog budgeten, 0 kör allt. `appensKod`: varje funktion stegar
+    // handler-epoken (appens kö, inte ramkön).
+    void runQueue(PostQueue& kö, int budgetMs, bool appensKod);
 
     mutable std::mutex postMutex_;   // mutable: hasPosted() är const
     PostQueue          posted_;

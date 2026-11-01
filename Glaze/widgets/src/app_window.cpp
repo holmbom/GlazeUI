@@ -4523,8 +4523,15 @@ void AppWindow::handleEvent(const gfx::Event& e)
         break;
     }
 
-    // Appens råa hook — kan äta eventet. Antar att appen ändrat något.
-    if (event(e)) {
+    // Appens råa hook — kan äta eventet. Den är appens kod: handler-epoken
+    // (mätcachen, app.h) stegas före och efter den, också när den inte äter
+    // eventet. Äter den det antas appen ha ändrat något, och fönstret ritas om.
+    bool åt = false;
+    {
+        const detail::HandlerCall epok;
+        åt = event(e);
+    }
+    if (åt) {
         if (!dött())
             invalidate();
         return;
@@ -5461,7 +5468,11 @@ void AppWindow::handleEvent(const gfx::Event& e)
         // RESERVVÄGEN — ett ägt verktygsfönster låter ägarens
         // acceleratorer svara (`acceleratorFallback`).
         {
-            const bool tog = acceleratorFallback(e.key, e.mods);
+            bool tog = false;
+            {
+                const detail::HandlerCall epok;   // appens kod, som den råa kroken
+                tog = acceleratorFallback(e.key, e.mods);
+            }
             if (dött())
                 return;
             if (tog) {

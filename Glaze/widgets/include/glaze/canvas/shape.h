@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <vector>
 
 #include <gfx/color.h>
@@ -414,6 +415,15 @@ public:
     // Ringar: den första är ytterringen, resten HÅL. Orienteringen är fri.
     static Shape polygon(std::vector<std::vector<Point>> rings, Paint fill,
                          std::optional<Stroke> stroke = std::nullopt);
+    // En yta i FLERA DELAR (en multipolygon): varje del är en ytterring med
+    // sina hål, och delarna får inte överlappa — en ö i en annan dels hål är
+    // en egen del. EN form: en stil, ett träffprov och ett index för hela
+    // ytan. En del vars ytterring har färre än tre punkter hoppas över med
+    // sina hål. De andra ytfabrikerna ger en del. Ett eget namn och ingen
+    // överlagring av `polygon`: då är delarna en bar klammerlista också i
+    // `.glazeui` — `polygons({{ytterring, {hål…}}, …}, fyllning)`.
+    static Shape polygons(std::vector<Polygon> parts, Paint fill,
+                          std::optional<Stroke> stroke = std::nullopt);
     static Shape rect(Rect r, Paint fill,
                       std::optional<Stroke> stroke = std::nullopt);
     static Shape ellipse(Point center, double rx, double ry, Paint fill,
@@ -542,6 +552,11 @@ public:
 
     Kind                       kind() const { return kind_; }
     const std::vector<Contour>& contours() const { return contours_; }
+    // Ytans DELAR (`Kind::Area`): varje del är dess ytterring följd av dess
+    // hål, i `contours()`s ordning. En yta ur de andra fabrikerna har en del;
+    // de andra slagen har ingen.
+    std::size_t                partCount() const { return partEnds_.size(); }
+    std::span<const Contour>   part(std::size_t i) const;
     bool                        hasFill() const { return hasFill_; }
     const Paint&                fill() const { return fill_; }
     bool                        hasStroke() const { return hasStroke_; }
@@ -593,6 +608,7 @@ private:
 
     Kind                 kind_ = Kind::None;
     std::vector<Contour> contours_;
+    std::vector<std::uint32_t> partEnds_;   // delarnas slut i `contours_`
     Paint                fill_;
     bool                 hasFill_ = false;
     Stroke               stroke_;

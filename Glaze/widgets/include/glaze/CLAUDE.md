@@ -299,9 +299,9 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
     Frågas BARA med en given bredd: sträckt vågrätt i gren 2, och Top/Bottom-
     dockad med remsans bredd (privata `dockedSize`, i dock-uppspelningen OCH
     `carveSiblingDocks`) — aldrig i en Bar, för Fill/Left/Right eller i
-    `childrenExtent(c)` (skriven gräns). Läser aldrig `c.box`; en satt `height`
-    vinner. Bara `Label` (`wrap`) svarar; **`measureHeightForWidth`** är parhästen (cachar per bredd).
-    **`childrenExtent(c, bredd)`** (publik, REQ3) — samma mått med BREDDEN GIVEN
+    `childrenExtent(c)` (skriven gräns: bredden är okänd). Läser aldrig `c.box`; en satt `height`
+    vinner. `Label` (`wrap`) och `GroupBox` (barnen i innerbredden) svarar; **`measureHeightForWidth`** är parhästen (cachar per bredd).
+    **`childrenExtent(c, std::optional<float> bredd)`** (publik; **`childInsets(c)`** är kompositens luft, och basens `contentSize`/`heightForWidth` räknar autostorleken ur den) — samma mått med BREDDEN GIVEN
     (fönstret som följer innehållet): Top/Bottom/Fill-remsorna och odockade barn
     med två KÄNDA x-kanter tar `heightForWidth` med sin bredd; kärnan är privata `extentOf`.
     Container-krokar (PUBLIKA — GlazeBuilders parallella vandring måste nå
@@ -977,7 +977,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   genom `heightForWidth` (TEXTFALTEN), inte genom `c.area`; för
   `Fill` är kravet irrelevant. Bryts det blir syskonens layout beroende av
   frågeordningen och det finns ingen fixpunkt. `layout_gate` mäter
-  kontraktet med två areor på skäraxeln + en anropsräknare med facit. **MÄTCACHEN:** `measure`/`measureHeightForWidth` svarar ur widgetens eget minne tills `invalidate()` i delträdet, ett barns tillägg/borttagning/flytt, ett miljöbyte (UI, stil, tema, skala, språk) eller en handler-epok (`detail::handlerEpoch()` — App stegar den kring varje leverans till appens kod, aldrig för ritytans tick) ändrar nyckeln. En rå layoutändring UTANFÖR en handler kräver därför `invalidate()`, `c.area` ingår inte i nyckeln (så `contentSize` läser den aldrig), och ett mått som läser syskon eller hela fönstret överrider `measureScope()` (Parent/Root).
+  kontraktet med två areor på skäraxeln + en anropsräknare med facit. **MÄTCACHEN:** `measure`/`measureHeightForWidth` svarar ur widgetens eget minne tills `invalidate()` i delträdet, ett barns tillägg/borttagning/flytt, ett miljöbyte (UI, stil, tema, skala, språk) eller en handler-epok (`detail::handlerEpoch()` — stegad kring varje körd `Handler` (`detail::HandlerCall`), varje postad funktion i appens kö och appens råa krok när den tar en händelse; aldrig för en händelse utan handler, ritytans tick eller målarna (`detail::callWithoutEpoch`)) ändrar nyckeln. En rå layoutändring UTANFÖR en handler kräver därför `invalidate()`, `c.area` ingår inte i nyckeln (så `contentSize` läser den aldrig), och ett mått som läser syskon eller hela fönstret överrider `measureScope()` (Parent/Root).
 - **Tvärs-widget-geometri är inte ritning** och hör därför inte till
   `draw.h`: den blir en metod på ÄGAREN (`Panel::innerBounds`/`innerRect`
   är publika eftersom `PropertyGrid` ärver dem; `TextInput::innerBounds`

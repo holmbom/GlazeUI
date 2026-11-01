@@ -189,12 +189,10 @@ void MarkdownView::scrollToAnchor(std::string anchor)
 // Label har, skriven som kantfall; ett dokumentbyte är sällsynt).
 void MarkdownView::contentChanged()
 {
+    invalidate();   // vyn mäts om
     if (height <= 0.0f)
-        if (AppWindow* f = appWindow()) {
+        if (AppWindow* f = appWindow())
             f->invalidate();
-            return;
-        }
-    invalidate();
 }
 
 bool MarkdownView::setProp(const std::string& key, const std::string& value)

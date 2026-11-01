@@ -62,6 +62,16 @@
 //   Y6  CHUNKGRÄNSEN: en cirkel med 20 000 punkter (80 000 vertex) delas i
 //       chunkar ≤ 65 536 med samma origo, alla index inom sin chunk och
 //       arean bevarad; två små ytor delar en chunk med förskjutna index.
+//   Y7  FORMEN I FLERA DELAR (`Shape::polygons(std::vector<Polygon>, …)` genom
+//       `buildFillPart`): tre delar med egna hål — 10 × 10 med ett hål 4 × 4
+//       (84), 6 × 6 med ett hål 2 × 2 (32) och en ö 2 × 2 i det första hålet
+//       (en egen del, 4) — ger EN chunk med 80 vertex (3 × 4 kantquadar per
+//       ring: 32 + 32 + 16) och arean 120, hålen ofyllda och den sista delens
+//       30 index efter de första 64 vertexen; samma chunk som tre bygganrop
+//       med `gfx::buildPolygon`. En del utan ytterring (två punkter) hoppas
+//       över MED sitt hål — hålet blir aldrig nästa dels ytterring. Delarna
+//       (`partCount`, `part(i)`) för fabrikerna: polygon(rings), rect och
+//       ellipse ger en del, polylinjen ingen, `part` utanför är tomt.
 //   KY  KLIPPETS YTA (`buildClipPolygon`): KY1 den konkava L-formen har arean
 //       5, är vit och har buildPolygons kantremsa (24 vertex); KY2 tre hål; KY3
 //       400 hörn (den z-ordnade vägen) och KY4 SWEREF-koordinater med hål mot
@@ -70,7 +80,8 @@
 //       punkter, tre på en linje, inga ringar och bara icke-ändliga punkter
 //       är false (där buildPolygon svarar true utan yta); KY8 dubbletter, upprepad
 //       slutpunkt och icke-ändliga punkter tas bort; KY9 ytan läggs efter de
-//       gamla chunkarna, som är orörda.
+//       gamla chunkarna, som är orörda; KY10 `clipPolygonOk` svarar som
+//       `buildClipPolygon` utan att bygga.
 //
 // VAD GRINDEN PÅSTÅR OM TEXTEN (referensen är det RIKTIGA euklidiska avståndet
 // och en egen font med kända steg — aldrig sdf.cpp:s formel):
@@ -154,7 +165,12 @@
 // siffra) och Image-programmets division med q (scene_pixel_gate B8–B11).
 //
 // SABOTAGEN den fäller: `dist` nollställd (fall 1–3 och 5), hålen
-// ignorerade (Y1, Y2) och ringarna inte vända (Y5) — liksom radien
+// ignorerade (Y1, Y2) och ringarna inte vända (Y5); formens delar byggda som
+// EN yta över alla ringar (`buildFillPart` med ett enda bygganrop — B:s
+// ytterring tolkas som ett hål och arean blir fel, Y7), ett bygganrop som
+// ersätter i stället för att lägga till i chunklistan (Y7 vertexen), en
+// hoppad del vars hål ändå läggs i `contours_` (Y7 partCount och contours),
+// `partEnds_` osatt i `area` (Y7 partCount 1 för rect) — liksom radien
 // halverad i fältets kodning (S1), fältets bredd i stället för steget i
 // layouten (S2) och den kursiva skjuvningen borta (S3); i konturen och
 // bildmarkören: `closed` ignorerad (9) och det udda mönstret
@@ -956,6 +972,26 @@ void fallKlippytan()
               "KY2 tre hål: 352 och 16 kanter med kantquadar", area(täckt(k)));
     }
 
+    // KY10 GILTIGHETSPROVET `clipPolygonOk` svarar som `buildClipPolygon` och
+    // bygger ingenting: L-formen och ytan med hål är giltiga, en fluga och en
+    // ring med två punkter är det inte. Sabotage som SKA fälla KY10: ett prov
+    // som bara räknar punkterna (flugan blir giltig).
+    {
+        const Ringar L     = {{{0, 0}, {3, 0}, {3, 1}, {1, 1}, {1, 3}, {0, 3}}};
+        const Ringar hål   = {{{0, 0}, {20, 0}, {20, 20}, {0, 20}},
+                              {{2, 2}, {6, 2}, {6, 6}, {2, 6}}};
+        const Ringar fluga = {{{0, 0}, {4, 4}, {4, 0}, {0, 4}}};
+        const Ringar kort  = {{{0, 0}, {5, 5}}};
+        bool lika = true;
+        for (const Ringar* r : {&L, &hål, &fluga, &kort}) {
+            std::vector<gfx::FillChunk> k;
+            lika = lika && gfx::clipPolygonOk(*r) == gfx::buildClipPolygon(*r, k);
+        }
+        check(gfx::clipPolygonOk(L) && gfx::clipPolygonOk(hål) &&
+                  !gfx::clipPolygonOk(fluga) && !gfx::clipPolygonOk(kort) && lika,
+              "KY10 clipPolygonOk svarar som buildClipPolygon (L, hål, fluga, två punkter)");
+    }
+
     // KY3 hundratals hörn (den z-ordnade vägen) och KY4 SWEREF med hål.
     {
         std::mt19937 g(20261101u);
@@ -1146,6 +1182,107 @@ void fallYtornasChunkar()
         förskjutna = två[0].indices[i] >= 16;
     check(förskjutna && två[0].vertices[16].x == 5.0f,
           "Y6 två små ytor delar en chunk; den andras index är förskjutna");
+}
+
+// ------------------------------------------------------------------ Y7
+// Formens delar: samma chunklista, ett bygganrop per del.
+void fallFlerdelsyta()
+{
+    using glaze::Point;
+    using glaze::Polygon;
+    const auto ruta = [](double x, double y, double sida) {
+        return std::vector<Point>{{x, y}, {x + sida, y}, {x + sida, y + sida},
+                                  {x, y + sida}};
+    };
+    // A: 10 × 10 med ett hål 4 × 4 = 84. B: 6 × 6 med ett hål 2 × 2 = 32. C: en
+    // ö 2 × 2 = 4 i A:s hål — en egen del.
+    const Polygon A{ruta(0, 0, 10), {ruta(3, 3, 4)}};
+    const Polygon B{ruta(20, 0, 6), {ruta(22, 2, 2)}};
+    const Polygon C{ruta(4, 4, 2), {}};
+    const glaze::Shape s = glaze::Shape::polygons({A, B, C}, gfx::Color{10, 20, 30, 255});
+
+    check(s.partCount() == 3 && s.contours().size() == 5 &&
+              s.part(0).size() == 2 && s.part(1).size() == 2 &&
+              s.part(2).size() == 1,
+          "Y7 tre delar: partCount 3, fem ringar, delarna 2 + 2 + 1",
+          std::to_string(s.partCount()) + " delar, " +
+              std::to_string(s.contours().size()) + " ringar");
+    check(s.part(0)[0].points[0].x == 0.0 && s.part(1)[0].points[0].x == 20.0 &&
+              s.part(1)[1].points[0].x == 22.0 && s.part(2)[0].points[0].x == 4.0,
+          "Y7 varje del är sin ytterring följd av sina hål, i ordning");
+    check(s.part(3).empty() && s.part(99).empty(),
+          "Y7 en del utanför partCount är tom");
+
+    std::vector<gfx::FillChunk> ch;
+    glaze::detail::buildFillPart(s, ch);
+    check(ch.size() == 1 && ch[0].vertices.size() == 80 && indexInom(ch),
+          "Y7 tre delar med hål: EN chunk med 80 vertex (8 + 8 + 4 kanter à 4)",
+          std::to_string(ch.size()) + " chunkar, " +
+              (ch.empty() ? std::string("0") : std::to_string(ch[0].vertices.size())) +
+              " vertex");
+    check(std::abs(täckt(ch) - 120.0) < 1e-9,
+          "Y7 arean 84 + 32 + 4 = 120: hålen ofyllda, ön fylld", area(täckt(ch)));
+    bool sista = ch.size() == 1 && ch[0].indices.size() >= 30;
+    for (std::size_t i = ch.empty() ? 0 : ch[0].indices.size() - 30;
+         sista && i < ch[0].indices.size(); ++i)
+        sista = ch[0].indices[i] >= 64 && ch[0].indices[i] < 80;
+    check(sista, "Y7 den sista delens 30 index ligger efter de första 64 vertexen");
+
+    // Samma resultat som tre bygganrop med fasaden.
+    std::vector<gfx::FillChunk> fasad;
+    for (const Polygon& d : {A, B, C}) {
+        Ringar r;
+        for (const Point& p : d.outer) {
+            if (r.empty())
+                r.emplace_back();
+            r[0].push_back({p.x, p.y});
+        }
+        for (const std::vector<Point>& h : d.holes) {
+            r.emplace_back();
+            for (const Point& p : h)
+                r.back().push_back({p.x, p.y});
+        }
+        gfx::buildPolygon(r, gfx::PolygonStyle{gfx::Color{10, 20, 30, 255}}, fasad);
+    }
+    check(fasad.size() == 1 && ch.size() == 1 &&
+              fasad[0].vertices.size() == ch[0].vertices.size() &&
+              fasad[0].indices == ch[0].indices,
+          "Y7 buildFillPart ≡ ett gfx::buildPolygon per del i samma lista");
+
+    // En del utan ytterring hoppas över med sitt hål.
+    const Polygon utan{{{0, 0}, {1, 0}}, {ruta(0, 0, 4)}};
+    const glaze::Shape h = glaze::Shape::polygons({utan, Polygon{ruta(0, 0, 10), {}}},
+                                                 gfx::Color{});
+    check(h.partCount() == 1 && h.contours().size() == 1 &&
+              h.part(0).size() == 1 && h.part(0)[0].points.size() == 4,
+          "Y7 en del med två punkter hoppas över med sitt hål: det blir aldrig "
+          "nästa dels ytterring");
+    std::vector<gfx::FillChunk> hh;
+    glaze::detail::buildFillPart(h, hh);
+    check(std::abs(täckt(hh) - 100.0) < 1e-9,
+          "Y7 den kvarvarande delen täcker 100 (hålet ofyllt)", area(täckt(hh)));
+    const glaze::Shape inga = glaze::Shape::polygons({utan}, gfx::Color{});
+    std::vector<gfx::FillChunk> ingen;
+    glaze::detail::buildFillPart(inga, ingen);
+    check(inga.partCount() == 0 && inga.contours().empty() && ingen.empty(),
+          "Y7 bara ogiltiga delar: ingen del, inga ringar, ingen geometri");
+
+    // De andra fabrikerna.
+    const glaze::Shape rings = glaze::Shape::polygon(
+        std::vector<std::vector<Point>>{ruta(0, 0, 10), ruta(3, 3, 4)}, gfx::Color{});
+    const glaze::Shape rekt  = glaze::Shape::rect({0, 0, 5, 5}, gfx::Color{});
+    const glaze::Shape ellip = glaze::Shape::ellipse({0, 0}, 3, 2, gfx::Color{});
+    const glaze::Shape linje = glaze::Shape::polyline({{0, 0}, {5, 5}});
+    check(rings.partCount() == 1 && rings.part(0).size() == 2 &&
+              rekt.partCount() == 1 && rekt.part(0).size() == 1 &&
+              ellip.partCount() == 1 && ellip.part(0).size() == 1,
+          "Y7 polygon(ringar), rect och ellipse ger EN del (ytterring + hål)");
+    const glaze::Shape tomRing =
+        glaze::Shape::polygon(std::vector<std::vector<Point>>{}, gfx::Color{});
+    check(tomRing.partCount() == 1 && tomRing.part(0).empty(),
+          "Y7 polygon(ringar) utan ringar ger också EN del — tom");
+    check(linje.partCount() == 0 && linje.part(0).empty(),
+          "Y7 en polylinje har inga delar");
 }
 
 // ============================================================ SDF-TEXTEN
@@ -3532,6 +3669,7 @@ int main(int argc, char** argv)
     fallKlippytan();
     fallRemsansRiktning();
     fallYtornasChunkar();
+    fallFlerdelsyta();
     fallSdfVärden();
     fallTextlayout();
     fallSyntes();

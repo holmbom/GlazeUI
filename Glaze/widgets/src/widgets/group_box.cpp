@@ -52,15 +52,22 @@ gfx::Rectf GroupBox::titleRect(const Ctx& c, const gfx::Rectf& b) const
     return gfx::Rectf{x, b.y, std::min(bredd, maxB), Draw::lineHeight(c)};
 }
 
-// Barnens yta: ramen minus `groupPad` på sidorna och i botten, och under
-// HELA rubrikbandet upptill — innehåll får aldrig krypa upp i rubriken.
+// LUFTEN — EN gång för barnens yta, autostorleken och höjden för en bredd:
+// `groupPad` på sidorna och i botten, och HELA rubrikbandet plus `groupPad`
+// upptill — innehåll får aldrig krypa upp i rubriken.
+std::optional<Widget::Insets> GroupBox::childInsets(const Ctx& c) const
+{
+    const float pad = c.style->groupPad;
+    return Insets{pad, Draw::lineHeight(c) + pad, pad, pad};
+}
+
+// Barnens yta: ytan minus luften.
 gfx::Rectf GroupBox::innerRect(const Ctx& c, const gfx::Rectf& b) const
 {
-    const float pad  = c.style->groupPad;
-    const float band = Draw::lineHeight(c);
-    return gfx::Rectf{b.x + pad, b.y + band + pad,
-                      std::max(0.0f, b.w - 2.0f * pad),
-                      std::max(0.0f, b.h - band - 2.0f * pad)};
+    const Insets in = *GroupBox::childInsets(c);
+    return gfx::Rectf{b.x + in.left, b.y + in.top,
+                      std::max(0.0f, b.w - in.left - in.right),
+                      std::max(0.0f, b.h - in.top - in.bottom)};
 }
 
 // ---------------------------------------------------- containerkrokarna
@@ -93,27 +100,19 @@ gfx::Sizef GroupBox::contentSize(const Ctx& c) const
     switch (c.ui) {
     case UI::Slate:
     default: {
-        // AXELREGELN med AUTOSTORLEK UR BARNEN (kompositstödets opt-in):
-        // en satt axel vinner, en AUTO-axel blir barnens utsträckning plus
-        // ramens luft — och minst så bred som rubriken med sin lucka och
-        // indraget på båda sidor. Ett tomt auto-mått blir därmed aldrig
-        // noll: rubrikbandet och luften finns alltid.
-        //
-        // `childrenExtent` mäter barnen i SAMMA rymd som `innerRect`
-        // placerar dem i (logiska px, origo i innerytans hörn), så de två
-        // talen kan läggas ihop rakt av.
-        gfx::Sizef s{width, height};
-        if (s.w > 0.0f && s.h > 0.0f)
-            return s;
-        const auto&      m    = *c.style;
-        const gfx::Sizef e    = childrenExtent(c);
-        const float      band = Draw::lineHeight(c);
-        const float      rubrik =
-            text().empty() ? 0.0f
-                           : Draw::measure(c, text()).w +
-                                 2.0f * (m.groupTitleIndent + m.groupTitleGap);
-        if (s.w <= 0.0f) s.w = std::max(e.w + 2.0f * m.groupPad, rubrik);
-        if (s.h <= 0.0f) s.h = e.h + band + 2.0f * m.groupPad;
+        // AXELREGELN med AUTOSTORLEK UR BARNEN — basens, ur luften
+        // (`childInsets`): en satt axel vinner, en AUTO-axel blir barnens
+        // utsträckning plus luften, och med en satt `width` följer höjden
+        // innerbredden på `heightForWidth`s väg. En auto-bredd är dessutom
+        // minst så bred som rubriken med sin lucka och indraget på båda
+        // sidor. Ett tomt auto-mått blir därmed aldrig noll: rubrikbandet och
+        // luften finns alltid.
+        gfx::Sizef s = Widget::contentSize(c);
+        if (width <= 0.0f && !text().empty()) {
+            const auto& m = *c.style;
+            s.w = std::max(s.w, Draw::measure(c, text()).w +
+                                    2.0f * (m.groupTitleIndent + m.groupTitleGap));
+        }
         return s;
     }
     }

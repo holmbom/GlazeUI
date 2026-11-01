@@ -270,12 +270,19 @@ public:
     // renderToBitmap, så de står kvar. 0 = ritytan ritar i 2D igen.
     void          dropViews(std::uint64_t sceneId, int firstView);
     std::size_t   targetCount() const { return targets_.size(); }
-    // MÅLET FÖR EN RITYTA PÅ EN ANNAN YTA (`Painter::drawCanvas`): ett mål
-    // w × h som inte används av något annat anrop i den här framen — ritytans
-    // bild ritas på målarens yta efteråt, så målet måste leva framen ut. Ett
-    // som inte använts på två framer släpps i `trim`. Tomt (`nullptr`) tills
+    // MÅLET FÖR EN RITYTA PÅ EN ANNAN YTA (`Painter::drawCanvas`), nycklat på
+    // det ritningen beror på (ritytans `damageStamp`, kameran, måtten,
+    // klippversionerna — painter.cpp): ett mål som redan BYGGTS för nyckeln
+    // ritas inte om, annars ett w × h som inte används av något annat anrop i
+    // den här framen (`built` false) — ritytans bild ritas på målarens yta
+    // efteråt, så målet måste leva framen ut. Ett som inte använts på två
+    // framer släpps i `trim` (`TargetPool`). `target` är tomt tills
     // `renderCanvasTarget` skapat det.
-    std::unique_ptr<gfx::RenderTarget>& pageTarget(int w, int h);
+    detail::TargetPool::Slot& pageTarget(std::uint64_t key, int w, int h);
+    // Hur många gånger ett sådant mål RITATS — `drawCanvas`-cachens räknare
+    // (print_gate P7).
+    std::uint64_t pageRenders() const { return pageRenders_; }
+    void          notePageRender() { ++pageRenders_; }
     // Hur många gånger ett 3D-mål RITATS (inte kompositats) — 3D-cachens
     // räknare (scene3d_pixel_gate G3).
     std::uint64_t targetRenders() const { return targetRenders_; }
@@ -342,12 +349,8 @@ private:
 
     // 3D-målen per (rityta, vy) och hur många gånger de ritats.
     std::map<std::pair<std::uint64_t, int>, Target3D> targets_;
-    struct PageTarget {
-        std::unique_ptr<gfx::RenderTarget> target;
-        int                                w = 0, h = 0;
-        std::uint64_t                      used = 0;   // framens löpnummer
-    };
-    std::vector<std::unique_ptr<PageTarget>> pageTargets_;
+    detail::TargetPool                                pageTargets_;
+    std::uint64_t                                     pageRenders_ = 0;
     std::uint64_t                                     targetRenders_ = 0;
     std::unique_ptr<GridMesh>                         groundPlane_;
 

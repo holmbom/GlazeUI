@@ -21,11 +21,19 @@
 // räknande widget visar att ett oförändrat delträd mäts EN gång, och att varje
 // del av nyckeln — generationen, miljön, de råa layoutfälten och handler-epoken
 // — ger en ny mätning när den ändras. SABOTAGENA den fäller: en `measure` som
-// anropar `contentSize` rakt av (K1–K10 räknar fel), en nyckel utan `env` (K6),
-// utan `layoutHash` (K4), utan `epoch` (K5), en `invalidate()` som inte stegar
+// anropar `contentSize` rakt av (K1–K10 räknar fel), en nyckel utan miljön
+// (K6), utan `width`/`height`/`dock` (K4), med placeringsfälten (K4 — en
+// mätning för mycket), utan `epoch` (K5), `Handler::operator()` utan
+// `HandlerCall` (K5 — barnets flytt syns inte), en epok i den tomma grenen
+// eller i `callWithoutEpoch` (K5 — en mätning för mycket), en `invalidate()` som inte stegar
 // förfäderna eller som stegar syskonens delträd (K2), ett cachat svar som
 // glömmer `nullopt` (K3), och en adoption eller lossning som inte stegar
-// kedjan (K8, K9).
+// kedjan (K8, K9). K11 mäter gruppramens `heightForWidth` genom cachen: barnet
+// frågas med innerbredden en gång per bredd, och en ändring i barnet når ramens
+// cachade svar. SABOTAGENA den fäller: en gruppram som frågar barnet utan
+// bredd (höjden blir bandet och luften, K11 första kontrollen), en
+// `invalidate()` som inte når ramen (K11: gammalt svar kvar) och en satt
+// `height` som inte vinner (K11: ett svar i stället för nullopt).
 //
 // VAD DEN INTE TÄCKER — skrivet så anspråket inte överdrivs:
 //   - TU-lokala implementationer registrerar sig inte: `DropdownRows`
@@ -434,7 +442,8 @@ void mätcachen()
         ok(tyst.höjdfrågor == 2, "K3: invalidate() gäller höjdposterna också");
     }
 
-    // ---- K4. De råa layoutfälten är med i nyckeln.
+    // ---- K4. De egna råa måtten (`width`, `height`, `dock`) är med i
+    // nyckeln; placeringsfälten läser ingen `contentSize` och är det inte.
     {
         Räknande r(10.0f, 10.0f);
         Meter::measure(r, c);
@@ -451,36 +460,51 @@ void mätcachen()
         ändrad("width");
         r.height = 20.0f;
         ändrad("height");
-        r.x = 3.0f;
-        ändrad("x");
-        r.y = 4.0f;
-        ändrad("y");
-        r.right = 5.0f;
-        ändrad("right");
-        r.bottom = 6.0f;
-        ändrad("bottom");
         r.dock = glaze::Dock::Top;
         ändrad("dock");
+        r.x             = 3.0f;
+        r.y             = 4.0f;
+        r.right         = 5.0f;
+        r.bottom        = 6.0f;
         r.anchors.right = true;
-        ändrad("anchors");
-        r.anchorLeft = {"granne", 8.0f};
-        ändrad("anchorLeft");
-        r.anchorBottom = {"x", 2.0f};
-        ändrad("anchorBottom");
+        r.anchorLeft    = {"granne", 8.0f};
+        r.anchorBottom  = {"x", 2.0f};
         Meter::measure(r, c);
-        ok(r.mätningar == väntat, "K4: oförändrade fält ger ingen ny mätning");
+        ok(r.mätningar == väntat,
+           "K4: placeringsfälten och oförändrade mått ger ingen ny mätning (fick " +
+               std::to_string(r.mätningar) + ")");
     }
 
-    // ---- K5. Handler-epoken.
+    // ---- K5. Handler-epoken: en KÖRD handler som rör ett barns råa fält
+    // ger föräldern en ny mätning; en tom handler och ett anrop utan epok
+    // (ritytans tick och målare) gör det inte.
     {
-        Räknande r(10.0f, 10.0f);
-        Meter::measure(r, c);
-        glaze::detail::bumpHandlerEpoch();
-        Meter::measure(r, c);
-        ok(r.mätningar == 2, "K5: en ny handler-epok ger en ny mätning (fick " +
-                                 std::to_string(r.mätningar) + ")");
-        Meter::measure(r, c);
-        ok(r.mätningar == 2, "K5: …som sedan cachas");
+        Behållare p;
+        Räknande  barn(10.0f, 10.0f);
+        p.adopt(barn);
+        Meter::measure(p, c);
+        glaze::ClickArgs                 e;
+        glaze::Handler<glaze::ClickArgs> tom;
+        tom(&p, e);
+        Meter::measure(p, c);
+        ok(p.mätningar == 1, "K5: en tom handler behåller cachen (fick " +
+                                 std::to_string(p.mätningar) + ")");
+        glaze::Handler<glaze::ClickArgs> tyst;
+        tyst = [] {};
+        glaze::detail::callWithoutEpoch(tyst, &p, e);
+        Meter::measure(p, c);
+        ok(p.mätningar == 1, "K5: ett anrop utan epok behåller cachen (fick " +
+                                 std::to_string(p.mätningar) + ")");
+        glaze::Handler<glaze::ClickArgs> flytta;
+        flytta = [&barn] { barn.x = 40.0f; };
+        flytta(&p, e);
+        const gfx::Sizef s = Meter::measure(p, c);
+        ok(p.mätningar == 2 && nära(s.w, 50.0f),
+           "K5: en körd handler som flyttar barnet ger en ny mätning (fick " +
+               std::to_string(p.mätningar) + ", bredd " + std::to_string(s.w) +
+               ")");
+        Meter::measure(p, c);
+        ok(p.mätningar == 2, "K5: …som sedan cachas");
     }
 
     // ---- K6. Miljön: UI, stil, tema, skala, mm-täthet och fonter.
@@ -587,6 +611,50 @@ void mätcachen()
         Meter::measure(r, c);
         ok(r.mätningar == 1, "K10: fristående widget cachar (fick " +
                                  std::to_string(r.mätningar) + ")");
+    }
+
+    // ---- K11. Gruppramens höjd för bredd: ramen frågar barnet med
+    // innerbredden, svaret återanvänds per bredd, och en ändring i barnet når
+    // ramens cachade svar. Ramens höjd är barnets 33 + rubrikbandet (FalskFonts
+    // höjd, `uiFontSize`) + luften två gånger.
+    {
+        glaze::GroupBox g;
+        Räknande        barn(0.0f, 0.0f);
+        barn.hojd    = 33.0f;
+        barn.anchors = {true, true, true, false};
+        g.adopt(barn);
+        const float band   = st.uiFontSize;
+        const float väntat = 33.0f + band + 2.0f * st.groupPad;
+
+        for (int i = 0; i < 3; ++i) {
+            const auto h = Meter::measureHeightForWidth(g, c, 200.0f);
+            ok(h && nära(*h, väntat),
+               "K11: gruppramens höjd för bredd är barnets plus bandet och luften");
+        }
+        ok(barn.höjdfrågor == 1,
+           "K11: tre frågor vid samma bredd frågar barnet EN gång (fick " +
+               std::to_string(barn.höjdfrågor) + ")");
+        Meter::measureHeightForWidth(g, c, 300.0f);
+        ok(barn.höjdfrågor == 2,
+           "K11: en annan bredd frågar barnet igen (fick " +
+               std::to_string(barn.höjdfrågor) + ")");
+        Meter::measureHeightForWidth(g, c, 200.0f);
+        ok(barn.höjdfrågor == 2,
+           "K11: den första bredden ligger kvar (fick " +
+               std::to_string(barn.höjdfrågor) + ")");
+
+        barn.hojd = 50.0f;
+        barn.invalidate();
+        const auto ny = Meter::measureHeightForWidth(g, c, 200.0f);
+        ok(ny && nära(*ny, 50.0f + band + 2.0f * st.groupPad) &&
+               barn.höjdfrågor == 3,
+           "K11: invalidate() på barnet når ramens cachade höjd (fick " +
+               std::to_string(barn.höjdfrågor) + " frågor)");
+
+        g.height = 40.0f;
+        ok(!Meter::measureHeightForWidth(g, c, 200.0f),
+           "K11: satt height ger ingen höjd för bredd (den satta vinner)");
+        ok(barn.höjdfrågor == 3, "K11: …och barnet frågas inte");
     }
 }
 

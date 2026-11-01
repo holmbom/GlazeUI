@@ -62,6 +62,10 @@
 // Fall 22 mäter INTE fönstret (geometry_gate SB/SG), pixlar eller
 // gruppramens ritning, och inte sidledsparen när höjden inte räcker (`Width`
 // ensamt — skriven gräns, inte ett fall).
+//
+// FALL 23 mäter gruppramens radbrytning: en sträckt eller Top-dockad ram och
+// en ram i en ram får höjden för barnens rader i innerbredden — sabotage och
+// handräknade värden står vid fallet.
 
 #include <cstdio>
 #include <cstring>
@@ -1053,8 +1057,10 @@ void fallDockKontrakt()
                ")");
 
         // En RÅ tjocklek satt i en handler (utan invalidate) syns genom epoken.
-        remsor[5]->tj = 20.0f;
-        glaze::detail::bumpHandlerEpoch();
+        glaze::Handler<glaze::ClickArgs> handler;
+        handler = [&] { remsor[5]->tj = 20.0f; };
+        glaze::ClickArgs                 e;
+        handler(remsor[5].get(), e);
         okNära(lös.resolve(cc).y, 10.0f * (N - 1) + 20.0f,
                "cache: en ny handler-epok mäter om en ändrad remsa");
     }
@@ -2063,6 +2069,138 @@ void fallInversBadaHallen()
     }
 }
 
+// ================= 23. GRUPPRAMENS RADBRYTNING
+//
+// En gruppram vars bredd kommer ur layouten — sträckt eller Top/Bottom-dockad —
+// får höjden för barnens rader i INNERBREDDEN (`GroupBox::heightForWidth`), och
+// syskonen ser samma höjd. Förväntat värde är HANDRÄKNAT med fall 20:s font
+// (teckensteg 10, radhöjd 20) och texten "aaa bbb ccc ddd eee fff ggg hhh":
+// luften är `groupPad` 8 på båda sidor och rubrikbandet en radhöjd (20), så
+// ramen är barnens höjd + 36 och innerbredden ramens bredd − 16.
+//   216 → 200 → 2 rader → 76 · 116 → 100 → 4 rader → 116 · 416 → 400 → 1 rad → 56
+// RAM I RAM: bredd 232 → den inre ramen får 216 → 76, den yttre 112.
+// Mäts i skala 1 och 2 med samma LOGISKA facit.
+// SABOTAGE som ska fälla det (ett i taget, mot ett rent original):
+//   · `heightForWidth` ger nullopt (ramen blir en rad: 56) ........ (a), (b), (d)
+//   · innerbredden utan `− 2·groupPad` (116 ger tre rader) ......... (a)
+//   · satt `height` ignoreras av kroken ............................ (c)
+//   · ramen mäter barnen utan bredd i `heightForWidth` ............. (a), (d)
+//   · luften eller bandet glöms i höjden ........................... (a)
+// Fall 23 mäter INTE pixlarna eller cachen (groupbox_gate 5, measure_gate K11).
+void fallGruppramRadbrytning()
+{
+    std::printf("\n=== 23. gruppramens radbrytning ===\n");
+    const glaze::Style& st = glaze::defaultStyle(glaze::UI::Slate);
+
+    for (float scale : {1.0f, 2.0f}) {
+        BrytFont   f(10.0f * scale, kRadH * scale);
+        const auto ctx = [&](float w, float h) {
+            return ctxFör(st, f, scale, gfx::Rectf{0, 0, w * scale, h * scale});
+        };
+        const std::string sk =
+            " (skala " + std::to_string(static_cast<int>(scale)) + ")";
+
+        // (a) STRÄCKT ram med en spänd, radbruten etikett: höjden ur den bredd
+        // layouten gav, och ett syskon med anchorTop flyttar med.
+        {
+            Yta           rot;
+            glaze::GroupBox ram;
+            ram.name    = "ram";
+            ram.anchors = {true, true, true, false};
+            auto* text  = ram.add<glaze::Label>(kBrytText);
+            text->setWrap(true);
+            text->name    = "text";
+            text->anchors = {true, true, true, false};
+            Kloss under(50, 10);
+            under.anchorTop = {"ram", 4};
+            rot.adopt(ram);
+            rot.adopt(under);
+            const struct {
+                float bredd;
+                float höjd;
+            } fall[] = {{216, 76}, {116, 116}, {416, 56}};
+            for (const auto& k : fall) {
+                const glaze::Ctx cc = barnCtx(rot, ctx(k.bredd, 300));
+                const gfx::Rectf r  = ram.resolve(cc);
+                const std::string b =
+                    " vid " + std::to_string(static_cast<int>(k.bredd)) + sk;
+                okNära(r.w / scale, k.bredd, "(a) sträckt ram: bredden ur layouten" + b);
+                okNära(r.h / scale, k.höjd,
+                       "(a) sträckt ram: höjden följer radbrytningen" + b);
+                okNära(under.resolve(cc).y / scale, k.höjd + 4.0f,
+                       "(a) syskonet med anchorTop hamnar under ramen" + b);
+            }
+            // BARA FÖRÄLDERNS HÖJD ändras: ramens höjd ändras inte.
+            okNära(ram.resolve(barnCtx(rot, ctx(216, 600))).h / scale, 76.0f,
+                   "(a) förälderns höjd ändrar inte ramens" + sk);
+        }
+
+        // (b) TOP-DOCKAD ram: remsan är ramens höjd vid remsbredden, och ett
+        // odockat syskon börjar under den.
+        {
+            Yta             rot;
+            glaze::GroupBox ram;
+            ram.dock   = glaze::Dock::Top;
+            auto* text = ram.add<glaze::Label>(kBrytText);
+            text->setWrap(true);
+            text->anchors = {true, true, true, false};
+            glaze::Panel lös;
+            lös.anchors = {true, true, true, true};
+            rot.adopt(ram);
+            rot.adopt(lös);
+            const glaze::Ctx cc = barnCtx(rot, ctx(216, 300));
+            okNära(ram.resolve(cc).h / scale, 76.0f,
+                   "(b) Top-dockad ram: två rader plus bandet och luften" + sk);
+            okNära(lös.resolve(cc).y / scale, 76.0f,
+                   "(b) det odockade syskonet börjar under remsan" + sk);
+            okNära(lös.resolve(cc).h / scale, 300.0f - 76.0f,
+                   "(b) …och tar resten" + sk);
+        }
+
+        // (c) SATT height vinner över raderna.
+        {
+            Yta             rot;
+            glaze::GroupBox ram;
+            ram.anchors = {true, true, true, false};
+            ram.height  = 50;
+            auto* text  = ram.add<glaze::Label>(kBrytText);
+            text->setWrap(true);
+            text->anchors = {true, true, true, false};
+            rot.adopt(ram);
+            okNära(ram.resolve(barnCtx(rot, ctx(116, 300))).h / scale, 50.0f,
+                   "(c) satt height vinner över de fyra raderna" + sk);
+        }
+
+        // (d) RAM I RAM: bredden går genom båda nivåerna. Den yttre är sträckt
+        // i roten och den inre sträckt i den yttre.
+        {
+            Yta             rot;
+            glaze::GroupBox yttre;
+            yttre.name    = "yttre";
+            yttre.anchors = {true, true, true, false};
+            auto* inre    = yttre.add<glaze::GroupBox>();
+            inre->name    = "inre";
+            inre->anchors = {true, true, true, false};
+            auto* text    = inre->add<glaze::Label>(kBrytText);
+            text->setWrap(true);
+            text->anchors = {true, true, true, false};
+            rot.adopt(yttre);
+            const glaze::Ctx cc = barnCtx(rot, ctx(232, 400));
+            okNära(yttre.resolve(cc).h / scale, 112.0f,
+                   "(d) ram i ram: den yttre är 112 vid 232" + sk);
+            const glaze::Widget& yw = yttre;
+            glaze::Ctx           ic = cc;
+            ic.area                 = yw.childArea(cc);
+            okNära(inre->resolve(ic).h / scale, 76.0f,
+                   "(d) ram i ram: den inre är 76 vid sin bredd 216" + sk);
+            okNära(inre->resolve(ic).w / scale, 216.0f,
+                   "(d) ram i ram: den inre får yttre bredden minus luften" + sk);
+            okNära(yttre.resolve(barnCtx(rot, ctx(132, 400))).h / scale, 152.0f,
+                   "(d) ram i ram: fyra rader vid 132" + sk);
+        }
+    }
+}
+
 int main(int argc, char** argv)
 {
     for (int i = 1; i < argc; ++i)
@@ -2093,6 +2231,7 @@ int main(int argc, char** argv)
     fallHojdForBredd();
     fallExtentMedBredd();
     fallInversBadaHallen();
+    fallGruppramRadbrytning();
 
     std::printf("\n%d fall, %d fel\n", g_fall, g_fel);
     return g_fel == 0 ? 0 : 1;

@@ -119,6 +119,10 @@ bool buildPolygon(std::span<const std::vector<Point2d>> rings,
 bool buildClipPolygon(std::span<const std::vector<Point2d>> rings,
                       std::vector<FillChunk>& chunks);
 
+// GÅR KLIPPYTAN ATT FYLLA? Samma rensning och strikta triangulering som
+// `buildClipPolygon`, utan att bygga något — svaret är dess.
+bool clipPolygonOk(std::span<const std::vector<Point2d>> rings);
+
 // ---- BILDEN PÅ FYRA FRIA HÖRN — Image-programmets
 // projektiva vikter (`ImageVertex::q`, gfx/scene.h).
 

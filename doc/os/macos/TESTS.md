@@ -190,7 +190,7 @@ fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
   höjder, KL5 släpper bara punkterna vid x < 0, KL6 bakar lagrets klipp i
   draperingen, KL7 ritar markören hel förbi kanten, KL8 klipper bilden.
 - [ ] **Nästlade mål**: ett lagerklipp med hål över en tiltad yta i 3D-målet
-  och ett `save(ClipPolygon)` i `onPaint` samtidigt — maskfyllningen ligger
+  och ett `save(Polygon)` i `onPaint` samtidigt — maskfyllningen ligger
   mitt i 3D-målets MSAA-ritning. *Rätt utfall:* ytan under målaren är oskadad
   (MSAA-innehållet förloras inte när masken pushas och poppas).
 - [ ] **Utskriften**: en app som ritar en rityta på sidan med
@@ -205,3 +205,14 @@ fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
   skärmskala medan galleriet är öppet.
   *Rätt utfall:* grindarna gröna; varje byte mäter om allt (inga avklippta
   eller för stora etiketter), och en tung panel går inte segt.
+
+- **Klippets block och masker genom `packSceneClip`** (blint skrivet):
+  `MetalRenderer::bindSceneClip` (`metal_scene.mm`) packar blocket med
+  `packSceneClip` och binder om maskerna enligt `rebindClipMasks`
+  (`Glaze/gfx/src/scene_clip.h`); `SceneClipBuf` är ersatt av
+  `SceneClipBlock` (`metal_backend.h`). Ett världsklipp i 2D binds nu som
+  skärmmask med en ruta som kan ha negativ höjd (karta med y uppåt).
+  *Gör:* kör `scene_pixel_gate` (K, M), `painter_gate` (KL), `print_gate` och
+  `canvas_gate`, och panorera demons karta med ✂ påslaget.
+  *Rätt utfall:* grindarna gröna; klippet följer kartan vid panorering och
+  zoom utan att flimra eller hamna spegelvänt, och inga Metal-valideringsfel.

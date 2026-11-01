@@ -503,7 +503,7 @@ egen fil; backendarnas 3D-del hade inte rymts under 1000 rader).
   klistrad före BÅDE UI:ts och Line-programmets källa (`compileHlsl`). Där
   MÅLARENS KLIPP står i **`kHlslSceneClipSrc`** (egen del, klistrad efter
   `kHlslClipSrc` i scenens fyra källor och i de egna programmens förspel; UI:t
-  läser den inte): cbuffer **b5** `GlazeClip` (`SceneClipCb`, 48 byte:
+  läser den inte): cbuffer **b5** `GlazeClip` (`SceneClipBlock`, ../scene_clip.h, packat av `packSceneClip`, 48 byte:
   `rect` = skärmmaskens x, y, w, h · `world` = världsmaskens uv-affin · `meta`
   .x skärmmask, .y världsmask), maskerna **t4** (skärm) och **t5** (värld)
   med den linjära, klampade `samplerLinear_` på **s4/s5**, och funktionerna
@@ -515,7 +515,7 @@ egen fil; backendarnas 3D-del hade inte rymts under 1000 rader).
   uniform gren över samplingen (`SampleLevel`). `bindPipelineState` binder
   b5 bredvid b1, och **`bindSceneClip`** (d3d11_scene.cpp, också från
   `drawCustomMesh`) binder maskernas SRV:er på t4–t5 vid VARJE anrop med
-  mask (`bindTarget` nollar dem, `clipSrvsBound_`) och skriver blocket bara
+  mask enligt `rebindClipMasks` (en saknad mask är den vita SRV:n; `bindTarget` nollar dem, `clipSrvsBound_`) och skriver blocket bara
   när anropets klipp skiljer från `sceneClip_` (det b5 bär — inget klipp från
   `initScene`); `resourceError` släpper igenom `GlazeClip` och `glaze_clip*`
   i de egna programmens reflektion, och

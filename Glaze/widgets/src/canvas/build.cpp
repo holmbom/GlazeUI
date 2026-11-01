@@ -497,18 +497,24 @@ void imageUniforms(const RunKey& k, gfx::SceneUniforms& u)
 void buildFillPart(const Shape& s, std::vector<gfx::FillChunk>& chunks,
                    const Xform& xf)
 {
-    std::vector<std::vector<gfx::Point2d>> rings;
-    rings.reserve(s.contours().size());
-    for (const Shape::Contour& c : s.contours()) {
-        std::vector<gfx::Point2d> r;
-        r.reserve(c.points.size());
-        for (const Point& q : c.points)
-            r.push_back(toGfx(xf.apply(q)));
-        rings.push_back(std::move(r));
-    }
     gfx::PolygonStyle ps;
     ps.color = s.fill().isGradient() ? kWhite : s.fill().color();
-    gfx::buildPolygon(rings, ps, chunks);
+    // Ett bygganrop per del, alla i samma chunklista: en del är sin
+    // ytterring och dess hål, och delarna delar färg och gradient. Ringarna
+    // fylls om för varje del — deras minne används igen.
+    std::vector<std::vector<gfx::Point2d>> rings;
+    for (std::size_t i = 0; i < s.partCount(); ++i) {
+        const std::span<const Shape::Contour> part = s.part(i);
+        rings.resize(part.size());
+        for (std::size_t k = 0; k < part.size(); ++k) {
+            std::vector<gfx::Point2d>& r = rings[k];
+            r.clear();
+            r.reserve(part[k].points.size());
+            for (const Point& q : part[k].points)
+                r.push_back(toGfx(xf.apply(q)));
+        }
+        gfx::buildPolygon(rings, ps, chunks);
+    }
 }
 
 void imageCorners(const Rect& r, bool yUp, Point out[4])

@@ -1130,7 +1130,7 @@ void Värd::klipp3D()
                                        gfx::Color{255, 0, 0, 255}));
     rita();
     const auto yta2 = [](double x0, double y0, double x1, double y1) {
-        glaze::ClipPolygon p;
+        glaze::Polygon p;
         p.outer = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
         return p;
     };

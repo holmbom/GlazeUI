@@ -21,6 +21,14 @@ versionen sätts.
 
 ## Nästa
 
+## 0.4.0
+
+- **New** — en form i flera delar: `Shape::polygons(std::vector<glaze::Polygon>, …)`, där varje del är en ytterring med sina hål — en stil, ett träffprov och ett index för hela ytan; i `.glazeui` med bara klamrar, `glaze::Shape::polygons({{ytter, {hål}}, …}, fyllning)`.
+- **Fix** — mätcachen överlever musrörelser och andra händelser som inte kör appens kod: bara en handler, en postad funktion eller en timer i appen stegar epoken.
+- **New** — en komposit med autostorlek ur barnen anger sin luft med `Widget::childInsets`, och basen räknar både `contentSize` och höjden för en bredd ur den.
+- **Fix** — en `GroupBox` med auto-höjd mäter ett radbrutet barn i den bredd det får (satt bredd, sträckt, dockad `Top`/`Bottom` eller i en annan ram), så texten inte klipps och syskonen under flyttar med.
+- **Brytande** — `glaze::ClipPolygon` heter `glaze::Polygon`: samma typ för klippet och formens delar.
+
 ## 0.3.0
 
 - **New** — klipp mot polygoner med hål och flera delar, utan gräns för antalet hörn: för hela ritytan (`Canvas::setClips`), per lager (`setLayerClips`) och i målaren (`Painter::save(ClipPolygon)`), i världen som ett prisma (terräng och föremål i 3D klipps lodrätt) eller på skärmen. Former, målarens ritning, bilder, meshar, draperingar och `renderToBitmap` klipps i varje pixel; etiketter och markörer på sitt ankare (hela eller dolda); HUD:en i `onPaintOverlay` klipps inte; och `hitTest` träffar inte det som klippts bort. Egna program klipps med förspelets `glaze_clip`. En ogiltig yta (en självkorsning, ett hål utanför) följer `setInvalidClip`: förvalet `Show` låter klippet vara, `Hide` låter ytan klippa bort sin del.

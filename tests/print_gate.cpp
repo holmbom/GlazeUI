@@ -25,6 +25,8 @@
 //   P4  RITYTANS KLIPP (`Canvas::setClips`) gäller sidan: röd bara i klippet.
 //   P5  EN RITYTA I ETT ANNAT FÖNSTER än sidans renderare ritas med SIDANS
 //       resurser (utskriftens förloppsfönster är ett eget fönster).
+//   P7  samma anrop återanvänder målet (`pageRenders` står still); en ny form
+//       eller en ny kamera ritar om
 //   P6  `false` (+ logg): en rektangel utan yta, en ogiltig kamera (zoom 0, NaN
 //       i en 3D-kamera) och ett anrop ur ritytans egen ritning (`onPaint`).
 //   Sabotage som SKA fälla dem: `drawTransient` utan bildritningen (P1–P5 —
@@ -50,6 +52,7 @@
 #include <glaze/glaze.h>
 
 #include "canvas/camera_math.h"   // intern — localView
+#include "canvas/resources.h"     // intern — pageRenders
 #include "canvas/scene.h"         // intern — PaintContext för sidans ritläge
 
 namespace {
@@ -264,7 +267,7 @@ void fallP2P3P4()
 
     // P4 RITYTANS KLIPP gäller sidan: världsklippet x 30–40 (den röda rutan är
     // 30–50) — röd bara där.
-    glaze::ClipPolygon klipp;
+    glaze::Polygon klipp;
     klipp.outer = {{30, 0}, {40, 0}, {40, 100}, {30, 100}};
     v.yta.setClipSpace(glaze::ClipSpace::World);
     v.yta.addClip(klipp);
@@ -341,6 +344,55 @@ void fallP6()
           ur ? (*ur ? "true" : "false") : "onPaint kördes inte");
 }
 
+// P7 ÅTERANVÄNDNINGEN: samma `drawCanvas` (samma rityta, ruta, kamera och
+// innehåll) ritar inte om ritytan — målet återanvänds och `pageRenders` står
+// still; en ny form eller en ny kamera ritar om. Sabotage som SKA fälla P7:
+// målets nyckel utan `damageStamp` (ingen omritning efter `addShape`), utan
+// kameran (ingen omritning vid ny kamera) eller en nyckel som ändras varje
+// anrop (omritning av samma anrop).
+void fallP7()
+{
+    Värd v;
+    v.setOffscreen(true);
+    v.show();
+    if (!v.isOpen()) {
+        ++g_skips;
+        return;
+    }
+    v.window().renderFrame();
+    fyll(v.yta);
+    const glaze::CanvasResources* res = v.yta.behaviorCtx().canvas;
+    if (!res) {
+        check(false, "P7 ritytans resurser finns");
+        return;
+    }
+    const glaze::Camera kam{{50, 50}, mmZoom(), 0.0f, 0.0f};
+    const auto rita = [&](const glaze::Camera& k) {
+        Sida s;
+        bool ok = false;
+        const bool läst = sida(v, 100.0, 60.0, [&](glaze::Painter& p) {
+            ok = p.drawCanvas(v.yta, glaze::Rect{10, 10, 40, 30}, k);
+        }, s);
+        return läst && ok;
+    };
+    const bool          a  = rita(kam);
+    const std::uint64_t n1 = res->pageRenders();
+    const bool          b  = rita(kam);
+    const std::uint64_t n2 = res->pageRenders();
+    check(a && b && n1 >= 1 && n2 == n1,
+          "P7 samma anrop två gånger ritar ritytan EN gång",
+          std::to_string(n1) + " → " + std::to_string(n2));
+    v.yta.addShape(glaze::Shape::rect({0, 0, 5, 5}, kRöd));
+    const bool          c  = rita(kam);
+    const std::uint64_t n3 = res->pageRenders();
+    check(c && n3 == n2 + 1, "P7 en ny form ritar om",
+          std::to_string(n2) + " → " + std::to_string(n3));
+    const bool          d  = rita(glaze::Camera{{40, 40}, mmZoom(), 0.0f, 0.0f});
+    const std::uint64_t n4 = res->pageRenders();
+    check(d && n4 == n3 + 1, "P7 en ny kamera ritar om",
+          std::to_string(n3) + " → " + std::to_string(n4));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -353,6 +405,7 @@ int main(int argc, char** argv)
     fallP2P3P4();
     fallP5();
     fallP6();
+    fallP7();
     if (g_skips > 0 && g_fall == 0) {
         std::printf("=== print_gate: hoppades över (ingen display) ===\n");
         return 77;

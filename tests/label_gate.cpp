@@ -49,6 +49,15 @@
 //   svar), alltid Root (M3:s första fall räknar om), eller Parent för gruppen
 //   (M2:s medlem i den andra panelen står kvar).
 //
+// GRUPPRAMEN — en radbruten etikett som barn:
+//   G1  auto-bredd ⇒ EN rad (bredden är okänd)    G4  ny text mäts om
+//   G2  satt bredd 80 ⇒ två rader                 G5  satt höjd vinner
+//   G3  satt bredd 136 ⇒ en rad · G3b  satt bredd 64 ⇒ fyra rader
+//   SABOTAGE: en gruppram som mäter barnen utan bredd (G2: 48 i stället för
+//   64), en innerbredd utan luften (G3b: bredden 64 ger två rader, 64 i
+//   stället för 96) och en
+//   satt höjd som inte vinner (G5).
+//
 // GLORIAN — tillståndet, inte pixlarna:
 //   H1  förval: ingen gloria, bredden 0      H4  negativ bredd ⇒ no-op
 //   H2  `setHalo(gfx::Color{…})` lagras      H5  `setHaloWidth(2.5)`
@@ -716,6 +725,57 @@ void fallGloria()
           "H6: setProp(\"haloWidth\", \"2\")", std::to_string(viaProp.haloWidth()));
 }
 
+// EN RADBRUTEN ETIKETT I EN GRUPPRAM — kompositens autohöjd ur barnen. Bredden
+// känd (satt `width`) ⇒ barnen mäts i innerbredden och raderna räknas; okänd
+// (auto-bredd) ⇒ en rad. Teckensteget 8 och radhöjden 16, luften `groupPad` 8:
+// ramen är barnens höjd + 16 (bandet) + 16 (luften). "aaa bbb ccc ddd" är 15
+// tecken: innerbredden 64 rymmer 8 ⇒ "aaa bbb" / "ccc ddd" ⇒ 32 + 32 = 64; 120
+// rymmer allt ⇒ 16 + 32 = 48; 48 rymmer 6 ⇒ ett ord per rad ⇒ 64 + 32 = 96.
+void fallGruppram()
+{
+    std::printf("\n=== G. etiketten i en gruppram ===\n");
+    StegFont   f(8.0f);
+    Inspelning rec;
+    glaze::Ctx c = ctxFör(f, &rec);
+
+    glaze::GroupBox g;
+    auto*           l = g.add<glaze::Label>("aaa bbb ccc ddd");
+    l->setWrap(true);
+    l->anchors = {true, true, true, false};
+
+    gfx::Sizef s = Meter::measure(g, c);
+    check(s.w == 136.0f && s.h == 48.0f,
+          "G1: auto-bredd — etiketten är EN rad (136×48)",
+          std::to_string(s.w) + "×" + std::to_string(s.h));
+
+    g.width = 80;
+    s       = Meter::measure(g, c);
+    check(s.w == 80.0f && s.h == 64.0f,
+          "G2: satt bredd 80 — innerbredden 64, två rader (80×64)",
+          std::to_string(s.w) + "×" + std::to_string(s.h));
+
+    g.width = 136;
+    s       = Meter::measure(g, c);
+    check(s.h == 48.0f, "G3: satt bredd 136 — innerbredden 120, en rad",
+          std::to_string(s.h));
+
+    g.width = 64;
+    s       = Meter::measure(g, c);
+    check(s.h == 96.0f, "G3b: satt bredd 64 — innerbredden 48, fyra rader",
+          std::to_string(s.h));
+
+    g.width = 80;
+    l->setText("aaa bbb ccc ddd eee");
+    s = Meter::measure(g, c);
+    check(s.h == 80.0f, "G4: ny text mäts om — tre rader (48 + 32)",
+          std::to_string(s.h));
+
+    g.height = 30;
+    s        = Meter::measure(g, c);
+    check(s.h == 30.0f, "G5: satt höjd vinner över raderna",
+          std::to_string(s.h));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -731,6 +791,7 @@ int main(int argc, char** argv)
     fallBreddgrupp();
     fallMatcache();
     fallGloria();
+    fallGruppram();
 
     std::printf("%s  %d fall, %d fel\n", g_fails ? "FEL " : "OK  ", g_cases,
                 g_fails);

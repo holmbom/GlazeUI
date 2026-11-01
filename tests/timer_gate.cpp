@@ -38,6 +38,8 @@
 //   T11 en handler som stoppar och startar om en ANNAN förfallen timer, och
 //       river en tredje: ingen av de två levereras i samma svans, ingenting
 //       kraschar, och den omstartade levereras vid sin nästa tick.
+//   T12 handler-epoken: en tick utan handler stegar den inte, en tick med
+//       handler stegar den före och efter handlern.
 //
 // SABOTAGEN som ska fälla den (körs före commit, aldrig under bygget):
 //   · app.cpp: `case gfx::EventType::Timer` bort ur dispatch ........... T1
@@ -438,6 +440,38 @@ void delSvansen()
         timerDrain();
         check(n == 2, "T5 den aktuella körningens tick ⇒ en handler", tal(n));
         t.stop();
+    }
+
+    // T12 — HANDLER-EPOKEN: en levererad tick utan handler stegar den inte
+    // (mätcachen står kvar); en tick med handler stegar den före och efter
+    // handlern. Sabotage som SKA fälla T12: epoken stegad för varje leverans
+    // oavsett handler (utan handler ändrad), eller inte alls i en handler
+    // (inne i handlern oförändrad).
+    {
+        using glaze::detail::handlerEpoch;
+        glaze::Timer t;
+        t.setInterval(kLångt);
+        t.start();
+        if (!t.isRunning()) {
+            hoppa("T12", "plattformen startade ingen timer");
+        } else {
+            const std::uint64_t e0 = handlerEpoch();
+            timerNoteDue(tick(timerRunIdOf(t)));
+            timerDrain();
+            const std::uint64_t utan = handlerEpoch();
+            check(utan == e0, "T12 en tick utan handler stegar inte epoken",
+                  tal(static_cast<long long>(utan - e0)));
+            std::uint64_t inne = 0;
+            t.onTick = [&] { inne = handlerEpoch(); };
+            timerNoteDue(tick(timerRunIdOf(t)));
+            timerDrain();
+            const std::uint64_t efter = handlerEpoch();
+            check(inne == e0 + 1 && efter == e0 + 2,
+                  "T12 en tick med handler stegar epoken före och efter den",
+                  tal(static_cast<long long>(inne - e0)) + " / " +
+                      tal(static_cast<long long>(efter - e0)));
+            t.stop();
+        }
     }
 
     // T11 — en handler stoppar och startar om en ANNAN förfallen timer och

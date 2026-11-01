@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "../font_fallback.h"
+#include "../scene_clip.h"
 #include "d3d11_touchpad.h"
 #include "gfx/platform.h"   // GpuAdapter — `DxgiAdapter`
 #include "gfx/renderer.h"
@@ -682,21 +683,16 @@ private:
                   "ImageCb måste vara 16-byte-packad som Image-programmets b2 "
                   "och rymmas i scenens buffert");
 
-    // MÅLARENS KLIPP — PS-cbuffern b5, samma layout som HLSL:ns
-    // `cbuffer GlazeClip` (kHlslSceneClipSrc): skärmmaskens yta, världsmaskens
-    // uv-affin och flaggorna i meta (.x skärmmask, .y världsmask). Bunden i
-    // `bindPipelineState`; `bindSceneClip` skriver den bara när ett rit-anrops
-    // klipp skiljer från `sceneClip_` — det bufferten bär — och binder alltid
-    // maskernas SRV:er på t4–t5 (en mask som ritats om sedan sist hade
-    // annars kunnat sitta bortnollad av bindTarget). false när blocket inte
-    // gick att skriva: anropet ritas då inte.
-    struct SceneClipCb {
-        float rect[4];
-        float world[4];
-        float meta[4];
-    };
-    static_assert(sizeof(SceneClipCb) == 48 && sizeof(SceneClipCb) % 16 == 0,
-                  "SceneClipCb måste vara 16-byte-packad som HLSL:ns b5");
+    // MÅLARENS KLIPP — PS-cbuffern b5 bär `SceneClipBlock` (../scene_clip.h),
+    // samma layout som HLSL:ns `cbuffer GlazeClip` (kHlslSceneClipSrc).
+    // Bunden i `bindPipelineState`; `bindSceneClip` skriver den bara när ett
+    // rit-anrops klipp skiljer från `sceneClip_` — det bufferten bär — och
+    // binder maskernas SRV:er på t4–t5 enligt `rebindClipMasks` (en mask som
+    // ritats om sedan sist hade annars kunnat sitta bortnollad av
+    // bindTarget). false när blocket inte gick att skriva: anropet ritas då
+    // inte.
+    static_assert(sizeof(SceneClipBlock) % 16 == 0,
+                  "SceneClipBlock måste vara 16-byte-packad som HLSL:ns b5");
     bool bindSceneClip(const MeshDraw& d);
 
     // Den transienta ringen per buffertslag: en DYNAMIC buffert som skrivs

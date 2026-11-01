@@ -614,7 +614,34 @@ class Widget;
 // `CanvasMouseArgs`), och kom en annan typ körs handlern INTE — loggat EN gång
 // per handler. Så kompilerar en handler som väntar sig ritytans args också på
 // en knapp, men den körs bara där argsen finns.
+//
+// APPENS KOD KÖRS. Varje anrop av en satt `Handler` stegar appens handler-epok
+// före och efter sig (`detail::HandlerCall`, app.h `handlerEpoch`) — det är
+// den som låter en handler ändra de råa layoutfälten utan `invalidate()`
+// (mätcachen, `Widget::measure`). Ritytans tick och målarna (`onTick`,
+// `onPaint`, `onPaintLayer`, `onPaintOverlay`) anropas UTAN epok
+// (`detail::callWithoutEpoch`): de körs varje bildruta, och ett mått de ändrar
+// följs av `invalidate()`.
+template <class Args, class Sender>
+class Handler;
+
 namespace detail {
+// Handler-epoken stegas när objektet skapas och när det dör (app.cpp) — ett
+// per körd handler och per körd postad funktion i appens kö.
+struct HandlerCall {
+    HandlerCall();
+    ~HandlerCall();
+    HandlerCall(const HandlerCall&)            = delete;
+    HandlerCall& operator=(const HandlerCall&) = delete;
+};
+
+// Handlern UTAN handler-epok (se ovan). Avsändaren och argsen härleds ur
+// fältet, så en subklass skickar `this` rakt av.
+template <class Args, class Sender>
+void callWithoutEpoch(const Handler<Args, Sender>& h,
+                      std::type_identity_t<Sender>* sender,
+                      std::type_identity_t<Args>& e);
+
 // Den andra parametern i en signatur med två — tom för allt annat. En FRI
 // FUNKTION når hit som pekare (`HandlerArgOf` låter den förfalla), också en
 // `noexcept`-funktion, vars pekartyp är en egen typ sedan C++17.
@@ -732,17 +759,35 @@ public:
 
     explicit operator bool() const { return fn_ && *fn_; }
 
-    // Den EGNA referensen först (se ovan): fältet får dö under anropet.
+    // Den EGNA referensen först (se ovan): fältet får dö under anropet. En
+    // satt handler stegar handler-epoken före och efter sig.
     void operator()(Sender* sender, Args& e) const
     {
         const std::shared_ptr<Full> hållen = fn_;
-        if (hållen && *hållen)
-            (*hållen)(sender, e);
+        if (!hållen || !*hållen)
+            return;
+        const detail::HandlerCall körs;
+        (*hållen)(sender, e);
     }
 
 private:
+    template <class A, class S>
+    friend void detail::callWithoutEpoch(const Handler<A, S>& h,
+                                         std::type_identity_t<S>* sender,
+                                         std::type_identity_t<A>& e);
+
     std::shared_ptr<Full> fn_;
 };
+
+template <class Args, class Sender>
+void detail::callWithoutEpoch(const Handler<Args, Sender>& h,
+                              std::type_identity_t<Sender>* sender,
+                              std::type_identity_t<Args>& e)
+{
+    const std::shared_ptr<typename Handler<Args, Sender>::Full> hållen = h.fn_;
+    if (hållen && *hållen)
+        (*hållen)(sender, e);
+}
 
 // ---------------------------------------------------------------- Widget
 
@@ -1769,20 +1814,38 @@ protected:
     //     minus remsorna före den) — i dock-uppspelningen OCH i
     //     `carveSiblingDocks`, så syskonen ser samma remsa.
     // Inte i en `Bar` (baren ger höjden), inte för Fill/Left/Right (ytan ger
-    // höjden) och inte i `childrenExtent(c)` (där är bredden obestämd —
-    // skriven gräns: en sträckt radbruten etikett i en komposit med
-    // autohöjd räknas som en rad) — UTOM i `childrenExtent(c, bredd)`
-    // i vilken bredden är given: där tar Top/Bottom/
-    // Fill-remsorna kroken med sin remsbredd, och varje odockat barn med två
-    // KÄNDA x-kanter med sin bredd — spänt mot förälderns högerkant eller ett
-    // syskon från slutet, eller ett fast intervall.
+    // höjden) och inte i `childrenExtent(c)` utan bredd (där är bredden
+    // obestämd — skriven gräns: en sträckt radbruten etikett i en komposit med
+    // autohöjd räknas som en rad, så länge kompositens bredd är OKÄND) — UTOM
+    // i `childrenExtent(c, bredd)` i vilken bredden är given (en komposit med
+    // luft runt barnen och satt `width`, och basens `heightForWidth` för den):
+    // där tar Top/Bottom/Fill-remsorna kroken med sin remsbredd, och varje
+    // odockat barn med två KÄNDA x-kanter med sin bredd — spänt mot
+    // förälderns högerkant eller ett syskon från slutet, eller ett fast
+    // intervall.
     //
     // KONTRAKTET: läser aldrig `c.box` (den körs inne i `resolve()`), och en
-    // SATT `height` vinner — axelregeln — så kroken svarar då nullopt. Bara
-    // `Label` (med `wrap`) svarar i ramverket; en egen widget når kroken
-    // precis som `contentSize`.
-    virtual std::optional<float> heightForWidth(const Ctx& /*c*/,
-                                                float /*width*/) const
+    // SATT `height` vinner — axelregeln — så kroken svarar då nullopt. BASENS
+    // svar är nullopt, utom för en komposit med luft runt barnen
+    // (`childInsets`): då barnens höjd i innerbredden plus luften. `Label`
+    // (med `wrap`) svarar själv; en egen widget når kroken precis som
+    // `contentSize`.
+    virtual std::optional<float> heightForWidth(const Ctx& c, float width) const;
+
+    // LUFTEN MELLAN MIN KANT OCH BARNENS YTA — vänster, över, höger, under i
+    // LOGISKA px, för AUTOSTORLEKEN UR BARNEN. Basens svar är nullopt: ingen
+    // autostorlek, och `contentSize` är `{width, height}` rakt av. En komposit
+    // som svarar får BASENS `contentSize` och `heightForWidth` med AXELREGELN:
+    // en satt axel vinner, en auto-axel är barnens utsträckning
+    // (`childrenExtent`) plus luften — med en satt `width` mäts barnen i
+    // innerbredden (`width` minus vänster och höger), och `heightForWidth`
+    // svarar för den bredd layouten ger på SAMMA väg, så de två aldrig kan
+    // glida isär. Luften ska vara den yta `childArea` lägger barnen i.
+    // `GroupBox` svarar med `groupPad` runt om och rubrikbandet upptill.
+    struct Insets {
+        float left = 0.0f, top = 0.0f, right = 0.0f, bottom = 0.0f;
+    };
+    virtual std::optional<Insets> childInsets(const Ctx& /*c*/) const
     {
         return std::nullopt;
     }
@@ -1806,7 +1869,9 @@ protected:
 
     // AUTOSTORLEK UR BARNEN — OPT-IN för
     // komposit-författare, i LOGISKA px. En komposit som vill vara precis
-    // så stor som sin inredning kräver anropar den ur sin EGEN
+    // så stor som sin inredning kräver svarar med sin luft i `childInsets`,
+    // och basens `contentSize` och `heightForWidth` räknar axelregeln ur den
+    // här funktionen. Vill den något annat anropar den funktionen ur sin EGEN
     // `contentSize()`, per axel enligt axelregeln:
     //
     //     gfx::Sizef s{width, height};
@@ -1814,9 +1879,19 @@ protected:
     //     if (s.w <= 0.0f) s.w = e.w;
     //     if (s.h <= 0.0f) s.h = e.h;
     //
-    // `GroupBox` gör det; `Panel`, `ListBox` och `PropertyGrid` har SKRIVNA,
-    // 0×0-beslut. Fönstret som följer sitt innehåll
+    // `GroupBox` svarar med sin luft; `Panel`, `ListBox` och `PropertyGrid`
+    // har SKRIVNA, 0×0-beslut. Fönstret som följer sitt innehåll
     // (`AppWindow::setSizeToContent`) räknar sin rot med SAMMA kärna.
+    //
+    // MED BREDDEN GIVEN — `width` i LOGISKA px är kompositens INNERBREDD,
+    // känd av den som frågar (en komposit med satt bredd, ett fönster som
+    // följer innehållet i höjd). Samma regel, men höjden kan nu bero på
+    // bredden: varje Top/Bottom- och Fill-remsa tar `heightForWidth` med sin
+    // remsbredd (bredden minus Left/Right-remsorna FÖRE den, i barnordning —
+    // dock-uppspelningens), och varje odockat barn med två KÄNDA x-kanter tar
+    // den med sin bredd: SPÄNT (restbredden minus närkanten och fjärrkanten —
+    // mot min högerkant eller ett syskon från slutet) eller ett FAST
+    // INTERVALL (avståndet mellan kanterna). Utan bredd är den obestämd.
     //
     // REGELN ÄR EN ORDNINGSKÄNSLIG INVERS AV DOCK-CARVINGEN, och det är
     // det som gör den icke-trivial. Den naiva formen — "summan av
@@ -1896,19 +1971,8 @@ protected:
     // Läser ALDRIG `c.box` och anropar ALDRIG barnens `resolve()` — det
     // vore cirkulärt, eftersom barnens area härleds ur min egen rect.
     // Mäter enbart via `measure()` och layoutfälten.
-    gfx::Sizef childrenExtent(const Ctx& c) const;
-
-    // MED BREDDEN GIVEN — `width` i LOGISKA px
-    // är kompositens bredd, känd av den som frågar (ett fönster som följer
-    // innehållet i höjd). Samma regel som ovan, men höjden kan nu bero på
-    // bredden: varje Top/Bottom- och Fill-remsa tar `heightForWidth` med
-    // sin remsbredd (bredden minus Left/Right-remsorna FÖRE den, i
-    // barnordning — dock-uppspelningens), och varje odockat barn med två
-    // KÄNDA x-kanter tar den med sin bredd: SPÄNT (restbredden minus
-    // närkanten och fjärrkanten — mot min högerkant eller ett syskon från
-    // slutet) eller ett FAST INTERVALL (avståndet mellan kanterna). Allt
-    // annat mäts som i `childrenExtent(c)`.
-    gfx::Sizef childrenExtent(const Ctx& c, float width) const;
+    gfx::Sizef childrenExtent(const Ctx&           c,
+                              std::optional<float> width = std::nullopt) const;
 
     // Mät en godtycklig widget — containers behöver barnens mått (Bar-
     // flexen). Statisk basmedlem eftersom C++ inte låter en subklass nå
@@ -1920,10 +1984,13 @@ protected:
     // Svaret återanvänds tills något i widgetens delträd ändras (varje
     // sättare som ändrar det `contentSize` läser anropar `invalidate()`),
     // miljön byts (UI, stil, tema, skala, språk), barnen läggs till, tas bort
-    // eller flyttas, eller appen levererat ett event, en postad funktion eller
-    // en timer till appens kod (där får de råa layoutfälten ändras utan
-    // `invalidate()`). Ändrar en widget sina mått på annat sätt — i
-    // `onTick` eller utanför en handler — kallar den `invalidate()` själv.
+    // eller flyttas, widgetens egna `width`/`height`/`dock` ändras, eller en
+    // HANDLER (`Handler`) eller en postad funktion i appens kö har körts — i
+    // dem får de råa layoutfälten ändras utan `invalidate()`. En händelse som
+    // ingen handler tar emot (en musrörelse över en tom yta) mäter inte om.
+    // Ändrar en widget sina mått på annat sätt — i ritytans `onTick` eller
+    // utanför en handler — kallar den `invalidate()` på den ändrade widgeten;
+    // fönstrets `AppWindow::invalidate()` ritar om men mäter inte om.
     static gfx::Sizef measure(const Widget& w, const Ctx& c);
 
     // VEMS GENERATION MITT MÅTT BEROR PÅ. Mätcachen nycklar på
@@ -1935,6 +2002,32 @@ protected:
     // programikonens plats). Basens svar är `Self`.
     enum class MeasureScope : std::uint8_t { Self, Parent, Root };
     virtual MeasureScope measureScope() const { return MeasureScope::Self; }
+
+    // MÄTSTÄMPELN — det ett mått beror på utanför widgetens egna fält:
+    // generationen enligt `measureScope` (widgetens, förälderns eller
+    // rotens), språkgenerationen, appens handler-epok och MILJÖN ur `Ctx`
+    // (UI, stil, tema, skala, mm-täthet, renderaren och fonterna), jämförd
+    // fält för fält. `area` och `box` är inte med: ett mått får inte läsa
+    // dem. Epoken och språket läses vid varje fråga — en handler kan köra
+    // mellan två mätningar med samma `Ctx`. Mätcachen nycklar på stämpeln
+    // och de egna måtten; en widget som räknar ett mått den DELAR med andra
+    // (breddgruppen) nycklar sitt svar på stämpeln.
+    struct MeasureStamp {
+        std::uint64_t         gen         = 0;
+        std::uint64_t         lang        = 0;
+        std::uint64_t         epoch       = 0;
+        const gfx::Renderer*  r           = nullptr;
+        const gfx::Font*      font        = nullptr;
+        const gfx::Font*      headingFont = nullptr;
+        const FontSet*        textFonts   = nullptr;
+        const Theme::Variant* theme       = nullptr;
+        const Style*          style       = nullptr;
+        UI                    ui          = UI::Slate;
+        float                 scale       = 0.0f;
+        float                 pxPerMm     = 0.0f;
+        bool operator==(const MeasureStamp&) const = default;
+    };
+    MeasureStamp measureStamp(const Ctx& c) const;
 
     // Har widgeten, eller någon i dess delträd, en ÖPPEN POPUP
     // (`hasOpenPopup()`)? Statisk basmedlem och inte en fri funktion:
@@ -2887,27 +2980,30 @@ private:
     std::uint64_t invalidations_ = 0;
 
     // MÄTCACHEN (`measure`/`measureHeightForWidth`, widget.cpp): svaren i
-    // LOGISKA px med nyckeln de räknades under. `subtreeGen_` stegas av
+    // LOGISKA px under EN nyckel — storleken och höjderna per bredd delar
+    // den, och en annan nyckel tömmer cachen. `subtreeGen_` stegas av
     // `invalidate()` på widgeten och på varje ättling (vandringen uppåt), och
-    // av barnens tillägg, borttagning och flytt — nyckeln läser den, plus
-    // miljön (UI, stil, tema, skala, mm-täthet), språkgenerationen, appens
-    // handler-epok och widgetens egna råa layoutfält. `nullopt` från
-    // `heightForWidth` cachas också. Instansens egna fält: inget delat
-    // tillstånd, ingen mutex — layouten går i UI-tråden.
+    // av barnens tillägg, borttagning och flytt. Nyckeln är mätstämpeln
+    // (`MeasureStamp`) och widgetens EGNA `width`, `height` och `dock` — de
+    // råa fält ett eget mått läser (axelregeln, en dockad panels tjocklek,
+    // `Bar::isVertical`); placeringsfälten läser ingen `contentSize`, och
+    // barnens fält når ett förälderns svar genom epoken eller `invalidate()`.
+    // Allt jämförs fält för fält. `nullopt` från `heightForWidth` cachas
+    // också. Instansens egna fält: inget delat tillstånd, ingen mutex —
+    // layouten går i UI-tråden. Generationerna börjar på 1, så en tom nyckel
+    // (generation 0) träffar aldrig.
     struct MeasureKey {
-        std::uint64_t gen        = 0;   // delträdets (eller förälderns) generation
-        std::uint64_t env        = 0;   // miljöns nyckel ur Ctx
-        std::uint64_t lang       = 0;   // språkgenerationen
-        std::uint64_t epoch      = 0;   // appens handler-epok
-        std::uint64_t layoutHash = 0;   // de råa layoutfälten
+        MeasureStamp stamp;
+        float        width  = 0.0f;
+        float        height = 0.0f;
+        Dock         dock   = Dock::None;
         bool operator==(const MeasureKey&) const = default;
     };
     struct MeasureCache {
+        MeasureKey key;
         bool       hasSize = false;
-        MeasureKey sizeKey;
         gfx::Sizef size{};
         struct ForWidth {
-            MeasureKey           key;
             float                width = 0.0f;
             std::optional<float> height;
         };
@@ -2915,6 +3011,16 @@ private:
         std::array<ForWidth, kWidths> widths{};
         std::size_t                   widthCount = 0;
         std::size_t                   widthNext  = 0;
+        // Svaren gäller `k`: en annan nyckel tömmer cachen.
+        void use(const MeasureKey& k)
+        {
+            if (key == k)
+                return;
+            key        = k;
+            hasSize    = false;
+            widthCount = 0;
+            widthNext  = 0;
+        }
     };
     mutable MeasureCache measureCache_;
     std::uint64_t        subtreeGen_ = 1;
@@ -2954,12 +3060,18 @@ private:
     // `childrenExtent`s KÄRNA —
     // kanterna från båda hållen, de två flödena, sidledsparen och luften
     // (regeln vid `childrenExtent`); med en bredd tar remsorna och barnen
-    // med två kända x-kanter `heightForWidth` (se den publika
-    // överlagringen). `skip` hoppar över barn som räknas någon annanstans —
+    // med två kända x-kanter `heightForWidth`. `skip` hoppar över barn som
+    // räknas någon annanstans —
     // fönstret mäter sin rot utan `menuBar`/`statusBar`, som
     // `chromeInsetH()` redan räknar.
     gfx::Sizef extentOf(const Ctx& c, std::optional<float> width,
                         std::span<const Widget* const> skip) const;
+
+    // AUTOSTORLEKENS ENDA HÖJDVÄG (`childInsets`): barnens utsträckning plus
+    // luften `in` — med `width` (min yttre bredd) mätt i innerbredden.
+    // `contentSize` och `heightForWidth` frågar båda härifrån.
+    gfx::Sizef insetExtent(const Ctx& c, const Insets& in,
+                           std::optional<float> width) const;
 
     // `onResize`: storleken vid senaste LEVERANSEN (logiska px) — tom före
     // den första i fönstrets liv. Skrivs bara av AppWindow (friend).

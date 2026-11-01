@@ -1383,3 +1383,14 @@ vWorld.xy)`; `kPointsGlsl*`: `vClipPx` (noperspective) och `vAnchor`),
   skärmskala medan galleriet är öppet.
   *Rätt utfall:* grindarna gröna; varje byte mäter om allt (inga avklippta
   eller för stora etiketter), och en tung panel går inte segt.
+
+- **Klippets block och masker genom `packSceneClip`** (blint skrivet):
+  `GlRenderer::bindSceneClip` (`linux_scene.cpp`) skriver blocket med
+  `packSceneClip` (också flaggorna för speglade masker) och binder om
+  maskerna enligt `rebindClipMasks` (`Glaze/gfx/src/scene_clip.h`). Ett
+  världsklipp i 2D binds nu som skärmmask med en ruta som kan ha negativ höjd
+  (karta med y uppåt), och den speglade masken vänds dessutom av `flags.z`.
+  *Gör:* kör `scene_pixel_gate` (K, M), `painter_gate` (KL), `print_gate` och
+  `canvas_gate` på Wayland och X11, och panorera demons karta med ✂ påslaget.
+  *Rätt utfall:* grindarna gröna; klippet följer kartan vid panorering och
+  zoom utan att flimra eller hamna spegelvänt.

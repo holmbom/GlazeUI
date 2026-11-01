@@ -26,6 +26,22 @@
 //      yttre ramens mått ligger kvar), och en `setText` som inte
 //      invaliderar (rubrikbredden uteblir).
 //
+//   5. RADBRYTNINGEN — ett radbrutet barn räknas med sina rader när ramens
+//      bredd är känd: en SATT bredd (innerbredden = bredden − 2·groupPad), och
+//      `heightForWidth` för en bredd layouten ger (sträckt, Top-dockad, ram i
+//      ram). Förväntat värde är handräknat ur ordbrytningens regel med
+//      teckensteget 10 och radhöjden 20 (texten "aaa bbb ccc ddd eee fff ggg
+//      hhh": 200 → 2 rader, 100 → 4, 400 → 1). Auto-bredd (bredden okänd) är
+//      EN rad, som förut; en satt `height` vinner; ram i ram följer
+//      innerbredden genom båda nivåerna; och mätcachen återanvänder svaret per
+//      bredd men mäter om vid ett textbyte. SABOTAGE: en `contentSize` som
+//      mäter barnen utan bredd (5a: 56 i stället för 76), en `heightForWidth`
+//      som glömmer luften eller bandet (5e), en som inte ger nullopt vid satt
+//      höjd (5d), en innerbredd utan `− 2·groupPad` (5a: bredden 116 ger tre
+//      rader i stället för fyra, 96 i stället för 116), en nyckel i mätcachen utan delträdets
+//      generation (5g: gammal höjd efter textbytet) och en `childrenExtent` som
+//      inte tar kroken för ett spänt barn (5f).
+//
 // VAD DEN INTE MÄTER: hur det SER UT (pixlar — pixel_gate mäter att ramen
 // ritar och att rubriken syns, ögat via glaze-render resten), och sömmen
 // som snäppningen av luckans kanter tar bort (den syns bara i en riktig
@@ -35,6 +51,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -110,6 +127,7 @@ private:
 
 struct Meter : glaze::Widget {
     using glaze::Widget::measure;
+    using glaze::Widget::measureHeightForWidth;
 };
 
 // Teckensteg 7, radhöjd 13 (fysiska px vid skala 1 = logiska).
@@ -417,6 +435,245 @@ void fallMatcache()
           std::to_string(s.h));
 }
 
+// ------------------------------------------------------ 5. radbrytningen
+
+// En font som BRYTER: fast teckensteg per kodpunkt, `fitWidth` som räknar
+// hela tecken som ryms. `FalskFont` ovan bryter aldrig och duger inte här.
+class BrytFont final : public gfx::NullFont {
+public:
+    BrytFont(float adv, float h) : adv_(adv), h_(h) {}
+    gfx::Sizef measure(const std::string& s) const override
+    {
+        return gfx::Sizef{adv_ * static_cast<float>(tecken(s, s.size())), h_};
+    }
+    float height() const override { return h_; }
+    bool  valid() const override { return true; }
+    float prefixWidth(const std::string& s, std::size_t bytes) const override
+    {
+        return adv_ * static_cast<float>(tecken(s, bytes));
+    }
+    std::size_t byteIndexAtX(const std::string& s, float x) const override
+    {
+        std::size_t i = 0;
+        float       w = 0.0f;
+        while (i < s.size() && w + adv_ / 2.0f < x) {
+            i = nästa(s, i);
+            w += adv_;
+        }
+        return i;
+    }
+    std::size_t fitWidth(const std::string& s, float maxW) const override
+    {
+        std::size_t i = 0;
+        float       w = 0.0f;
+        while (i < s.size() && w + adv_ <= maxW) {
+            i = nästa(s, i);
+            w += adv_;
+        }
+        return i;
+    }
+
+private:
+    static std::size_t nästa(const std::string& s, std::size_t i)
+    {
+        ++i;
+        while (i < s.size() && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80)
+            ++i;
+        return i;
+    }
+    static std::size_t tecken(const std::string& s, std::size_t bytes)
+    {
+        if (bytes > s.size())
+            bytes = s.size();
+        std::size_t n = 0;
+        for (std::size_t i = 0; i < bytes; i = nästa(s, i))
+            ++n;
+        return n;
+    }
+    float adv_;
+    float h_;
+};
+
+const char* const kBrytText = "aaa bbb ccc ddd eee fff ggg hhh";
+
+// En SPÄND radbruten etikett: båda sidokanterna bundna (x = 0, right = 0), så
+// ramen kan ge den en bredd.
+glaze::Label* brytBarn(glaze::Widget& förälder, const char* namn)
+{
+    auto* l = förälder.add<glaze::Label>(kBrytText);
+    l->setWrap(true);
+    l->name    = namn;
+    l->anchors = {true, true, true, false};
+    return l;
+}
+
+// Ett löv vars höjd beror på bredden (6000 / bredd) och som räknar kroken.
+struct Bredd final : glaze::Widget {
+    void draw(const glaze::Ctx&) override {}
+    mutable int krokar = 0;
+
+protected:
+    std::optional<float> heightForWidth(const glaze::Ctx&,
+                                        float w) const override
+    {
+        ++krokar;
+        return w > 0.0f ? std::optional<float>(6000.0f / w) : std::nullopt;
+    }
+};
+
+void fallRadbrytning()
+{
+    const glaze::Style& st = glaze::defaultStyle(glaze::UI::Slate);
+    BrytFont            f(10.0f, 20.0f);
+    const glaze::Ctx    c = ctxFör(st, f);
+    // Luften är 8 och bandet 20: ramen är barnens höjd + 36.
+
+    // 5a. SATT bredd 216 ⇒ innerbredd 200 ⇒ två rader ⇒ 40 + 36 = 76. Utan
+    // bredd hade etiketten räknats som en rad (56).
+    {
+        glaze::GroupBox g;
+        g.width = 216;
+        brytBarn(g, "text");
+        const gfx::Sizef s = Meter::measure(g, c);
+        check(nära(s.w, 216.0f) && nära(s.h, 76.0f),
+              "5a: satt bredd 216 — etiketten bryts i innerbredden 200, två rader",
+              std::to_string(s.w) + "×" + std::to_string(s.h));
+        g.width                = 116;
+        const gfx::Sizef smal = Meter::measure(g, c);
+        check(nära(smal.h, 116.0f),
+              "5a: satt bredd 116 — innerbredd 100, fyra rader: 80 + 36",
+              std::to_string(smal.h));
+        g.width               = 416;
+        const gfx::Sizef bred = Meter::measure(g, c);
+        check(nära(bred.h, 56.0f),
+              "5a: satt bredd 416 — innerbredd 400, en rad: 20 + 36",
+              std::to_string(bred.h));
+    }
+
+    // 5b. AUTO-bredd: bredden är okänd och etiketten räknas som EN rad, som
+    // förut — 310 + 16 bred, 20 + 36 hög.
+    {
+        glaze::GroupBox g;
+        brytBarn(g, "text");
+        const gfx::Sizef s = Meter::measure(g, c);
+        check(nära(s.w, 326.0f) && nära(s.h, 56.0f),
+              "5b: auto-bredd — en rad, oförändrat",
+              std::to_string(s.w) + "×" + std::to_string(s.h));
+    }
+
+    // 5c. Ett efterföljande syskon (anchorTop mot etiketten) flyttar med de två
+    // raderna och räknas i ramens höjd: 40 + 4 + 10 + 36 = 90.
+    {
+        glaze::GroupBox g;
+        g.width = 216;
+        brytBarn(g, "text");
+        auto* under      = g.add<glaze::Panel>();
+        under->name      = "under";
+        under->width     = 50;
+        under->height    = 10;
+        under->anchorTop = {"text", 4};
+        const gfx::Sizef s = Meter::measure(g, c);
+        check(nära(s.h, 90.0f),
+              "5c: ett syskon under den radbrutna etiketten ryms i ramen",
+              std::to_string(s.h));
+    }
+
+    // 5d. SATT höjd vinner: ramens mått är de satta och kroken tiger.
+    {
+        glaze::GroupBox g;
+        g.width  = 216;
+        g.height = 50;
+        brytBarn(g, "text");
+        const gfx::Sizef s = Meter::measure(g, c);
+        check(nära(s.w, 216.0f) && nära(s.h, 50.0f),
+              "5d: satt höjd vinner över de två raderna",
+              std::to_string(s.w) + "×" + std::to_string(s.h));
+        check(!Meter::measureHeightForWidth(g, c, 216.0f),
+              "5d: satt height ⇒ heightForWidth svarar nullopt");
+    }
+
+    // 5e. heightForWidth: barnens höjd i innerbredden + bandet + luften.
+    {
+        glaze::GroupBox g;
+        brytBarn(g, "text");
+        const auto h216 = Meter::measureHeightForWidth(g, c, 216.0f);
+        const auto h116 = Meter::measureHeightForWidth(g, c, 116.0f);
+        const auto h416 = Meter::measureHeightForWidth(g, c, 416.0f);
+        check(h216 && nära(*h216, 76.0f),
+              "5e: heightForWidth(216) — två rader: 40 + 20 + 16",
+              h216 ? std::to_string(*h216) : "nullopt");
+        check(h116 && nära(*h116, 116.0f),
+              "5e: heightForWidth(116) — fyra rader",
+              h116 ? std::to_string(*h116) : "nullopt");
+        check(h416 && nära(*h416, 56.0f),
+              "5e: heightForWidth(416) — en rad",
+              h416 ? std::to_string(*h416) : "nullopt");
+
+        glaze::GroupBox tom;
+        const auto      ht = Meter::measureHeightForWidth(tom, c, 100.0f);
+        check(ht && nära(*ht, 36.0f),
+              "5e: en tom ram är bandet plus luften, 20 + 16",
+              ht ? std::to_string(*ht) : "nullopt");
+    }
+
+    // 5f. RAM I RAM: den inre ramen är spänd i den yttre. Bredd 232 ⇒ den inre
+    // får 216 ⇒ etiketten 200 ⇒ två rader ⇒ inre 76 ⇒ yttre 76 + 36 = 112.
+    // Bredd 132 ⇒ 116 ⇒ 100 ⇒ fyra rader ⇒ inre 116 ⇒ yttre 152.
+    {
+        glaze::GroupBox yttre;
+        auto*           inre = yttre.add<glaze::GroupBox>();
+        inre->name           = "inre";
+        inre->anchors        = {true, true, true, false};
+        brytBarn(*inre, "text");
+
+        yttre.width  = 232;
+        gfx::Sizef s = Meter::measure(yttre, c);
+        check(nära(s.h, 112.0f),
+              "5f: ram i ram, bredd 232 — innerbredden går genom båda nivåerna",
+              std::to_string(s.h));
+        yttre.width = 132;
+        s           = Meter::measure(yttre, c);
+        check(nära(s.h, 152.0f), "5f: ram i ram, bredd 132 — fyra rader",
+              std::to_string(s.h));
+        yttre.width  = 0;
+        const auto h = Meter::measureHeightForWidth(yttre, c, 232.0f);
+        check(h && nära(*h, 112.0f),
+              "5f: ram i ram — heightForWidth(232) ger samma höjd",
+              h ? std::to_string(*h) : "nullopt");
+    }
+
+    // 5g. MÄTCACHEN: svaret återanvänds per bredd (kroken frågas en gång) och
+    // ett textbyte på etiketten mäts om — ramens cachade höjd ligger inte kvar.
+    {
+        glaze::GroupBox g;
+        auto*           b = g.add<Bredd>();
+        b->anchors        = {true, true, true, false};
+        for (int i = 0; i < 3; ++i) {
+            const auto h = Meter::measureHeightForWidth(g, c, 216.0f);
+            check(h && nära(*h, 6000.0f / 200.0f + 36.0f),
+                  "5g: 6000 / 200 + 36 = 66 vid bredden 216",
+                  h ? std::to_string(*h) : "nullopt");
+        }
+        check(b->krokar == 1,
+              "5g: tre frågor vid samma bredd frågar barnet EN gång",
+              std::to_string(b->krokar));
+        Meter::measureHeightForWidth(g, c, 116.0f);
+        check(b->krokar == 2, "5g: en ny bredd frågar barnet igen",
+              std::to_string(b->krokar));
+
+        glaze::GroupBox g2;
+        auto*           l  = brytBarn(g2, "text");
+        auto            h2 = Meter::measureHeightForWidth(g2, c, 216.0f);
+        check(h2 && nära(*h2, 76.0f), "5g: två rader före textbytet",
+              h2 ? std::to_string(*h2) : "nullopt");
+        l->setText("aaa");
+        h2 = Meter::measureHeightForWidth(g2, c, 216.0f);
+        check(h2 && nära(*h2, 56.0f),
+              "5g: ett textbyte mäts om — en rad: 20 + 36",
+              h2 ? std::to_string(*h2) : "nullopt");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -432,6 +689,7 @@ int main(int argc, char** argv)
     fallAutostorlek();
     fallLuckan();
     fallMatcache();
+    fallRadbrytning();
 
     std::printf("\n%s — %d fall, %d fel\n",
                 g_fails == 0 ? "GROUPBOX_GATE GRÖN" : "GROUPBOX_GATE FÄLLD",

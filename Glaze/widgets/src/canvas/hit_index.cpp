@@ -6,12 +6,14 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <span>
 #include <utility>
 
 #include <gfx/camera.h>
 
 #include "build.h"
 #include "labels.h"
+#include "ring.h"
 
 namespace glaze::detail {
 
@@ -140,20 +142,21 @@ double pointerScale(const HitQuery& q)
     return q.hasGround ? q.groundPxPerUnit : q.proj->groundScale(q.px, q.py);
 }
 
-// Jämn–udda över alla ringar: ett hål är ute.
-bool insideRings(const std::vector<Shape::Contour>& rings, double x, double y)
+// Jämn–udda över ringarna: ett hål är ute.
+bool insideRings(std::span<const Shape::Contour> rings, double x, double y)
 {
     bool in = false;
-    for (const Shape::Contour& r : rings) {
-        const std::vector<Point>& p = r.points;
-        const std::size_t         n = p.size();
-        for (std::size_t i = 0, j = n - 1; i < n; j = i++)
-            if ((p[i].y > y) != (p[j].y > y) &&
-                x < (p[j].x - p[i].x) * (y - p[i].y) / (p[j].y - p[i].y) +
-                        p[i].x)
-                in = !in;
-    }
+    for (const Shape::Contour& r : rings)
+        in ^= inRing(std::span<const Point>(r.points), x, y);
     return in;
+}
+
+// Punkten i formens insida: jämn–udda över alla konturer. För en yta i delar
+// som inte överlappar är det unionen av delarna — en ö i en annan dels hål
+// ligger innanför tre ringar och är inne.
+bool insideShape(const Shape& s, double x, double y)
+{
+    return insideRings(s.contours(), x, y);
 }
 
 bool strokeVisible(const Shape& s)
@@ -200,7 +203,7 @@ bool areaHit(const HitQuery& q, const Shape& s)
 {
     if (insideCounts(s)) {
         double wx = 0.0, wy = 0.0;
-        if (pointerWorld(q, wx, wy) && insideRings(s.contours(), wx, wy))
+        if (pointerWorld(q, wx, wy) && insideShape(s, wx, wy))
             return true;
         if (nearEdges(q, s.contours(), true, q.tolPx))
             return true;
@@ -719,15 +722,19 @@ bool contoursInRect(const HitQuery& q, const std::vector<Shape::Contour>& cs,
     return any;
 }
 
-// Rutan INNE I ringarna: dess mitt i världen, där mittens stråle når planet.
-// Skär ingen kant rutan ligger hela rutan i ytan eller hela utanför, så
-// mitten avgör.
-bool rectInsideRings(const HitQuery& q, const std::vector<Shape::Contour>& rings,
-                     const ScreenRect& r)
+// Rutans mitt i världen, där mittens stråle når planet. Skär ingen kant rutan
+// ligger hela rutan inne i ytan eller hela utanför, så mitten avgör om den är
+// INNE.
+bool rectCenter(const HitQuery& q, const ScreenRect& r, double& wx, double& wy)
+{
+    return q.proj->ground(0.5 * (r.x0 + r.x1), 0.5 * (r.y0 + r.y1), wx, wy);
+}
+
+// Rutan inne i formen (`insideShape`).
+bool rectInsideShape(const HitQuery& q, const Shape& s, const ScreenRect& r)
 {
     double wx = 0.0, wy = 0.0;
-    return q.proj->ground(0.5 * (r.x0 + r.x1), 0.5 * (r.y0 + r.y1), wx, wy) &&
-           insideRings(rings, wx, wy);
+    return rectCenter(q, r, wx, wy) && insideShape(s, wx, wy);
 }
 
 // En yta eller en linje mot rutan: konturerna — slutna när insidan räknas
@@ -740,7 +747,7 @@ bool areaInRect(const HitQuery& q, const Shape& s, const ScreenRect& r,
         return false;
     const bool closed = inside || s.kind() == Shape::Kind::Area;
     return contoursInRect(q, s.contours(), closed, r, window) ||
-           (!window && inside && rectInsideRings(q, s.contours(), r));
+           (!window && inside && rectInsideShape(q, s, r));
 }
 
 bool imageInRect(const HitQuery& q, const Shape& s, const ScreenRect& r,
@@ -749,8 +756,9 @@ bool imageInRect(const HitQuery& q, const Shape& s, const ScreenRect& r,
     std::vector<Shape::Contour> ring;
     if (!imageRing(s, ring))
         return false;
+    double wx = 0.0, wy = 0.0;
     return contoursInRect(q, ring, true, r, window) ||
-           (!window && rectInsideRings(q, ring, r));
+           (!window && rectCenter(q, r, wx, wy) && insideRings(ring, wx, wy));
 }
 
 // En SKIVA (mitt, radie) mot rutan.

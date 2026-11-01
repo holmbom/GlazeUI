@@ -131,6 +131,10 @@ std::optional<double> terrainHeight(const SceneData& scene, double x, double y);
 std::uint64_t terrainRegionKey(const SceneData& scene, double x0, double y0,
                                double x1, double y1);
 
+// Temats färger en standardikon ritas med, in i en nyckel — draperingens och
+// målet för en rityta på en annan yta (painter.cpp) bär dem.
+void mixStockColors(KeyHash& k, const Theme::Colors& p);
+
 // TERRÄNGENS RUTNÄT RÄKNAT — hur många gånger det byggts och hur många
 // former höjdfrågorna prövat (cellernas, före lådan). Processens, för
 // grindarna (pick_gate HI).

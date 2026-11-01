@@ -174,7 +174,9 @@
 //               enumprefixen med `glaze::` och `gfx::`, `glaze::img`, `{}` som
 //               ingen bild, `glaze::tr`, `std::nullopt` och vägen med alla
 //               verb. Överlagringarna är C++:s egna — `polygon` med punkter
-//               mot ringar, `path` som yta mot kontur, `addShape`/`setShape`/
+//               mot ringar; `polygons` tar DELARNA med bara klamrar, typade
+//               `glaze::Polygon{…}` eller `std::vector<glaze::Polygon>{…}`,
+//               `path` som yta mot kontur, `addShape`/`setShape`/
 //               `setShapes`/`removeShape` med och utan lager — och fixturen
 //               bevisar att varje rad KOMPILERAR till den överlagring
 //               previewn antar. `onPaint` (KORT) och `onCameraChange` (FULL,
@@ -241,7 +243,7 @@
 //               KLIPPET: `setClipSpace(glaze::ClipSpace::Screen)`, ytorna i
 //               kollektionsvokabulären — `addClip`/`setClip`/`setClips`/
 //               `resetClip` och lagrens `addLayerClip`/`setLayerClip`/
-//               `setLayerClips`/`resetLayerClip` — med `glaze::ClipPolygon`
+//               `setLayerClips`/`resetLayerClip` — med `glaze::Polygon`
 //               som klammerlista `{ytterring, {hål…}}` (positionell, med
 //               typnamn och designerad `.outer`/`.holes`), `{}` som en tom
 //               yta och `setClips({})`. Båda fälten anges alltid: en utelämnad

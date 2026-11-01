@@ -297,6 +297,23 @@
 //       bort ur `buildClipPolygon` (M3 — ingen kantutjämning), triangulering
 //       per delyta i stället för hela ytan (M3 — sömmar).
 //
+// DEL N — FORMEN I FLERA DELAR (`Shape::polygons(std::vector<Polygon>, …)`),
+// en riktig rityta utan kamera (världen är de lokala px). Två delar med var
+// sitt hål och en ö i det första hålet (en egen del). Referensen är delarnas
+// geometri: 4 px innanför en kant är ytans färg, ett hål och ett mellanrum är
+// bakgrunden.
+//   N1  OGENOMSKINLIG: ytans färg i båda delarna och i ön; bakgrunden i båda
+//       hålen (också gapet mellan ön och hålkanten), mellan delarna och utanför.
+//   N2  HALVGENOMSKINLIG (alfa 128): samma blandning över vitt i alla delar och
+//       längs hela bandet (inget dubbelritat), inget hål fyllt.
+//   N3  GRADIENTEN delas: en linjär ramp röd → blå över x = 60–400 ligger i
+//       världen och följer samma kurva genom båda delarna. Sabotage som SKA
+//       fälla N: delarna byggda som EN yta över alla ringar (N1 — B:s
+//       ytterring blir ett hål och ön ett hål i hålet), bara den första delen
+//       byggd (N1, N2, N3 — B och ön saknas), hålen utelämnade ur
+//       trianguleringen (N1, N2 — hålen fyllda) och gradienten räknad per del
+//       i stället för i världen (N3).
+//
 // INTE MÄTT här: Metal (rader i doc/os/macos/TESTS.md),
 // färgjusteringen (B14/B15) på ett RENDER-MÅLS halvgenomskinliga texel — att
 // den sker EFTER av-premultipliceringen syns bara där, och B14 ritar en
@@ -5577,9 +5594,9 @@ void fallK4()
 
 const gfx::Color kBlåM{0, 0, 255, 255};
 
-glaze::ClipPolygon rektYta(double x, double y, double w, double h)
+glaze::Polygon rektYta(double x, double y, double w, double h)
 {
-    glaze::ClipPolygon p;
+    glaze::Polygon p;
     p.outer = {{x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}};
     return p;
 }
@@ -5597,7 +5614,7 @@ void fallM1()
         std::memcpy(&rgba[i], &kBlåM, 4);
     const glaze::Bitmap blå(4, 4, rgba.data(), 0);
     glaze::Canvas&      y = r.f.yta;
-    glaze::ClipPolygon  med = rektYta(100, 60, 160, 100);
+    glaze::Polygon  med = rektYta(100, 60, 160, 100);
     med.holes.push_back({{150, 90}, {210, 90}, {210, 130}, {150, 130}});
     y.setClipSpace(glaze::ClipSpace::Screen);
     y.addClip(med);
@@ -5686,9 +5703,9 @@ void fallM3()
         return;
     glaze::Canvas& y = r.f.yta;
     y.setClipSpace(glaze::ClipSpace::Screen);
-    glaze::ClipPolygon tri;
+    glaze::Polygon tri;
     tri.outer = {{40, 40}, {240, 60}, {120, 200}};
-    glaze::ClipPolygon ell;
+    glaze::Polygon ell;
     ell.outer = {{280, 40}, {340, 40}, {340, 100}, {400, 100}, {400, 160}, {280, 160}};
     y.addClip(tri);
     y.addClip(ell);
@@ -5763,6 +5780,127 @@ void fallM5()
     fick += " |";
     ok = färgVid(r, b, L{20, 20}, kVit, fick) && ok;
     check(ok, "M5 en ogiltig yta: Show ritar allt, Hide döljer det", fick);
+}
+
+// ============================================================ DEL N
+//
+// FORMEN I FLERA DELAR (`Shape::polygons(std::vector<Polygon>, …)`) genom en
+// riktig rityta. Ingen kamera satt: världen är de lokala logiska px. Del A är
+// 60–200 × 60–200 med ett hål 100–160 × 100–160, del B 260–400 × 60–200 med ett
+// hål 300–360 × 100–160 och del C en ö 120–140 × 120–140 i A:s hål (en egen
+// del). Referensen är delarnas geometri: en punkt 4 px innanför en kant är
+// ytans färg, en punkt i ett hål eller mellan delarna är bakgrunden.
+
+glaze::Shape delytan(glaze::Paint fyll)
+{
+    using glaze::Point;
+    const auto ruta = [](double x0, double y0, double x1, double y1) {
+        return std::vector<Point>{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+    };
+    return glaze::Shape::polygons(
+        {glaze::Polygon{ruta(60, 60, 200, 200), {ruta(100, 100, 160, 160)}},
+         glaze::Polygon{ruta(260, 60, 400, 200), {ruta(300, 100, 360, 160)}},
+         glaze::Polygon{ruta(120, 120, 140, 140), {}}},
+        std::move(fyll));
+}
+
+// N1 ogenomskinlig: ytans färg i båda delarna och i ön, bakgrunden i hålen
+// (också i gapet mellan ön och A:s hålkant), mellan delarna och utanför.
+void fallN1()
+{
+    Rit r;
+    if (!r.öppna())
+        return;
+    r.f.yta.addShape(delytan(kBlåM));
+    const Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    using L = glaze::Point;
+    std::string fick;
+    bool        ok = färgVid(r, b, L{80, 130}, kBlåM, fick) &&    // A:s band
+                  färgVid(r, b, L{380, 130}, kBlåM, fick) &&      // B:s högra band
+                  färgVid(r, b, L{280, 80}, kBlåM, fick) &&       // B:s övre band
+                  färgVid(r, b, L{130, 130}, kBlåM, fick);        // ön C
+    fick += " |";
+    ok = färgVid(r, b, L{110, 130}, kVit, fick) &&   // A:s hål, mellan hålkanten och ön
+         färgVid(r, b, L{330, 130}, kVit, fick) &&   // B:s hål
+         färgVid(r, b, L{230, 130}, kVit, fick) &&   // mellan A och B
+         färgVid(r, b, L{30, 130}, kVit, fick) &&    // utanför
+         färgVid(r, b, L{430, 130}, kVit, fick) && ok;
+    check(ok, "N1 två delar med hål och en ö i ett hål: ytan innanför, hålen och "
+              "mellanrummen tomma",
+          fick);
+}
+
+// N2 halvgenomskinlig: ytans blandning över vitt är densamma i alla delar och
+// längs hela bandet (inget överlapp mellan delarna eller mellan trianglarna och
+// kantremsorna), och inget hål är fyllt.
+void fallN2()
+{
+    Rit r;
+    if (!r.öppna())
+        return;
+    const gfx::Color halvBlå{0, 0, 255, 128};
+    r.f.yta.addShape(delytan(halvBlå));
+    const Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    // 128/255 blått över vitt: (255 · (1 − 128/255), samma, 255) = (127, 127, 255).
+    const gfx::Color blandad{127, 127, 255, 255};
+    using L = glaze::Point;
+    std::string fick;
+    bool        ok = färgVid(r, b, L{80, 130}, blandad, fick) &&
+                  färgVid(r, b, L{380, 130}, blandad, fick) &&
+                  färgVid(r, b, L{130, 130}, blandad, fick);
+    // Hela bandet i A tvärs över (4 px innanför kanterna): en och samma färg.
+    int ofärgade = 0;
+    for (int lx = 64; lx <= 96; ++lx)
+        if (!ärFärg(b.at(r.x(lx), r.y(130)), blandad, 3))
+            ++ofärgade;
+    for (int ly = 104; ly <= 196; ly += 4)
+        if (!ärFärg(b.at(r.x(80), r.y(ly)), blandad, 3))
+            ++ofärgade;
+    fick += " |";
+    ok = färgVid(r, b, L{110, 130}, kVit, fick) &&
+         färgVid(r, b, L{330, 130}, kVit, fick) &&
+         färgVid(r, b, L{230, 130}, kVit, fick) && ok;
+    check(ok && ofärgade == 0,
+          "N2 alfa 128: samma blandning i alla delar och längs hela bandet, hålen "
+          "ofyllda",
+          fick + ", " + std::to_string(ofärgade) + " avvikande pixlar");
+}
+
+// N3 gradienten ligger i VÄRLDEN och delas av delarna: röd vid x = 60 och blå vid
+// x = 400 genom båda delarna, som om det vore en enda yta.
+void fallN3()
+{
+    Rit r;
+    if (!r.öppna())
+        return;
+    const gfx::Color röd{255, 0, 0, 255}, blå{0, 0, 255, 255};
+    r.f.yta.addShape(delytan(glaze::Paint::linear({60, 0}, {400, 0},
+                                                  {{0.0f, röd}, {1.0f, blå}})));
+    const Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    // t = (x − 60) / 340: R = 255 (1 − t), B = 255 t.
+    using L = glaze::Point;
+    const auto vid = [&](double x, gfx::Color c, std::string& fick) {
+        const std::uint8_t* p = b.at(r.x(x), r.y(130));
+        fick += " " + px(p);
+        return ärFärg(p, c, 6);
+    };
+    std::string fick;
+    bool        ok = vid(80, gfx::Color{240, 0, 15, 255}, fick) &&     // A, t = 0,059
+                  vid(190, gfx::Color{158, 0, 97, 255}, fick) &&      // A, t = 0,382
+                  vid(270, gfx::Color{97, 0, 158, 255}, fick) &&      // B, t = 0,618
+                  vid(380, gfx::Color{15, 0, 240, 255}, fick);        // B, t = 0,941
+    fick += " |";
+    ok = färgVid(r, b, L{330, 130}, kVit, fick) &&   // B:s hål
+         färgVid(r, b, L{110, 130}, kVit, fick) && ok;
+    check(ok, "N3 en gradient över två delar: samma ramp i världen genom båda, "
+              "hålen tomma",
+          fick);
 }
 
 int main(int argc, char** argv)
@@ -5853,6 +5991,9 @@ int main(int argc, char** argv)
     if (!g_ritfel) fallM3();
     if (!g_ritfel) fallM4();
     if (!g_ritfel) fallM5();
+    if (!g_ritfel) fallN1();
+    if (!g_ritfel) fallN2();
+    if (!g_ritfel) fallN3();
     f.scen.chunkar.clear();   // buffertarna före fönstret (livstidsregeln)
 
     std::printf(g_fel ? "=== scene_pixel_gate: %d FEL av %d ===\n"

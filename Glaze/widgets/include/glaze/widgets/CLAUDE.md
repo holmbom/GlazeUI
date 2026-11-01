@@ -110,7 +110,8 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   widget.h): satt `height` vinner, satt `width` ger höjden ur sig, en STRÄCKT eller Top/Bottom-
   DOCKAD etikett får höjden för den bredd layouten GAV, Fill/Left/Right/Bar låter ytan ge höjden
   (texten klipps), en etikett utan bredd är en rad, och i en komposit med autohöjd ur barnen
-  räknas den som en rad (`childrenExtent` har ingen bredd). `contentSize` frågar samma krok och
+  räknas den som en rad när kompositens bredd är OKÄND (`childrenExtent(c)`) — med en känd bredd
+  (`GroupBox` med satt eller given bredd) räknas raderna. `contentSize` frågar samma krok och
   ritningen bryter vid samma flyttal. Bredd och höjd är LOGISKA px.
   **KORTNINGEN, HÖJDLEDET OCH GRANNEN** (REQ3_TRAD_LISTOR_FALT): `setElide` (EN
   rad kortas med "…" vid bredden; HELA texten blir tooltip när den kortats —
@@ -626,7 +627,11 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   rubrikbandet reserveras ändå (WinForms gör likadant). **AUTOSTORLEK UR
   BARNEN** — kompositstödets opt-in, gruppramen är dess första användare:
   en AUTO-axel blir `childrenExtent()` (REQ7_LAYOUT: också barn nere till höger
-  och spända) + luften, minst så bred som rubriken.
+  och spända) + luften, minst så bred som rubriken. **Med BREDDEN KÄND** (satt
+  `width`, och `heightForWidth` för en sträckt, Top/Bottom-dockad eller nästlad
+  ram) mäts barnen i innerbredden, så en radbruten etikett räknas med sina
+  rader: ramen svarar bara med sin luft (`childInsets`), och BASENS
+  `contentSize`/`heightForWidth` räknar autostorleken ur den.
   Radien är **`groupRadius`** och inte `panelRadius` (den är 0 och hör till
   det parkerade utseendepasset). `enabled` kaskadar inte (Panel-regeln).
 - **`splitter.h`** — `Splitter : Widget`, DELAREN (post 15; WinForms

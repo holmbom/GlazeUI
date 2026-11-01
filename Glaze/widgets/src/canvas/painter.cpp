@@ -21,6 +21,7 @@
 #include "../image_cache.h"
 #include "build.h"
 #include "camera_math.h"
+#include "drape.h"
 #include "instances.h"
 #include "mesh_data.h"
 #include "programs3d.h"
@@ -872,13 +873,16 @@ struct PainterState {
     // målarens rymd genom transformen, snittade med det som redan gäller —
     // i världen ett prisma, efter `screenSpace` en yta på skärmen (clip.h).
     // Det som väntar ritas först, med det gamla klippet.
+    // NYCKELN FÖRST: varje yta får en hash över sina hörn (`polygonKey`) —
+    // dess giltighet slås upp på den i poolen (en yta trianguleras inte varje
+    // bildruta), och hasharna tillsammans är maskens källa.
     // `kändGiltig`: ytorna är redan prövade (en rektangel med yta och
     // ändliga hörn) — ingen triangulering bara för att fråga.
-    void clipTo(std::vector<ClipPolygon> ytor, bool kändGiltig = false)
+    void clipTo(std::vector<Polygon> ytor, bool kändGiltig = false)
     {
         flush();
         saved.back().clipped = true;
-        for (ClipPolygon& y : ytor) {
+        for (Polygon& y : ytor) {
             for (Point& p : y.outer)
                 p = xf.apply(p);
             for (std::vector<Point>& h : y.holes)
@@ -887,12 +891,21 @@ struct PainterState {
         }
         // En OGILTIG yta (`Canvas::setInvalidClip`): med Show gäller klippet
         // inte alls, med Hide täcker den ytan ingenting.
-        const InvalidClip läge = ctx.scene ? ctx.scene->invalidClip : InvalidClip::Show;
-        std::vector<ClipPolygon> giltiga;
-        for (ClipPolygon& y : ytor)
-            if (kändGiltig || clipPolygonValid(y))
-                giltiga.push_back(std::move(y));
-        if (giltiga.size() != ytor.size()) {
+        const InvalidClip         läge = ctx.scene ? ctx.scene->invalidClip : InvalidClip::Show;
+        std::vector<std::uint8_t> giltig(ytor.size(), 1);
+        KeyHash                   källa;
+        bool                      allaGiltiga = true;
+        for (std::size_t i = 0; i < ytor.size(); ++i) {
+            const std::uint64_t nyckel = polygonKey(ytor[i]);
+            källa.mix(nyckel);
+            if (kändGiltig || !ctx.res)
+                continue;
+            if (!ctx.res->clips().valid(nyckel, [&] { return clipPolygonValid(ytor[i]); })) {
+                giltig[i]   = 0;
+                allaGiltiga = false;
+            }
+        }
+        if (!allaGiltiga) {
             // En gång per process: ritningen upprepas varje bildruta.
             if (!g_ogiltigtKlippLoggat.exchange(true))
                 gfx::log("Painter::save: en klippyta är ogiltig (en självkorsning, ett "
@@ -903,14 +916,15 @@ struct PainterState {
                 return;
         }
         clip = refineClip(ctx, clip, screen ? ClipSpace::Screen : ClipSpace::World,
-                          giltiga);
+                          ClipPolys{ytor, giltig}, källa.h);
     }
 
     // EN RITYTA PÅ YTAN (painter.h `drawCanvas`): ritytans lager i ett eget
     // mål i rektangelns upplösning, sedan målets bild på rektangelns fyra
     // hörn under målarens klipp. `cam2` eller `cam3` är kameran.
     bool drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& scene,
-                    const Rect& rect, const Camera* cam2, const Camera3D* cam3);
+                    std::uint64_t stamp, const Rect& rect, const Camera* cam2,
+                    const Camera3D* cam3);
 
     // xf = xf · m — m verkar FÖRST på punkterna (som i en ritstack).
     void compose(const Xform& m)
@@ -942,8 +956,8 @@ const gfx::Color kPageClear{0, 0, 0, 0};
 } // namespace
 
 bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& scene,
-                              const Rect& rect, const Camera* cam2,
-                              const Camera3D* cam3)
+                              std::uint64_t stamp, const Rect& rect,
+                              const Camera* cam2, const Camera3D* cam3)
 {
     const auto fail = [&](const char* why) {
         gfx::log("Painter::drawCanvas(%s): %s — ritytan ritas inte",
@@ -1005,11 +1019,49 @@ bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& 
     a.labelFade  = canvas.labelFade();
     a.layerPaint = layerPaintOf(canvas);
 
-    const ImageAccount  konto(*ctx.c, scene);
-    const PaintingScope ritar(*scene);
-    std::unique_ptr<gfx::RenderTarget>& mål = ctx.res->pageTarget(w, h);
-    if (!renderCanvasTarget(pc, scene, a, w, h, kPageClear, mål))
-        return false;   // målet gick inte att skapa — loggat
+    // MÅLETS NYCKEL — det ritningen beror på: ritytan och dess
+    // `damageStamp` (varje ändring av den, och fönstrets helomritning),
+    // kameran, måtten, klippversionerna, målarens skala och mm-täthet och
+    // temats färger för standardikonerna. Ett
+    // oförändrat anrop — samma sida igen, en minikarta som ritas om med sin
+    // värd — återanvänder målet utan att rita ritytan.
+    KeyHash nyckel;
+    nyckel.mix(scene->id);
+    nyckel.mix(stamp);
+    nyckel.mix(clipVersions(*scene));
+    nyckel.mix(static_cast<std::uint64_t>(w));
+    nyckel.mix(static_cast<std::uint64_t>(h));
+    nyckel.mix(static_cast<double>(ctx.c->scale));
+    nyckel.mix(static_cast<double>(ctx.c->pxPerMm));
+    if (ctx.c->theme)
+        mixStockColors(nyckel, ctx.c->theme->colors);   // standardikonerna
+    if (cam3) {
+        for (const double v : {cam3->target.x, cam3->target.y, cam3->target.z,
+                               cam3->distance, double(cam3->azimuth),
+                               double(cam3->elevation), double(cam3->roll),
+                               double(cam3->fov), cam3->orthoHeight,
+                               cam3->nearPlane, cam3->farPlane})
+            nyckel.mix(v);
+        nyckel.mix(static_cast<std::uint64_t>(cam3->projection));
+        nyckel.mix(static_cast<std::uint64_t>(cam3->up));
+    } else {
+        for (const double v : {cam2->center.x, cam2->center.y, cam2->zoom,
+                               double(cam2->bearing), double(cam2->pitch)})
+            nyckel.mix(v);
+    }
+    TargetPool::Slot& mål = ctx.res->pageTarget(nyckel.h, w, h);
+    if (!mål.built) {
+        const ImageAccount  konto(*ctx.c, scene);
+        const PaintingScope ritar(*scene);
+        bool tonar = false;
+        if (!renderCanvasTarget(pc, scene, a, w, h, kPageClear, mål.target, tonar))
+            return false;   // målet gick inte att skapa — loggat
+        ctx.res->notePageRender();
+        // En bild som väntar på uppladdningens budget saknas i målet, och
+        // etiketter som tonar är ett mellanläge — målet ritas då om nästa gång
+        // i stället för att återanvändas.
+        mål.built = !tonar && !(ctx.c->images && ctx.c->images->uploadsDeferred());
+    }
 
     // Bilden på de fyra hörnen, under målarens klipp. Målet lever framen ut
     // (`pageTarget`).
@@ -1020,7 +1072,7 @@ bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& 
     keyScreen = screen;
     for (const ImageChunk& q : quads)
         drawTransient(gfx::MeshProgram::Image, q.vertices, q.indices, q.originX,
-                      q.originY, &mål->image());
+                      q.originY, &mål.target->image());
     return true;
 }
 
@@ -1032,7 +1084,9 @@ void paintWith(Canvas& yta, const Handler<PaintArgs>& h, PaintContext& p, bool s
         painter.setRenderState(*state);
     PaintArgs e(painter);
     e.layer = layer;
-    h(&yta, e);
+    // Utan handler-epok: målaren körs i ritningen, varje bildruta, och
+    // ändrar inga mått (widget.h `Handler`).
+    callWithoutEpoch(h, &yta, e);
 }
 
 LayerPaint layerPaintOf(Canvas& yta)
@@ -1202,8 +1256,8 @@ Painter::Saved Painter::save(const Rect& clip)
     // (`InvalidClip`). Annars en yta med fyra hörn, samma väg som varje klipp.
     if (std::isfinite(clip.x) && std::isfinite(clip.y) && std::isfinite(clip.w) &&
         std::isfinite(clip.h) && !(clip.w > 0.0 && clip.h > 0.0))
-        return save(std::vector<ClipPolygon>{});
-    ClipPolygon y;
+        return save(std::vector<Polygon>{});
+    Polygon y;
     y.outer = {{clip.x, clip.y},
                {clip.x + clip.w, clip.y},
                {clip.x + clip.w, clip.y + clip.h},
@@ -1214,14 +1268,14 @@ Painter::Saved Painter::save(const Rect& clip)
     return s;
 }
 
-Painter::Saved Painter::save(const ClipPolygon& clip)
+Painter::Saved Painter::save(const Polygon& clip)
 {
     Saved s = save();
     s_->clipTo({clip});
     return s;
 }
 
-Painter::Saved Painter::save(const std::vector<ClipPolygon>& clip)
+Painter::Saved Painter::save(const std::vector<Polygon>& clip)
 {
     Saved s = save();
     s_->clipTo(clip);
@@ -1251,12 +1305,14 @@ void Painter::restore()
 
 bool Painter::drawCanvas(Canvas& canvas, const Rect& rect, const Camera& camera)
 {
-    return s_->drawCanvas(canvas, canvas.scene_, rect, &camera, nullptr);
+    return s_->drawCanvas(canvas, canvas.scene_, canvas.damageStamp(), rect, &camera,
+                          nullptr);
 }
 
 bool Painter::drawCanvas(Canvas& canvas, const Rect& rect, const Camera3D& camera)
 {
-    return s_->drawCanvas(canvas, canvas.scene_, rect, nullptr, &camera);
+    return s_->drawCanvas(canvas, canvas.scene_, canvas.damageStamp(), rect, nullptr,
+                          &camera);
 }
 
 void Painter::translate(double dx, double dy)

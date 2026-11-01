@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../scene_clip.h"
 #include "../font_fallback.h"
 #include "gfx/renderer.h"
 #include "gfx/scene.h"
@@ -525,13 +526,9 @@ private:
     // eller när klippet skiljer från `sceneClip_`; en mask binds om vid varje
     // anrop, och utan mask står den vita 1×1-texturen på platserna (en
     // oanvänd men obunden textur är ett valideringsfel).
-    struct SceneClipBuf {
-        float rect[4];
-        float world[4];
-        float meta[4];
-    };
-    static_assert(sizeof(SceneClipBuf) == 48 && sizeof(SceneClipBuf) % 16 == 0,
-                  "SceneClipBuf måste vara 16-byte-packad som MSL:ns struct");
+    // Blocket är `SceneClipBlock` (../scene_clip.h), packat av `packSceneClip`.
+    static_assert(sizeof(SceneClipBlock) % 16 == 0,
+                  "SceneClipBlock måste vara 16-byte-packad som MSL:ns struct");
     void      bindSceneClip(const MeshDraw& d);
     SceneClip sceneClip_;               // det encodern har bundet
     bool      sceneClipBound_ = false;

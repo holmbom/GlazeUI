@@ -444,6 +444,13 @@
 //   H8 en bild som väntar på uppladdningsbudgeten (1 byte —
 //       en bild per frame) ritas in i draperingen när den kommer (bildcachens
 //       innehållsgeneration i markstämpeln).
+//   H9  en yta i TVÅ DELAR med var sitt hål (`Shape::polygon(std::vector<
+//       Polygon>, …)`) draperad på den lutande plattan: sex punkter i banden
+//       är röda där projektionen av den lutande ytan säger (±2 px), hålens
+//       mitt och gapet mellan delarna visar plattan. Sabotage som SKA fälla H9:
+//       bara den första delen byggd (H9 banden i B), delarna som EN yta över
+//       alla ringar (H9 — B:s ytterring blir ett hål) och hålen utelämnade ur
+//       trianguleringen (H9 hålen fyllda).
 // INTE MÄTT i del H: Metal; draperade px-linjers bredd mot skärmen
 // (exakt bara där klassen motsvarar avtrycket);
 // LRU-vräkningen mot minnesbudgeten och målens pool (ingen grind sänker
@@ -6986,6 +6993,70 @@ void fallH8()
           px(sist.at(u.x(-4), u.y(-4))) + " / " + px(sist.at(u.x(4), u.y(4))));
 }
 
+// ------------------------------------------------------------------- H9
+//
+// EN YTA I TVÅ DELAR MED HÅL DRAPERAD på den lutande plattan (en Ground-form
+// som `Shape::polygons(std::vector<Polygon>, …)`): del A x −6…−1, y −5…5 med ett
+// hål x −4,5…−2,5, y −2,5…2,5 och del B x 1…6, y −5…5 med ett hål x 2,5…4,5,
+// y −2,5…2,5. Röda pixlar inom 2 px från grindens projektion av provpunkter i
+// banden (x, y, h(x, y)) — och inga vid hålens mitt och i gapet mellan delarna.
+void fallH9()
+{
+    using glaze::Point;
+    Rit3 r;
+    if (!r.öppna())
+        return;
+    glaze::Canvas& y = r.f.yta;
+    y.setCamera(kLutKamera);
+    const int T = y.addLayer("terräng");
+    y.setLayerPlacement(T, glaze::LayerPlacement::Terrain);
+    y.addShape(T, glaze::Shape::mesh(platta(false), {},
+                                     {.color = kPlattGrå, .lit = false}));
+    const auto ruta = [](double x0, double y0, double x1, double y1) {
+        return std::vector<Point>{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+    };
+    const int G = y.addLayer("ytor");
+    y.addShape(G, glaze::Shape::polygons(
+                      {glaze::Polygon{ruta(-6, -5, -1, 5), {ruta(-4.5, -2.5, -2.5, 2.5)}},
+                       glaze::Polygon{ruta(1, -5, 6, 5), {ruta(2.5, -2.5, 4.5, 2.5)}}},
+                      kRöd));
+    const Bild b = r.bild();
+    if (g_ritfel)
+        return;
+    const Hålkamera h = hålkamera(kLutKamera, r.box);
+    int             träff = 0, prov = 0, tomt = 0, tomtProv = 0;
+    std::string     fick;
+    for (const Point& p : {Point{-5.25, 0}, Point{-3.5, 4}, Point{-3.5, -4},
+                           Point{5.25, 0}, Point{3.5, 4}, Point{3.5, -4}}) {
+        double sx = 0.0, sy = 0.0;
+        if (!h.proj(p.x, p.y, plattH(p.x, p.y), sx, sy))
+            continue;
+        ++prov;
+        if (rödNära(b, sx, sy, 2))
+            ++träff;
+        else
+            fick += " miss(" + tal(p.x) + "," + tal(p.y) + ")";
+    }
+    // Hålens mitt och gapet mellan delarna, på ytan.
+    for (const Point& p : {Point{-3.5, 0}, Point{3.5, 0}, Point{0, 0}, Point{0, 4}}) {
+        double sx = 0.0, sy = 0.0;
+        if (!h.proj(p.x, p.y, plattH(p.x, p.y), sx, sy))
+            continue;
+        ++tomtProv;
+        if (!rödNära(b, sx, sy, 2))
+            ++tomt;
+        else
+            fick += " fyllt(" + tal(p.x) + "," + tal(p.y) + ")";
+    }
+    check(prov == 6 && träff == 6,
+          "H9 en yta i två delar draperad: banden i båda delarna är röda där "
+          "grindens projektion av den lutande ytan säger (±2 px, sex punkter)",
+          std::to_string(träff) + " av " + std::to_string(prov) + fick);
+    check(tomtProv == 4 && tomt == 4,
+          "H9 hålen i båda delarna och gapet mellan dem visar plattan, inte ytan",
+          std::to_string(tomt) + " av " + std::to_string(tomtProv) + fick);
+}
+
 } // namespace
 
 // ============================================================ DEL J
@@ -7782,9 +7853,9 @@ void fallKL3()
 //   klippet bort ur `renderBitmap3D` (KL8). MÄTER INTE det vridna prismat i en
 //   del-vy eller ett klipp i `ClipSpace::Screen` i 3D-målet.
 
-glaze::ClipPolygon prismaYta(double x0, double y0, double x1, double y1)
+glaze::Polygon prismaYta(double x0, double y0, double x1, double y1)
 {
-    glaze::ClipPolygon p;
+    glaze::Polygon p;
     p.outer = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
     return p;
 }
@@ -8064,6 +8135,7 @@ int main(int argc, char** argv)
     if (!g_ritfel) fallH6c();
     if (!g_ritfel) fallH7();
     if (!g_ritfel) fallH8();
+    if (!g_ritfel) fallH9();
 
     // Del J — markdjupet (target3d.h).
     if (!g_ritfel) fallJ1();

@@ -28,6 +28,8 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 
 ### Resten av fas 1
 
+- 🐛 **VIKTIGT: kontroller i ett verktygsfält har full höjd** — [tool_bar.h](Glaze/widgets/include/glaze/widgets/tool_bar.h)
+  Knappar, fält och andra kontroller i en `ToolBar` får sin normala höjd och fyller fältet utan marginal. I ett verktygsfält ska allt bli MINDRE, med luft ovanför och under.
 - 🐛 **`scene3d_pixel_gate` K2: ett grafikkort listas två gånger** — [gpu_util.h](Glaze/gfx/src/gpu_util.h)
   På en dator med Intel- och NVIDIA-kort ger DXGI Intel-kortet två gånger med samma id, så `gfx::gpuAdapters()` har en dubblett och K2 fäller. Rättelsen: slå ihop kort med samma id i uppräkningen.
 - 🐛 **macOS: en utloggning avbryts av appen också när den inte vetar** — [metal_platform.mm](Glaze/gfx/src/backend_metal/metal_platform.mm)
@@ -57,8 +59,6 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 - 💡 **Linfysik: nedhäng efter temperatur, töjning, vind och is**
   Linor mellan fästpunkter som hänger korrekt (kedjekurva med elasticitet och värmeutvidgning), belastade av simulerad vind och is, med temperaturen som parameter.
   Öppet: en generell förmåga i ramverket eller appens beräkning.
-- 🟢 **Polygonklipp, ritytan på utskriftssidan och mätcache (0.3.0)**
-  Klipp mot polygoner med hål per lager, för hela ritytan och i målaren (prisma i 3D); `Painter::drawCanvas` på sidan; mätningen cachad per delträd.
 - 🟠 **Windows- och Mac-testet** — [doc/os/](doc/os/)
   Kvar är rader som kräver hårdvara eller handtest: mus, skärmskalning och VS Code på Windows; andra skärm, PC-tangentbord och Intel-Mac på macOS.
   Stängs när `doc/os/windows/TESTS.md` och `doc/os/macos/TESTS.md` är TOMMA.

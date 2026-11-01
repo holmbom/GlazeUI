@@ -28,9 +28,17 @@
 // den ett värde hade rundat varje ramad Panel i varje app.
 //
 // AUTOSTORLEK UR BARNEN (axelregeln): en gruppram VET vad den innehåller —
-// till skillnad från Panel, som med flit är 0×0 — så en AUTO-axel fylls ur
-// `childrenExtent()` plus ramens luft och är minst så bred som rubriken.
-// Det är kompositstödets opt-in, och gruppramen är dess första användare.
+// till skillnad från Panel, som med flit är 0×0 — så den svarar med sin LUFT
+// (`childInsets`: `groupPad` runt om och rubrikbandet upptill), och basens
+// `contentSize` och `heightForWidth` fyller en AUTO-axel ur
+// `childrenExtent()` plus luften. En auto-bredd är dessutom minst så bred som
+// rubriken. Luften är samma yta som barnen placeras i (`innerRect`).
+//
+// RADBRYTNING: med en SATT `width` mäts barnen i innerbredden (bredden minus
+// `groupPad` på båda sidor), och `heightForWidth` ger autohöjden för den
+// bredd layouten ger en sträckt eller Top/Bottom-dockad ram — också en ram i
+// en annan ram. Med auto-bredd och utan given bredd är bredden obestämd och
+// ett radbrutet barn räknas som en rad.
 //
 // `enabled` KASKADAR INTE (samma regel som Panel): en inaktiverad gruppram
 // dimmar sin rubrik, och appen släcker barnen själv om den vill.
@@ -70,6 +78,10 @@ public:
 
 protected:
     gfx::Sizef contentSize(const Ctx& c) const override;
+    // RAMENS LUFT runt barnen — basens autostorlek och höjd för en bredd
+    // räknar ur den (widget.h `childInsets`), och `innerRect` lägger barnen
+    // innanför den.
+    std::optional<Insets> childInsets(const Ctx& c) const override;
     void       draw(const Ctx& c) override;
 
     // Containerkrokarna — PUBLIKA på `Widget` (previewvandringen når dem
@@ -87,7 +99,7 @@ private:
     //   rubrikband  [0, radhöjd] — rubriken står mitt i det
     //   ram         från bandets MITT och nedåt (linjen går genom rubriken)
     //   lucka       rubriken + `groupTitleGap` på båda sidor, i x
-    //   innerytan   ramen minus `groupPad`, under rubrikbandet
+    //   innerytan   ytan minus luften (`childInsets`), under rubrikbandet
     gfx::Rectf frameRect(const Ctx& c, const gfx::Rectf& b) const;
     gfx::Rectf titleRect(const Ctx& c, const gfx::Rectf& b) const;
     gfx::Rectf innerRect(const Ctx& c, const gfx::Rectf& b) const;

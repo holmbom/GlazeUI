@@ -1063,7 +1063,9 @@ void Canvas::stepTick()
         TickArgs            e;
         e.seconds = detail::tickSeconds(tickLast_, nu);
         tickLast_ = nu;
-        onTick(this, e);
+        // Utan handler-epok: ticken körs varje bildruta, och ett mått den
+        // ändrar följs av `invalidate()` (widget.h `Handler`).
+        detail::callWithoutEpoch(onTick, this, e);
         // Efter handlern ritas RITYTAN om, inte fönstret (
         // kontraktet vid `onTick` i canvas.h) — och den omritningen ger
         // nästa tick.
@@ -1487,9 +1489,9 @@ std::vector<Point3> Canvas::visibleRegion(const Plane3& plane, double maxDistanc
 
 namespace {
 
-const std::vector<ClipPolygon>& noClips()
+const std::vector<Polygon>& noClips()
 {
-    static const std::vector<ClipPolygon> tom;
+    static const std::vector<Polygon> tom;
     return tom;
 }
 
@@ -1498,7 +1500,7 @@ const std::vector<ClipPolygon>& noClips()
 void clipChanged(detail::ClipState& k, const std::string& ägare, const char* op,
                  std::size_t first, std::size_t last)
 {
-    ++k.version;
+    k.version = detail::nextSceneId();
     detail::revalidateClip(k, first, last);
     for (std::size_t i = first; i < last && i < k.valid.size(); ++i)
         if (!k.valid[i])
@@ -1510,7 +1512,7 @@ void clipChanged(detail::ClipState& k, const std::string& ägare, const char* op
 
 // Kollektionsvokabulären över ett klipp — ritytans och lagrens delar den.
 // Varje ändring stegar versionen; `ägare` och `op` står i loggen.
-int clipAdd(detail::ClipState& k, ClipPolygon p, const std::string& ägare,
+int clipAdd(detail::ClipState& k, Polygon p, const std::string& ägare,
             const char* op)
 {
     k.polygons.push_back(std::move(p));
@@ -1519,7 +1521,7 @@ int clipAdd(detail::ClipState& k, ClipPolygon p, const std::string& ägare,
     return static_cast<int>(k.polygons.size()) - 1;
 }
 
-bool clipSet(detail::ClipState& k, int index, ClipPolygon p,
+bool clipSet(detail::ClipState& k, int index, Polygon p,
              const std::string& ägare, const char* op)
 {
     if (index < 0 || static_cast<std::size_t>(index) >= k.polygons.size()) {
@@ -1533,7 +1535,7 @@ bool clipSet(detail::ClipState& k, int index, ClipPolygon p,
     return true;
 }
 
-void clipSetAll(detail::ClipState& k, std::vector<ClipPolygon> ps,
+void clipSetAll(detail::ClipState& k, std::vector<Polygon> ps,
                 const std::string& ägare, const char* op)
 {
     k.polygons = std::move(ps);
@@ -1547,7 +1549,7 @@ void clipReset(detail::ClipState& k)
     k.polygons.clear();
     k.valid.clear();
     k.enabled = false;
-    ++k.version;
+    k.version = detail::nextSceneId();
 }
 
 void clipSetSpace(detail::ClipState& k, ClipSpace s)
@@ -1555,7 +1557,7 @@ void clipSetSpace(detail::ClipState& k, ClipSpace s)
     if (k.space == s)
         return;
     k.space = s;
-    ++k.version;
+    k.version = detail::nextSceneId();
 }
 
 } // namespace
@@ -1571,20 +1573,20 @@ ClipSpace Canvas::clipSpace() const
     return scene_->clip.space;
 }
 
-int Canvas::addClip(ClipPolygon polygon)
+int Canvas::addClip(Polygon polygon)
 {
     const int i = clipAdd(scene_->clip, std::move(polygon), name, "addClip");
     invalidate();
     return i;
 }
 
-void Canvas::setClip(int index, ClipPolygon polygon)
+void Canvas::setClip(int index, Polygon polygon)
 {
     if (clipSet(scene_->clip, index, std::move(polygon), name, "setClip"))
         invalidate();
 }
 
-void Canvas::setClips(std::vector<ClipPolygon> polygons)
+void Canvas::setClips(std::vector<Polygon> polygons)
 {
     clipSetAll(scene_->clip, std::move(polygons), name, "setClips");
     invalidate();
@@ -1601,7 +1603,7 @@ bool Canvas::clipEnabled() const
     return scene_->clip.enabled;
 }
 
-const std::vector<ClipPolygon>& Canvas::clips() const
+const std::vector<Polygon>& Canvas::clips() const
 {
     return scene_->clip.polygons;
 }
@@ -1612,9 +1614,9 @@ void Canvas::setInvalidClip(InvalidClip mode)
         return;
     scene_->invalidClip = mode;
     // Maskerna, etiketterna och draperingarna nycklas på versionerna.
-    ++scene_->clip.version;
+    scene_->clip.version = detail::nextSceneId();
     for (const std::shared_ptr<detail::LayerData>& L : scene_->layers)
-        ++L->clip.version;
+        L->clip.version = detail::nextSceneId();
     invalidate();
 }
 
@@ -1913,7 +1915,7 @@ ClipSpace Canvas::layerClipSpace(int layer) const
                : ClipSpace::World;
 }
 
-int Canvas::addLayerClip(int layer, ClipPolygon polygon)
+int Canvas::addLayerClip(int layer, Polygon polygon)
 {
     if (!layerOk(layer, "addLayerClip"))
         return -1;
@@ -1923,7 +1925,7 @@ int Canvas::addLayerClip(int layer, ClipPolygon polygon)
     return i;
 }
 
-void Canvas::setLayerClip(int layer, int index, ClipPolygon polygon)
+void Canvas::setLayerClip(int layer, int index, Polygon polygon)
 {
     if (!layerOk(layer, "setLayerClip"))
         return;
@@ -1932,7 +1934,7 @@ void Canvas::setLayerClip(int layer, int index, ClipPolygon polygon)
         invalidate();
 }
 
-void Canvas::setLayerClips(int layer, std::vector<ClipPolygon> polygons)
+void Canvas::setLayerClips(int layer, std::vector<Polygon> polygons)
 {
     if (!layerOk(layer, "setLayerClips"))
         return;
@@ -1955,7 +1957,7 @@ bool Canvas::layerClipEnabled(int layer) const
            scene_->layers[static_cast<std::size_t>(layer)]->clip.enabled;
 }
 
-const std::vector<ClipPolygon>& Canvas::layerClips(int layer) const
+const std::vector<Polygon>& Canvas::layerClips(int layer) const
 {
     return layer >= 0 && static_cast<std::size_t>(layer) < scene_->layers.size()
                ? scene_->layers[static_cast<std::size_t>(layer)]->clip.polygons

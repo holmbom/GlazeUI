@@ -181,7 +181,9 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   `titleRect`/`innerRect`) tar ytan som argument; luckan kapas mot ramens
   högra del så en för lång rubrik aldrig bryter bågen på andra sidan.
   `clipRadius` är KONCENTRISK (`groupRadius − groupPad`, 0 med dagens tal —
-  formeln är kontraktet). `contentSize` använder `childrenExtent`. Grind:
+  formeln är kontraktet). Autostorleken är basens: `childInsets` ger ramens
+  luft (som `innerRect` läser), och `contentSize` lägger bara till rubrikens
+  minsta bredd. Grind:
   `groupbox_gate` (också autostorleken); `pixel_gate`s ramar har SATTA mått
   med flit — en autosizande ram KRYMPER när nivåmätningen döljer barnen.
 - **`splitter.cpp`** — DELAREN (post 15). `layout()` är EN sanning

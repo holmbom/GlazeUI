@@ -152,9 +152,11 @@ public:
     //     Bar                         bredden och KLIPPS mot den egna kanten
     //   ingen bredd, inte sträckt     EN rad: etiketten är då så bred som
     //                                 texten, och inget finns att bryta mot
-    //   barn till en komposit med     räknas som EN rad — kompositens
-    //     autohöjd ur barnen          `childrenExtent` har ingen bredd än
-    //                                 (skriven gräns)
+    //   barn till en komposit med     räknas som EN rad när kompositens
+    //     autohöjd ur barnen och      bredd är OKÄND (`childrenExtent(c)`);
+    //     okänd bredd                 en gruppram med satt bredd, eller som
+    //                                 ges en bredd av layouten, mäter barnen
+    //                                 i innerbredden och räknar raderna
     //
     // `width`, brytbredden och den mätta höjden är LOGISKA px
     // (mätkontraktet) — `Draw::measureWrapped` får bredden rakt av, och
@@ -332,7 +334,8 @@ private:
     float      haloWidthAt(const Ctx& c) const;
     // BREDDGRUPPEN, logiska px: min bredd UTAN grupp (satt
     // `width`, annars texten mätt med rollens font som en rad) och gruppens
-    // bredd (den bredaste synliga medlemmens, jag själv alltid med). Körs i
+    // bredd (den bredaste synliga medlemmens, jag själv alltid med) — räknad
+    // en gång per mätstämpel och delad med de synliga medlemmarna. Körs i
     // `resolve()` och loggar därför aldrig.
     float      naturalWidth(const Ctx& c) const;
     float      groupWidth(const Ctx& c) const;
@@ -353,6 +356,10 @@ private:
     std::string widthGroup_;
     std::optional<gfx::Color> halo_;   // nullopt = ingen gloria
     float       haloWidth_ = 0.0f;     // 0 = stilens `labelHaloWidth`
+    // Gruppens bredd och stämpeln den räknades under (`groupWidth`) — skriven
+    // också av en annan medlem i samma grupp.
+    mutable MeasureStamp groupStamp_{};
+    mutable float        groupWidth_ = 0.0f;
 };
 
 } // namespace glaze

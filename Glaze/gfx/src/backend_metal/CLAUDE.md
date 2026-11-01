@@ -250,7 +250,7 @@ normalspårningen, startläget och de tre nya pekarna.
   funktioner. **MÅLARENS KLIPP** (BLINT SKRIVET): `kMslSceneClipSrc` (metal_renderer.mm,
   klistrad efter `kMslClipSrc` i scenens program och efter `kMslPrelude` i de
   egna programmens förspel) — `struct GlazeClipBlock` (`rect`, `world`, `meta`;
-  48 byte) på fragmentbuffert **4**, skärmmasken på **texture(4)**,
+  48 byte — `SceneClipBlock` ur ../scene_clip.h, packat av `packSceneClip`, ombindningen efter `rebindClipMasks`) på fragmentbuffert **4**, skärmmasken på **texture(4)**,
   världsmasken på **texture(5)** och en linjär klampad sampler på **sampler(4)**
   (utanför de egna programmens buffertar 2 och 3). Entrypunkterna deklarerar
   platserna med makrot **`GLAZE_CLIP_PARAMS`** (som sista parametrar) och

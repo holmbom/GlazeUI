@@ -882,7 +882,7 @@ WidgetGallery::WidgetGallery()
 
     // === 10 · GroupBox ========================================
     {
-        auto* g = grupp(sYtor, demo::str::G10, "g10", 960, 12, 304, 164);
+        auto* g = grupp(sYtor, demo::str::G10, "g10", 960, 12, 304, 276);
 
         // INGA MÅTT på ramarna: en gruppram AUTOSIZAR ur sina barn
         // (kompositstödets opt-in) — bredden blir barnens eller rubrikens,
@@ -917,6 +917,20 @@ WidgetGallery::WidgetGallery()
         r2->disable();
 
         fot(g, demo::str::GbFot, "gbN", 8);
+
+        // RADBRYTNING: ramen är STRÄCKT mellan gruppens kanter och etiketten
+        // mellan ramens — ramens höjd är etikettens rader i den bredd den
+        // får, och den följer med vid ett språk- eller stilbyte.
+        auto* gbW      = g->add<glaze::GroupBox>(glaze::tr(demo::str::GbRadRubrik));
+        gbW->x         = 8;
+        gbW->right     = 8;
+        gbW->anchors   = {true, true, true, false};
+        gbW->anchorTop = {"gbNFot", 12};
+        gbW->name      = "gbW";
+        auto* wl    = gbW->add<glaze::Label>(glaze::tr(demo::str::GbRadText));
+        wl->anchors = {true, true, true, false};
+        wl->setWrap(true);
+        wl->name    = "gbWText";
     }
 
     // === 11 · SpinBox =========================================

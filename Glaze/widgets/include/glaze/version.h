@@ -12,7 +12,7 @@
 //     gfx::log("GlazeUI %s", GLAZE_VERSION_STRING);    // "0.1.0"
 
 #define GLAZE_VERSION_MAJOR 0
-#define GLAZE_VERSION_MINOR 3
+#define GLAZE_VERSION_MINOR 4
 #define GLAZE_VERSION_PATCH 0
 
 // Ett jämförbart tal: 0.1.0 → 100, 1.2.3 → 10203.

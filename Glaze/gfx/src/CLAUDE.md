@@ -117,6 +117,11 @@ utanför sin mapp (metal_backend.h bär ObjC-typer — BARA .mm-filer).
   backend (beslut 5: bara PNG) — och `unpremultiplyRgba`, som `readTarget`
   lämnar målens premultiplicerade innehåll med (samma avrundning i alla tre;
   klampad, för ett mål skrivet med `Blend::Opaque` kan bära färg > alfa).
+- **`scene_clip.h`** — INTERN, header-only (ingen CMake-rad): MÅLARENS KLIPP
+  i de tre backendarna på ETT ställe — `SceneClipBlock` (rect, världsmaskens
+  uv-affin, meta), `packSceneClip(SceneClip)` som packar det och
+  `rebindClipMasks`, regeln för när maskerna binds om; en saknad mask är den
+  VITA texturen i alla tre.
 - **`renderer.cpp`** — backend-neutralt: klipp-stackens delade logik
   (`pushClip`/`popClip` — intersektion, obalans loggas). Backends
   implementerar bara `applyClip(scissor, masks, count)`; rundningen (UTÅT

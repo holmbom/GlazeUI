@@ -797,37 +797,51 @@ bool aggregatFält(const std::string& inre, std::span<const char* const> namn,
 bool argValfriFärg(const std::vector<std::string>& a, std::size_t i,
                    std::optional<gfx::Color>& ut);
 
-// EN LISTA AV AGGREGAT — `{T{…}, {…}, …}`, nodernas, tabellradernas och
-// statusfältens gemensamma form: de yttre klamrarna, elementen med C++:s regel
-// för ett avslutande komma (`listElement`), varje element som `typer`s namn +
-// `{…}` eller bara `{…}` (`skalaTyp`) med fälten positionellt eller designerat
-// (`aggregatFält`), och `fält(post, index, värde)` för varje fält i `namn`s
-// ordning. `minstEttFält` = ett aggregat utan fält (`{}`) är ogiltigt.
-// ATOMISKT: `ut` fylls först när HELA literalen gått igenom.
+// ETT AGGREGAT — `typer`s namn + `{…}` eller bara `{…}` (`skalaTyp`) med
+// fälten positionellt eller designerat (`aggregatFält`), och `fält(post,
+// index, värde)` för varje fält i `namn`s ordning. `minstEttFält` = ett
+// aggregat utan fält (`{}`) är ogiltigt. ATOMISKT: `ut` fylls först när HELA
+// literalen gått igenom.
+template <class T, class Fält>
+bool parseAggregat(const std::string& v, std::initializer_list<const char*> typer,
+                   std::span<const char* const> namn, bool minstEttFält, T& ut,
+                   Fält fält)
+{
+    std::string                                      inre;
+    std::vector<std::pair<std::size_t, std::string>> f;
+    if (!skalaTyp(v, typer, true, inre) || !aggregatFält(inre, namn, f) ||
+        (minstEttFält && f.empty()))
+        return false;
+    T post;
+    for (const auto& [k, val] : f)
+        if (!fält(post, k, val))
+            return false;
+    ut = std::move(post);
+    return true;
+}
+
+// EN LISTA AV AGGREGAT — `{T{…}, {…}, …}`, nodernas, tabellradernas,
+// statusfältens och polygonernas gemensamma form: de yttre klamrarna — med
+// listans typnamn framför när det är något av `listtyper`
+// (`std::vector<glaze::Polygon>{…}`), annars bara `{…}` — elementen med C++:s
+// regel för ett avslutande komma (`listElement`) och varje element som ett
+// aggregat (`parseAggregat`). ATOMISKT: `ut` fylls först när HELA literalen
+// gått igenom.
 template <class T, class Fält>
 bool parseAggregatLista(const std::string& v,
+                        std::initializer_list<const char*> listtyper,
                         std::initializer_list<const char*> typer,
                         std::span<const char* const> namn, bool minstEttFält,
                         std::vector<T>& ut, Fält fält)
 {
     std::string              inre;
     std::vector<std::string> texter;
-    if (!skalaKlammer(v, inre) || !listElement(inre, texter))
+    if (!skalaTyp(v, listtyper, true, inre) || !listElement(inre, texter))
         return false;
-    std::vector<T> poster;
-    poster.reserve(texter.size());
-    for (const std::string& et : texter) {
-        std::string                                      eInre;
-        std::vector<std::pair<std::size_t, std::string>> f;
-        if (!skalaTyp(et, typer, true, eInre) || !aggregatFält(eInre, namn, f) ||
-            (minstEttFält && f.empty()))
+    std::vector<T> poster(texter.size());
+    for (std::size_t i = 0; i < texter.size(); ++i)
+        if (!parseAggregat(texter[i], typer, namn, minstEttFält, poster[i], fält))
             return false;
-        T post;
-        for (const auto& [k, val] : f)
-            if (!fält(post, k, val))
-                return false;
-        poster.push_back(std::move(post));
-    }
     ut = std::move(poster);
     return true;
 }
@@ -853,7 +867,7 @@ bool parseTreeLiteral(const std::string& v, std::vector<glaze::TreeNode>& ut)
                                         "checked",       "color",
                                         "cells"};
     return parseAggregatLista(
-        v, {"glaze::TreeNode"}, kFält, true, ut,
+        v, {}, {"glaze::TreeNode"}, kFält, true, ut,
         [](glaze::TreeNode& n, std::size_t k, const std::string& val) {
             switch (k) {
             case 0: return argText({val}, 0, n.text);
@@ -1108,7 +1122,7 @@ bool parseTableRowsLiteral(const std::string& v,
 {
     static const char* const kFält[] = {"cells", "img", "color"};
     return parseAggregatLista(
-        v, {"glaze::Table::Row", "glaze::ListView::Row", "glaze::DataGrid::Row"},
+        v, {}, {"glaze::Table::Row", "glaze::ListView::Row", "glaze::DataGrid::Row"},
         kFält, false, ut,
         [](glaze::Table::Row& r, std::size_t k, const std::string& val) {
             switch (k) {
@@ -1162,7 +1176,7 @@ bool parseStatusPanelsLiteral(const std::string& v,
 {
     static const char* const kFält[] = {"text", "width", "fill"};
     return parseAggregatLista(
-        v, {"glaze::StatusPanel"}, kFält, true, ut,
+        v, {}, {"glaze::StatusPanel"}, kFält, true, ut,
         [](glaze::StatusPanel& p, std::size_t k, const std::string& val) {
             switch (k) {
             case 0: return argText({val}, 0, p.text);
@@ -1211,7 +1225,10 @@ bool parseStatusPanelsLiteral(const std::string& v,
 //   väg          glaze::Path{{glaze::PathVerb::Move, punkt}, …} eller bara {…}
 //   form         glaze::Shape::<fabrik>(…) — alla fabriker i shape.h, med
 //                överlagringen som C++ väljer (punkter mot ringar avgörs av
-//                klammerdjupet; en yta med kontur tar glaze::Stroke{…} eller
+//                klammerdjupet; en form i flera DELAR är `polygons` med
+//                polygonerna som `{{ytterring, {hål…}}, …}`, typade eller i
+//                `std::vector<glaze::Polygon>{…}`); en yta med
+//                kontur tar glaze::Stroke{…} eller
 //                std::nullopt — en bar klammerlista kompilerar inte till en
 //                std::optional; bilden på en rekt eller på FYRA FRIA HÖRN
 //                avgörs av antalet argument, 2–3 mot 5–6)
@@ -1390,6 +1407,34 @@ bool ärRingar(const std::string& v)
     std::string första;
     return skalaKlammer(el[0], första) && !trimma(första).empty() &&
            trimma(första)[0] == '{';
+}
+
+// EN POLYGON — `glaze::Polygon{…}` eller bara `{…}`: ytterringen, sedan
+// hålen (positionellt eller designerat `.outer`/`.holes`), och `{}` är en tom
+// yta. Ringarna är samma literalform som polygonformens. Klippets yta
+// (`addClip`/`setClip`) och en del i en form i flera delar.
+const char* const kPolygonFält[] = {"outer", "holes"};
+
+bool polygonFält(glaze::Polygon& p, std::size_t k, const std::string& val)
+{
+    return k == 0 ? parsePunkter(val, p.outer) : parseRingar(val, p.holes, true);
+}
+
+bool parsePolygon(const std::string& v, glaze::Polygon& ut)
+{
+    return parseAggregat(v, {"glaze::Polygon"}, kPolygonFält, false, ut,
+                         polygonFält);
+}
+
+// POLYGONERNA — `{yta, …}` eller `std::vector<glaze::Polygon>{yta, …}`, med
+// elementen typade eller bara klamrar: klippets ytor (`setClips`/
+// `setLayerClips`, en tom lista klipper bort allt) och formens delar
+// (`Shape::polygons`). ATOMISKT, `parseAggregatLista`s familj.
+bool parsePolygoner(const std::string& v, std::vector<glaze::Polygon>& ut)
+{
+    return parseAggregatLista(v, {"std::vector<glaze::Polygon>"},
+                              {"glaze::Polygon"}, kPolygonFält, false, ut,
+                              polygonFält);
 }
 
 bool parseRekt(const std::string& v, glaze::Rect& ut)
@@ -2388,6 +2433,13 @@ bool parseForm(const std::string& v, glaze::Shape& ut)
             ut = glaze::Shape::polygon(std::move(punkter), std::move(fyll),
                                        std::move(valfri));
         }
+    } else if (fabrik == "polygons") {
+        std::vector<glaze::Polygon> delar;
+        if (n < 2 || n > 3 || !parsePolygoner(a[0], delar) ||
+            !parsePaint(a[1], fyll) || !ytKontur(2))
+            return false;
+        ut = glaze::Shape::polygons(std::move(delar), std::move(fyll),
+                                    std::move(valfri));
     } else if (fabrik == "rect") {
         if (n < 2 || n > 3 || !parseRekt(a[0], r) || !parsePaint(a[1], fyll) ||
             !ytKontur(2))
@@ -2843,46 +2895,6 @@ bool parseVyer(const std::string& v, std::vector<glaze::View>& ut)
         if (!parseVy(el[i], vyer[i]))
             return false;
     ut = std::move(vyer);
-    return true;
-}
-
-// EN KLIPPYTA — glaze::ClipPolygon{…} eller {…}: ytterringen, sedan hålen
-// (positionellt eller designerat), och `{}` är en tom yta. Ringarna är samma
-// literalform som polygonformens.
-bool parseKlippyta(const std::string& v, glaze::ClipPolygon& ut)
-{
-    std::string inre;
-    if (!skalaTyp(v, {"glaze::ClipPolygon"}, true, inre))
-        return false;
-    glaze::ClipPolygon yta;
-    if (!trimma(inre).empty()) {
-        static const char* const kFält[] = {"outer", "holes"};
-        std::vector<std::pair<std::size_t, std::string>> f;
-        if (!aggregatFält(inre, kFält, f))
-            return false;
-        for (const auto& [k, val] : f)
-            if (!(k == 0 ? parsePunkter(val, yta.outer)
-                         : parseRingar(val, yta.holes, true)))
-                return false;
-    }
-    ut = std::move(yta);
-    return true;
-}
-
-// `{yta, …}` — `setClips`/`setLayerClips`; en tom lista klipper bort allt.
-bool parseKlippytor(const std::string& v, std::vector<glaze::ClipPolygon>& ut)
-{
-    std::string inre;
-    if (!skalaKlammer(v, inre))
-        return false;
-    std::vector<std::string> el;
-    if (!listElement(inre, el))
-        return false;
-    std::vector<glaze::ClipPolygon> ytor(el.size());
-    for (std::size_t i = 0; i < el.size(); ++i)
-        if (!parseKlippyta(el[i], ytor[i]))
-            return false;
-    ut = std::move(ytor);
     return true;
 }
 
@@ -4286,7 +4298,7 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
     // utförs — bara träffprovet läser den. KLIPPET (`addClip`/`setClip`/
     // `setClips`/`resetClip`, lagrens `addLayerClip` … och rymden
     // `setClipSpace(glaze::ClipSpace::Screen)`) är ritytans tillstånd och
-    // utförs: ytan är `glaze::ClipPolygon{ytterring, {hål…}}` eller bara
+    // utförs: ytan är `glaze::Polygon{ytterring, {hål…}}` eller bara
     // `{ytterring, {hål…}}`, samma ringliteraler som polygonformens.
     if (auto* cv = dynamic_cast<glaze::Canvas*>(&w)) {
         const std::string& mm = call.method;
@@ -4340,8 +4352,8 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
             std::vector<int>               vyNummer;
             glaze::View                    vy{};
             std::vector<glaze::View>       vyer;
-            glaze::ClipPolygon             klippyta;
-            std::vector<glaze::ClipPolygon> klippytor;
+            glaze::Polygon             klippyta;
+            std::vector<glaze::Polygon> klippytor;
             glaze::ClipSpace               klipprymd = glaze::ClipSpace::World;
             glaze::InvalidClip             ogiltigt  = glaze::InvalidClip::Show;
             glaze::Box3                    låda{};
@@ -4465,11 +4477,11 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
             else if (mm == "setInvalidClip")
                 ok = n == 1 && parseOgiltigtKlipp(a[0], ogiltigt);
             else if (mm == "addClip")
-                ok = n == 1 && parseKlippyta(a[0], klippyta);
+                ok = n == 1 && parsePolygon(a[0], klippyta);
             else if (mm == "setClip")
-                ok = n == 2 && argInt(a, 0, index) && parseKlippyta(a[1], klippyta);
+                ok = n == 2 && argInt(a, 0, index) && parsePolygon(a[1], klippyta);
             else if (mm == "setClips")
-                ok = n == 1 && parseKlippytor(a[0], klippytor);
+                ok = n == 1 && parsePolygoner(a[0], klippytor);
             else if (mm == "resetClip")
                 ok = n == 0;
             else if (mm == "setLayerClipSpace")
@@ -4477,13 +4489,13 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
                      parseKlipprymd(a[1], klipprymd);
             else if (mm == "addLayerClip")
                 ok = n == 2 && argInt(a, 0, lager) &&
-                     parseKlippyta(a[1], klippyta);
+                     parsePolygon(a[1], klippyta);
             else if (mm == "setLayerClip")
                 ok = n == 3 && argInt(a, 0, lager) && argInt(a, 1, index) &&
-                     parseKlippyta(a[2], klippyta);
+                     parsePolygon(a[2], klippyta);
             else if (mm == "setLayerClips")
                 ok = n == 2 && argInt(a, 0, lager) &&
-                     parseKlippytor(a[1], klippytor);
+                     parsePolygoner(a[1], klippytor);
             else if (mm == "resetLayerClip")
                 ok = n == 1 && argInt(a, 0, lager);
             else if (mm == "addShape")

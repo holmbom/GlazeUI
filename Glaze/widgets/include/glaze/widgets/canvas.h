@@ -765,7 +765,7 @@ public:
 
     // ------------------------------------------------------------- KLIPPET
     // RITYTANS KLIPP: rutnätet, lagren, `onPaint` och `onPaintLayer`
-    // ritas bara inom ytorna — bakgrunden (`setBackground`) fyller hela ytan (`ClipPolygon`,
+    // ritas bara inom ytorna — bakgrunden (`setBackground`) fyller hela ytan (`Polygon`,
     // glaze/canvas/geometry.h) — ytorna är en UNION, och de klipper i varje
     // pixel med kantutjämnad kant. ETIKETTERNA OCH MARKÖRERNA klipps på sitt
     // ANKARE: syns platsen ritas de hela, annars döljs de och tar ingen plats
@@ -785,13 +785,13 @@ public:
     // `Painter::drawCanvas`.
     void      setClipSpace(ClipSpace space);
     ClipSpace clipSpace() const;
-    int       addClip(ClipPolygon polygon);
-    void      setClip(int index, ClipPolygon polygon);
-    void      setClips(std::vector<ClipPolygon> polygons);
+    int       addClip(Polygon polygon);
+    void      setClip(int index, Polygon polygon);
+    void      setClips(std::vector<Polygon> polygons);
     void      resetClip();
     bool      clipEnabled() const;
-    const std::vector<ClipPolygon>& clips() const;
-    // En OGILTIG yta (en självkorsning, ett hål utanför — se `ClipPolygon`):
+    const std::vector<Polygon>& clips() const;
+    // En OGILTIG yta (en självkorsning, ett hål utanför — se `Polygon`):
     // `InvalidClip::Show` (förval) låter klippet den ingår i vara — allt syns —
     // och `Hide` låter den ogiltiga ytan klippa bort sin del. Gäller ritytans,
     // lagrens och målarens klipp; sättaren ritar om.
@@ -881,12 +881,12 @@ public:
     // följer `setInvalidClip`.
     void      setLayerClipSpace(int layer, ClipSpace space);
     ClipSpace layerClipSpace(int layer) const;
-    int       addLayerClip(int layer, ClipPolygon polygon);
-    void      setLayerClip(int layer, int index, ClipPolygon polygon);
-    void      setLayerClips(int layer, std::vector<ClipPolygon> polygons);
+    int       addLayerClip(int layer, Polygon polygon);
+    void      setLayerClip(int layer, int index, Polygon polygon);
+    void      setLayerClips(int layer, std::vector<Polygon> polygons);
     void      resetLayerClip(int layer);
     bool      layerClipEnabled(int layer) const;
-    const std::vector<ClipPolygon>& layerClips(int layer) const;
+    const std::vector<Polygon>& layerClips(int layer) const;
     // Etiketterna TONAR in och ut när kollisionen visar eller döljer dem, i
     // stället för att växla (av från start).
     void      setLabelFade(bool on);

@@ -11,8 +11,8 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
 
 ## Filer
 
-- **`geometry.h`** (etapp 7) — `ClipSpace {World, Screen}` och `ClipPolygon`
-  (ytterring + hål; en samling ytor är en union) för klippet; `Point`/`Rect` i DOUBLE (en SWEREF-koordinat
+- **`geometry.h`** (etapp 7) — `ClipSpace {World, Screen}` och `Polygon`
+  (ytterring + hål) — EN typ för formens delar (`Shape::polygons(vector<Polygon>)`, delarna överlappar inte) och för klippet (en samling ytor är en union); `Point`/`Rect` i DOUBLE (en SWEREF-koordinat
   får inte avrundas förrän den blivit relativ ett chunk-origo, T5),
   `Unit {Px, Mm, World}` och `Length` med `px()`/`mm()`/`world()`. **Ett
   naket tal är px** — konverteringen från float är implicit med flit, så
@@ -72,7 +72,7 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
   lagrets regel, genom synlighetsbilden).
   `ImageSource` står sedan CANVAS_3D etapp 4 i `image_source.h` (nedan).
   **`Shape`** — ett VÄRDE med fabrikerna `line`/`polyline`/`arc` (Stroke),
-  `polygon` (yttre ring eller ringar med hål)/`rect`/`ellipse`/`circle`/
+  `polygon` (yttre ring, ringar med hål, eller DELAR — `vector<Polygon>`, en multipolygon som är EN form: en stil, ett träffprov, ett index; `partCount`/`part(i)` läser delarna, de andra ytfabrikerna ger en del)/`rect`/`ellipse`/`circle`/
   `path` (Paint + valfri `std::optional<Stroke>`), `path(p, stroke)` (bara
   kontur), `text` (`TrText` — översättningar följer språket), `marker`,
   `points` (ETT punktmoln är EN form) och `image(rect, källa, ImageStyle)`.
@@ -254,7 +254,7 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
   `Canvas::setLayerPainter`, efter lagrets former, och **`PaintArgs::layer`**
   bär lagrets plats (−1 i de två andra); i ett World- eller Terrain-lager i
   3D-målet börjar målaren med LAGRETS renderläge i stället för utan djup.
-  **`save(Rect)`, `save(ClipPolygon)`, `save(vector<ClipPolygon>)`** — KLIPPET:
+  **`save(Rect)`, `save(Polygon)`, `save(vector<Polygon>)`** — KLIPPET:
   samma sparade läge, och det som ritas till lägets slut klipps till ytan i den
   transform och rymd som gäller vid anropet — i världen ett PRISMA (lodrätt
   genom scenen), efter `screenSpace` en yta på skärmen — snittad med föräldern;

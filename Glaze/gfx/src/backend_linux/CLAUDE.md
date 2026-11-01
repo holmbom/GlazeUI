@@ -87,7 +87,7 @@ DISPLAY → surfacelös headless).
   klippstacken klistrar in efter `#version` — och MÅLARENS KLIPP (REQ8 1):
   **`kGlslSceneClipSrc`** (klistrad efter `kGlslClipSrc` i scenens sex program och
   i de egna programmens FRAGMENTsteg): std140-blocket `GlazeClip` (`rect`,
-  `world`, `flags`; 48 byte i `clipUbo_`) på bindningspunkt **5**, samplers
+  `world`, `flags`; 48 byte i `clipUbo_` — `SceneClipBlock` ur ../scene_clip.h, packat av `packSceneClip`, ombindningen efter `rebindClipMasks`) på bindningspunkt **5**, samplers
   `GlazeClipScreen`/`GlazeClipWorld` på enhet **4/5** med `samplerLinear_`,
   `glaze_clipScreen(p)` (2D-programmen) och `glaze_clip(px, local)` (Line3 på
   `vPpos`, Glyph3 på ankaret via varyingen `vClipLocal`, egna program) —

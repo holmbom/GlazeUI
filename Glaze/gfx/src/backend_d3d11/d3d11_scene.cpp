@@ -726,8 +726,8 @@ bool D3dRenderer::initScene()
     // Målarens klipp i b5 — först inget klipp (nollor), som
     // `sceneClip_` säger.
     D3D11_BUFFER_DESC kbd = cbd;
-    kbd.ByteWidth = sizeof(SceneClipCb);
-    const SceneClipCb            ingetKlipp{};
+    kbd.ByteWidth = sizeof(SceneClipBlock);
+    const SceneClipBlock         ingetKlipp{};
     const D3D11_SUBRESOURCE_DATA kinit{&ingetKlipp, 0, 0};
     sceneClip_ = SceneClip{};
 
@@ -916,17 +916,19 @@ BufferSlice D3dRenderer::uploadTransient(BufferKind kind, const void* data,
 
 // ---------------------------------------------------------------- ritning
 
-// Målarens klipp: blocket i b5 skrivs bara när anropets klipp skiljer från det
-// bufferten bär, så lagren (inget klipp) aldrig laddar upp det,
-// och maskernas SRV:er binds vid VARJE anrop med mask — bindTarget nollar dem
-// när ett mål binds. Maskerna och måtten har `meshDrawOk` prövat.
+// Målarens klipp — packningen och reglerna i ../scene_clip.h: maskernas
+// SRV:er på t4–t5 binds om enligt `rebindClipMasks` (bindTarget nollar dem
+// när ett mål binds, och `clipSrvsBound_` säger då att en mask stod där), den
+// vita texturen står där masken saknas, och blocket i b5 skrivs bara när
+// anropets klipp skiljer från det bufferten bär — lagren (inget klipp)
+// laddar aldrig upp det. Maskerna och måtten har `meshDrawOk` prövat.
 bool D3dRenderer::bindSceneClip(const MeshDraw& d)
 {
     const SceneClip& k = d.uniforms.clip;
-    if (k.screen || k.world || clipSrvsBound_) {
+    if (rebindClipMasks(k, sceneClip_) || clipSrvsBound_) {
         ID3D11ShaderResourceView* srv[2] = {
-            k.screen ? static_cast<const D3dImage*>(k.screen)->srv() : nullptr,
-            k.world ? static_cast<const D3dImage*>(k.world)->srv() : nullptr};
+            k.screen ? static_cast<const D3dImage*>(k.screen)->srv() : whiteSrv_.Get(),
+            k.world ? static_cast<const D3dImage*>(k.world)->srv() : whiteSrv_.Get()};
         ID3D11SamplerState* smp[2] = {samplerLinear_.Get(),
                                       samplerLinear_.Get()};
         context_->PSSetShaderResources(4, 2, srv);
@@ -935,19 +937,12 @@ bool D3dRenderer::bindSceneClip(const MeshDraw& d)
     }
     if (k == sceneClip_)
         return true;
-    SceneClipCb cb{};
-    cb.rect[0]  = k.screenRect.x;
-    cb.rect[1]  = k.screenRect.y;
-    cb.rect[2]  = k.screenRect.w;
-    cb.rect[3]  = k.screenRect.h;
-    std::memcpy(cb.world, k.worldUv, sizeof cb.world);
-    cb.meta[0] = k.screen ? 1.0f : 0.0f;
-    cb.meta[1] = k.world ? 1.0f : 0.0f;
+    const SceneClipBlock block = packSceneClip(k);
     D3D11_MAPPED_SUBRESOURCE m;
     if (FAILED(context_->Map(sceneClipCbuf_.Get(), 0, D3D11_MAP_WRITE_DISCARD,
                              0, &m)))
         return false;
-    std::memcpy(m.pData, &cb, sizeof cb);
+    std::memcpy(m.pData, &block, sizeof block);
     context_->Unmap(sceneClipCbuf_.Get(), 0);
     sceneClip_ = k;
     return true;

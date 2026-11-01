@@ -34,6 +34,7 @@
 // fram i drift — plattornas och nålens pixlar, loopen som bygger formerna —
 // och handlerna, som previewn aldrig kör.
 
+#include "demo_geometry.h"
 #include "widget_gallery.h"
 
 #include <algorithm>
@@ -411,6 +412,28 @@ void WidgetGallery::ritytaFlik(glaze::TabPage* sida)
                                        {1.0f, gfx::Color{150, 200, 236}}}),
                  glaze::Stroke{.paint = gfx::Color{92, 150, 205}}),
              "Lillsjön");
+        // HOLMARNA är EN form i två delar: holmen i sjöns hål med en tjärn
+        // (delens hål) och ett skär längre söderut — en stil, ett träffprov
+        // och ett namn för båda.
+        // En ring om `n` hörn runt (cx, cy), radien i x och y per vinkel.
+        const auto ring = [&](double cx, double cy, int n, auto rx, auto ry) {
+            std::vector<glaze::Point> r;
+            for (int i = 0; i < n; ++i) {
+                const double a = i * 2.0 * kPi / n;
+                r.push_back(P(cx + rx(a) * std::cos(a), cy + ry(a) * std::sin(a)));
+            }
+            return r;
+        };
+        const auto skärR = [](double a) { return 5.0 + 1.5 * std::cos(3.0 * a); };
+        const std::vector<glaze::Point> skär  = ring(-125.0, 8.0, 12, skärR, skärR);
+        const std::vector<glaze::Point> tjärn = ring(
+            -94.0, 36.0, 10, [](double) { return 3.0; }, [](double) { return 2.5; });
+        lagg(kYtLager,
+             glaze::Shape::polygons(
+                 {glaze::Polygon{holme, {tjärn}}, glaze::Polygon{skär, {}}},
+                 gfx::Color{196, 214, 160},
+                 glaze::Stroke{.paint = gfx::Color{120, 150, 90}}),
+             "Holmarna");
         lagg(kYtLager,
              glaze::Shape::polygon(
                  {P(95, 70), P(185, 62), P(195, 10), P(140, 4), P(100, 12)},
@@ -772,13 +795,8 @@ void WidgetGallery::ritytaFlik(glaze::TabPage* sida)
             }
             const auto ring = [](double cx, double cy, double r, double tand,
                                  int n) {
-                std::vector<glaze::Point> p;
-                for (int i = 0; i < n; ++i) {
-                    const double a = i * 2.0 * kPi / n;
-                    const double q = r * (1.0 + tand * std::cos(7.0 * a));
-                    p.push_back(P(cx + q * std::cos(a), cy + q * std::sin(a)));
-                }
-                return p;
+                return demo::vagRing(cx, cy, r, tand, n,
+                                     [](double x, double y) { return P(x, y); });
             };
             k->setClips({{ring(0, 0, 100, 0.12, 140), {ring(-20, -40, 25, 0.0, 48)}}});
             k->setLayerClips(kPlattLager, {{ring(0, 0, 70, 0.0, 96), {}}});

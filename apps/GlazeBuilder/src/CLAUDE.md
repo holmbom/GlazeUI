@@ -422,9 +422,10 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   `setMapScale`/`setBackground`/`zoomToRect`/`setCamera`, lagren
   (`addLayer`/`setLayer`/`setLayers`/`removeLayer`, `moveLayer` och de sex
   lageregenskaperna — REQ8 2 `setLayerPainter`) och formerna (`addShape`/`setShape`/`setShapes`/
-  `removeShape`, med eller utan lager) och KLIPPET (`setClipSpace(glaze::ClipSpace::…)`, `addClip`/`setClip`/`setClips`/`resetClip` och lagrets `…LayerClip…`, utförda — ytan är `glaze::ClipPolygon{ytterring, {hål}}` eller bara `{ytterring, {hål}}`, positionell eller designerad, `{}` en tom yta; ringarna är polygonformens `parsePunkter`/`parseRingar`, och `setClips({})` är påslaget och tomt). Ett eget LITERALAVSNITT avkodar
+  `removeShape`, med eller utan lager) och KLIPPET (`setClipSpace(glaze::ClipSpace::…)`, `addClip`/`setClip`/`setClips`/`resetClip` och lagrets `…LayerClip…`, utförda — ytan är `glaze::Polygon{ytterring, {hål}}` eller bara `{ytterring, {hål}}`, positionell eller designerad, `{}` en tom yta; ringarna är polygonformens `parsePunkter`/`parseRingar`, och `setClips({})` är påslaget och tomt). Ett eget LITERALAVSNITT avkodar
   formerna — varje fabrik i shape.h med överlagringen C++ väljer (punkter
-  mot ringar på klammerdjupet; en yta med kontur tar `glaze::Stroke{…}`
+  mot ringar på klammerdjupet; `polygons` tar DELARNA `{{ytter, {hål}}, …}` med bara klamrar, typade eller `std::vector<glaze::Polygon>{…}`,
+  avkodade av `parsePolygoner` — `parseAggregatLista`s familj, delad med klippet — atomiskt; en yta med kontur tar `glaze::Stroke{…}`
   eller `std::nullopt`, en bar klammerlista kompilerar inte till en
   `std::optional`), `Paint::linear/radial` med stopp, `glaze::px/mm/world`
   eller ett naket tal (px), enum med EXAKT typens prefix, `glaze::img` eller

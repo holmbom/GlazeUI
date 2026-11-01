@@ -167,19 +167,19 @@ public:
     // med det som redan gäller, så det kan aldrig växa; flera ytor i ett
     // anrop är deras UNION, och hålen klipper bort:
     //     { auto k = e.painter.save(glaze::Rect{0, 0, 200, 120}); … }
-    //     { auto k = e.painter.save(glaze::ClipPolygon{ytter, {hål}}); … }
+    //     { auto k = e.painter.save(glaze::Polygon{ytter, {hål}}); … }
     // Klippet låses när det sätts — en senare `translate`, `rotate`, `scale`
     // eller `screenSpace` flyttar det inte. Allt målaren ritar — linjer,
     // ytor, text, markörer, bilder, meshar, instanser och punkter — klipps i
     // varje pixel och kantutjämnas som formerna; det som hamnar utanför ritas
     // inte alls, inte heller i djupet. Ingen gräns för antalet hörn. En
     // rektangel utan yta och en tom lista klipper bort allt. En
-    // OGILTIG yta (`ClipPolygon`) följer ritytans `setInvalidClip`: med Show
+    // OGILTIG yta (`Polygon`) följer ritytans `setInvalidClip`: med Show
     // (förval) gäller klippet inte, med Hide täcker den ytan ingenting
     // (+ `gfx::log` en gång).
     [[nodiscard]] Saved save(const Rect& clip);
-    [[nodiscard]] Saved save(const ClipPolygon& clip);
-    [[nodiscard]] Saved save(const std::vector<ClipPolygon>& clip);
+    [[nodiscard]] Saved save(const Polygon& clip);
+    [[nodiscard]] Saved save(const std::vector<Polygon>& clip);
 
     // EN RITYTA PÅ YTAN: `canvas` huvudvys lager ritade med `camera` i
     // rektangeln `rect` (målarens transform och rymd, som en bild — på en

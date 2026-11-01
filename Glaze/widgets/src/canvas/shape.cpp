@@ -215,6 +215,9 @@ Shape Shape::area(std::vector<Contour> rings, Paint fill,
     Shape s;
     s.kind_     = Kind::Area;
     s.contours_ = std::move(rings);
+    // De andra ytfabrikerna ger EN del: den första ringen är ytterringen och
+    // resten hål.
+    s.partEnds_ = {static_cast<std::uint32_t>(s.contours_.size())};
     s.fill_     = std::move(fill);
     s.hasFill_  = true;
     if (stroke) {
@@ -239,6 +242,35 @@ Shape Shape::polygon(std::vector<std::vector<Point>> rings, Paint fill,
     for (std::vector<Point>& r : rings)
         c.push_back(Contour{std::move(r), true});
     return area(std::move(c), std::move(fill), std::move(stroke));
+}
+
+Shape Shape::polygons(std::vector<Polygon> parts, Paint fill,
+                      std::optional<Stroke> stroke)
+{
+    std::vector<Contour>       c;
+    std::vector<std::uint32_t> ends;
+    for (Polygon& p : parts) {
+        // En del utan ytterring hoppas över med sina hål, så att nästa dels
+        // ytterring aldrig blir ett hål.
+        if (p.outer.size() < 3)
+            continue;
+        c.push_back(Contour{std::move(p.outer), true});
+        for (std::vector<Point>& h : p.holes)
+            c.push_back(Contour{std::move(h), true});
+        ends.push_back(static_cast<std::uint32_t>(c.size()));
+    }
+    Shape s = area(std::move(c), std::move(fill), std::move(stroke));
+    s.partEnds_ = std::move(ends);
+    return s;
+}
+
+std::span<const Shape::Contour> Shape::part(std::size_t i) const
+{
+    if (i >= partEnds_.size())
+        return {};
+    const std::size_t first = i == 0 ? 0 : partEnds_[i - 1];
+    return std::span<const Contour>(contours_).subspan(first,
+                                                       partEnds_[i] - first);
 }
 
 Shape Shape::rect(Rect r, Paint fill, std::optional<Stroke> stroke)

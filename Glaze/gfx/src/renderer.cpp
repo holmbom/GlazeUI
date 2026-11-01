@@ -215,8 +215,8 @@ const char* clipWhy(const SceneClip& c)
     if (c.screen) {
         const Rectf& r = c.screenRect;
         if (!std::isfinite(r.x) || !std::isfinite(r.y) ||
-            !std::isfinite(r.w) || !std::isfinite(r.h) || !(r.w > 0.0f) ||
-            !(r.h > 0.0f))
+            !std::isfinite(r.w) || !std::isfinite(r.h) || r.w == 0.0f ||
+            r.h == 0.0f)
             return "skärmmaskens yta (SceneUniforms::clip.screenRect) saknar "
                    "storlek eller är inte ändlig";
     }

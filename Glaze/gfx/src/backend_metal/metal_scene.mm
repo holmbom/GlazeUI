@@ -989,8 +989,7 @@ BufferSlice MetalRenderer::uploadTransient(BufferKind kind, const void* data,
 void MetalRenderer::bindSceneClip(const MeshDraw& d)
 {
     const SceneClip& k = d.uniforms.clip;
-    if (!sceneClipBound_ || k.screen || k.world || sceneClip_.screen ||
-        sceneClip_.world) {
+    if (!sceneClipBound_ || rebindClipMasks(k, sceneClip_)) {
         id<MTLTexture> skärm =
             k.screen ? static_cast<const MetalImage*>(k.screen)->texture()
                      : whiteTex_;
@@ -1003,14 +1002,7 @@ void MetalRenderer::bindSceneClip(const MeshDraw& d)
     }
     if (sceneClipBound_ && k == sceneClip_)
         return;
-    SceneClipBuf b{};
-    b.rect[0] = k.screenRect.x;
-    b.rect[1] = k.screenRect.y;
-    b.rect[2] = k.screenRect.w;
-    b.rect[3] = k.screenRect.h;
-    std::memcpy(b.world, k.worldUv, sizeof b.world);
-    b.meta[0] = k.screen ? 1.0f : 0.0f;
-    b.meta[1] = k.world ? 1.0f : 0.0f;
+    const SceneClipBlock b = packSceneClip(k);   // ../scene_clip.h
     [encoder_ setFragmentBytes:&b length:sizeof b atIndex:4];
     sceneClip_      = k;
     sceneClipBound_ = true;

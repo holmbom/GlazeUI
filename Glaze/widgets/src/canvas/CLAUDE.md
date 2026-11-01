@@ -69,7 +69,7 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   bredden, √2 × för en fyrkantig ände), **`strokeKey`** (spetsgränsen och
   strecken via `gfx::makeDash` — för många längder loggas EN gång och ritas
   heldragna) och **`strokeUniforms`** (strecken i skärmrymd; world ⇒ 1),
-  `buildFillPart`, `imageUniforms` (färgjusteringen, REQ8 3),
+  `buildFillPart` (ett `gfx::buildPolygon` per DEL i samma chunklista — en del är ytterringen och dess hål), `imageUniforms` (färgjusteringen, REQ8 3),
   `imageCorners`/`buildImageQuad` (rättvänd efter y-riktningen), och
   Glyph-delarnas `GlyphUnits`/`toUnit` (alla mått i storlekens enhet),
   `textLayout`/`markerLayout` och `glyphReach`. **CANVAS_TEXT_OCH_BILD:**
@@ -486,17 +486,17 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   föräldern är en ny mask fylld medan förälderns är bunden. `drawTransient` och
   föremålen binder `clip.apply(…)` (Line3/Glyph3 och objekten världsmasken);
   byte tömmer satsen. `drawCanvas` (`PainterState::drawCanvas`) ritar ritytan i
-  `pageTarget(w, h)` med `renderCanvasTarget` (etikettplats `kPageLabels`) och
+  `pageTarget(key, w, h)` (nyckel: scenens id, `damageStamp`, klippversionerna, måtten, temats standardfärger och kameran — ett oförändrat anrop ritar inte om, `pageRenders()`) med `renderCanvasTarget` (etikettplats `kPageLabels`) och
   bilden på de fyra hörnen under klippet; false för en tom rektangel, en
   ogiltig kamera och `SceneData::painting` (anrop ur ritytans egen ritning).
 - **`clip.h/.cpp`** — INTERN: KLIPPET SOM MASKER. `ClipMasks` (per fönster,
-  `CanvasResources::clips()`): render-mål nycklade på ytornas koordinater i
-  maskens px, rutnätet och förälderns nyckel; återanvänds två framer.
+  `CanvasResources::clips()`, målen i `TargetPool` — target_pool.h, delad med `pageTarget`): nyckeln (klippets process-unika version, kamerans eller vyns parametrar, rutnätet, förälderns nyckel) räknas FÖRST och `find` ger masken ur minnet — ytorna projiceras bara vid en miss;
+  återanvänds två framer, liksom ytornas giltighet (`valid`, `gfx::clipPolygonOk`); `validPolygons` hoppar över ogiltiga utan kopia.
   `refineClip` → `ClipScope{flat, tall}` (2D-programmen resp. det med höjd;
   `ClipLook::apply` binder skärmmask + världsmask, `worldUv` i double);
   `prepareClips` bygger ritytans och lagrens (`LayerFrame::clips`) före målet.
-  World → skärmmask homogent mot ögat; i 3D-målet också världsmask på markytans
-  gitter (`worldLimit`). `clipContains`/`clipTouches` är träffprovets.
+  World med RAK 2D-kamera (tilt 0, bäring 0°/180°) → VÄRLDSMASK bunden som skärmmask (`planLook`, täthet 2^⌈log₂ skala⌉ — en panorering fyller inte om), annars (vriden, lutad, en förälders skärmmask, för stor låda) skärmmask homogent mot ögat; i 3D-målet också världsmask på markytans
+  gitter (`worldLimit`). `clipContains`/`clipTouches` är träffprovets; punkt-i-ring är `ring.h`s `inRing`, delad med hit_index.
 - **`placement.h/.cpp`** (etapp 9, E9) — INTERN: ETIKETTPLACERINGENS
   algoritm, en REN funktion utan renderer, kamera eller widget:
   `detail::placeLabels(span<const LabelBox>, screen)` → en flagga per
@@ -546,8 +546,8 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   senare, `nearer`), ÖVERST FÖRST (i ByKind rangen — text över linjer över
   ytor över bilder — sedan det senare indexet). Avståndet räknas i SKÄRMENS
   fysiska px med `Projection`: en världskant skärs mot närplanet i
-  klipprymden innan den projiceras, en yta prövas jämn–udda i världen där
-  pekarens stråle når planet (hålen ute), en linjebredd i VÄRLDEN i planet
+  klipprymden innan den projiceras, en yta prövas i världen där
+  pekarens stråle når planet som UNIONEN av sina delar (`insideShape`: jämn–udda inom en del, hålen ute; en linjes `hitInside` jämn–udda över alla konturer), en linjebredd i VÄRLDEN i planet
   med toleransen omräknad vid pekaren (`pointerScale`), markörer och bilder
   som de ritas — en markör kring sin FÖRANKRADE mitt (`forEachMarker`), en
   bildmarkör som hela sin ruta och konturen bara för en formmarkör; en bild

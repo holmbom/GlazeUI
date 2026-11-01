@@ -287,6 +287,10 @@ inline constexpr std::uint32_t SpAv = 1265;
 inline constexpr std::uint32_t SpFot = 1266;
 // "Talfält: "
 inline constexpr std::uint32_t SpPrefix = 1267;
+// "Radbrytning"
+inline constexpr std::uint32_t GbRadRubrik = 1268;
+// "Radbruten text i en ram: höjden följer bredden, så texten klipps aldrig och det som står under flyttar med."
+inline constexpr std::uint32_t GbRadText = 1269;
 // "12 · Dra och släpp"
 inline constexpr std::uint32_t G12 = 1280;
 // "Dra mig"

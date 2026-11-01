@@ -5735,6 +5735,50 @@ void fallCanvas()
               senaste(0)->fill().to().x == 40.0 && !senaste(0)->hasStroke(),
           "rityta: polygon med RINGAR (hål), linjär gradient och std::nullopt",
           "");
+    check(senaste(0) && senaste(0)->partCount() == 1 &&
+              senaste(0)->part(0).size() == 2,
+          "rityta: ringlistan är EN del — ytterringen och ett hål", "");
+    // FORMEN I FLERA DELAR: `std::vector<glaze::Polygon>{glaze::Polygon{…}, …}`
+    // och den korta `{glaze::Polygon{…}, …}`. Del 0 har ett hål, del 1 inget.
+    check(anrop("addShape",
+                "glaze::Shape::polygons(std::vector<glaze::Polygon>{"
+                "glaze::Polygon{{{0, 0}, {40, 0}, {40, 40}, {0, 40}}, "
+                "{{{10, 10}, {20, 10}, {20, 20}}}}, "
+                "glaze::Polygon{{{60, 0}, {90, 0}, {90, 30}}, {}}}, "
+                "gfx::Color{255, 0, 0}, glaze::Stroke{.width = 2})") &&
+              senaste(0) && senaste(0)->kind() == glaze::Shape::Kind::Area &&
+              senaste(0)->partCount() == 2 && senaste(0)->part(0).size() == 2 &&
+              senaste(0)->part(0)[1].points.size() == 3 &&
+              senaste(0)->part(1).size() == 1 &&
+              senaste(0)->part(1)[0].points.size() == 3 &&
+              senaste(0)->part(1)[0].points[1].x == 90.0 &&
+              senaste(0)->contours().size() == 3 && senaste(0)->hasStroke(),
+          "rityta: polygon i flera DELAR (std::vector<glaze::Polygon>) — två "
+          "delar, hålet i den första, med kontur",
+          "");
+    check(anrop("addShape",
+                "glaze::Shape::polygons({glaze::Polygon{{{0, 0}, {10, 0}, "
+                "{10, 10}}, {}}, glaze::Polygon{{{20, 0}, {30, 0}, {30, 10}}, "
+                "{}}}, gfx::Color{0, 0, 255})") &&
+              senaste(0) && senaste(0)->partCount() == 2 &&
+              senaste(0)->part(0).size() == 1 &&
+              senaste(0)->part(1).size() == 1 && !senaste(0)->hasStroke(),
+          "rityta: polygon i flera delar med TYPADE element i en bar lista, "
+          "utan kontur",
+          "");
+    check(anrop("addShape",
+                "glaze::Shape::polygons({glaze::Polygon{.outer = {{0, 0}, "
+                "{10, 0}, {10, 10}}, .holes = {}}}, gfx::Color{})") &&
+              senaste(0) && senaste(0)->partCount() == 1,
+          "rityta: en enda typad del, designerade fält", "");
+    check(anrop("addShape",
+                "glaze::Shape::polygons({{{{0, 0}, {40, 0}, {40, 40}, {0, 40}}, "
+                "{{{10, 10}, {20, 10}, {20, 20}}}}, {{{60, 0}, {90, 0}, "
+                "{90, 30}}, {}}}, gfx::Color{255, 0, 0})") &&
+              senaste(0) && senaste(0)->partCount() == 2 &&
+              senaste(0)->part(0).size() == 2 && senaste(0)->part(1).size() == 1,
+          "rityta: polygons med BARA KLAMRAR — två delar, hålet i den första",
+          "");
     check(anrop("addShape",
                 "glaze::Shape::rect(glaze::Rect{5, 5, 20, 10}, "
                 "glaze::Paint::radial({15, 10}, 0, 12, {{.offset = 0, .color = "
@@ -5972,6 +6016,23 @@ void fallCanvas()
         "{.width = 2})",
         // en tom punktlista är tvetydig mellan polygonens överlagringar
         "glaze::Shape::polygon({}, gfx::Color{})",
+        // FLERA DELAR är atomiska: ett fel i den SISTA delen (en punkt med tre
+        // fält) lämnar hela raden outförd
+        "glaze::Shape::polygons({glaze::Polygon{{{0, 0}, {1, 0}, {1, 1}}, {}}, "
+        "glaze::Polygon{{{2, 2}, {3, 2}, {3, 3}}, {{{4, 4}, {5, 6, 7}}}}}, "
+        "gfx::Color{})",
+        // delarna är polygoner — `polygon` med typade delar finns inte
+        "glaze::Shape::polygon({glaze::Polygon{{{0, 0}, {1, 0}, {1, 1}}, {}}}, "
+        "gfx::Color{})",
+        // fältnamnen i en del i fel ordning kompilerar inte
+        "glaze::Shape::polygons({glaze::Polygon{.holes = {}, .outer = {{0, 0}, "
+        "{1, 0}, {1, 1}}}}, gfx::Color{})",
+        // en annan typ som element
+        "glaze::Shape::polygons({glaze::Polygon{{{0, 0}, {1, 0}, {1, 1}}, {}}, "
+        "glaze::Rect{0, 0, 1, 1}}, gfx::Color{})",
+        // en del med tre fält
+        "glaze::Shape::polygons({glaze::Polygon{{{0, 0}, {1, 0}, {1, 1}}, {}, "
+        "{}}}, gfx::Color{})",
         // ett oktalt tal läses inte som tio
         "glaze::Shape::circle({010, 0}, 1, gfx::Color{})",
         // en kanal utanför 0–255
@@ -6145,7 +6206,7 @@ void fallLagerordning()
 // med de riktiga sättarna, mätt på ritytans EGNA läsare (`clips()`,
 // `clipSpace()`, `clipEnabled()` och lagrens `layerClips()`,
 // `layerClipSpace()`, `layerClipEnabled()`), aldrig på modellen. Ytan är
-// `glaze::ClipPolygon{ytterring, {hål…}}` eller bara `{ytterring, {hål…}}`
+// `glaze::Polygon{ytterring, {hål…}}` eller bara `{ytterring, {hål…}}`
 // (positionell och designerad), `{}` en tom yta, `setClips({})` ett PÅSLAGET
 // och tomt klipp (allt bortklippt) medan `resetClip()` slår av det.
 // Avslagen är OPAKA rader som lämnar ritytan orörd: fel argumentantal, ett
@@ -6223,7 +6284,7 @@ void fallKlipp()
               c->clips()[0].holes[0].size() == 3 &&
               punkt(c->clips()[0].holes[0][2], 20, 20),
           "klipp: addClip({ytterring, {hål}}) — ytterringen och hålet lagras", "");
-    check(anrop("addClip", "glaze::ClipPolygon{{{0, 0}, {50, 0}, {50, 50}}, {}}") &&
+    check(anrop("addClip", "glaze::Polygon{{{0, 0}, {50, 0}, {50, 50}}, {}}") &&
               anrop("addClip", "{}") && c->clips().size() == 3 &&
               c->clips()[1].outer.size() == 3 && c->clips()[1].holes.empty() &&
               c->clips()[2].outer.empty() && c->clips()[2].holes.empty(),
@@ -6243,12 +6304,12 @@ void fallKlipp()
           "ändring", "");
     check(anrop("setClips",
                 "{{{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, "
-                "{20, 20}}}}, glaze::ClipPolygon{{{200, 0}, {300, 0}, {300, "
+                "{20, 20}}}}, glaze::Polygon{{{200, 0}, {300, 0}, {300, "
                 "80}}, {}}}") &&
               c->clips().size() == 2 && c->clips()[0].holes.size() == 1 &&
               punkt(c->clips()[1].outer[0], 200, 0) &&
               c->clips()[1].holes.empty(),
-          "klipp: setClips({yta, glaze::ClipPolygon{…}}) fyller om allt", "");
+          "klipp: setClips({yta, glaze::Polygon{…}}) fyller om allt", "");
     check(anrop("setClips", "{}") && c->clipEnabled() && c->clips().empty(),
           "klipp: setClips({}) är PÅSLAGET och tomt — allt klipps bort", "");
     check(anrop("resetClip", "") && !c->clipEnabled() && c->clips().empty(),
@@ -6264,7 +6325,7 @@ void fallKlipp()
         !anrop("addClip", "{.holes = {}, .outer = {}}") &&
         !anrop("addClip", "{{{0, 0}, {1, 0}}, {{}}, 3}") &&
         !anrop("addClip", "{{{0, 0}, {1, 0}}, {{{1, 2}, {3, y}}}}") &&
-        !anrop("addClip", "glaze::Polygon{}") &&
+        !anrop("addClip", "glaze::Rect{}") &&
         !anrop("setClip", "1") && !anrop("setClip", "x, {}") &&
         !anrop("setClip", "0, {{{0, 0}, {1, 0}}, {{{1, 2}, {3, y}}}}") &&
         !anrop("setClips", "") && !anrop("setClips", "{} {}") &&
@@ -6297,7 +6358,7 @@ void fallKlipp()
           "klipp: addLayerClip(lager, yta) — bara det lagret får klippet", "");
     check(anrop("addLayerClip", "1, {}") && c->layerClips(1).size() == 2 &&
               anrop("setLayerClip",
-                    "1, 0, glaze::ClipPolygon{{{674000, 6580000}, {674050, "
+                    "1, 0, glaze::Polygon{{{674000, 6580000}, {674050, "
                     "6580000}, {674050, 6580050}}, {}}") &&
               c->layerClips(1).size() == 2 &&
               punkt(c->layerClips(1)[0].outer[2], 674050, 6580050) &&

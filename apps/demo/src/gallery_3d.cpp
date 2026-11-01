@@ -57,6 +57,7 @@
 // Förstapersonen och plockningen är handlers, som previewn aldrig kör;
 // växeln och lagren de skriver i har sin vanliga form.
 
+#include "demo_geometry.h"
 #include "widget_gallery.h"
 
 #include <algorithm>
@@ -527,14 +528,10 @@ void WidgetGallery::tredeFlik(glaze::TabPage* sida)
             return;
         }
         const auto ring = [](double cx, double cy, double r, double tand, int n) {
-            std::vector<glaze::Point> p;
-            for (int i = 0; i < n; ++i) {
-                const double  a = i * 2.0 * kPi / n;
-                const double  q = r * (1.0 + tand * std::cos(7.0 * a));
-                const glaze::Point3 w = Q(cx + q * std::cos(a), cy + q * std::sin(a), 0.0);
-                p.push_back({w.x, w.y});
-            }
-            return p;
+            return demo::vagRing(cx, cy, r, tand, n, [](double x, double y) {
+                const glaze::Point3 w = Q(x, y, 0.0);
+                return glaze::Point{w.x, w.y};
+            });
         };
         k->setClips({{ring(40, 30, 80, 0.12, 140), {ring(kKulleX, kKulleY, 14, 0.0, 48)}}});
     };

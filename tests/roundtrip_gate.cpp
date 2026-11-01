@@ -45,11 +45,17 @@
 // (calls_fixture kompilerar inte).
 //
 // Klippet: varje muterande klippmetod på ritytan är en Call-sats med
-// argumenten ordagranna (klammerlistorna, `glaze::ClipPolygon{…}`, den
+// argumenten ordagranna (klammerlistorna, `glaze::Polygon{…}`, den
 // designerade formen och `{}`), ingen Prop, och emitteras byte för byte.
 // SABOTAGEN som ska fälla det: en av metoderna som setter-fält för ritytan
 // (raden blir en Prop) och en sättare bortdöpt i canvas.h (calls_fixture
 // kompilerar inte).
+//
+// Formen i flera delar: `polygons(std::vector<glaze::Polygon>{…}, …)` och den
+// korta `polygons({glaze::Polygon{…}, …}, …)` (och med bara klamrar) är Call-satser med argumenten
+// ordagranna. SABOTAGET som ska fälla det: en läsare som tolkar vinkel-
+// parenteserna som ett uttryck (raden blir opak eller omskriven) och en rad i
+// fixturen med ändrade element.
 //
 // Exit 0 = allt grönt; 1 = minst ett fall föll (varje fall skriver sin rad).
 
@@ -594,15 +600,15 @@ int main()
                 {"setClipSpace", "glaze::ClipSpace::Screen"},
                 {"setInvalidClip", "glaze::InvalidClip::Hide"},
                 {"addClip", "{{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, {20, 20}}}}"},
-                {"addClip", "glaze::ClipPolygon{{{0, 0}, {50, 0}, {50, 50}}, {}}"},
+                {"addClip", "glaze::Polygon{{{0, 0}, {50, 0}, {50, 50}}, {}}"},
                 {"addClip", "{}"},
                 {"setClip", "1, {.outer = {{0, 0}, {10, 0}, {10, 10}}, .holes = {{{2, 2}, {4, 2}, {4, 4}}, {{5, 5}, {6, 5}, {6, 6}}}}"},
-                {"setClips", "{{{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, {20, 20}}}}, glaze::ClipPolygon{{{200, 0}, {300, 0}, {300, 80}}, {}}}"},
+                {"setClips", "{{{{0, 0}, {100, 0}, {100, 80}}, {{{10, 10}, {20, 10}, {20, 20}}}}, glaze::Polygon{{{200, 0}, {300, 0}, {300, 80}}, {}}}"},
                 {"setClips", "{}"},
                 {"resetClip", ""},
                 {"setLayerClipSpace", "1, glaze::ClipSpace::World"},
                 {"addLayerClip", "1, {{{674000, 6580000}, {674100, 6580000}, {674100, 6580080}}, {{{674010, 6580010}, {674020, 6580010}, {674020, 6580020}}}}"},
-                {"setLayerClip", "1, 0, glaze::ClipPolygon{{{674000, 6580000}, {674050, 6580000}, {674050, 6580050}}, {}}"},
+                {"setLayerClip", "1, 0, glaze::Polygon{{{674000, 6580000}, {674050, 6580000}, {674050, 6580050}}, {}}"},
                 {"setLayerClips", "2, {{{{674000, 6580000}, {674100, 6580000}, {674100, 6580080}}, {}}}"},
                 {"setLayerClips", "2, {}"},
                 {"resetLayerClip", "2"}};
@@ -617,6 +623,40 @@ int main()
                 ok(funnen && gui.find(rad_text) != std::string::npos,
                    std::string("klipp: karta.") + rad.metod + "(" + rad.argument +
                        ") är en Call-sats, ordagrann, och emitteras");
+            }
+        }
+    }
+
+    // ---- FORMEN I FLERA DELAR: `addShape(2, glaze::Shape::polygons(
+    // std::vector<glaze::Polygon>{glaze::Polygon{…}, …}, …))` och den korta
+    // `polygons({glaze::Polygon{…}, …}, …)` (och med bara klamrar) är Call-satser på `karta` med
+    // argumenten ordagranna — `std::vector<glaze::Polygon>` med sina vinkel-
+    // parenteser, de typade elementen och den designerade `.outer`/`.holes` —
+    // och emitteras som de stod. En rad som flyttas, byts mot en annan
+    // överlagring eller får omskrivna element fäller fallet.
+    {
+        bld::ReadResult r =
+            bld::readWindow(root() + "tests/fixtures/calls.h");
+        ok(r.ok, "former i delar: calls.h läses (" + r.error + ")");
+        if (r.ok) {
+            const std::string gui   = bld::emitGuiCpp(r.model, "calls.h", "\n");
+            const auto        stmts = anropen(r.model, "karta");
+            static const char* const kAnrop[] = {
+                "2, glaze::Shape::polygons(std::vector<glaze::Polygon>{glaze::Polygon{{{674000, 6580000}, {674040, 6580000}, {674040, 6580040}, {674000, 6580040}}, {{{674010, 6580010}, {674020, 6580010}, {674020, 6580020}}}}, glaze::Polygon{{{674060, 6580000}, {674090, 6580000}, {674090, 6580030}}, {}}}, gfx::Color{255, 0, 0}, glaze::Stroke{.width = 2})",
+                "2, glaze::Shape::polygons({glaze::Polygon{.outer = {{674100, 6580000}, {674120, 6580000}, {674120, 6580020}}, .holes = {}}, glaze::Polygon{{{674130, 6580000}, {674150, 6580000}, {674150, 6580020}}, {}}}, gfx::Color{0, 0, 255, 128})",
+                "2, glaze::Shape::polygons({{{{674200, 6580000}, {674240, 6580000}, {674240, 6580040}}, {{{674210, 6580010}, {674220, 6580010}, {674220, 6580020}}}}, {{{674250, 6580000}, {674270, 6580000}, {674270, 6580020}}, {}}}, gfx::Color{0, 128, 0})"};
+            for (const char* argument : kAnrop) {
+                bool funnen = false;
+                for (const bld::Stmt* st : stmts)
+                    funnen = funnen || (st->kind == bld::Stmt::Kind::Call &&
+                                        st->name == "addShape" &&
+                                        st->value == argument);
+                ok(funnen &&
+                       gui.find(std::string("    karta.addShape(") + argument +
+                                ");\n") != std::string::npos,
+                   std::string("former i delar: karta.addShape(") +
+                       std::string(argument).substr(0, 56) +
+                       "…) är en Call-sats, ordagrann, och emitteras");
             }
         }
     }

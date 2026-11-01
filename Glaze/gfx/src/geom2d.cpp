@@ -440,11 +440,21 @@ bool buildClipPolygon(std::span<const std::vector<Point2d>> rings,
     if (!triangulate(s.pts, s.starts, tri))
         return false;
 
+    // Ytan byggs i EGNA chunkar och läggs efter de gamla, som aldrig ändras.
     std::vector<FillChunk> built;
     appendSurface(built, s, tri, Color{255, 255, 255, 255});
     chunks.insert(chunks.end(), std::make_move_iterator(built.begin()),
                   std::make_move_iterator(built.end()));
     return true;
+}
+
+bool clipPolygonOk(std::span<const std::vector<Point2d>> rings)
+{
+    const SurfaceRings s = cleanRings(rings);
+    if (s.starts.empty())
+        return false;
+    std::vector<std::uint32_t> tri;
+    return triangulate(s.pts, s.starts, tri);
 }
 
 // ------------------------------------------------------- bilden på fyra hörn

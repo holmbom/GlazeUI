@@ -157,29 +157,28 @@ float Label::haloWidthAt(const Ctx& c) const
 
 // BREDDGRUPPEN. Den gamla gruppen tappar en medlem och den
 // nya får en, så båda ritas om — hela fönstret, för fälten som ankrats mot
-// medlemmarna flyttar med. (Två tomma namn är lika och når aldrig hit.)
+// medlemmarna flyttar med. Mitt eget `invalidate()` stegar rotens
+// generation, som varje medlems mått (`MeasureScope::Root`) och gruppens
+// delade bredd nycklar på. (Två tomma namn är lika och når aldrig hit.)
 void Label::setWidthGroup(std::string grupp)
 {
     if (widthGroup_ == grupp)
         return;
     widthGroup_ = std::move(grupp);
+    invalidate();
     if (AppWindow* f = appWindow())
         f->invalidate();
-    else
-        invalidate();
 }
 
-// Mitt mått kan ha ändrats (`setText`, `setRole`). I en grupp ändrar det
-// GRUPPENS bredd, och medlemmarna i andra föräldrar och fälten ankrade mot dem
-// är inte dirty — fönstret ritas om. Annars bara jag.
+// Mitt mått kan ha ändrats (`setText`, `setRole`): jag mäts om. I en grupp
+// ändrar det GRUPPENS bredd, och medlemmarna i andra föräldrar och fälten
+// ankrade mot dem är inte dirty — fönstret ritas om.
 void Label::sizeMayChange()
 {
-    if (!widthGroup_.empty())
-        if (AppWindow* f = appWindow()) {
-            f->invalidate();
-            return;
-        }
     invalidate();
+    if (!widthGroup_.empty())
+        if (AppWindow* f = appWindow())
+            f->invalidate();
 }
 
 // Jag eller en förfader visades eller doldes (widget.h): en dold medlem räknas
@@ -249,25 +248,48 @@ float Label::naturalWidth(const Ctx& c) const
 // roll — `roleCtx` är medlemmens, inte min. Ingen medlems mätning frågar en
 // annan widgets `contentSize`, så det finns ingen rekursion; körs i
 // `resolve()` och loggar därför aldrig.
+//
+// RÄKNAD EN GÅNG PER STÄMPEL OCH DELAD: svaret nycklas på min mätstämpel
+// (rotens generation — breddgruppens `measureScope` —, språket, epoken och
+// miljön), och den är densamma för varje medlem i trädet. Är jag synlig är
+// svaret hela gruppens, och varje synlig medlem får det med stämpeln — nästa
+// medlem som mäts läser det i stället för att vandra trädet. Dold räknas jag
+// in själv, och svaret är bara mitt.
 float Label::groupWidth(const Ctx& c) const
 {
+    const MeasureStamp stämpel = measureStamp(c);
+    if (groupStamp_ == stämpel)
+        return groupWidth_;
     const Widget* rot = this;
     while (rot->parent())
         rot = rot->parent();
     float                      bredast = naturalWidth(c);
+    bool                       synlig  = false;
+    std::vector<const Label*>  medlemmar;
     std::vector<const Widget*> kvar{rot};
     while (!kvar.empty()) {
         const Widget* w = kvar.back();
         kvar.pop_back();
         if (!w->isVisible())
             continue;
-        if (w != this)
-            if (const auto* l = dynamic_cast<const Label*>(w);
-                l && l->widthGroup_ == widthGroup_)
+        if (const auto* l = dynamic_cast<const Label*>(w);
+            l && l->widthGroup_ == widthGroup_) {
+            medlemmar.push_back(l);
+            if (l == this)
+                synlig = true;
+            else
                 bredast = std::max(bredast, l->naturalWidth(c));
+        }
         for (const Widget* ch : w->children())
             kvar.push_back(ch);
     }
+    groupStamp_ = stämpel;
+    groupWidth_ = bredast;
+    if (synlig)
+        for (const Label* l : medlemmar) {
+            l->groupStamp_ = stämpel;
+            l->groupWidth_ = bredast;
+        }
     return bredast;
 }
 

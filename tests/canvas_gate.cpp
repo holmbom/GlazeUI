@@ -131,6 +131,22 @@
 //       utan avståndet (RT3 första), `point` ur `points().front()` (RT3),
 //       `rectInsideRings` bort (RT4 rutan inne i ytan och ramen), fönstret
 //       som korsningen (RT4 − 1 px).
+//   FD  FORMEN I FLERA DELAR (`Shape::polygons(std::vector<Polygon>, …)`),
+//       zoom 2, två ytor med hål och en ö i det första hålet (en egen del):
+//       FD1 båda ytornas band och ön träffar SAMMA formindex med element −1
+//       och en träff var; FD2 hålen, ytan mellan delarna och mellanrummet
+//       mellan ön och hålkanten missar; FD3 kanten räknas inom toleransen
+//       (utanför ytterkanten och innanför hålkanten) men inte bortom den;
+//       FD4 delar som ÖVERLAPPAR (utanför kontraktet) går jämn–udda över
+//       alla konturer: båda ändarna träffar, överlappet missar; FD5 `Window` kräver hela
+//       formen (en ruta kring bara den ena ytan ger ingen träff, en ruta
+//       kring alla ger en) och `Crossing` räcker med en del eller med mitten
+//       i en del (ön), men inte en ruta i ett hål eller mellan delarna;
+//       FD6 `setShape` med en annan form tar bort delarna ur träffprovet och
+//       `removeShape` likaså. Sabotage som SKA fälla FD: unionen per del i
+//       stället för jämn–udda (FD4 överlappet), `insideRings` bara över den
+//       första delen (FD1 B och ön), `rectInsideShape` bort (FD5 ön), `Window` som
+//       korsningen (FD5 fönstret kring bara den ena ytan).
 //   D1  RITYTANS LÖPANDE HÄNDELSER RITAR OM RITYTAN, INTE FÖNSTRET
 //       i ett eget dolt fönster med en etikett bredvid
 //       ritytan som räknar sina ritningar: efter hjulets och nypningens
@@ -496,6 +512,7 @@ struct Värd : glaze::AppWindow {
     void klipp();          // KP
     void mätning();        // M
     void träffprovRT();    // RT
+    void flerdel();        // FD
     void inmatning();      // IN
     void tröghet();
     void toning();
@@ -1110,7 +1127,7 @@ void Värd::klipp()
     check(yta.hitTest(mitt).size() == 2, "KP (fixturen) två ytor under mitten");
 
     const auto ytaI = [](double x0, double y0, double x1, double y1) {
-        glaze::ClipPolygon p;
+        glaze::Polygon p;
         p.outer = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
         return p;
     };
@@ -1143,7 +1160,7 @@ void Värd::klipp()
           std::to_string(h.size()) + " träffar");
 
     // Ett hål: en yta med ett hål i mitten släpper inte igenom hålet.
-    glaze::ClipPolygon med = ytaI(-20, -20, 20, 20);
+    glaze::Polygon med = ytaI(-20, -20, 20, 20);
     med.holes.push_back({{-5, -5}, {5, -5}, {5, 5}, {-5, 5}});
     yta.resetClip();
     yta.resetLayerClip(2);
@@ -1350,6 +1367,110 @@ void Värd::träffprovRT()
     check(osynlig && yta.hitTest(inne, korsning).empty(),
           "RT4 en ruta inne i en osynlig ram med hitInside korsar den, inne i "
           "en ram utan inte");
+    yta.setShapes({});
+}
+
+// FD. FORMEN I FLERA DELAR — träffprovet genom fönstret. Zoom 2: en
+// världsenhet är 2 logiska px och stilens tolerans 4 px = 2 världsenheter.
+// Förväntat värde är formens GEOMETRI (vilka punkter som ligger i en yta,
+// ett hål, en ö eller mellanrummet) och aldrig träffprovets egna prov.
+void Värd::flerdel()
+{
+    using glaze::Point;
+    using glaze::Polygon;
+    nollställ();
+    yta.setShapes({});
+    const gfx::Color svart{0, 0, 0, 255};
+    const auto       ruta = [](double x0, double y0, double x1, double y1) {
+        return std::vector<Point>{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+    };
+    const auto bara = [](const std::vector<glaze::HitResult>& h) {
+        return h.size() == 1 && h[0].layer == 0 && h[0].index == 0 &&
+               h[0].element == -1;
+    };
+    // Världens ruta som den ligger i ritytans lokala px.
+    const auto lokalRuta = [&](double x0, double y0, double x1, double y1) {
+        const Point a = världTillLokal(x0, y0), b = världTillLokal(x1, y1);
+        return glaze::Rect{std::min(a.x, b.x), std::min(a.y, b.y),
+                           std::abs(b.x - a.x), std::abs(b.y - a.y)};
+    };
+    const auto träff = [&](double x, double y) {
+        return yta.hitTest(världTillLokal(x, y));
+    };
+
+    // A: ±40 med ett hål ±20 (bandet är 20 brett). B: x 60–120, y ±30 med ett
+    // hål x 75–105, y ±15 (bandet är 15 brett). C: en ö ±10 i A:s hål — en
+    // egen del.
+    const Polygon A{ruta(-40, -40, 40, 40), {ruta(-20, -20, 20, 20)}};
+    const Polygon B{ruta(60, -30, 120, 30), {ruta(75, -15, 105, 15)}};
+    const Polygon C{ruta(-10, -10, 10, 10), {}};
+    yta.setShapes({glaze::Shape::polygons({A, B, C}, svart)});
+    rita();
+
+    // ---- FD1 båda ytorna och ön: ETT index, element −1, en träff var.
+    check(bara(träff(-30, 0)) && bara(träff(67.5, 0)) && bara(träff(112.5, 0)) &&
+              bara(träff(0, 0)),
+          "FD1 A:s band, B:s båda band och ön i A:s hål träffar samma form "
+          "(index 0, element −1, en träff)");
+
+    // ---- FD2 hålen och mellanrummen missar.
+    check(träff(0, 15).empty() && träff(90, 0).empty() && träff(50, 0).empty() &&
+              träff(-100, 0).empty(),
+          "FD2 mellanrummet mellan ön och A:s hål, B:s hål, ytan mellan A och B "
+          "och utanför allt missar");
+
+    // ---- FD3 kanten: 1 enhet (2 px) från den träffar, 3 enheter (6 px) inte.
+    check(bara(träff(41, 0)) && bara(träff(76, 0)) && träff(43, 0).empty() &&
+              träff(78, 0).empty(),
+          "FD3 kanten räknas inom toleransen, utanför ytterkanten och innanför "
+          "hålkanten, men inte 3 enheter bort");
+
+    // ---- FD4 delar som överlappar: jämn–udda över alla konturer.
+    yta.setShapes({glaze::Shape::polygons(
+        {Polygon{ruta(0, 0, 40, 40), {}}, Polygon{ruta(20, 20, 60, 60), {}}}, svart)});
+    rita();
+    check(bara(träff(10, 10)) && träff(30, 30).empty() && bara(träff(50, 50)) &&
+              träff(50, 10).empty() && träff(10, 50).empty(),
+          "FD4 överlappande delar: båda ändarna träffar, överlappet missar "
+          "(jämn–udda), och hörnen utanför båda missar");
+
+    // ---- FD5 rutan.
+    yta.setShapes({glaze::Shape::polygons({A, B, C}, svart)});
+    rita();
+    const glaze::HitMode fönster = glaze::HitMode::Window,
+                         korsning = glaze::HitMode::Crossing;
+    const glaze::Rect allt = lokalRuta(-45, -45, 125, 45);
+    const glaze::Rect bara_b = lokalRuta(55, -35, 125, 35);
+    const glaze::Rect bara_a = lokalRuta(-45, -45, 45, 45);
+    check(bara(yta.hitTest(allt, fönster)) && bara(yta.hitTest(allt, korsning)),
+          "FD5 en ruta kring alla delar: formen i fönstret och i korsningen");
+    check(yta.hitTest(bara_b, fönster).empty() && bara(yta.hitTest(bara_b, korsning)) &&
+              yta.hitTest(bara_a, fönster).empty() &&
+              bara(yta.hitTest(bara_a, korsning)),
+          "FD5 en ruta kring bara den ena ytan: fönstret kräver hela formen, "
+          "korsningen räcker med en del");
+    check(bara(yta.hitTest(lokalRuta(-5, -5, 5, 5), korsning)) &&
+              yta.hitTest(lokalRuta(-5, -5, 5, 5), fönster).empty(),
+          "FD5 en ruta inne i ön: korsningen genom insidan, aldrig fönstret");
+    check(yta.hitTest(lokalRuta(85, -5, 95, 5), korsning).empty() &&
+              yta.hitTest(lokalRuta(-2, 12, 2, 18), korsning).empty() &&
+              yta.hitTest(lokalRuta(45, -5, 55, 5), korsning).empty(),
+          "FD5 en ruta i B:s hål, i mellanrummet kring ön och mellan ytorna: "
+          "ingen träff");
+
+    // ---- FD6 ersätt och ta bort.
+    yta.setShape(0, glaze::Shape::rect({-5, -5, 10, 10}, svart));
+    rita();
+    check(träff(-30, 0).empty() && träff(67.5, 0).empty() && bara(träff(0, 0)),
+          "FD6 setShape med en annan form: delarna träffas inte längre");
+    yta.setShape(0, glaze::Shape::polygons({A, B, C}, svart));
+    rita();
+    const bool tillbaka = bara(träff(67.5, 0));
+    yta.removeShape(0);
+    rita();
+    check(tillbaka && träff(-30, 0).empty() && träff(67.5, 0).empty() &&
+              träff(0, 0).empty(),
+          "FD6 removeShape: ingen del träffas");
     yta.setShapes({});
 }
 
@@ -2119,6 +2240,7 @@ void fallMedFönster()
         w.klipp();
         w.mätning();
         w.träffprovRT();
+        w.flerdel();
         w.inmatning();
         // TVÅ steg: händelserna det synkrona steget postade (snäppets
         // onCameraChange) körs före tröghetens — de räknas inte in där.

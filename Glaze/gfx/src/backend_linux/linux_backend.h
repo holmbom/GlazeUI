@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../scene_clip.h"
 #include "../font_fallback.h"
 #include "gfx/platform.h"   // ScreenInfo — `LinuxDisplay::placementScreens`
 #include "gfx/renderer.h"

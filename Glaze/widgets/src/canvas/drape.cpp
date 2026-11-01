@@ -25,6 +25,16 @@
 
 namespace glaze::detail {
 
+// Temats färger en standardikon ritas med — vektorn ändras aldrig, så
+// innehållet är färgerna (skalan står redan i nyckeln).
+void mixStockColors(KeyHash& k, const Theme::Colors& p)
+{
+    for (const gfx::Color t : {p.text, p.stockBlue, p.stockGreen, p.stockRed,
+                               p.stockAmber, p.stockYellow})
+        k.mix((std::uint64_t{t.r} << 24) | (std::uint64_t{t.g} << 16) |
+              (std::uint64_t{t.b} << 8) | std::uint64_t{t.a});
+}
+
 namespace {
 
 // Upplösningsklassens gränser: målets sida i px, en tvåpotens (drape.h).
@@ -91,16 +101,6 @@ bool sammaLåda(const DrapeView& a, const DrapeView& b)
 {
     return a.minX == b.minX && a.minY == b.minY && a.maxX == b.maxX &&
            a.maxY == b.maxY && a.northUp == b.northUp;
-}
-
-// Temats färger en standardikon ritas med — vektorn ändras aldrig, så
-// innehållet är färgerna (skalan står redan i nyckeln).
-void mixStockColors(KeyHash& k, const Theme::Colors& p)
-{
-    for (const gfx::Color t : {p.text, p.stockBlue, p.stockGreen, p.stockRed,
-                               p.stockAmber, p.stockYellow})
-        k.mix((std::uint64_t{t.r} << 24) | (std::uint64_t{t.g} << 16) |
-              (std::uint64_t{t.b} << 8) | std::uint64_t{t.a});
 }
 
 // INNEHÅLLSNYCKELN för draperingen med lådan `v` och klassen `cls` — det
