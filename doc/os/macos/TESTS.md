@@ -216,3 +216,12 @@ fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
   `canvas_gate`, och panorera demons karta med ✂ påslaget.
   *Rätt utfall:* grindarna gröna; klippet följer kartan vid panorering och
   zoom utan att flimra eller hamna spegelvänt, och inga Metal-valideringsfel.
+
+- **Slates utseende och den tomma klippytan** (delad kod, provad på Windows):
+  `demo --slate` visar alla komponenter. `Renderer::pushClip` lägger en tom
+  snittyta på hela pixlar, och Metals scissor får den.
+  *Gör:* kör `demo --slate`, rulla sidan på en skärm med bråkdelsskala och byt
+  tema med F8 och läge med F9.
+  *Rätt utfall:* inget streck över statusraden från en `DataGrid` utanför sidan,
+  inga Metal-valideringsfel, och fönsterknapparna står till vänster utan kapsel
+  med en ljusgrå hover.

@@ -606,8 +606,9 @@ int main(int argc, char** argv)
     g_verbose = argc > 1 && std::strcmp(argv[1], "-v") == 0;
     std::printf("=== window_gate — innehållsytan ===\n");
 
-    const float barH    = glaze::defaultStyle(glaze::UI::Slate).barHeight;
-    const float statusH = glaze::defaultStyle(glaze::UI::Slate).statusBarH;
+    // Fönstren här kör förvalets UI, Glaze.
+    const float barH    = glaze::defaultStyle(glaze::UI::Glaze).barHeight;
+    const float statusH = glaze::defaultStyle(glaze::UI::Glaze).statusBarH;
 
     // ---- 1. Ren uträkning, INGET fönster (portabelt).
     {

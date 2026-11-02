@@ -128,8 +128,9 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   i `tool_button.cpp`. Tryck tar bort både skugga och laminering, hela
   tryckrörelsen i Glaze. **STANDARDKNAPPEN** (`shownAsDefault()`):
   `fillColor` tar accentytans tre tillstånd, `labelColor` `onAccent`; Glaze
-  laminerar INTE (2,91:1), och Minimalistics kant och Slates kontur tar
-  fyllnadens färg. **TEXTFÄRGEN** (`setColor(std::optional<gfx::Color>)`, B7)
+  laminerar INTE (2,91:1), och Minimalistics kant tar fyllnadens färg. Slate
+  har ingen accentyta: en vanlig platta med konturen i `accent`, och med fokus
+  bär ringen markeringen. **TEXTFÄRGEN** (`setColor(std::optional<gfx::Color>)`, B7)
   på Button/Checkbox/Radio: `labelColor` = `onAccent` på standardknappen,
   annars appens färg på en AKTIV widget, annars `textColor` (dimmad som
   inaktiv); Checkbox och Radio har sin `labelColor` inline i headern, och

@@ -2,6 +2,7 @@
 #include <cstring>
 
 #include "dock_window.h"
+#include "slate_window.h"
 #include "splash_window.h"
 #include "start_window.h"
 #include "tray_window.h"
@@ -19,6 +20,7 @@
 //   demo --tray --hidden  …startad DOLD — bara ikonen syns, som vid en autostart
 //   demo --window-lab     fönsterlabbet (geometrin, läget, spara/återställ, pekarna)
 //   demo --dock           dockningen (flikar, staplar, handtag, layoutsträngen)
+//   demo --slate          arbetsbänken för Slate (alla komponenter på en sida)
 //   demo --splash …       splashen FÖRST (ramlös, mitt på skärmen, en Timer i
 //                         .glazeui stänger den) — sedan som utan flaggan
 int main(int argc, char** argv)
@@ -33,7 +35,7 @@ int main(int argc, char** argv)
     glaze::loadLanguage();
 
     bool galleri = false, systemfalt = false, dold = false;
-    bool splash = false, labb = false, dockning = false;
+    bool splash = false, labb = false, dockning = false, slate = false;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--gallery") == 0)
             galleri = true;
@@ -47,6 +49,8 @@ int main(int argc, char** argv)
             labb = true;
         else if (std::strcmp(argv[i], "--dock") == 0)
             dockning = true;
+        else if (std::strcmp(argv[i], "--slate") == 0)
+            slate = true;
     }
 
     // SPLASHEN går före allt annat och stänger sig själv:
@@ -65,6 +69,11 @@ int main(int argc, char** argv)
     if (dockning) {
         DockWindow d;
         return d.run();
+    }
+
+    if (slate) {
+        SlateWindow s;
+        return s.run();
     }
 
     if (galleri) {

@@ -4,8 +4,11 @@
 // Spacer — grow-vikt-barnet i en Bar: sväljer PASSIVT det lediga utrymmet
 // (trycker/maximerar inget, tar bara luckan); flera spacers delar luckan
 // efter vikt — två lika spacers centrerar det som ligger mellan dem (som
-// VS Codes titelrad). Ingen ritning: luckan är barens bakgrund. width > 0
-// med grow = 0 ger en FAST lucka (marginal/mellanrum).
+// VS Codes titelrad). Ingen ritning: luckan är barens bakgrund.
+//
+// MED grow = 0 är den ett FAST mellanrum: `width` (stående `height`) i logiska
+// px, och utan satt mått stilens `spacerW`, 8 px. `Bar::addGap` är kortformen;
+// i `.glazeui` en medlem med `luft.setGrow(0);` och gärna `luft.width = 12;`.
 //
 // MÖNSTER: inbyggd widget utan utseende — draw() är tom, ingen ritkod.
 
@@ -39,6 +42,7 @@ public:
     bool setProp(const std::string& key, const std::string& value) override;
 
 protected:
+    gfx::Sizef contentSize(const Ctx& c) const override;
     void draw(const Ctx&) override {}   // ingen ritning — luckan är pixlarna
 
 private:

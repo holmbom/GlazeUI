@@ -28,8 +28,6 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 
 ### Resten av fas 1
 
-- 🐛 **VIKTIGT: kontroller i ett verktygsfält har full höjd** — [tool_bar.h](Glaze/widgets/include/glaze/widgets/tool_bar.h)
-  Knappar, fält och andra kontroller i en `ToolBar` får sin normala höjd och fyller fältet utan marginal. I ett verktygsfält ska allt bli MINDRE, med luft ovanför och under.
 - 🐛 **macOS: en utloggning avbryts av appen också när den inte vetar** — [metal_platform.mm](Glaze/gfx/src/backend_metal/metal_platform.mm)
   `applicationShouldTerminate` svarar `NSTerminateCancel` och köar `Quit`, så systemet ser ett avbrott. Rättelsen: `NSTerminateLater` och `replyToApplicationShouldTerminate:` när App stängt allt (eller fått ett veto).
 - 🐛 **Windows 11 26300: kärnans adress och adaptertyp svarar tomt** — [d3d11_gpu.cpp](Glaze/gfx/src/backend_d3d11/d3d11_gpu.cpp)

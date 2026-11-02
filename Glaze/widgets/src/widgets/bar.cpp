@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "glaze/app_window.h"
 #include "glaze/draw.h"
+#include "glaze/widgets/separator.h"
 #include "glaze/widgets/spacer.h"
 
 #include "../prop_parse.h"
@@ -22,6 +24,13 @@ GLAZE_REGISTER_WIDGET("bar", Bar)
 Spacer* Bar::addSpacer(float grow)
 {
     return add<Spacer>(grow);
+}
+
+Spacer* Bar::addGap(float width)
+{
+    auto* s  = add<Spacer>(0.0f);
+    s->width = width;
+    return s;
 }
 
 bool Bar::setProp(const std::string& key, const std::string& value)
@@ -52,6 +61,32 @@ std::pair<float, float> Bar::crossSpan(const Widget& child, const Ctx& c,
     if (own <= 0.0f)
         return {areaPos, areaLen};
     return {areaPos + (areaLen - own) / 2.0f, own};
+}
+
+std::pair<float, float> Bar::naturalSpan(const Widget& child, const Ctx& c,
+                                         bool row) const
+{
+    const float areaPos = row ? c.area.y : c.area.x;
+    const float areaLen = row ? c.area.h : c.area.w;
+    if (dynamic_cast<const Separator*>(&child))
+        return {areaPos, areaLen};
+    const gfx::Sizef m   = measure(child, c);
+    const float      own = (row ? m.h : m.w) * c.scale;
+    if (own <= 0.0f)
+        return {areaPos, areaLen};
+    const float len = std::min(own, areaLen);
+    return {areaPos + (areaLen - len) / 2.0f, len};
+}
+
+const Theme::Variant* Bar::mutedChildTheme(const Widget& child, const Ctx& c) const
+{
+    if (c.ui != UI::Slate)
+        return nullptr;
+    if (const AppWindow* w = appWindow())
+        for (const Widget* f = w->focusedWidget(); f; f = f->parent())
+            if (f == &child)
+                return nullptr;
+    return &Theme::muted(*c.theme);
 }
 
 // Flex-raden (`placeChild`): barnen packas vänster→höger i

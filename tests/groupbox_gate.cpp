@@ -232,30 +232,30 @@ void fallAutostorlek()
     FalskFont           f(7.0f, 13.0f);
     const glaze::Ctx    c = ctxFör(st, f);
 
-    // Knapp "OK": 2·7 + 2·12 = 38 × (13 + 2·6) = 25, i (0,0).
-    // Kryssruta "Ja" i (0,30): 18 + 8 + 14 = 40 × max(18, 13) = 18.
-    // Utsträckning: 40 × 48. Ramen: 40 + 2·8 = 56 × 48 + 13 + 2·8 = 77.
+    // Knapp "OK": 2·7 + 2·12 = 38 × (13 + 2·3) = 19, i (0,0).
+    // Kryssruta "Ja" i (0,30): 14 + 8 + 14 = 36 × max(14, 13) = 14.
+    // Utsträckning: 38 × 44. Ramen: 38 + 2·8 = 54 × 44 + 13 + 2·8 = 73.
     glaze::GroupBox g;
     g.add<glaze::Button>("OK");
     auto* kryss = g.add<glaze::Checkbox>("Ja");
     kryss->y    = 30;
 
     gfx::Sizef s = Meter::measure(g, c);
-    check(nära(s.w, 56.0f) && nära(s.h, 77.0f),
+    check(nära(s.w, 54.0f) && nära(s.h, 73.0f),
           "auto: barnens utsträckning + luften (utan rubrik)",
           std::to_string(s.w) + "×" + std::to_string(s.h));
 
     // En LÅNG rubrik vinner bredden: 18 tecken · 7 + 2·(8 + 4) = 150.
     g.setText("Rubriken är längre");
     s = Meter::measure(g, c);
-    check(nära(s.w, 150.0f) && nära(s.h, 77.0f),
+    check(nära(s.w, 150.0f) && nära(s.h, 73.0f),
           "auto: minst så bred som rubriken med lucka och indrag",
           std::to_string(s.w) + "×" + std::to_string(s.h));
 
     // PER AXEL: satt bredd vinner, höjden är fortfarande auto.
     g.width = 300;
     s       = Meter::measure(g, c);
-    check(nära(s.w, 300.0f) && nära(s.h, 77.0f),
+    check(nära(s.w, 300.0f) && nära(s.h, 73.0f),
           "per axel: satt bredd vinner, höjden är auto",
           std::to_string(s.w) + "×" + std::to_string(s.h));
     g.width = 0;
@@ -272,7 +272,7 @@ void fallAutostorlek()
     FalskFont        f2(7.0f, 13.0f);
     const glaze::Ctx smal = ctxFör(st, f2, {0.0f, 0.0f, 90.0f, 60.0f});
     const gfx::Sizef s2   = Meter::measure(g, smal);
-    check(nära(s2.w, 150.0f) && nära(s2.h, 77.0f),
+    check(nära(s2.w, 150.0f) && nära(s2.h, 73.0f),
           "auto-måttet beror inte på förälderns yta",
           std::to_string(s2.w) + "×" + std::to_string(s2.h));
 }

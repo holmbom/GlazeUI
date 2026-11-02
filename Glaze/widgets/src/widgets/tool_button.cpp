@@ -304,9 +304,10 @@ void ToolButton::draw(const Ctx& c)
     if (split_ && (platta || checked_))
         Draw::line(c, pil.x, b.y, pil.x, b.y + b.h,
                    Pen{col.border, m.borderWidth});
-    const float g = m.toolArrowGlyph;
+    const float g  = m.toolArrowGlyph;
+    const float gh = m.toolArrowGlyphH;
     Draw::chevron(c,
-                  {pil.x + (pil.w - g) / 2.0f, pil.y + (pil.h - g) / 2.0f, g, g},
+                  {pil.x + (pil.w - g) / 2.0f, pil.y + (pil.h - gh) / 2.0f, g, gh},
                   Dir::Down, Pen{fg, m.borderWidth});
 }
 

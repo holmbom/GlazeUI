@@ -55,6 +55,10 @@ void Renderer::pushClip(const Rectf& r, float radius)
         const float y2 = std::min(c.y + c.h, top.y + top.h);
         c = Rectf{x1, y1, std::max(0.0f, x2 - x1), std::max(0.0f, y2 - y1)};
     }
+    // EN TOM YTA står på hela pixlar: backenden avrundar scissorn utåt, och en
+    // nollstor rektangel på ett bråkdelsläge hade öppnat en hel pixelrad.
+    if (c.w <= 0.0f || c.h <= 0.0f)
+        c = Rectf{std::floor(c.x), std::floor(c.y), 0.0f, 0.0f};
     clipStack_.push_back(ClipLevel{c, r, radius});
     applyTop();
 }

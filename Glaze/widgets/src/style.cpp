@@ -23,8 +23,8 @@ constexpr Style kSlateRegular{
     /* headingFontSize*/ gfx::fontsize::kUiHeading,
     /* cornerRadius   */ 4.0f,
     /* borderWidth    */ 0.0f,   // hårlinje — se fältets doc i style.h
-    /* focusOffset    */ 3.0f,
-    /* focusWidth     */ 2.0f,
+    /* focusOffset    */ 1.0f,   // en tunn linje tätt intill kontrollen
+    /* focusWidth     */ 1.0f,
 
     /* sheenLower     */ 0.0f,   // Slate lamineras inte — se style.h
     /* sheenUpper     */ 0.0f,
@@ -35,20 +35,20 @@ constexpr Style kSlateRegular{
 
     /* buttonRadius   */ 4.0f,   // = cornerRadius; Slate skiljer dem inte
     /* buttonPadX     */ 12.0f,
-    /* buttonPadY     */ 6.0f,
+    /* buttonPadY     */ 3.0f,   // höjden 14.72 + 2 × 3 = 20.7
     /* buttonShadowDy   */ 0.0f,   // Slate lyfter med raise* i stället
     /* buttonShadowBlur */ 0.0f,
     /* buttonPressShift */ 0.0f,   // Slate sjunker inte vid tryck
     /* iconGap        */ 6.0f,
     /* iconFallback   */ 16.0f,
 
-    /* checkSize      */ 18.0f,
+    /* checkSize      */ 14.0f,
     /* checkRadius    */ 3.0f,
     /* checkGap       */ 8.0f,
     /* checkStroke    */ 1.0f,
 
     /* fieldPadX      */ 8.0f,
-    /* fieldPadY      */ 6.0f,
+    /* fieldPadY      */ 3.0f,   // samma höjd som knappen
     /* fieldDefaultW  */ 120.0f,
     /* caretWidth     */ 1.0f,
     /* caretMargin    */ 2.0f,
@@ -87,7 +87,7 @@ constexpr Style kSlateRegular{
     /* windowRadius   */ 16.0f,
 
     /* barHeight      */ 32.0f,
-    /* statusBarH     */ 24.0f,
+    /* statusBarH     */ 28.0f,   // en kontroll (20.7) med luft över och under
     /* captionBtnW    */ 46.0f,
     /* captionGlyph   */ 5.0f,
     /* captionStroke  */ 0.0f,   // hårlinje — backend-chromets utseende
@@ -107,8 +107,8 @@ constexpr Style kSlateRegular{
     /* linkUnderline      */ 0.0f,   // hårlinje — som webbens standardlänk
     /* linkGap            */ 1.0f,
 
-    /* radioSize          */ 18.0f,   // samma ruta som checkboxen
-    /* radioDot           */ 8.0f,
+    /* radioSize          */ 14.0f,   // samma ruta som checkboxen
+    /* radioDot           */ 6.0f,
     /* radioGap           */ 8.0f,
     /* radioStroke        */ 1.0f,
 
@@ -177,7 +177,7 @@ constexpr Style kSlateRegular{
     /* groupTitleGap    */ 4.0f,
 
     // ---- Talfältet. SIST i tabellen, precis som fälten.
-    /* spinStepW        */ 18.0f,  // två 13 px höga halvor i ett 26.7 px
+    /* spinStepW        */ 18.0f,  // två 10 px höga halvor i ett 20.7 px
                                    // fält — som en NSStepper, inte smalare
     /* spinGap          */ 4.0f,
     /* spinDefaultW     */ 96.0f,  // fält 74 + 4 + 18: ett femsiffrigt tal
@@ -221,9 +221,8 @@ constexpr Style kSlateRegular{
     /* splitterGripLen  */ 0.0f,   // Slate ritar bara linjen
 
     // ---- Den dockningsbara panelen. SIST i tabellen.
-    /* dockHeaderH      */ 24.0f,  // radhöjden 14.72 + ~4.6 luft per sida —
-                                   // lägre än en knapp (26.7): raden är en
-                                   // RUBRIK, inte en kontroll
+    /* dockHeaderH      */ 24.0f,  // radhöjden 14.72 + ~4.6 luft per sida:
+                                   // raden är en RUBRIK, inte en kontroll
     /* dockHeaderPadX   */ 8.0f,   // = fieldPadX: texten står där en rads
                                    // text står
     /* dockGlyph        */ 8.0f,   // ett snäpp under dropdownpilens ruta
@@ -256,7 +255,7 @@ constexpr Style kSlateRegular{
 
     // ---- Flikarna. SIST i tabellen, precis som fälten.
     /* tabHeaderH       */ 28.0f,  // radhöjden 14.72 + ~6.6 luft per sida —
-                                   // ett snäpp över knappen (26.7): fliken
+                                   // högre än knappen (20.7): fliken
                                    // är navigering, inte en kontroll bland
                                    // andra
     /* tabPadX          */ 12.0f,  // = buttonPadX: rubriken står där en
@@ -313,8 +312,8 @@ constexpr Style kSlateRegular{
     /* colorPopupGap       */ 8.0f,
     /* colorCellSize       */ 18.0f, // = checkSize: en ruta man klickar på
                                      // ska vara lika stor som en kryssruta
-    /* colorCellGap        */ 4.0f,  // rutornas ringar (focusWidth 2) ryms i
-                                     // luften utan att röra grannen
+    /* colorCellGap        */ 4.0f,  // rutornas ringar ryms i luften utan att
+                                     // röra grannen
     /* colorSliderMinW     */ 120.0f,// 256 lägen på 120 px: varannan pixel
                                      // ett värde — pilarna tar resten
 
@@ -437,6 +436,14 @@ constexpr Style kSlateRegular{
     /* toolOverflowW */ 20.0f,      // ikonen 16 och 2 på var sida: smalare än
                                     // en ikonknapp (28), så den läser som
                                     // fältets ände och inte som ett verktyg
+
+    // ---- Det fasta mellanrummet i en remsa. SIST i tabellen, som fältet.
+    /* spacerW */ 8.0f,
+
+    // ---- Pilarna i små rutor. SIST i tabellen, som fälten.
+    /* spinChevronW    */ 3.5f,     // 7 × 3.5 i en halva på 10: luft runt om
+    /* spinChevronH    */ 1.75f,
+    /* toolArrowGlyphH */ 3.5f,     // bredden 7: samma 2:1 som dropdownens pil
 };
 
 // De fyra `*DefaultLen` är AVSIKTLIGT samma tal (200 logiska px). En remsa
@@ -466,6 +473,17 @@ constexpr Style kGlazeRegular = [] {
                                 // 14.72 logiska px, så höjden
                                 // faller ut som 14.72 + 2 × 6.3 = 27.32.
     m.iconGap        = 8.0f;
+
+    // Kontrollernas och statusradens höjder är familjens egna, inte Slates.
+    m.fieldPadY      = 6.0f;
+    m.checkSize      = 18.0f;
+    m.radioSize      = 18.0f;
+    m.radioDot       = 8.0f;
+    m.statusBarH     = 24.0f;
+    m.spinChevronW    = 4.5f;   // dropdownens pil
+    m.spinChevronH    = 2.5f;
+    m.toolArrowGlyphH = 7.0f;   // = toolArrowGlyph
+
     m.buttonShadowDy   = 1.0f;   // kort och låg — knappen vilar PÅ ytan,
     m.buttonShadowBlur = 3.0f;   // den svävar inte över den
     m.buttonPressShift = 1.0f;
@@ -485,10 +503,11 @@ constexpr Style kGlazeRegular = [] {
     m.sliderShadowDy   = 1.0f;
     m.sliderShadowBlur = 3.0f;
 
-    // Fokusringen halveras (2 → 1). Ringen är den enda markeringen som
+    // Fokusringen är hårfin. Ringen är den enda markeringen som
     // ligger UTANFÖR kontrollen och konkurrerar därför med allt runt
     // omkring; i Glaze räcker en hårfin ring eftersom accenten är stark.
     // Alternativet "50 % genomskinlig" valdes BORT — se kommentaren under.
+    m.focusOffset    = 3.0f;
     m.focusWidth     = 1.0f;
     m.raiseDy        = 0.0f;    // raise* är SLATES lyft och används inte
     m.raiseBlur      = 0.0f;    // av Glaze — skuggan ovan ersätter den
@@ -569,6 +588,16 @@ constexpr Style kMinimalisticRegular = [] {
     m.buttonRadius   = 3.0f;    // stramare än Slates 4 och Glazes 6 — formen
     m.cornerRadius   = 3.0f;    // ÄR en kant, och en kant tål mindre rundning
 
+    // Kontrollernas och statusradens höjder är familjens egna, inte Slates.
+    m.fieldPadY      = 6.0f;
+    m.checkSize      = 18.0f;
+    m.radioSize      = 18.0f;
+    m.radioDot       = 8.0f;
+    m.statusBarH     = 24.0f;
+    m.spinChevronW    = 4.5f;   // dropdownens pil
+    m.spinChevronH    = 2.5f;
+    m.toolArrowGlyphH = 6.0f;   // = familjens toolArrowGlyph
+
     // Fokusringen halveras (2 → 1), samma beslut som Glaze tog och av samma
     // skäl: ringen ligger UTANFÖR kontrollen och konkurrerar med allt runt
     // omkring. Vid 18 px höjd väger den dessutom tyngre relativt kroppen.
@@ -608,8 +637,7 @@ constexpr Style kMinimalisticRegular = [] {
 
     // ---- Talfältet — familjens täthet: fonten är 10 och ett tal
     // tar mindre plats, så både stegaren och auto-bredden krymper. (Fältets
-    // HÖJD följer `fieldPadY`, som familjen ärver av Slate — den är
-    // utseendepassets fråga och rörs inte här.)
+    // HÖJD följer `fieldPadY` — utseendepassets fråga, och den rörs inte här.)
     m.spinStepW    = 14.0f;
     m.spinGap      = 2.0f;
     m.spinDefaultW = 72.0f;

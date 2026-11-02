@@ -21,6 +21,13 @@ versionen sätts.
 
 ## Nästa
 
+## 0.4.2
+
+- **New** — `Bar::addGap(width)`: ett fast mellanrum i en remsa; en `Spacer` med vikten 0 och inget mått blir stilens `spacerW` (8 px).
+- **Fix** — kontroller i ett verktygsfält och en statusrad behåller sin egen höjd, centrerad, i stället för att sträckas till remsan.
+- **Fix** — två klipp utan överlapp öppnar inte längre en pixelrad vid bråkdelsskala (en `DataGrid` utanför sidans yta ritade ett streck över statusraden).
+- **New** — Slate: lägre kontroller (knapp och fält 20,7 px, kryss och radio 14 px), tunn fokusring (2 px runt om), mattad accent, standardknappen med en accentkontur i stället för en fylld yta, fönsterknappar utan kapsel och med en ljusgrå hover på minimera och maximera, och tonade verktygsfält och statusrader (`Theme::muted`, `Widget::childTheme`).
+
 ## 0.4.1
 
 - **Fix** — `gfx::gpuAdapters()` listar varje kort en gång också när DXGI räknar upp det flera gånger, som Intel-kortet på en dator med Intel- och NVIDIA-kort.

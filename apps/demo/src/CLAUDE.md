@@ -674,6 +674,13 @@ tre-fils-modellen och de hårda reglerna.
   sender. Hela fönstret är `.glazeui`-vägen; `.cpp` bär bara
   `stangTimerTick` → `close()`. roundtrip_gate läser den byte-identiskt och
   med spar-policyn, preview_gate kräver att texterna är tr-id.
+- **`slate_window.h/.cpp`** — **`demo --slate`**, HANDKODAT: arbetsbänken för
+  Slates utseende. EN rullande sida med varje komponent, de flesta aktiva och
+  inaktiverade, i rader (`Rad`, en ren Bar) vars celler (`Cell`) delar bredden
+  efter vikt, så allt följer fönstret. Komponenterna står också i menyraden, i
+  tre verktygsfält och i statusraden. Temat byts i remsan överst, i menyn Tema
+  och med F7/F8/F9 (`valjTema`/`valjLage`, som `synkaUtseende` speglar). Texterna
+  är literaler och inte tr-id: fönstret ingår inte i demons översatta yta.
 - **`window_lab.h/.cpp`** (FONSTER_OCH_TIMER F2) — **`demo --window-lab`**,
   HANDKODAT (kodvägen): geometriraden ur `geometry()` uppdaterad av en
   upprepande `glaze::Timer` (250 ms, startad i `onShow`, stoppad i `onHide`/

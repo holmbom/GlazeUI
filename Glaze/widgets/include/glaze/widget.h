@@ -1604,6 +1604,13 @@ public:
     virtual gfx::Rectf childArea(const Ctx& c) const { return resolve(c); }
     virtual bool       clipsChildren() const { return false; }
     virtual gfx::Rectf clipRect(const Ctx& c) const { return resolve(c); }
+    // FÄRGERNA FÖR ETT BARN: en annan temavariant åt `child` och dess delträd
+    // under ritningen, nullptr = samma som widgeten. Svaret ska leva under
+    // ritningen (`Theme::muted`).
+    virtual const Theme::Variant* childTheme(const Widget&, const Ctx&) const
+    {
+        return nullptr;
+    }
 
     // Barnklippets HÖRNRADIE i FYSISKA px — parhäst till `clipRect`, och
     // meningslös utan den (0 = fyrkantigt klipp, det som gäller

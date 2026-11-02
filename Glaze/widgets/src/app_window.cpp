@@ -2467,11 +2467,17 @@ void AppWindow::drawTree(Widget& w, const Ctx& c)
         // DET FRÄMRE BARNET ritas SIST — barnordningen står
         // orörd, men just det här barnet hamnar överst.
         Widget* fram = frontChildOf(w);
+        const auto rita = [&](Widget& ch) {
+            Ctx tc = cc;
+            if (const Theme::Variant* t = w.childTheme(ch, cc))
+                tc.theme = t;
+            drawTree(ch, tc);
+        };
         for (const auto& ch : w.children())
             if (ch != fram)
-                drawTree(*ch, cc);
+                rita(*ch);
         if (fram)
-            drawTree(*fram, cc);
+            rita(*fram);
         if (doClip)
             c.r->popClip();
     }
@@ -2516,11 +2522,17 @@ void AppWindow::drawTreePartial(Widget& w, const Ctx& c, const gfx::Rectf& dmg)
         if (doClip)
             c.r->pushClip(w.clipRect(c), w.clipRadius(c));
         Widget* fram = frontChildOf(w);   // sist, som i drawTree
+        const auto rita = [&](Widget& ch) {
+            Ctx tc = cc;
+            if (const Theme::Variant* t = w.childTheme(ch, cc))
+                tc.theme = t;
+            drawTreePartial(ch, tc, dmg);
+        };
         for (const auto& ch : w.children())
             if (ch != fram)
-                drawTreePartial(*ch, cc, dmg);
+                rita(*ch);
         if (fram)
-            drawTreePartial(*fram, cc, dmg);
+            rita(*fram);
         if (doClip)
             c.r->popClip();
     }

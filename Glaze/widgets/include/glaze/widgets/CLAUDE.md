@@ -127,7 +127,7 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
 - **`button.h`** — `Button`: `text`, fokuserbar, Space/Enter aktiverar.
   **DIALOGKNAPPEN**: `setDialogResult` (ett klick stänger fönstret med svaret
   EFTER `onClick`) och `performClick()`; som fönstrets STANDARDKNAPP ritas den
-  på accentytan (`shownAsDefault`). `labelColor()` är PROTECTED (filväljarens
+  på accentytan, i Slate med konturen i `accent` (`shownAsDefault`). `labelColor()` är PROTECTED (filväljarens
   ikonknapp). **Bild:** `img` (`ImageSource` — en asset via `glaze::img` eller en
   `Bitmap`; sidan `sizeClass()`, för pixlar `iconFallback`) +
   `imagePos` (Left/Right/Above/Below); tom text = bara ikon. **Autostorlek
@@ -799,7 +799,9 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   stannar av sig själv. Privata `fillBounds()`/`chunkBounds()`
   (triangelvåg ur `gfx::ticksMs`, modulo i heltal).
 - **`bar.h`** — `Bar : Panel`, flex-RAD-motorn (grunden för TopBar/
-  StatusBar/MenuBar/ToolBar): barnen packas i ADD-ordning, mätt bredd ×
+  StatusBar/MenuBar/ToolBar; `addGap` = fast mellanrum; `crossSpan` är en krok,
+  och ToolBar/StatusBar svarar med `naturalSpan` och tonar sina barn i Slate med
+  `mutedChildTheme`): barnen packas i ADD-ordning, mätt bredd ×
   barens fulla höjd — STÅENDE (`isVertical()` = `dock` Left/Right, D15) i en
   egen `placeChildVertical`, mätt höjd × full bredd; spacers delar luckan
   efter vikt. `addSpacer()`; `height` 0 = stilens `barHeight`. **`setPlain(true)`** (REQ8 25): REN RAD — ingen yta och ingen hårlinje, barnen behåller sitt mätta tvärmått (centrerat; utan eget mått fyller de). Flexen är
@@ -815,8 +817,8 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   (virtuell, PROGRAMIKON B3) är hårlinjens luckor — `{0, 0}` för en vanlig
   bar; TopBar överrider.
 - **`spacer.h`** — `Spacer`: grow-vikt-barnet (default 1) som passivt
-  sväljer barens lediga utrymme; `grow = 0` + `width` = FAST lucka; tom
-  `draw()`. `setProp`: grow.
+  sväljer barens lediga utrymme; `grow = 0` = FAST mellanrum, `width` eller
+  utan satt mått stilens `spacerW` (`Bar::addGap`); tom `draw()`. `setProp`: grow.
 - **`caption_button.h`** — `CaptionButton`: fönsterknapparna min/max/close.
   `Kind` (Minimize/Maximize/Close) + `Shape`: **Capsule** (HUSETS form och
   default på ALLA tre plattformarna — ETT kluster med rundade ändar i temats

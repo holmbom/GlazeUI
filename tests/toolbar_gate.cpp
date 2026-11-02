@@ -503,6 +503,92 @@ void fallPlacering()
           "ren rad: en Spacer utan tvärmått fyller baren, efter barnet", rekt(s));
 }
 
+// --------------------------------------------- remsornas kontroller
+//
+// En kontroll i ett verktygsfält eller en statusrad behåller sin egen höjd,
+// centrerad och aldrig högre än remsan; verktygsknappen, skiljelinjen och fältet
+// fyller. `addGap` är ett fast mellanrum, och i Slate tonas barnen — utom det
+// som har fokus. Klippet: en tom snittyta på ett bråkdelsläge får inte öppna en
+// pixelrad. SABOTAGEN: `crossSpan` utan `naturalSpan` (förloppet blir remsans
+// höjd), `spacerW` oläst (mellanrummet 0), `muted` utan dämpad text och
+// `pushClip` utan avrundningen av den tomma ytan (bråkdelsläget står kvar).
+void fallRemsor()
+{
+    const glaze::UI     ui = glaze::UI::Slate;
+    const glaze::Style& st = glaze::defaultStyle(ui);
+    FalskFont           f(7.0f, st.uiFontSize);
+    const glaze::Ctx    c = ctxFör(ui, f);
+
+    glaze::ToolBar tb;
+    auto* knapp = tb.add<glaze::Button>("A");
+    auto* verk  = tb.add<glaze::ToolButton>("T");
+    auto* sep   = tb.add<glaze::Separator>();
+    auto* fyll  = tb.add<glaze::Progress>();
+    fyll->width = 40.0f;
+    glaze::Ctx cc = c;
+    cc.area       = static_cast<const glaze::Widget&>(tb).childArea(c);
+
+    const gfx::Rectf rk = knapp->resolve(cc);
+    const float      nk = std::min(Meter::measure(*knapp, c).h, cc.area.h);
+    check(nära(rk.h, nk) && nära(rk.y, cc.area.y + (cc.area.h - nk) / 2.0f),
+          "remsa: knappen behåller sin höjd, centrerad", rekt(rk));
+    check(nära(verk->resolve(cc).h, cc.area.h),
+          "remsa: verktygsknappen fyller innerhöjden", rekt(verk->resolve(cc)));
+    check(nära(sep->resolve(cc).h, cc.area.h),
+          "remsa: skiljelinjen går tvärs remsan", rekt(sep->resolve(cc)));
+    check(nära(fyll->resolve(cc).h, st.progressHeight),
+          "remsa: förloppet behåller sitt spår", rekt(fyll->resolve(cc)));
+
+    glaze::StatusBar sb;
+    sb.dock = glaze::Dock::None;
+    sb.addPanel("Klar");
+    auto* spar  = sb.add<glaze::Progress>();
+    spar->width = 40.0f;
+    glaze::Ctx sc = c;
+    sc.area       = static_cast<const glaze::Widget&>(sb).childArea(c);
+    check(nära(sb.children()[0]->resolve(sc).h, sc.area.h),
+          "statusrad: fältet fyller raden", rekt(sb.children()[0]->resolve(sc)));
+    check(nära(spar->resolve(sc).h, st.progressHeight),
+          "statusrad: förloppet behåller sitt spår", rekt(spar->resolve(sc)));
+
+    glaze::Bar   bar;
+    glaze::Spacer* förval = bar.addGap();
+    glaze::Spacer* egen   = bar.addGap(12.0f);
+    check(nära(Meter::measure(*förval, c).w, st.spacerW) && förval->grow() == 0.0f,
+          "addGap: stilens mellanrum utan vikt");
+    check(nära(Meter::measure(*egen, c).w, 12.0f), "addGap: ett eget mått");
+    glaze::Spacer växer;
+    check(nära(Meter::measure(växer, c).w, 0.0f),
+          "Spacer med vikt: ingen egen bredd");
+
+    const glaze::Theme::Variant& bas = *c.theme;
+    const glaze::Theme::Variant* t   = tb.childTheme(*knapp, c);
+    check(t && !(t->colors.border == bas.colors.border) &&
+              !(t->colors.panel == bas.colors.panel),
+          "Slate: kanterna och ytorna i verktygsfältet tonas");
+    // Ljust Windows: texten 27 och bakgrunden 243, 20 % mot bakgrunden är 70.
+    check(t && std::abs(int(t->colors.text.r) - 70) <= 1,
+          "Slate: texten i verktygsfältet dämpas 20 %",
+          t ? std::to_string(int(t->colors.text.r)) : std::string("-"));
+    check(t && nära(t->imageOpacity, 0.8f) && nära(bas.imageOpacity, 1.0f),
+          "Slate: appens bilder i verktygsfältet dämpas lika mycket");
+    check(sb.childTheme(*spar, c) != nullptr, "Slate: barnen i statusraden tonas");
+    check(bar.childTheme(*egen, c) == nullptr, "en vanlig Bar tonar inget");
+    glaze::Ctx glazeCtx = c;
+    glazeCtx.ui         = glaze::UI::Glaze;
+    check(tb.childTheme(*knapp, glazeCtx) == nullptr, "Glaze tonar inte");
+
+    gfx::NullRenderer r;
+    r.pushClip(gfx::Rectf{0.0f, 0.0f, 100.0f, 100.0f});
+    r.pushClip(gfx::Rectf{10.5f, 200.25f, 50.0f, 50.0f});
+    gfx::Rectf klipp{};
+    check(r.clipBounds(klipp) && klipp.w == 0.0f && klipp.h == 0.0f &&
+              klipp.x == std::floor(klipp.x) && klipp.y == std::floor(klipp.y),
+          "klippet: en tom snittyta står på hela pixlar", rekt(klipp));
+    r.popClip();
+    r.popClip();
+}
+
 // ----------------------------------------------------- 4. härledningen
 
 void fallHarledning()
@@ -1992,6 +2078,7 @@ int main(int argc, char** argv)
     fallKlick();
     fallFokus();
     fallPlacering();
+    fallRemsor();
     fallHarledning();
     fallIkonstorlek();
     fallSlojan();

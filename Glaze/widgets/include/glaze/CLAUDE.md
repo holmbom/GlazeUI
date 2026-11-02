@@ -698,7 +698,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   kapselns **`capsuleH`/`capsuleSeg`/`capsuleInset`/`capsuleStroke`** hänger
   ihop med det: radien är HÄRLEDD så klustrets rundade ände och fönsterhörnet
   blir koncentriska, med samma luft runt om som över och under kapseln) plus
-  det delade (`cornerRadius`, `borderWidth`, `focusOffset/Width`,
+  det delade (`cornerRadius`, `borderWidth`, `focusOffset/Width`, `spacerW`,
   **`sheenLower/sheenUpper`** (lamineringens andelar 0–1, fem widgets),
   `raise*` — SLATES lyft, Glaze använder buttonShadow* i stället —
   `overdraw`). **Verktygsfältet:** `toolBarH`/`toolBarPadX`/`toolBarPadY`/

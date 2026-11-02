@@ -31,7 +31,7 @@ UTANFÖR den yta layouten ger widgeten, och ramverket reserverar upp till
 
 | Effekt | Slate | Glaze | Minimalistic |
 |---|---|---|---|
-| Fokusring (`focusOffset` + `focusWidth`) | 3 + 2 = **5 px** runt om | 3 + 1 = **4 px** | 2 + 1 = **3 px** |
+| Fokusring (`focusOffset` + `focusWidth`) | 1 + 1 = **2 px** runt om | 3 + 1 = **4 px** | 2 + 1 = **3 px** |
 | Knappens och tummens skugga (`buttonShadowDy`/`Blur`) | — | **~4 px** nedåt | — |
 | Etikettens gloria (`setHalo`) | 1,5 px runt texten | 1,5 px | 1,5 px |
 

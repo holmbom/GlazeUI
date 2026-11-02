@@ -533,10 +533,10 @@ void SpinBox::draw(const Ctx& c)
         Draw::rect(c, st, rad, trycks ? tryckt : tänd);
         Draw::endClip(c);
     };
-    // Vinkelhakarna — dropdownens tecken och storlek, mitt i varje halva.
+    // Vinkelhakarna — dropdownens tecken i halvans storlek, mitt i varje halva.
     auto pilar = [&](gfx::Color färg) {
-        const float w = 2.0f * m.chevronW;
-        const float h = 2.0f * m.chevronH;
+        const float w = 2.0f * m.spinChevronW;
+        const float h = 2.0f * m.spinChevronH;
         auto mitt     = [&](const gfx::Rectf& r) {
             return gfx::Rectf{r.x + (r.w - w) / 2.0f, r.y + (r.h - h) / 2.0f,
                               w, h};
