@@ -67,8 +67,10 @@
 //       ordning för samma preferens.
 //   K2  GRAFIKKORTEN: `gpuAdapters()` är inte tom, har
 //       exakt ett isDefault och unika, icke-tomma id; Default-fönstret ritar
-//       med förvalskortet (`adapterId`); på Windows lika många kort som
-//       EnumAdapters1.
+//       med förvalskortet (`adapterId`); på Windows minst ett kort per olika
+//       id i EnumAdapters1 och aldrig fler än den räknar upp (ett kort den
+//       räknar upp två gånger står en gång, och sammanslagningen mäts av
+//       gpu_gate G2b).
 //   K3  varje VALBART kort: `setGpuAdapter(id)` → ett nytt dolt fönster ritar
 //       med det (`adapterId`, `deviceName`). På Linux gäller valet bara vid
 //       init, så där mäts bara att `adapterId` står i listan.
@@ -500,7 +502,9 @@
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -1912,17 +1916,24 @@ void fallK2(Fönster& f, const std::vector<gfx::GpuAdapter>& kort)
 #ifdef _WIN32
     UINT           antal = 0;
     IDXGIFactory1* f1    = nullptr;
+    std::set<std::tuple<UINT, UINT, UINT, UINT>> olika;
     if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory1),
                                      reinterpret_cast<void**>(&f1)))) {
         IDXGIAdapter1* a = nullptr;
         while (SUCCEEDED(f1->EnumAdapters1(antal, &a))) {
+            DXGI_ADAPTER_DESC1 d{};
+            if (SUCCEEDED(a->GetDesc1(&d)))
+                olika.emplace(d.VendorId, d.DeviceId, d.SubSysId, d.Revision);
             a->Release();
             ++antal;
         }
         f1->Release();
     }
-    check(kort.size() == antal, "K2 lika många kort som EnumAdapters1",
-          std::to_string(kort.size()) + " mot " + std::to_string(antal));
+    check(kort.size() >= olika.size() && kort.size() <= antal,
+          "K2 ett kort per olika id i EnumAdapters1, aldrig fler än den räknar upp",
+          std::to_string(kort.size()) + " kort, " +
+              std::to_string(olika.size()) + " olika id, " +
+              std::to_string(antal) + " poster");
 #endif
 }
 

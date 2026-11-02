@@ -30,10 +30,10 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 
 - 🐛 **VIKTIGT: kontroller i ett verktygsfält har full höjd** — [tool_bar.h](Glaze/widgets/include/glaze/widgets/tool_bar.h)
   Knappar, fält och andra kontroller i en `ToolBar` får sin normala höjd och fyller fältet utan marginal. I ett verktygsfält ska allt bli MINDRE, med luft ovanför och under.
-- 🐛 **`scene3d_pixel_gate` K2: ett grafikkort listas två gånger** — [gpu_util.h](Glaze/gfx/src/gpu_util.h)
-  På en dator med Intel- och NVIDIA-kort ger DXGI Intel-kortet två gånger med samma id, så `gfx::gpuAdapters()` har en dubblett och K2 fäller. Rättelsen: slå ihop kort med samma id i uppräkningen.
 - 🐛 **macOS: en utloggning avbryts av appen också när den inte vetar** — [metal_platform.mm](Glaze/gfx/src/backend_metal/metal_platform.mm)
   `applicationShouldTerminate` svarar `NSTerminateCancel` och köar `Quit`, så systemet ser ett avbrott. Rättelsen: `NSTerminateLater` och `replyToApplicationShouldTerminate:` när App stängt allt (eller fått ett veto).
+- 🐛 **Windows 11 26300: kärnans adress och adaptertyp svarar tomt** — [d3d11_gpu.cpp](Glaze/gfx/src/backend_d3d11/d3d11_gpu.cpp)
+  `D3DKMTQueryAdapterInfo` lyckas men ger `00:00.0` och typen 0 för alla kort. Slaget kommer då bara ur proben (loggen säger "okänt slag"), och två lika kort går inte att skilja åt.
 - 💡 **`DockHost::placeChild` räknar hela dockningslayouten en gång per barn** — [dock_host.cpp](Glaze/widgets/src/widgets/dock_host.cpp)
   Varje anrop kopierar och normaliserar modellen (`synced()`) och kör `computeLayout` med verktygsfältens mätning — O(barn × layout) flera gånger per bildruta. Rättelsen: ett minne per layoutpass (som `ResolveScope`) med en säker nyckel för modellen, `DockLive` och Ctx.
 - 🔴 **Simplify över kodbasen och hela sviten på Linux**
@@ -62,6 +62,8 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 - 🟠 **Windows- och Mac-testet** — [doc/os/](doc/os/)
   Kvar är rader som kräver hårdvara eller handtest: mus, skärmskalning och VS Code på Windows; andra skärm, PC-tangentbord och Intel-Mac på macOS.
   Stängs när `doc/os/windows/TESTS.md` och `doc/os/macos/TESTS.md` är TOMMA.
+- 🟢 🐛 **`scene3d_pixel_gate` K2: ett grafikkort listas två gånger** — [gpu_util.h](Glaze/gfx/src/gpu_util.h)
+  DXGI gav Intel-kortet två gånger på en dator med Intel- och NVIDIA-kort. `mergeSameCards` slår ihop samma id och adress i uppräkningen; kvar är Eriks test.
 
 ## Utseendepasset — UI, Tema och Style, PARKERAT
 

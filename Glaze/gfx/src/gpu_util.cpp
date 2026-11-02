@@ -11,6 +11,7 @@
 #include <fstream>
 #include <map>
 #include <optional>
+#include <utility>
 
 namespace gfx::gpu {
 
@@ -300,6 +301,29 @@ std::string pciAdapterId(std::uint32_t vendor, std::uint32_t device,
                   static_cast<unsigned long>(subsys),
                   unsigned(revision & 0xFFu));
     return buf;
+}
+
+std::vector<std::size_t> mergeSameCards(std::vector<GpuAdapter>& list,
+                                        std::vector<std::string>& where)
+{
+    std::vector<GpuAdapter>  kort;
+    std::vector<std::string> platser;
+    std::vector<std::size_t> plats;
+    plats.reserve(list.size());
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        std::size_t k = 0;
+        while (k < kort.size() &&
+               (kort[k].id != list[i].id || platser[k] != where[i]))
+            ++k;
+        if (k == kort.size()) {
+            kort.push_back(std::move(list[i]));
+            platser.push_back(std::move(where[i]));
+        }
+        plats.push_back(k);
+    }
+    list  = std::move(kort);
+    where = std::move(platser);
+    return plats;
 }
 
 void disambiguateIds(std::vector<GpuAdapter>& list,

@@ -609,7 +609,12 @@ Kontrakten står i [../../include/gfx/CLAUDE.md](../../include/gfx/CLAUDE.md)
   MinGW saknar headern till — våra egna deklarationer, importstubbarna i
   libgdi32. **`KMTQAITYPE_ADAPTERTYPE` är 15, inte 14** (14 är ett hål i
   enumen, kontrollerat mot Wines header); ADAPTERADDRESS är 6 och ger
-  `@bb:dd.f` vid dubbletter. Utan hybridflaggor PROBAR bara listan
+  `@bb:dd.f` vid dubbletter. Ett kort DXGI räknar upp flera gånger (samma id
+  och samma adress — Intel-kortet två gånger på en Optimus-dator) står EN gång
+  (`gpu::mergeSameCards`) med sin första adapter; `DxgiAdapter::luids` bär allas
+  LUID:er, så `adapterIdOf` träffar vilken post enheten än hamnade på. Adressen
+  svarar `00:00.0` för alla kort på Windows 11 26300, och då skiljer den inte
+  två lika kort åt. Utan hybridflaggor PROBAR bara listan
   (`gfx::gpuAdapters`): en enhet utan kontext och dess
   `UnifiedMemoryArchitecture` — aldrig när ett fönster öppnas. `D3dRenderer::
   init` räknar upp EN gång utan prob: `chosenAdapter` (kortet `gpuAdapter()`,

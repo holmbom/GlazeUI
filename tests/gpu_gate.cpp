@@ -12,6 +12,10 @@
 //   G1 `pciAdapterId` — tillverkare, enhet, subsystem och revision i gemen hex
 //   G2 dubbletterna: två lika id får `@01:00.0`/`@02:00.0`, ett unikt rörs
 //      inte, och utan adress blir det `#0`/`#1`
+//   G2b samma kort flera gånger (`mergeSameCards`): samma id och adress blir en
+//      post, den första, och platserna pekar in i den sammanslagna listan;
+//      olika adresser förblir två kort, utan adress blir de ett, och en tom
+//      lista ger en tom lista
 //   G3 tillverkarnamnen (två AMD-id, ett okänt ger tomt)
 //   G4 sysfs mot ett falskt träd i en temporär katalog: card0 (i915,
 //      boot_vga), card1 (nvidia), anslutningen card1-HDMI-A-1 och simpledrm
@@ -42,7 +46,9 @@
 // räknad som kort (G4) · DRI_PRIME med `:` kvar (G5b) · id:t med namnet i
 // stället för subsystemet (G1) · valbarheten efter preferensen (G5i) ·
 // förvalets drivrutin som stoppar ett uttryckligt val (G5f/G5f2) · en tom
-// variabel som inte skrivs över (G6a).
+// variabel som inte skrivs över (G6a) · adressen ignorerad i `mergeSameCards`
+// (G2b, två lika kort blir ett) · den sista posten kvar i stället för den
+// första (G2b, förvalet tappas).
 //
 // Att `linux_gpu.cpp` verkligen anropar `applyPrimeEnvironment` med
 // `setenv(…, 1)` mäts inte här (Linux-only, TESTS-raden).
@@ -111,6 +117,43 @@ void fallId()
     gpu::disambiguateIds(u, {"", ""});
     check(u[0].id == "metal:X#0" && u[1].id == "metal:X#1",
           "G2 utan adress: #0 och #1", u[0].id + " " + u[1].id);
+
+    // Hybriddatorns lista: Intel, NVIDIA, Intel igen och programvarukortet.
+    std::vector<gfx::GpuAdapter> h(4);
+    h[0].id        = "pci:intel";
+    h[0].isDefault = true;
+    h[1].id        = "pci:nvidia";
+    h[2].id        = "pci:intel";
+    h[3].id        = "pci:basic";
+    std::vector<std::string> ha = {"00:00.0", "00:00.0", "00:00.0", "00:00.0"};
+    const std::vector<std::size_t> hp = gpu::mergeSameCards(h, ha);
+    check(h.size() == 3 && ha.size() == 3 && h[0].id == "pci:intel" &&
+              h[1].id == "pci:nvidia" && h[2].id == "pci:basic",
+          "G2b samma kort två gånger står en gång, i ordning");
+    check(h[0].isDefault, "G2b den första posten står kvar (förvalet)");
+    check(hp == std::vector<std::size_t>{0, 1, 0, 2},
+          "G2b platserna pekar in i den sammanslagna listan");
+
+    std::vector<gfx::GpuAdapter> två(2);
+    två[0].id = två[1].id = "pci:a";
+    std::vector<std::string> tvåa = {"01:00.0", "02:00.0"};
+    const std::vector<std::size_t> tvåp = gpu::mergeSameCards(två, tvåa);
+    check(två.size() == 2 && tvåp == std::vector<std::size_t>{0, 1},
+          "G2b lika kort på olika adresser förblir två");
+    gpu::disambiguateIds(två, tvåa);
+    check(två[0].id == "pci:a@01:00.0" && två[1].id == "pci:a@02:00.0",
+          "G2b och får sin adress i id:t", två[0].id + " " + två[1].id);
+
+    std::vector<gfx::GpuAdapter> utan(2);
+    utan[0].id = utan[1].id = "pci:a";
+    std::vector<std::string> utana = {"", ""};
+    gpu::mergeSameCards(utan, utana);
+    check(utan.size() == 1, "G2b utan adress blir lika kort ett");
+
+    std::vector<gfx::GpuAdapter> tom;
+    std::vector<std::string>     toma;
+    check(gpu::mergeSameCards(tom, toma).empty() && tom.empty(),
+          "G2b en tom lista ger en tom lista");
 
     check(gpu::vendorName(0x10de) == "NVIDIA" && gpu::vendorName(0x1002) == "AMD" &&
               gpu::vendorName(0x1022) == "AMD" && gpu::vendorName(0x8086) == "Intel" &&
