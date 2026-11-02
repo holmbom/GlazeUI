@@ -134,7 +134,7 @@ std::vector<DxgiAdapter> enumerateAdapters(IDXGIFactory1& f, bool probeKind)
             continue;
         DxgiAdapter k;
         k.adapter = a;
-        k.luid    = d.AdapterLuid;
+        k.luids   = {d.AdapterLuid};
         GpuAdapter& g = k.info;
         g.id          = gpu::pciAdapterId(d.VendorId, d.DeviceId, d.SubSysId,
                                           d.Revision);
@@ -172,10 +172,18 @@ std::vector<DxgiAdapter> enumerateAdapters(IDXGIFactory1& f, bool probeKind)
     std::vector<GpuAdapter> lista;
     for (const DxgiAdapter& k : ut)
         lista.push_back(k.info);
+    const std::vector<std::size_t> plats = gpu::mergeSameCards(lista, adress);
     gpu::disambiguateIds(lista, adress);
-    for (std::size_t i = 0; i < ut.size(); ++i)
-        ut[i].info.id = lista[i].id;
-    return ut;
+    std::vector<DxgiAdapter> kort;
+    for (std::size_t i = 0; i < ut.size(); ++i) {
+        if (plats[i] == kort.size()) {
+            kort.push_back(std::move(ut[i]));
+            kort.back().info.id = lista[plats[i]].id;
+        } else {
+            kort[plats[i]].luids.push_back(ut[i].luids.front());
+        }
+    }
+    return kort;
 }
 
 std::vector<GpuAdapter> gpuAdapters()
@@ -251,12 +259,13 @@ ComPtr<IDXGIAdapter1> chosenAdapter(IDXGIFactory1& f,
 std::string adapterIdOf(const std::vector<DxgiAdapter>& kort, const LUID& luid)
 {
     for (const DxgiAdapter& k : kort)
-        if (sameLuid(k.luid, luid))
-            return k.info.id;
+        for (const LUID& l : k.luids)
+            if (sameLuid(l, luid))
+                return k.info.id;
     return {};
 }
 
-// ADAPTRARNA I LOGGEN. En gång per process varje adapter DXGI
+// ADAPTRARNA I LOGGEN. En gång per process varje kort DXGI
 // räknar upp — id:t, namnet, slaget när kärnans flaggor känner det (proben
 // körs inte här), tillverkaren, det egna minnet — och sedan, vid varje NY
 // adapter (en annan än förra enhetens), vilken enheten fick och vad

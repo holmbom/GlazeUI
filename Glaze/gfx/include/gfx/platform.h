@@ -193,7 +193,8 @@ struct GpuAdapter {
 // Listan i systemets ordning, utan sidoeffekter: Windows skapar en enhet utan
 // kontext per kort som saknar hybridflaggor för att läsa slaget (tiotals ms),
 // Linux läser sysfs och rör aldrig EGL, macOS anropar aldrig
-// `MTLCreateSystemDefaultDevice`. Säker före `init()`. UI-trådens.
+// `MTLCreateSystemDefaultDevice`. Säker före `init()`. UI-trådens. Varje kort
+// står en gång, också när DXGI räknar upp det flera gånger.
 std::vector<GpuAdapter> gpuAdapters();
 
 // Det UTTRYCKLIGA valet — `id` ur listan, "" = inget (preferensen gäller).

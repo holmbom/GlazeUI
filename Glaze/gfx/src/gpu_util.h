@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -33,6 +34,15 @@ const char* kindName(GpuKind k);
 // `subsystem_vendor` ihop.
 std::string pciAdapterId(std::uint32_t vendor, std::uint32_t device,
                          std::uint32_t subsys, std::uint32_t revision);
+
+// SAMMA KORT FLERA GÅNGER: DXGI kan räkna upp ett kort mer än en gång. Poster
+// med samma id och samma `where` är ett kort, och bara den första står kvar i
+// `list` och `where` — ordningen är annars orörd, och två lika kort på olika
+// adresser förblir två. Utan adress går de inte att skilja åt och blir ett.
+// Svaret har en plats per post i den ursprungliga listan: postens index i den
+// sammanslagna.
+std::vector<std::size_t> mergeSameCards(std::vector<GpuAdapter>& list,
+                                        std::vector<std::string>& where);
 
 // DUBBLETTERNA: varje id som förekommer mer än en gång i `list` får `@where[i]`
 // (PCI-adressen "bb:dd.f", eller Metals plats) — eller `#n`, löpnumret bland

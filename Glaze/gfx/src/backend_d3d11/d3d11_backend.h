@@ -101,8 +101,10 @@ void appTimerShutdown();
 
 // GRAFIKKORTEN (d3d11_gpu.cpp). `enumerateAdapters` går
 // `EnumAdapters1` i DXGI:s ordning (index 0 = förvalet) med listans post,
-// adaptern och LUID:en; slaget ur kärnans hybridflaggor, och med `probeKind`
-// annars ur en prob-enhet (bara listan `gfx::gpuAdapters` probar).
+// adaptern och LUID:erna; ett kort DXGI räknar upp flera gånger står en gång
+// (`gpu::mergeSameCards`) med sin första adapter och allas LUID:er. Slaget ur
+// kärnans hybridflaggor, och med `probeKind` annars ur en prob-enhet (bara
+// listan `gfx::gpuAdapters` probar).
 // `chosenAdapter` är det en ny renderare tar: kortet `gpuAdapter()` om det
 // finns, annars GPU-preferensens (`preferredAdapter`, loggat) — nullptr =
 // DXGI:s första. `adapterIdOf` är id:t för enhetens LUID (tomt utan
@@ -111,7 +113,7 @@ void appTimerShutdown();
 struct DxgiAdapter {
     GpuAdapter            info;
     ComPtr<IDXGIAdapter1> adapter;
-    LUID                  luid{};
+    std::vector<LUID>     luids;
 };
 std::vector<DxgiAdapter> enumerateAdapters(IDXGIFactory1& f, bool probeKind);
 ComPtr<IDXGIAdapter1>    preferredAdapter(IDXGIFactory1& f, GpuPreference p);

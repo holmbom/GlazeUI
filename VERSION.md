@@ -21,6 +21,10 @@ versionen sätts.
 
 ## Nästa
 
+## 0.4.1
+
+- **Fix** — `gfx::gpuAdapters()` listar varje kort en gång också när DXGI räknar upp det flera gånger, som Intel-kortet på en dator med Intel- och NVIDIA-kort.
+
 ## 0.4.0
 
 - **New** — en form i flera delar: `Shape::polygons(std::vector<glaze::Polygon>, …)`, där varje del är en ytterring med sina hål — en stil, ett träffprov och ett index för hela ytan; i `.glazeui` med bara klamrar, `glaze::Shape::polygons({{ytter, {hål}}, …}, fyllning)`.

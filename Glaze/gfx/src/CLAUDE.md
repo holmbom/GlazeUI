@@ -335,7 +335,8 @@ utanför sin mapp (metal_backend.h bär ObjC-typer — BARA .mm-filer).
   ren std, namnrymden `gfx::gpu`: GRAFIKKORTENS gemensamma del. `vendorName`
   (PCI-tillverkaren), `preferenceName`/`kindName` (loggarna i alla tre),
   `pciAdapterId` (id:t `pci:vvvv:dddd:ssssssss:rr` — subsystemet i DXGI:s
-  `SubSysId`-form, samma tal som Linux sysfs) och `disambiguateIds` (`@adress`
+  `SubSysId`-form, samma tal som Linux sysfs), `mergeSameCards` (samma id och
+  samma adress är ett kort — D3D11:s uppräkning) och `disambiguateIds` (`@adress`
   eller `#n` BARA på id som krockar). Och LINUX-VALET som rena funktioner,
   kompilerade i alla tre bygg så att `tests/gpu_gate.cpp` mäter dem headless:
   `scanDrmCards(DrmPaths)` (sysfs: bara `card[0-9]+` med en `renderD*`;
