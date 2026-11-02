@@ -5670,6 +5670,7 @@ Utseendet är tre oberoende axlar plus läget, och det är APP-GLOBALT: en sette
 - `void setTheme(const Theme& t);` · `const Theme& theme() const;` · `void setColorsLight(const Theme::Colors& c);` · `void setColorsDark(const Theme::Colors& c);`
 - `void setStyle(const Style& s);` · `const Style& style() const;` · `void setThemeMode(ThemeMode m);` · `enum class ThemeMode { System, Light, Dark };`
 - `int themeCount(UI u);` · `const Theme& themeAt(UI u, int index);` · `const Theme& defaultTheme(UI u);` — Slate: "Windows" + nio hues, Minimalistic: nio hues, Glaze: "Lavender". Index 0 = förval.
+- FÖNSTRETS GRADIENT, av som förval: `struct WindowGradient { Corner topLeft, topRight, bottomRight, bottomLeft, topLeftDark, topRightDark, bottomRightDark, bottomLeftDark; bool active() const; };` · `WindowGradient::Corner tint(gfx::Color c, float strength = 1.0f);` · `WindowGradient::Corner tintAccent(float strength);` — färgen och styrkan (0–1) mot temats `windowBg`, och ett hörn som inte är satt är bakgrunden. Ljust och mörkt läge har var sin uppsättning. `App::setWindowGradient(const WindowGradient& g)` gäller alla fönster, `AppWindow::setWindowGradient(std::optional<WindowGradient> g)` ett fönster: en egen går före appens, också en tom som stänger av, och `std::nullopt` följer appens igen. Den platta formen: `setGradientCorner(WindowCorner w, gfx::Color c, float strength = 1.0f)` · `setGradientAccent(WindowCorner w, float strength)`, med `enum class WindowCorner { TopLeft, TopRight, BottomRight, BottomLeft, TopLeftDark, TopRightDark, BottomRightDark, BottomLeftDark }`.
 - `int styleCount(UI u);` · `const Style& styleAt(UI u, int index);` · `const Style& defaultStyle(UI u);` — i dag en per UI, alla heter "Regular".
 - `static const Theme& slate(Hue h);` · `static const Theme& minimalistic(Hue h);` · `enum class Hue { Neutral, Red, Orange, Amber, Green, Teal, Blue, Indigo, Violet };`
 
@@ -5688,11 +5689,25 @@ void pickAppearance(glaze::AppWindow& win)
     glaze::Theme::Colors c = win.theme().light.colors;     // egen accent i ljust läge
     c.accent = gfx::Color{0x33, 0x66, 0xFF, 255};
     win.setColorsLight(c);
+
+    glaze::WindowGradient g;                               // ljust: blått hörn mot vitt
+    g.topLeft     = glaze::tint(gfx::Color{150, 205, 255});
+    g.topRight    = glaze::tint(gfx::Color{255, 255, 255});
+    g.bottomRight = glaze::tint(gfx::Color{255, 255, 255});
+    g.bottomLeft  = glaze::tint(gfx::Color{255, 255, 255});
+    g.topLeftDark = glaze::tint(gfx::Color{150, 205, 255}, 0.25f);   // mörkt: dämpat
+    win.setWindowGradient(g);                              // alla fönster: glaze::app().setWindowGradient(g)
 }
 ```
 
 ### .glazeui
-Ingen sats — `setUI` i genererad kod vore per-fönster-tema bakvägen och är förkastat. Filen kan bära en DESIGNRAD, en kommentar som bara GlazeBuilder, glaze-render och VS Code läser (ritbordets utseende, inte appens):
+Fönstrets gradient är nakna fönsteranrop, ett per hörn, och previewn utför dem:
+```cpp
+setGradientCorner(glaze::WindowCorner::TopLeft, gfx::Color{150, 205, 255});
+setGradientCorner(glaze::WindowCorner::TopLeftDark, gfx::Color{150, 205, 255}, 0.25f);
+setGradientAccent(glaze::WindowCorner::BottomRight, 0.08f);
+```
+Appens globala gradient har ingen form i filen. För övrigt ingen sats — `setUI` i genererad kod vore per-fönster-tema bakvägen och är förkastat. Filen kan bära en DESIGNRAD, en kommentar som bara GlazeBuilder, glaze-render och VS Code läser (ritbordets utseende, inte appens):
 ```cpp
 // glazeui-design: ui=Minimalistic theme=minimalistic(Violet) style=0 lang=sv
 ```

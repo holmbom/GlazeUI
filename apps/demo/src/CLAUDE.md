@@ -674,6 +674,10 @@ tre-fils-modellen och de hårda reglerna.
   sender. Hela fönstret är `.glazeui`-vägen; `.cpp` bär bara
   `stangTimerTick` → `close()`. roundtrip_gate läser den byte-identiskt och
   med spar-policyn, preview_gate kräver att texterna är tr-id.
+- **`login_window.h/.cpp`** — **`demo --login`**, HANDKODAT: en inloggningsruta
+  med fönstrets gradient, ljust blått i övre vänstra hörnet och vitt i de andra,
+  i mörkt läge ett dämpat blått mot bakgrunden. Knappen uppe till höger växlar
+  läge. Texterna är literaler.
 - **`slate_window.h/.cpp`** — **`demo --slate`**, HANDKODAT: arbetsbänken för
   Slates utseende. EN rullande sida med varje komponent, de flesta aktiva och
   inaktiverade, i rader (`Rad`, en ren Bar) vars celler (`Cell`) delar bredden

@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -301,5 +303,79 @@ struct ColorPalette {
     int                         columns = 1;
 };
 const ColorPalette& standardPalette();
+
+// FÖNSTRETS GRADIENT: en svag bakgrund med en färg per hörn, av som förval.
+// Varje hörn är en färg och en styrka (0–1) mot temats `windowBg`, och ett hörn
+// man inte sätter är bakgrunden. Ljust och mörkt läge har var sin uppsättning,
+// som temat har två varianter: ljust vitt ska inte följa med in i mörkt läge.
+//     glaze::WindowGradient g;
+//     g.topLeft     = glaze::tint(gfx::Color{150, 205, 255});
+//     g.topLeftDark = glaze::tint(gfx::Color{150, 205, 255}, 0.25f);
+//     g.bottomRight = glaze::tintAccent(0.08f);
+// Global med `App::setWindowGradient`, per fönster med
+// `AppWindow::setWindowGradient`. I `.glazeui` är formen platt, en sats per hörn:
+//     setGradientCorner(glaze::WindowCorner::TopLeft, gfx::Color{150, 205, 255});
+//     setGradientAccent(glaze::WindowCorner::BottomRightDark, 0.08f);
+// Remsorna (namnlist, menyrad, verktygsfält, statusrad, dockningens band och
+// flikrader) släpper igenom den när den är på; paneler med ram och kontroller
+// behåller sina ytor.
+enum class WindowCorner : std::uint8_t {
+    TopLeft, TopRight, BottomRight, BottomLeft,
+    TopLeftDark, TopRightDark, BottomRightDark, BottomLeftDark
+};
+
+struct WindowGradient {
+    struct Corner {
+        std::optional<gfx::Color> color;   // inget värde = temats accent
+        float                     strength = 0.0f;
+
+        // Hörnets färg i en palett.
+        gfx::Color resolve(const Theme::Colors& c) const;
+    };
+    Corner topLeft;
+    Corner topRight;
+    Corner bottomRight;
+    Corner bottomLeft;
+    Corner topLeftDark;
+    Corner topRightDark;
+    Corner bottomRightDark;
+    Corner bottomLeftDark;
+
+    // Hörnet för den platta formen.
+    Corner& corner(WindowCorner w)
+    {
+        switch (w) {
+        case WindowCorner::TopLeft:         return topLeft;
+        case WindowCorner::TopRight:        return topRight;
+        case WindowCorner::BottomRight:     return bottomRight;
+        case WindowCorner::BottomLeft:      return bottomLeft;
+        case WindowCorner::TopLeftDark:     return topLeftDark;
+        case WindowCorner::TopRightDark:    return topRightDark;
+        case WindowCorner::BottomRightDark: return bottomRightDark;
+        case WindowCorner::BottomLeftDark:  break;
+        }
+        return bottomLeftDark;
+    }
+
+    // Något hörn har en styrka, i något läge. Annars är gradienten av.
+    bool active() const
+    {
+        return topLeft.strength > 0.0f || topRight.strength > 0.0f ||
+               bottomRight.strength > 0.0f || bottomLeft.strength > 0.0f ||
+               topLeftDark.strength > 0.0f || topRightDark.strength > 0.0f ||
+               bottomRightDark.strength > 0.0f || bottomLeftDark.strength > 0.0f;
+    }
+};
+
+// Ett hörn i en egen färg — `strength` 1 är färgen rakt av.
+inline WindowGradient::Corner tint(gfx::Color c, float strength = 1.0f)
+{
+    return WindowGradient::Corner{c, strength};
+}
+// Ett hörn i temats accent.
+inline WindowGradient::Corner tintAccent(float strength)
+{
+    return WindowGradient::Corner{std::nullopt, strength};
+}
 
 } // namespace glaze

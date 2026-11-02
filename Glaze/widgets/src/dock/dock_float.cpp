@@ -121,7 +121,7 @@ void ToolFloatHeader::draw(const Ctx& c)
     // `windowBg` med fönsterkantens hårlinje `frame` under, och den tända
     // plattan laminerad med kontrollkanten — som panelrubrikens knappar.
     case UI::Glaze:
-        Draw::rect(c, b, 0.0f, col.windowBg);
+        fillWindowSurface(c, b);
         linjeUnder(col.frame);
         if (het || nere) {
             Draw::rect(c, pl, m.cornerRadius,
@@ -151,7 +151,7 @@ void ToolFloatHeader::draw(const Ctx& c)
     // kontrollkanten under, och den tända plattan utan kontur.
     case UI::Slate:
     default:
-        Draw::rect(c, b, 0.0f, col.windowBg);
+        fillWindowSurface(c, b);
         linjeUnder(col.border);
         if (het || nere)
             Draw::rect(c, pl, m.cornerRadius,

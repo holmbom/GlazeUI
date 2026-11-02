@@ -118,6 +118,17 @@ void App::invalidateAll()
         w->invalidate();
 }
 
+void App::setWindowGradient(const WindowGradient& g)
+{
+    themeState().gradient = g;
+    invalidateAll();
+}
+
+const WindowGradient& App::windowGradient() const
+{
+    return themeState().gradient;
+}
+
 // Byte av UI/Style kan ändra UI-fontens storlek — då måste varje ÖPPET
 // fönster rastrera om sin font innan nästa repaint, annars mäts de nya
 // måtten mot gamla radhöjden. Ordningen är säker: font_ byts ut medan ingen

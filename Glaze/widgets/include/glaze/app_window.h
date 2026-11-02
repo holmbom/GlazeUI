@@ -789,6 +789,19 @@ public:
     void setThemeMode(ThemeMode m);
     ThemeMode themeMode() const;
 
+    // FÖNSTRETS GRADIENT (theme.h). En egen gradient gäller före appens, också
+    // en tom, som stänger av den här; `std::nullopt` följer appens igen.
+    // `windowGradient()` svarar med den som gäller.
+    void setWindowGradient(std::optional<WindowGradient> g);
+    const WindowGradient& windowGradient() const;
+    // DEN PLATTA FORMEN, ett hörn i taget — samma tillstånd som aggregatet ovan,
+    // i fönstrets egen gradient, och formen `.glazeui` bär.
+    void setGradientCorner(WindowCorner w, gfx::Color c, float strength = 1.0f);
+    void setGradientAccent(WindowCorner w, float strength);
+    // Bakgrundens färg i en punkt, klientkoordinater i fysiska px: gradienten i
+    // det aktiva läget, annars `windowBg`.
+    gfx::Color windowBackgroundAt(const Ctx& c, float x, float y) const;
+
     // Skapa och äg en widget: auto* b = add<glaze::Button>("Spara").
     // Widgeten hamnar i fönstrets osynliga ROT-PANEL och resolvar mot
     // innehållsytan — containers (Panel) läggs likadant och får sedan
@@ -1622,6 +1635,9 @@ private:
     // anpassade, sedan gäller fönstrets aktuella (användarens drag vinner).
     SizeToContent             sizeToContent_ = SizeToContent::Manual;
     SizeToContentMode         sizeToContentMode_ = SizeToContentMode::GrowAndShrink;
+    std::optional<WindowGradient> gradient_;   // fönstrets egen; annars appens
+    // Gradienten över hela klientytan, under barnen och inom det klipp som gäller.
+    void drawWindowGradient(const Ctx& c, const gfx::Rectf& client);
     std::optional<gfx::Sizef> fitWanted_;
     int                       fitClientW_ = 0, fitClientH_ = 0;
     bool                      sizeRequestNew_ = false;

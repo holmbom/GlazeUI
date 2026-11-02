@@ -21,6 +21,11 @@ versionen sätts.
 
 ## Nästa
 
+## 0.5.0
+
+- **New** — fönstrets gradient: en svag bakgrund med en färg per hörn, av som förval. Global med `App::setWindowGradient`, per fönster med `AppWindow::setWindowGradient`, och i `.glazeui` med `setGradientCorner`/`setGradientAccent`. Ljust och mörkt läge har var sin uppsättning hörn (`glaze::tint`, `glaze::tintAccent`).
+- **New** — `gfx::Renderer::fillRectCorners`: en rektangel med fyra hörnfärger och en jämn övergång.
+
 ## 0.4.2
 
 - **New** — `Bar::addGap(width)`: ett fast mellanrum i en remsa; en `Spacer` med vikten 0 och inget mått blir stilens `spacerW` (8 px).

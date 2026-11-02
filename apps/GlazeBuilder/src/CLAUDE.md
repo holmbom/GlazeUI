@@ -283,7 +283,7 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   OPAK och etiketten orörd, också i setter-fallbacken (en egen Label-subklass); `applyCall`
   utför `show`/`hide`/`enable`/`disable`/`setIndeterminate(bool)`/
   `showScrollbars(bool)`. **`applyWindowCall`** (APP_API_2 steg 2) utför de
-  NAKNA fönsteranropen på ett `glaze::AppWindow` — `setTitle`/
+  NAKNA fönsteranropen på ett `glaze::AppWindow` — `setGradientCorner`/`setGradientAccent`/`setTitle`/
   `setClientSize`/`setContentSize`/`setMinimumSize`/`setMaximumSize`/`set{Minimum,Maximum,Fixed}ContentSize` (REQ8 21)/
   `setControlBox`/`setMinimizeBox`/`setMaximizeBox`/`setModal`/`setPopup`/`setPopupTakesKeys` (REQ8 27)/
   `setTransparent`/`setTopmost`/`setShowInTaskbar` (de två sista attribut som

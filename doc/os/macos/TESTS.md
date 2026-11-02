@@ -225,3 +225,10 @@ fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
   *Rätt utfall:* inget streck över statusraden från en `DataGrid` utanför sidan,
   inga Metal-valideringsfel, och fönsterknapparna står till vänster utan kapsel
   med en ljusgrå hover.
+
+- **Fönstrets gradient** (blint skrivet): `MetalRenderer::fillQuadCorners`
+  (`metal_renderer.mm`) och det delade rutnätet `Renderer::fillRectCorners`.
+  *Gör:* kör `gradient_gate` och `demo --login`, och växla läge med knappen uppe
+  till höger.
+  *Rätt utfall:* grinden grön; blått i övre vänstra hörnet mot vitt, ett dämpat
+  blått mörkt, inga veck eller skarvar, och inga Metal-valideringsfel.

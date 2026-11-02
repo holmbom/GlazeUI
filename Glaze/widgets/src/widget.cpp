@@ -1113,6 +1113,13 @@ void Widget::notifyShownChanged()
 // lämnat syskonens gamla pixlar kvar. Föräldern ritas i stället om — dess
 // yta omsluter barnen — och är föräldern fönstrets rot, som inte ingår i
 // damage-vandringen, hela fönstret. Fristående widgets: no-op.
+void Widget::fillWindowSurface(const Ctx& c, const gfx::Rectf& r) const
+{
+    if (const AppWindow* w = appWindow(); w && w->windowGradient().active())
+        return;
+    Draw::rect(c, r, 0.0f, c.theme->colors.windowBg);
+}
+
 void Widget::relayoutSiblings()
 {
     AppWindow* const f = liveOwner();

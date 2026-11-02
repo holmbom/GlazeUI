@@ -1402,3 +1402,11 @@ vWorld.xy)`; `kPointsGlsl*`: `vClipPx` (noperspective) och `vAnchor`),
   bråkdelsskala och byt tema med F8 och läge med F9.
   *Rätt utfall:* inget streck över statusraden från en `DataGrid` utanför sidan,
   och fönsterknapparna står utan kapsel med en ljusgrå hover.
+
+- **Fönstrets gradient** (blint skrivet): `GlRenderer::fillQuadCorners`
+  (`linux_renderer.cpp`), det delade rutnätet `Renderer::fillRectCorners` och
+  klippet mot det RUNDADE fönstret i `AppWindow::drawWindowGradient`.
+  *Gör:* kör `gradient_gate` och `demo --login` på Wayland och X11, och växla
+  läge med knappen uppe till höger.
+  *Rätt utfall:* grinden grön; gradienten följer fönstrets rundade hörn, inga
+  veck eller skarvar och inga glipor vid hörnen.

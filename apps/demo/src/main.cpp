@@ -2,6 +2,7 @@
 #include <cstring>
 
 #include "dock_window.h"
+#include "login_window.h"
 #include "slate_window.h"
 #include "splash_window.h"
 #include "start_window.h"
@@ -21,6 +22,7 @@
 //   demo --window-lab     fönsterlabbet (geometrin, läget, spara/återställ, pekarna)
 //   demo --dock           dockningen (flikar, staplar, handtag, layoutsträngen)
 //   demo --slate          arbetsbänken för Slate (alla komponenter på en sida)
+//   demo --login          inloggningsrutan med fönstrets gradient
 //   demo --splash …       splashen FÖRST (ramlös, mitt på skärmen, en Timer i
 //                         .glazeui stänger den) — sedan som utan flaggan
 int main(int argc, char** argv)
@@ -36,6 +38,7 @@ int main(int argc, char** argv)
 
     bool galleri = false, systemfalt = false, dold = false;
     bool splash = false, labb = false, dockning = false, slate = false;
+    bool login = false;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--gallery") == 0)
             galleri = true;
@@ -51,6 +54,8 @@ int main(int argc, char** argv)
             dockning = true;
         else if (std::strcmp(argv[i], "--slate") == 0)
             slate = true;
+        else if (std::strcmp(argv[i], "--login") == 0)
+            login = true;
     }
 
     // SPLASHEN går före allt annat och stänger sig själv:
@@ -74,6 +79,11 @@ int main(int argc, char** argv)
     if (slate) {
         SlateWindow s;
         return s.run();
+    }
+
+    if (login) {
+        LoginWindow l;
+        return l.run();
     }
 
     if (galleri) {
