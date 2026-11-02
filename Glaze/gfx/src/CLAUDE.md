@@ -123,7 +123,8 @@ utanför sin mapp (metal_backend.h bär ObjC-typer — BARA .mm-filer).
   `rebindClipMasks`, regeln för när maskerna binds om; en saknad mask är den
   VITA texturen i alla tre.
 - **`renderer.cpp`** — backend-neutralt: klipp-stackens delade logik
-  (`pushClip`/`popClip` — intersektion, obalans loggas). Backends
+  (`pushClip`/`popClip` — intersektion, en tom yta på hela pixlar så att
+  backendens avrundning utåt inte öppnar en pixelrad, obalans loggas). Backends
   implementerar bara `applyClip(scissor, masks, count)`; rundningen (UTÅT
   till hela pixlar) görs i backendens applyClip, likadant i alla.
   **RUNDADE MASKER (2026-08-21):** stacken bär `{scissor, mask, radius}`

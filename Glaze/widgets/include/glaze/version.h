@@ -13,7 +13,7 @@
 
 #define GLAZE_VERSION_MAJOR 0
 #define GLAZE_VERSION_MINOR 4
-#define GLAZE_VERSION_PATCH 1
+#define GLAZE_VERSION_PATCH 2
 
 // Ett jämförbart tal: 0.1.0 → 100, 1.2.3 → 10203.
 #define GLAZE_VERSION_OF(major, minor, patch) \

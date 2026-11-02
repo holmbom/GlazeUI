@@ -14,10 +14,11 @@
 //
 // STANDARDKNAPPEN — den knapp Enter trycker just nu i ett
 // fönster med en acceptknapp (`AppWindow::isDefaultButton`) — tar befintliga
-// ROLLER och inga nya mått: fyllningen är accentytan i sina tre tillstånd
-// (`accentSurface`/`…Hover`/`…Press`) och texten `onAccent`, paret som
-// contrast_gate redan grindar till 4,5:1. Per familj:
-//   Slate         konturen i fyllningens färg
+// ROLLER och inga nya mått. I Glaze och Minimalistic är fyllningen accentytan i
+// sina tre tillstånd (`accentSurface`/`…Hover`/`…Press`) och texten `onAccent`,
+// paret som contrast_gate redan grindar till 4,5:1. Per familj:
+//   Slate         ingen accentyta: en vanlig platta med konturen i `accent` —
+//                 fokusringen tar över den när knappen har fokus
 //   Glaze         UTAN laminering — det vita fältet sänker `onAccent` till
 //                 2,91:1 på accentytan (mätt i listbox.cpp)
 //   Minimalistic  kanten i fyllningens färg
@@ -267,14 +268,15 @@ void Button::draw(const Ctx& c)
     case UI::Slate:
     default:   // okänd ritning faller till Slate — övriga avviker per widget
         // Skuggan lyfter knappen ur ytan; trycket "sänker" den (skuggan bort).
-        // STANDARDKNAPPEN bär konturen i fyllningens färg.
+        // STANDARDKNAPPEN bär konturen i accenten.
         if (isEnabled() && !pressed())
             Draw::shadow(c, b, rad, 0.0f, m.raiseDy,
                          hovered() ? m.raiseBlurHover : m.raiseBlur,
                          col.shadow);
 
         Draw::rect(c, b, rad, fillColor(c),
-                   Pen{standard ? fillColor(c) : hotBorder(c), m.borderWidth});
+                   Pen{standard && !focused() ? col.accent : hotBorder(c),
+                       m.borderWidth});
         Draw::content(c, b, content(c));
 
         if (focused() && isEnabled())
@@ -304,14 +306,15 @@ float Button::radius(const Ctx& c, const gfx::Rectf& b) const
 }
 
 // Fyllnaden är knappens EGEN: den har ett press-läge som t.ex. checkboxen
-// saknar, så den delas inte. STANDARDKNAPPEN tar accentytans tre tillstånd;
-// en inaktiverad knapp är aldrig standard och faller till den neutrala.
+// saknar, så den delas inte. STANDARDKNAPPEN tar accentytans tre tillstånd
+// (i Slate den vanliga plattan — dess markering är konturen); en inaktiverad
+// knapp är aldrig standard och faller till den neutrala.
 gfx::Color Button::fillColor(const Ctx& c) const
 {
     const auto& col = c.theme->colors;
 
     if (!isEnabled()) return col.buttonDisabled;
-    if (shownAsDefault()) {
+    if (c.ui != UI::Slate && shownAsDefault()) {
         if (pressed()) return col.accentSurfacePress;
         if (hovered()) return col.accentSurfaceHover;
         return col.accentSurface;
@@ -330,8 +333,9 @@ gfx::Color Button::labelColor(const Ctx& c) const
     // Standardknappens accentyta bär `onAccent` (paret är grindat till
     // 4.5:1 i contrast_gate). Den vanliga kroppen är vald så att den bär den
     // VANLIGA textfärgen i båda lägena (svart på #cbbafb = 9.8:1, vit på
-    // #422f78 = 11.0:1), och för den behövs ingen egen roll.
-    if (isEnabled() && shownAsDefault())
+    // #422f78 = 11.0:1), och för den behövs ingen egen roll. Slates
+    // standardknapp har ingen accentyta och bär den vanliga texten.
+    if (c.ui != UI::Slate && isEnabled() && shownAsDefault())
         return c.theme->colors.onAccent;
     // APPENS FÄRG på en aktiv knapp — accentytan
     // ovan vinner som markeringen, och en inaktiv dimmas av basen.

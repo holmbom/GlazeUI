@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include <gfx/platform.h>
 
@@ -69,6 +70,18 @@ constexpr float kCapsuleClose = 0.80f;
 // till `onAccent`, ett par paletten redan grindar (`onAcc/press`). Hovern
 // är dämpad och tyst, trycket är helt — det är skillnaden mellan att peka
 // och att bestämma sig.
+
+// SLATES TÄNDA FACK: en ljus grå, andelen av vägen från `titlebar` mot texten,
+// så att min och max svarar lika tydligt på pekaren som stängknappen.
+// `chromeGlyph` håller mot båda (grindat som glyph/capsHover och glyf/capsPress).
+constexpr float kSlateCapsHover = 0.25f;
+constexpr float kSlateCapsPress = 0.35f;
+
+void deriveSlateCapsule(Theme::Colors& c)
+{
+    c.capsuleHover = mix(c.titlebar, c.text, kSlateCapsHover);
+    c.capsulePress = mix(c.titlebar, c.text, kSlateCapsPress);
+}
 
 void deriveCapsule(Theme::Colors& c)
 {
@@ -248,12 +261,47 @@ void deriveRoles(Theme::Colors& c)
 
 } // namespace
 
+const Theme::Variant& Theme::muted(const Variant& v)
+{
+    // Andelarna (0..1) mot ytan bakom remsan.
+    constexpr float kAccent   = 0.50f;   // accenten mot den dämpade texten
+    constexpr float kSurface  = 0.30f;
+    constexpr float kFill     = 0.70f;   // knappar och fält: nästan i bakgrunden
+    constexpr float kEdge     = 0.50f;
+    constexpr float kText     = 0.20f;   // texten och standardikonerna
+    constexpr float kImage    = 1.0f - kText;   // appens bilder, lika mycket
+
+    // EN post räcker: under en ritning är det samma variant för varje remsa.
+    static Variant källa;
+    static Variant tonad;
+    static bool    giltig = false;
+    if (giltig && std::memcmp(&källa.colors, &v.colors, sizeof v.colors) == 0)
+        return tonad;
+    källa  = v;
+    tonad  = v;
+    giltig = true;
+
+    const Colors& k = v.colors;
+    Colors&       t = tonad.colors;
+    t.text          = mix(k.text, k.windowBg, kText);
+    t.textDim       = mix(k.textDim, k.windowBg, kText);
+    t.accent        = mix(k.accent, k.textDim, kAccent);
+    t.link          = t.accent;
+    t.accentSurface = mix(k.accentSurface, k.windowBg, kSurface);
+    t.button        = mix(k.button, k.windowBg, kFill);
+    t.panel         = mix(k.panel, k.windowBg, kFill);
+    t.buttonBorder  = mix(k.buttonBorder, k.windowBg, kEdge);
+    t.border        = mix(k.border, k.windowBg, kEdge);
+    tonad.imageOpacity = kImage;
+    return tonad;
+}
+
 const Theme& Theme::slateDefault()
 {
-    // Windows standardfärger (Win11-paletten) i båda lägena.
+    // Win11-palettens neutraler i båda lägena, med en mattad blå accent.
     static const Theme t = [] {
         Theme th{
-        "Windows",   // Win11-paletten — referensen, RÖRS INTE. lang_gate:rad API-namn
+        "Windows",   // lang_gate:rad API-namn
         // light
         Variant{Colors{
             {243, 243, 243, 255},   // windowBg
@@ -269,14 +317,14 @@ const Theme& Theme::slateDefault()
             {255, 255, 255, 0},     // sheen          — Slate lamineras inte
             {255, 255, 255, 0},     // sheenHigh
             {208, 208, 208, 255},   // border
-            {0, 103, 192, 255},     // accent
-            {0, 103, 192, 255},     // accentSurface — samma i ljust läge
-            {0, 90, 168, 255},      // accentSurfaceHover
-            {0, 78, 145, 255},      // accentSurfacePress
+            {38, 105, 168, 255},    // accent
+            {38, 105, 168, 255},    // accentSurface — samma i ljust läge
+            {32, 92, 150, 255},     // accentSurfaceHover
+            {27, 80, 132, 255},     // accentSurfacePress
             {255, 255, 255, 255},   // onAccent — vit text på blå yta
             {0, 0, 0, 40},          // shadow — diskret på ljus botten
-            {0, 103, 192, 255},     // link
-            {0, 78, 145, 255},      // linkHover — mörknar vid pekaren
+            {38, 105, 168, 255},    // link
+            {27, 80, 132, 255},     // linkHover — mörknar vid pekaren
             {243, 243, 243, 255},   // titlebar — sömlös mot windowBg
             {27, 27, 27, 255},      // titlebarText
             {229, 229, 229, 255},   // chromeHover
@@ -308,14 +356,15 @@ const Theme& Theme::slateDefault()
             {255, 255, 255, 0},     // sheen
             {255, 255, 255, 0},     // sheenHigh
             {61, 61, 61, 255},      // border
-            {96, 205, 255, 255},    // accent
-            {0, 120, 212, 255},     // accentSurface — MÄTTAD, inte den ljusa
-            {30, 140, 230, 255},    // accentSurfaceHover
-            {0, 100, 180, 255},     // accentSurfacePress
+            {117, 174, 215, 255},   // accent
+            {42, 111, 168, 255},    // accentSurface — mörkare än den ljusa,
+                                    // så att vit text klarar 4.5:1
+            {52, 122, 178, 255},    // accentSurfaceHover
+            {34, 96, 148, 255},     // accentSurfacePress
             {255, 255, 255, 255},   // onAccent
             {0, 0, 0, 110},         // shadow — mörk botten kräver mer alfa
-            {96, 205, 255, 255},    // link
-            {160, 225, 255, 255},   // linkHover — ljusnar vid pekaren
+            {117, 174, 215, 255},   // link
+            {160, 200, 230, 255},   // linkHover — ljusnar vid pekaren
             {32, 32, 32, 255},      // titlebar — sömlös mot windowBg
             {255, 255, 255, 255},   // titlebarText
             {45, 45, 45, 255},      // chromeHover
@@ -337,6 +386,8 @@ const Theme& Theme::slateDefault()
         // deriveRoles (kapseln + den skrivskyddade fältytan).
         deriveRoles(th.light.colors);
         deriveRoles(th.dark.colors);
+        deriveSlateCapsule(th.light.colors);
+        deriveSlateCapsule(th.dark.colors);
         return th;
     }();
     return t;
@@ -528,8 +579,8 @@ constexpr Ladder kMiniDark{
 // ---- Slate: EGEN trappa, inte Minimalistics. Slate ritar FYLLDA ytor där
 // Minimalistic ritar kanter, så samma mättnadsprofil ger ett annat intryck:
 // en tonad yta täcker hundra gånger så många pixlar som en tonad linje.
-// Därför HALVERAD ytmättnad — och en betydligt kraftigare accent, eftersom
-// accenten här är en YTA man trycker på och inte en linje. Ljushetsstegen
+// Därför HALVERAD ytmättnad — och en mattad accent, som ska synas utan att
+// dominera ytan den står på. Ljushetsstegen
 // är Win11-palettens EGNA, tagna ur slateDefault() ovan, så de nio
 // genererade familjerna känns som syskon till "Windows".
 //
@@ -537,10 +588,10 @@ constexpr Ladder kMiniDark{
 //   buttonBorder 0.500 (Windows 0.816 = 1.39:1 mot bakgrunden) — under
 //     3:1-kravet för en kontrollkant. Referenspaletten får behålla sin
 //     siffra; en NY palett skrivs inte trasig.
-//   accent 0.340 (Windows 0.376) — Windows accent är en MÄTTAD BLÅ, och
-//     blått är mörkt. Samma ljushet i grönt/gult mäter 2.51:1 mot samma
-//     bakgrund, alltså under 3:1 för en fokusring. Hue-oberoende trappa
-//     kräver den mörkaste kulörens ljushet.
+//   accent 0.340 (Windows 0.404) — Windows accent är BLÅ, och blått är
+//     mörkt. Samma ljushet i grönt/gult mäter för lågt mot samma bakgrund
+//     för en fokusring (3:1). Hue-oberoende trappa kräver den mörkaste
+//     kulörens ljushet.
 constexpr Ladder kSlateLight{
     /* windowBg      */ 0.953f, /* panel */ 0.984f, /* appWorkspace */ 0.898f,
     /* buttonHover   */ 0.965f, /* buttonPress */ 0.941f,
@@ -549,17 +600,18 @@ constexpr Ladder kSlateLight{
     /* accent        */ 0.340f, /* accentSurface */ 0.380f,
     /* link          */ 0.280f, /* linkHover */ 0.240f,
     /* titlebar      */ 0.953f,   // sömlös mot windowBg, som Windows
-    /* sSurface      */ 0.10f,  /* sText */ 0.12f, /* sAccent */ 0.75f,
+    /* sSurface      */ 0.10f,  /* sText */ 0.12f, /* sAccent */ 0.50f,
 };
 constexpr Ladder kSlateDark{
     /* windowBg      */ 0.125f, /* panel */ 0.169f, /* appWorkspace */ 0.094f,
     /* buttonHover   */ 0.196f, /* buttonPress */ 0.153f,
     /* text          */ 0.940f, /* textDim */ 0.627f,
     /* border        */ 0.300f, /* buttonBorder */ 0.460f,
-    /* accent        */ 0.680f, /* accentSurface */ 0.380f,
+    /* accent        */ 0.680f, /* accentSurface */ 0.340f,   // under bandet där varken
+                                                              // ljus eller mörk text når 4.5:1
     /* link          */ 0.680f, /* linkHover */ 0.760f,
     /* titlebar      */ 0.125f,
-    /* sSurface      */ 0.09f,  /* sText */ 0.07f, /* sAccent */ 0.65f,
+    /* sSurface      */ 0.09f,  /* sText */ 0.07f, /* sAccent */ 0.45f,
 };
 
 // onAccent och de två accent-TILLSTÅNDEN hänger ihop och avgörs av en
@@ -666,7 +718,10 @@ const Theme& Theme::minimalistic(Hue h)
 const Theme& Theme::slate(Hue h)
 {
     return cachedFamily(h, [](Hue x) {
-        return buildTheme(x, kSlateLight, kSlateDark, hueName(x));
+        Theme t = buildTheme(x, kSlateLight, kSlateDark, hueName(x));
+        deriveSlateCapsule(t.light.colors);
+        deriveSlateCapsule(t.dark.colors);
+        return t;
     });
 }
 

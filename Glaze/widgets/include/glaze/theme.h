@@ -229,6 +229,8 @@ public:
     // Ctx eller widgets behöver röras.
     struct Variant {
         Colors colors;
+        float  imageOpacity = 1.0f;   // täckningen på appens bilder (Draw::glyph);
+                                      // standardikonerna följer `text`
     };
 
     std::string name;
@@ -238,6 +240,13 @@ public:
     // Aktiv variant för ett läge. System frågar gfx::systemTheme() vid
     // varje anrop — det är det som gör resolvern per repaint levande.
     const Variant& resolve(ThemeMode mode) const;
+
+    // DEN TONADE VARIANTEN av `v`: texten och ikonerna dämpade 20 % mot
+    // bakgrunden, kanterna och accenten nedtonade och kontrollernas ytor nästan i
+    // bakgrunden — för det som står i en remsa och inte ska dra blicken
+    // (`Bar::mutedChildTheme`). Hover och tryck behåller sina färger. Referensen gäller till nästa anrop med en
+    // annan variant, alltså under EN ritning. UI-trådens.
+    static const Variant& muted(const Variant& v);
 
     // ------------------------------------------------ de inbyggda familjerna
     //

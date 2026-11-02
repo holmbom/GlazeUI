@@ -297,8 +297,9 @@ void CaptionButton::drawGlyphs(const Ctx& c, const Pen& pen,
 //
 // De fyra tillstånden (princip 7):
 //   vila       bara kapselkroppen `capsuleBody` + konturen `capsuleBorder`
-//   hover      facket fylls `capsuleHover` — DÄMPAT, inte full accentyta;
-//              stängfacket `chromeClose` med `chromeCloseGlyph`
+//              (Slate: ingen kapsel, bara tecknet på namnlisten)
+//   hover      facket fylls `capsuleHover` — DÄMPAT, inte full accentyta, och i
+//              Slate en ljus grå; stängfacket `chromeClose` med `chromeCloseGlyph`
 //   tryck      facket fylls `capsulePress`
 //   fokus      — (INTE fokuserbar; fönsterknappar tar aldrig tabbstopp)
 //   inaktiv    inget tänt fack (hot() kräver isEnabled)
@@ -332,16 +333,21 @@ void CaptionButton::drawCapsule(const Ctx& c) const
     const gfx::Rectf body{seg.x - (first ? 0.0f : r), seg.y,
                           seg.w + (first ? 0.0f : r) + (last ? 0.0f : r),
                           seg.h};
-    Draw::clip(c, seg);
-    Draw::rect(c, body, r, col.capsuleBody,
-               Pen{col.capsuleBorder, m.borderWidth});
-    Draw::endClip(c);
+    // SLATE ritar ingen kapsel: knapparna står direkt på namnlisten, och bara
+    // det tända facket syns.
+    const bool kapsel = c.ui != UI::Slate;
+    if (kapsel) {
+        Draw::clip(c, seg);
+        Draw::rect(c, body, r, col.capsuleBody,
+                   Pen{col.capsuleBorder, m.borderWidth});
+        Draw::endClip(c);
+    }
 
     // DET TÄNDA FACKET — insatt `capsuleInset` så det aldrig tar i
     // konturen; annars läser klustret som en enda knapp
     // vars kant flyttar sig.
     const bool isClose = kind_ == Kind::Close;
-    gfx::Color under    = col.capsuleBody;
+    gfx::Color under    = kapsel ? col.capsuleBody : col.windowBg;
     gfx::Color glyph    = col.chromeGlyph;
     if (hot()) {
         under = isClose     ? col.capsuleClose

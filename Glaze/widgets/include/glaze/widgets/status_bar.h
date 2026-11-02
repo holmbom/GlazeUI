@@ -88,6 +88,13 @@ public:
     StatusPanel        panel(int index) const;       // tom utanför
     const std::string& panelText(int index) const;   // upplöst; tom utanför
 
+    // Barnen tonas (`Bar::mutedChildTheme`).
+    const Theme::Variant* childTheme(const Widget& child,
+                                     const Ctx& c) const override
+    {
+        return mutedChildTheme(child, c);
+    }
+
 protected:
     // AXELREGELN med statusradens eget default-mått: satt höjd vinner,
     // osatt höjd blir `statusBarH` (Bar skulle annars ge `barHeight`).
@@ -96,6 +103,11 @@ protected:
 
     // Fälten följer radens `enabled` (headern).
     void enabledChanged() override;
+
+    // TVÄRAXELN: ett fält fyller radens höjd (dess skiljelinje går hela vägen),
+    // en kontroll behåller sin egen höjd centrerad (`naturalSpan`).
+    std::pair<float, float> crossSpan(const Widget& child, const Ctx& c,
+                                      bool row) const override;
 
 private:
     class Cell;   // ett fält — status_bar.cpp

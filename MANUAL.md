@@ -1124,8 +1124,8 @@ Layoutfälten är RÅA fältrader (allt annat tillstånd är settrar):
 ```
 
 ### Fallgropar
-- För tätt: fokusringen (upp till 5 px) och Glazes skugga ritas UTANFÖR widgetens yta och kapas av en klippande förälder — håll minst 8 px mellan klickbara kontroller och mot kanten. Vilka tal man väljer står i [UI_GUIDELINES.md](UI_GUIDELINES.md).
-- Ett spikat `x = 210` är bara sant i EN Style (knapphöjden är 26.7 px i Slate och 18 i Minimalistic) — ankra mot grannen, så följer layouten stilbytet.
+- För tätt: fokusringen (upp till 4 px) och Glazes skugga ritas UTANFÖR widgetens yta och kapas av en klippande förälder — håll minst 8 px mellan klickbara kontroller och mot kanten. Vilka tal man väljer står i [UI_GUIDELINES.md](UI_GUIDELINES.md).
+- Ett spikat `x = 210` är bara sant i EN Style (knapphöjden är 20.7 px i Slate och 18 i Minimalistic) — ankra mot grannen, så följer layouten stilbytet.
 - Syskonankare träffar bara TIDIGARE syskon i adopt-ordningen; framåtreferens, självreferens och okänt namn faller TYST tillbaka på `x`/`y`. Kontrollera ordningen och att målet har `name`.
 - Containrar och listor (`Panel`, `ListBox`, `ListView`, `TreeView`, `PropertyGrid`, `Splitter`, `TabControl` …) har ingen autostorlek — ge dem mått eller docka/sträck dem.
 - Ett dolt ankarmål räknas ändå (följaren lämnar ett hål, också när föräldern räknas ur innehållet); en dold dockad remsa skär ingenting.
@@ -1443,7 +1443,7 @@ Händelsekopplingen står efter fältsättningarna och före trädbygget (`root(
 - Ikonen kräver `glaze::loadAssets()` i `main`; en saknad nyckel ritar bara texten och loggas en gång.
 - Tom text = bara ikon. En inaktiverad knapp tonar ikonen själv.
 - `setIconSize(32)` ger ikonen en egen sida i logiska px (0 = AUTO: assetens storleksklass, för en Bitmap `iconFallback`).
-- `setColor(gfx::Color{200, 40, 40})` färgar TEXTEN (plattan följer temat); `setColor(std::nullopt)` eller `{}` ger temat igen. Standardknappens accentyta vinner, och en inaktiv knapp dimmas. I `.glazeui` är raden en anropssats — en bar `{200, 40, 40}` kompilerar inte. (Labels `setColor({})` är svart: där tar sättaren en färg, inte en valfri.)
+- `setColor(gfx::Color{200, 40, 40})` färgar TEXTEN (plattan följer temat); `setColor(std::nullopt)` eller `{}` ger temat igen. Standardknappens accentyta vinner (Slates standardknapp har bara en accentkontur, och där står appens färg kvar), och en inaktiv knapp dimmas. I `.glazeui` är raden en anropssats — en bar `{200, 40, 40}` kompilerar inte. (Labels `setColor({})` är svart: där tar sättaren en färg, inte en valfri.)
 
 <!-- END:widget-button -->
 
@@ -3052,6 +3052,8 @@ Menyns STRUKTUR står i filen (previewn ritar pilen och bygger menyn — den öp
 - Ett flytande fälts fönster skapas först när värdens fönster är öppet och aldrig offscreen (glaze-render, previewn) — där lämnar fältet bara sitt band. Fönstrets egen stängning (Alt+F4) och rubrikens ✕ DÖLJER fältet; `show()` tar fram det igen. `appWindow()` på ett flytande fält är dess eget fönster.
 - På Wayland syns det flytande fönstrets namnlist (kompositören placerar det och den är flytthandtaget), rubriken står under den, och ett drag i rubriken har inget mål — dockningen är dubbelklicket. Greppdraget lossar inte fältet där (inget levande drag): platshållaren visas medan det står kvar.
 - `setAllowedEdges({glaze::Dock::Top, glaze::Dock::Bottom})` begränsar kanterna ANVÄNDAREN får docka fältet vid (förval alla fyra, `{}` = bara flyta); ett drag till en annan kant visar ingen platshållare, och ett buret fält som släpps där flyter. Appen kan alltid (`dock`, `setLayout`). En otillåten kant är inget mål — också fältets nuvarande. I `.glazeui` samma anrop.
+- En kontroll i fältet (en `Button`, ett textfält, en `Dropdown` …) behåller sin egen höjd, centrerad och aldrig högre än fältets innerhöjd; en verktygsknapp fyller innerhöjden. Samma regel gäller i `StatusBar`. Luft mellan två barn: `addGap()` (se `widget-bars`).
+- I Slate TONAS kanterna, accenten och kontrollernas ytor i ett verktygsfält och en statusrad (`Theme::muted`), så att remsan inte drar blicken från innehållet. Text, ikoner och bilder dämpas 20 %. Hover och tryck behåller sina färger, och barnet som har fokus ritas otonat.
 - `ToolButton::setIconSize(32)` ger knappen en större ikon, och fältets AUTO-tjocklek växer till den högsta synliga verktygsknappen (aldrig under stilens `toolBarH`; andra barn räknas inte).
 - Ge varje ikonknapp OCH varje inbäddad kontroll ett verktygstips — det är postens text i överflödsmenyn (en kontroll utan tips heter "Kontroll" där). En `Label` eller `Progress` i fältet har ingen post: den går inte att nå, bara att se.
 - Ett dolt barn i överflödet behåller sitt `isVisible()` — det är bara layouten som döljer det. Läs aldrig "syns knappen?" ur `isVisible()`. En kontroll i överflödet är fortfarande ett tabbstopp: når Tab den visas den i fältet medan den har fokus.
@@ -3069,6 +3071,7 @@ Menyns STRUKTUR står i filen (previewn ritar pilen och bygger menyn — den öp
 
 ### API
 - `Bar`: `Spacer* addSpacer(float grow = 1.0f)` — höjden AUTO = stilens `barHeight`.
+- `Bar`: `Spacer* addGap(float width = 0)` — ett FAST mellanrum i raden, i `width` logiska px och utan argument stilens `spacerW` (8 px). Kortform för en `Spacer` med `setGrow(0)`, som är formen i `.glazeui`.
 - `Bar`: `void setPlain(bool on)` / `bool isPlain() const` — REN RAD: bara flexen, utan fyllning och hårlinje, och barnen behåller sin MÄTTA höjd (centrerad i baren) i stället för att fylla den — en knapprad i en dialog som inte ska se ut som ett verktygsfält. Av som förval. Ett barn utan eget mått (en `Spacer`) fyller baren som förut.
 - `Spacer`: `explicit Spacer(float g = 1.0f)` · `void setGrow(float g)` / `float grow() const` — grow 0 + `width` = fast lucka.
 - `AppWindow::statusBar` (värdefält, `glaze::StatusBar`) · `TopBar* AppWindow::topBar()` — `nullptr` med `Chrome::Native`/`None`.

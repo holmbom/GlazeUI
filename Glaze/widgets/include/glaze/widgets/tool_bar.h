@@ -209,6 +209,21 @@ protected:
     // Flexens lucka — stilens `toolGap` (Bar packar annars kant i kant).
     float childGap(const Ctx& c) const override;
 
+    // TVÄRAXELN: en verktygsknapp fyller remsans innerhöjd (dess platta är
+    // remsans egen), allt annat behåller sin egen höjd centrerad (`naturalSpan`).
+    std::pair<float, float> crossSpan(const Widget& child, const Ctx& c,
+                                      bool row) const override;
+
+public:
+    // Barnen tonas (`Bar::mutedChildTheme`).
+    const Theme::Variant* childTheme(const Widget& child,
+                                     const Ctx& c) const override
+    {
+        return mutedChildTheme(child, c);
+    }
+
+protected:
+
     // Bars ritning, och greppet i en värd.
     void draw(const Ctx& c) override;
 

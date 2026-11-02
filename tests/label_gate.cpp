@@ -399,14 +399,20 @@ void fallFärgen()
               std::string("L8: ") + n + " — temat efter setColor(std::nullopt)");
     });
 
-    // Fönstrets ACCEPTKNAPP: accentytan med `onAccent` vinner över appens.
+    // Fönstrets ACCEPTKNAPP: i Glaze vinner accentytan med `onAccent` över
+    // appens färg. Slates standardknapp har ingen accentyta, bara konturen, så
+    // där står appens färg kvar.
     glaze::AppWindow fönster("label_gate", 300, 200);
     glaze::Button    ok("OK");
     fönster.root().adopt(ok);
     fönster.setAcceptButton(ok);
     ok.setColor(app);
-    check(textFärg(ok, c, rec) == col.onAccent,
-          "L8: acceptknappen — onAccent vinner över appens färg");
+    check(textFärg(ok, c, rec) == app,
+          "L8: acceptknappen i Slate — appens färg, ingen accentyta");
+    glaze::Ctx cGlaze = c;
+    cGlaze.ui         = glaze::UI::Glaze;
+    check(textFärg(ok, cGlaze, rec) == col.onAccent,
+          "L8: acceptknappen i Glaze — onAccent vinner över appens färg");
 }
 
 // =============================================================== W1–W8

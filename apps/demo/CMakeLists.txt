@@ -26,6 +26,7 @@ add_executable(demo WIN32 MACOSX_BUNDLE
     src/free_window.cpp
     src/tray_window.cpp       # systemfältsappen, `demo --tray`
     src/window_lab.cpp        # fönsterlabbet, `demo --window-lab`
+    src/slate_window.cpp      # arbetsbänken för Slate, `demo --slate`
 )
 target_link_libraries(demo PRIVATE glaze)
 # TERMINALEN — dockningsfönstrets flik "Terminal". Länkad

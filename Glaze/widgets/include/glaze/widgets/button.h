@@ -26,8 +26,8 @@
 // eller fönstrets Enter/Escape (`AppWindow::setAcceptButton`/
 // `setCancelButton`) — stänger fönstret med `r` EFTER `onClick`. Och
 // STANDARDKNAPPEN RITAS SOM STANDARD i ett fönster som har en acceptknapp:
-// accentytan med `onAccent` (Glaze utan laminering, Minimalistics kant och
-// Slates kontur i ytans färg) — den knapp Enter trycker just nu
+// accentytan med `onAccent` (Glaze utan laminering, Minimalistics kant i ytans
+// färg), i Slate en vanlig platta med konturen i `accent` — den knapp Enter trycker just nu
 // (`AppWindow::isDefaultButton`, Win32-modellen: en fokuserad knapp är
 // standard, annars acceptknappen). Ett fönster utan acceptknapp ser ut som
 // en vanlig knapp.

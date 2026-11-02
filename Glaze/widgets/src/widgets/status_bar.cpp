@@ -243,4 +243,12 @@ gfx::Sizef StatusBar::contentSize(const Ctx& c) const
     }
 }
 
+std::pair<float, float> StatusBar::crossSpan(const Widget& child, const Ctx& c,
+                                             bool row) const
+{
+    if (dynamic_cast<const Cell*>(&child))
+        return Bar::crossSpan(child, c, row);
+    return naturalSpan(child, c, row);
+}
+
 } // namespace glaze

@@ -1048,7 +1048,7 @@ WidgetGallery::WidgetGallery()
         // ned till g3:s underkant, 496 — så sidan inte börjar rulla.
         // 210 HÖG, RÄKNAT i Slates och Glazes radhöjd (14.72 — den högsta;
         // Minimalistics 12.16 ger 20 px luft över): rubrik och skiljelinje
-        // 34.72, fältraden 10 + 26.72, delaren 8 + 84 och foten 8 + två
+        // 34.72, fältraden 10 + 27.32, delaren 8 + 84 och foten 8 + två
         // rader. Talen är stilens; måttet är räknat och inte provat renderat
         // i alla tre UI och fyra språk (skrivet så, det är provningens rad).
         auto* g = grupp(sText, demo::str::G29Losen, "g29", 960, 286, 304, 210);
@@ -1056,7 +1056,7 @@ WidgetGallery::WidgetGallery()
         // LÖSENORDET — kryssrutan FÖRST, i högerkanten: fältet sträcks fram
         // till den med ett syskonankare, och ett ankare pekar bara bakåt.
         // Rutan står 4 px under fältets överkant, så den hamnar mitt på
-        // fältraden (fältet är 26.72 högt i Slate, rutan 18).
+        // fältraden i Glaze (fältet är 26.72 högt, rutan 18); i Slate är båda lägre.
         auto* visa      = g->add<glaze::Checkbox>(glaze::tr(demo::str::VisaLosen));
         visa->anchors   = {false, true, true, false};
         visa->right     = 8;

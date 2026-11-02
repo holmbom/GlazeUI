@@ -701,7 +701,7 @@ struct Style {
     int   dockHideDelayMs;  // overlayns lämna-prövning, 0 = direkt
     float toolGripW;        // verktygsfältets grepp i en dockningsyta
     float toolArrowW;       // rullgardinspilens yta på en verktygsknapp
-    float toolArrowGlyph;   // pilens tecken — rutans sida, centrerad
+    float toolArrowGlyph;   // pilens tecken — bredden, centrerad (`toolArrowGlyphH`)
     float dockDropShare;    // ett rubrikdrag över en panel: den ANDEL (0–1)
                             // av cellens sida som HÖGST är en sidozon
                             // (`dockDropZone` är räckvidden) — mitten är en
@@ -790,6 +790,18 @@ struct Style {
     // — ett fält insatt mitt i den positionella literalen KOMPILERAR och
     // förskjuter varje efterföljande mått.
     float toolOverflowW;         // överflödsknappens längd längs fältet
+
+    // ---- DET FASTA MELLANRUMMET i en remsa: en `Spacer` med vikten 0 och
+    // inget eget mått (`Bar::addGap`). Sist i structen och i `kSlateRegular`,
+    // av samma skäl som fältet ovan.
+    float spacerW;               // mellanrummets längd längs remsan
+
+    // ---- PILARNA I SMÅ RUTOR: stegarens halvor och verktygsknappens pil har
+    // egna mått, skilda från dropdownens. Sist i structen, av samma skäl.
+    float spinChevronW;          // stegarens vinkelhake, halva bredden
+    float spinChevronH;          //   och halva höjden
+    float toolArrowGlyphH;       // verktygsknappens pil, höjden (`toolArrowGlyph`
+                                 // är bredden)
 };
 
 // ------------------------------------------------------- UI -> dess styles
@@ -802,7 +814,7 @@ struct Style {
 // Varje UI har exakt EN storlek, och den heter "Regular" i alla tre:
 //
 //   Glaze::Regular         knapphöjd 27.3, radie 6, font 13
-//   Slate::Regular         knapphöjd 26.7, radie 4, font 13   (BASEN)
+//   Slate::Regular         knapphöjd 20.7, radie 4, font 13   (BASEN)
 //   Minimalistic::Regular  knapphöjd 18,   radie 3, font 10
 //
 // Att en axel finns men bara har ett val är information, inte brus — och

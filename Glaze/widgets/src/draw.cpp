@@ -694,7 +694,7 @@ void Draw::glyph(const Ctx& c, const gfx::Rectf& r, const ImageSource& img,
         return;
     }
     if (gfx::Image* im = c.images->get(img, c))
-        c.r->drawImage(*im, phys(c, r), opacity);
+        c.r->drawImage(*im, phys(c, r), opacity * c.theme->imageOpacity);
 }
 
 // 1:1 i fysiska px: rectet fästs på hela pixlar (avrundat hörn och storlek)
@@ -722,7 +722,7 @@ void Draw::glyphResampled(const Ctx& c, const gfx::Rectf& r,
         c.r->drawImage(*im,
                        gfx::Rectf{std::round(p.x), std::round(p.y),
                                   static_cast<float>(w), static_cast<float>(h)},
-                       opacity);
+                       opacity * c.theme->imageOpacity);
     else if (img.kind() == ImageSource::Kind::Bitmap && !img.bitmap().pixels())
         glyph(c, r, img, opacity);   // utan pixlar: GPU:ns filter
 }

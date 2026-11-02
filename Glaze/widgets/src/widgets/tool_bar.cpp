@@ -431,6 +431,14 @@ float ToolBar::childGap(const Ctx& c) const
     return c.style->toolGap;
 }
 
+std::pair<float, float> ToolBar::crossSpan(const Widget& child, const Ctx& c,
+                                           bool row) const
+{
+    if (dynamic_cast<const ToolButton*>(&child))
+        return Bar::crossSpan(child, c, row);
+    return naturalSpan(child, c, row);
+}
+
 // Bars ritning, och GREPPET i en värd. Greppet har ett formspråk i alla tre
 // familjerna, och det är ett BESLUT (separatorns skäl): det är STRUKTUR — ett
 // ställe att ta i — och färgen (`border`) och måttet (`toolGripW`) är redan

@@ -72,8 +72,9 @@
 //       OK med knappen svarar "b\nc" — fönstret direkt, inte den fria funktionen
 //   W11 PIXLAR (pixel_gate:s väg, `renderFrame`/`captureFrame`): två knappar
 //       med samma text — medelfärgen i acceptknappens yta skiljer sig från den
-//       andras i Glaze, Slate och Minimalistic, och efter `avbryt.focus()` har
-//       rollerna bytts
+//       andras i Glaze och Minimalistic, och efter `avbryt.focus()` har rollerna
+//       bytts. Slates standardknapp har en vanlig yta och skiljer sig i konturen,
+//       med fokus i ringen, så där mäts en ruta över knappens vänstra kant
 //
 // SABOTAGEN den ska fälla (ett i taget):
 //   * steget borttaget ur `handleEvent` — W1, W4, W8, W10, R
@@ -1227,8 +1228,14 @@ void fallPixlar()
             check(false, "W11 " + vad + ": captureFrame lyckades");
             continue;
         }
-        const gfx::Rectf rOk = p.ok.resolve(p.ok.behaviorCtx());
-        const gfx::Rectf rAv = p.avbryt.resolve(p.avbryt.behaviorCtx());
+        const bool kant = ui == glaze::UI::Slate;
+        // `medel` skär bort 4 px runt om: 12 × 12 ger de 4 × 4 över kanten.
+        const auto yta = [kant](const gfx::Rectf& r) {
+            return kant ? gfx::Rectf{r.x - 7.0f, r.y + r.h / 2.0f - 6.0f, 12.0f, 12.0f}
+                        : r;
+        };
+        const gfx::Rectf rOk = yta(p.ok.resolve(p.ok.behaviorCtx()));
+        const gfx::Rectf rAv = yta(p.avbryt.resolve(p.avbryt.behaviorCtx()));
         const Medel okF = medel(fore, rOk);
         const Medel avF = medel(fore, rAv);
         check(avstand(okF, avF) > kStor,
@@ -1243,7 +1250,9 @@ void fallPixlar()
         }
         const Medel okE = medel(efter, rOk);
         const Medel avE = medel(efter, rAv);
-        check(avstand(okE, avE) > kStor && avstand(avE, okF) <= kLiten &&
+        // Slate: ringen (den fokuserade) är inte samma linje som konturen
+        // (acceptknappen), så bara den neutrala rollen jämförs mot förut.
+        check(avstand(okE, avE) > kStor && (kant || avstand(avE, okF) <= kLiten) &&
                   avstand(okE, avF) <= kLiten,
               "W11 " + vad + ": fokus på den andra knappen — rollerna har "
                              "BYTTS (Win32-modellen)",

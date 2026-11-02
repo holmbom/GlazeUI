@@ -35,6 +35,9 @@ public:
 
     // Bekvämlighet: bar.addSpacer() = bar.add<Spacer>() (ägd, grow-vikt 1).
     Spacer* addSpacer(float grow = 1.0f);
+    // Ett FAST mellanrum i raden: `width` logiska px, utan argument stilens
+    // `spacerW` (spacer.h).
+    Spacer* addGap(float width = 0.0f);
 
     // REN RAD — enbart flexen: INGEN fyllning och INGEN hårlinje mot
     // innehållet, och barnen behåller sin MÄTTA mått på tväraxeln (höjden i en
@@ -115,16 +118,28 @@ protected:
     // och med `dock` som minne hade linjen hamnat på fel sida.
     virtual bool drawsInnerEdge() const { return true; }
 
-private:
-    // Den STÅENDE flexen — `placeChild` för `dock` Left/Right.
-    gfx::Rectf placeChildVertical(const Widget& child, const Ctx& c) const;
-
     // Barnets spann (början, längd) på TVÄRAXELN i FYSISKA px — y/höjd i den
     // liggande raden (`row`), x/bredd i den stående: barens hela, eller i en
     // REN rad barnets eget mått centrerat i den (och hela baren för ett barn
-    // utan eget mått). Mäter barnet bara i en ren rad.
-    std::pair<float, float> crossSpan(const Widget& child, const Ctx& c,
-                                      bool row) const;
+    // utan eget mått). Mäter barnet bara i en ren rad. Verktygsfältet och
+    // statusraden svarar med `naturalSpan`.
+    virtual std::pair<float, float> crossSpan(const Widget& child, const Ctx& c,
+                                              bool row) const;
+
+    // Barnets eget mått centrerat på tväraxeln, aldrig större än baren, så att
+    // en kontroll i remsan behåller sin höjd och får luft över och under. Ett
+    // barn utan eget mått och en skiljelinje, som går tvärs remsan, fyller.
+    std::pair<float, float> naturalSpan(const Widget& child, const Ctx& c,
+                                        bool row) const;
+
+    // TONADE BARN i Slate (`Theme::muted`), så att en remsa inte drar blicken
+    // från innehållet — utom barnet som har fokus, där man skriver.
+    // Verktygsfältet och statusraden svarar med den i `childTheme`.
+    const Theme::Variant* mutedChildTheme(const Widget& child, const Ctx& c) const;
+
+private:
+    // Den STÅENDE flexen — `placeChild` för `dock` Left/Right.
+    gfx::Rectf placeChildVertical(const Widget& child, const Ctx& c) const;
 
     // Barens YTA — med de övre hörnen rundade när `topRadius()` säger det.
     // Delad av alla tre ritgrenarna: en kopia per familj hade varit tre
