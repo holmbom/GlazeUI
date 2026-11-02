@@ -172,6 +172,12 @@ public:
     // Körningens text byggd för det här fönstret (byggs vid behov).
     const GlyphBuild& glyphs(const std::shared_ptr<detail::RunData>& run,
                              const GlyphEnv& env);
+    // EN SIDA RITAS (print.cpp `renderRaster`): texten byggs för sidans täthet i
+    // egna byggen, så att skärmens bygge och dess etikettplacering (träffprovet)
+    // står orörda, och etiketterna tonar inte. Sidans byggen släpps i `trim` när
+    // ingen sida ritats på två framer.
+    void setPageRender(bool on) { pageRender_ = on; }
+    bool pageRender() const { return pageRender_; }
     // Bygget SOM DET RITADES senast — bara om det byggdes ur körningens
     // nuvarande version (`RunData::glyphVersion`), annars nullptr. Bygger
     // aldrig: träffprovet frågar utanför en frame, där en atlas inte får
@@ -334,6 +340,9 @@ private:
         GlyphBuild                           build;
     };
     std::unordered_map<std::uint64_t, GlyphEntry> glyphs_;
+    std::unordered_map<std::uint64_t, GlyphEntry> pageGlyphs_;
+    std::uint64_t                                 pageGlyphsUsed_  = 0;   // framens löpnummer
+    bool                                          pageRender_      = false;
     std::uint64_t                                 glyphBuildsMade_ = 0;
 
     // Per (rityta, plats) — se `LabelState`.

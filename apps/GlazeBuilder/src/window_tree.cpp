@@ -23,6 +23,10 @@ glaze::Widget* builtinWidget(glaze::AppWindow& win, const std::string& id)
         return &win.menuBar;
     if (id == "appIcon")
         return &win.appIcon;
+    // Namnlisten finns alltid i fönstret och är dold utan `Chrome::Custom`;
+    // ett barn adopteras i den ändå.
+    if (id == "topBar")
+        return &win.topBar;
     return nullptr;
 }
 

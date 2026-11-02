@@ -96,6 +96,10 @@ bool ToolButton::setProp(const std::string& key, const std::string& value)
         setSplit(propparse::parseBool(value));
         return true;
     }
+    if (key == "glyphOnly") {
+        setGlyphOnly(propparse::parseBool(value));
+        return true;
+    }
     if (key == "iconSize") {
         float v = 0.0f;
         if (propparse::parseNumber(value, v))
@@ -139,8 +143,9 @@ Content ToolButton::content(const Ctx& c, gfx::Color fg) const
     // storleksklassen 0 för en bild ur pixlar.
     const float k = iconSize_ > 0.0f ? iconSize_ : img_.sizeClass();
 
-    Content ct{img_, text(), fg, imagePos_, c.style->iconGap,
-               k > 0.0f ? k : c.style->iconFallback};
+    // Glyfläget ritar ingen text — knappen är bara bilden.
+    Content ct{img_, glyphOnly_ ? std::string() : text(), fg, imagePos_,
+               c.style->iconGap, k > 0.0f ? k : c.style->iconFallback};
     if (!isEnabled())
         ct.imgOpacity = 1.0f - c.style->iconFade;
     return ct;
@@ -174,6 +179,13 @@ gfx::Sizef ToolButton::contentSize(const Ctx& c) const
         gfx::Sizef s{width, height};
         if (s.w > 0.0f && s.h > 0.0f)
             return s;
+        // GLYFLÄGET: stilens glyfbredd och kapselhöjd, text och pil räknas
+        // inte. Axelregeln gäller som för varje knapp.
+        if (glyphOnly_) {
+            if (s.w <= 0.0f) s.w = c.style->titleGlyphW;
+            if (s.h <= 0.0f) s.h = c.style->capsuleH;
+            return s;
+        }
         const gfx::Sizef m = Draw::measure(c, content(c, {}));
         if (s.w <= 0.0f)
             s.w = m.w + 2.0f * c.style->toolButtonPadX +
@@ -184,8 +196,41 @@ gfx::Sizef ToolButton::contentSize(const Ctx& c) const
     }
 }
 
+// GLYFLÄGET — ETT beslut för alla tre UI, som separatorns: namnlisten har
+// samma glyfknappar oavsett ritning. Plattan finns bara under pekaren (hover
+// `capsuleHover`, tryck eller öppen meny `capsulePress`); ett påslaget läge
+// bärs av glyfen i `accent` och inte av en platta. Standardikonen rastreras
+// ur temats `text`, så accentfärgen går genom en lokal kopia av temavarianten
+// — en bild ur pixlar eller en asset ritas som vanligt. Inaktiv ⇒ ingen
+// platta och ikonen tonad (`content`).
+void ToolButton::drawGlyph(const Ctx& c)
+{
+    const gfx::Rectf b   = c.bounds();
+    const auto&      m   = *c.style;
+    const auto&      col = c.theme->colors;
+    const bool       på  = isEnabled();
+
+    if (på && hot())
+        Draw::rect(c, b, m.cornerRadius,
+                   hovered() && !down() ? col.capsuleHover : col.capsulePress);
+
+    if (på && checked_) {
+        Theme::Variant v = *c.theme;
+        v.colors.text    = v.colors.accent;
+        Ctx g            = c;
+        g.theme          = &v;
+        Draw::content(g, b, content(g, v.colors.accent));
+        return;
+    }
+    Draw::content(c, b, content(c, på ? col.text : col.textDim));
+}
+
 void ToolButton::draw(const Ctx& c)
 {
+    if (glyphOnly_) {
+        drawGlyph(c);
+        return;
+    }
     const gfx::Rectf b   = c.bounds();
     const auto&      m   = *c.style;
     const auto&      col = c.theme->colors;

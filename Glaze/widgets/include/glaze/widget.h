@@ -1582,7 +1582,7 @@ public:
     // (ritning, damage, hit-test, `ctxFor`); det här är den femte platsen
     // och den enda som ligger i `Widget` självt.
     // INSTANS och inte TYP — en virtuell form vore fel:
-    // undantaget gäller `AppWindow::topBar_`, som får ett
+    // undantaget gäller `AppWindow::topBar`, som får ett
     // eget chrome-Ctx, INTE klassen `TopBar`. En vanlig nästlad TopBar (som
     // galleriets grupp 8) är ett helt vanligt barn och SKA skäras av sina
     // dockade syskon. En virtual hade dessutom lovat en generell mekanism
@@ -2926,7 +2926,7 @@ private:
     bool visible_ = true;
     bool enabled_ = true;
     // Se `inDockFlow()`. Sätts BARA av AppWindow på sina chrome-rötter,
-    // `topBar_` och `appIcon`.
+    // `topBar` och `appIcon`.
     bool inDockFlow_ = true;
 
     // DRAG-AND-DROP. Egenskaperna har ingen synlig verkan och

@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,6 +32,7 @@
 #include <gfx/renderer.h>
 
 #include "canvas/camera_math.h"
+#include "canvas/resources.h"
 #include "canvas/scene.h"
 #include "dialog_layout.h"
 #include "glaze/app.h"
@@ -80,6 +82,96 @@ void logUnsupported(const char* vem)
              vem);
 }
 
+// SIDANS RASTER — målets storlek och täthet för ett område i sidans mm. Den
+// längsta sidan hålls inom `maxPx`, och `dpi` är den täthet som blev.
+struct PageRaster {
+    int    w = 0;
+    int    h = 0;
+    double dpi = 0.0;
+    double pxPerMm = 0.0;
+    double cx = 0.0;   // områdets mitt i sidans mm
+    double cy = 0.0;
+};
+
+PageRaster pageRaster(const Rect& area, double dpi, int maxPx)
+{
+    const double längst = std::max(area.w, area.h) / kMmPerInch * dpi;
+    if (längst > maxPx)
+        dpi *= maxPx / längst;
+    PageRaster r;
+    r.dpi     = dpi;
+    r.pxPerMm = dpi / kMmPerInch;
+    r.w       = std::max(1, static_cast<int>(std::lround(area.w * r.pxPerMm)));
+    r.h       = std::max(1, static_cast<int>(std::lround(area.h * r.pxPerMm)));
+    r.cx      = area.x + area.w * 0.5;
+    r.cy      = area.y + area.h * 0.5;
+    return r;
+}
+
+struct SlutPåSida {
+    CanvasResources& res;
+    ~SlutPåSida() { res.setPageRender(false); }
+};
+
+// EN SIDA I ETT MÅL: vitt, med en målare i sidans mm, och om tills ingen bild
+// väntar på uppladdningen. `read` = läs tillbaka bilden. false = ett fel (loggat);
+// `complete` false = taket för varven nåddes och bilder saknas.
+bool renderRaster(const Ctx& c, const PageRaster& raster,
+                  const std::function<void(Painter&)>& draw, bool read,
+                  std::vector<std::uint8_t>& rgba, bool& complete)
+{
+    gfx::Renderer& r = *c.r;
+    // Sidans Ctx: fönstrets resurser, tema och fonter, med målets täthet.
+    Ctx sc     = c;
+    sc.box     = gfx::Rectf{0.0f, 0.0f, static_cast<float>(raster.w),
+                            static_cast<float>(raster.h)};
+    sc.area    = sc.box;
+    sc.scale   = static_cast<float>(raster.pxPerMm * kMmPerInch / kLogicalPerInch);
+    sc.pxPerMm = static_cast<float>(raster.pxPerMm);
+
+    complete = true;
+    for (int varv = 0;; ++varv) {
+        if (!r.beginOffscreen())
+            return false;   // inuti en frame — renderaren loggar orsaken
+        // Varje varv börjar som en frame: släpp det döda, öppna budgeten. Sidor i
+        // följd utan en fönsterframe emellan samlar då inga mål.
+        if (c.images)
+            c.images->trim(app().canvasMemoryBudget(), app().canvasUploadBudget());
+        c.canvas->trim();
+        c.canvas->setPageRender(true);
+        const SlutPåSida slut{*c.canvas};
+        const std::unique_ptr<gfx::RenderTarget> mål =
+            r.createRenderTarget(raster.w, raster.h);
+        if (!mål->image().valid()) {
+            r.endOffscreen();
+            gfx::log("Sidans mål (%d × %d) gick inte att skapa", raster.w, raster.h);
+            return false;
+        }
+        r.pushTarget(*mål, gfx::Color{255, 255, 255, 255});
+        detail::PaintContext f;
+        f.c      = &sc;
+        f.res    = c.canvas;
+        f.world  = gfx::MapView{raster.cx, raster.cy, raster.pxPerMm, 0.0,
+                                0.0,       false,     sc.box};
+        f.screen = detail::localView(sc.box, sc.scale);
+        f.zoom   = raster.pxPerMm / sc.scale;
+        {
+            // Målaren tömmer sin sista sats när den går ur räckvidd — innan
+            // målet poppas.
+            Painter p(f, false);
+            draw(p);
+        }
+        r.popTarget();
+        r.endOffscreen();
+        if (c.images && c.images->uploadsDeferred()) {
+            if (varv + 1 < kMaxUploadRounds)
+                continue;   // en bild väntade — sidan ritas om
+            complete = false;
+        }
+        return !read || r.readTarget(*mål, rgba);
+    }
+}
+
 } // namespace
 
 // ---------------------------------------------------------------- förloppet
@@ -103,15 +195,8 @@ protected:
     }
 
 private:
-    // SIDANS RASTER — målets storlek och täthet, räknade en gång.
-    struct Raster {
-        int    w = 0;
-        int    h = 0;
-        double pxPerMm = 0.0;
-        double cx = 0.0;   // det utskrivbara områdets mitt i sidans mm
-        double cy = 0.0;
-    };
-    Raster raster() const;
+    // Målets storlek och täthet, räknade en gång.
+    PageRaster raster() const;
 
     void layoutAndSize();
     void updateStatus();
@@ -125,7 +210,7 @@ private:
     PrintJob&                           job_;
     std::unique_ptr<gfx::PrintDocument> doc_;
     PrintJob::PageFn                    draw_;
-    Raster                              raster_;
+    PageRaster                          raster_;
     int                                 pages_;   // 0 = sida för sida
     int                                 page_      = 1;
     int                                 total_     = 0;   // sidor att skicka, 0 = okänt
@@ -197,7 +282,7 @@ PrintProgressWindow::~PrintProgressWindow()
         doc_->abort();
 }
 
-PrintProgressWindow::Raster PrintProgressWindow::raster() const
+PageRaster PrintProgressWindow::raster() const
 {
     const Rect pa = job_.printableArea();
     // Tätheten: jobbets upplösning, aldrig över skrivarens egen.
@@ -208,25 +293,17 @@ PrintProgressWindow::Raster PrintProgressWindow::raster() const
     if (s.dpiY > 0.0f)
         dpi = std::min(dpi, static_cast<double>(s.dpiY));
     // Den längsta sidan inom målets tak.
-    const double längst = std::max(pa.w, pa.h) / kMmPerInch * dpi;
-    if (längst > PrintJob::kMaxPagePx) {
+    const PageRaster r = pageRaster(pa, dpi, PrintJob::kMaxPagePx);
+    if (r.dpi < dpi) {
         static bool loggat = false;
-        const double ny    = dpi * PrintJob::kMaxPagePx / längst;
         if (!loggat) {
             loggat = true;
             gfx::log("PrintJob: sidan (%.0f × %.0f mm) rastreras i %.0f dpi i "
                      "stället för %.0f — bilden får vara högst %d punkter; "
                      "loggas en gång",
-                     pa.w, pa.h, ny, dpi, PrintJob::kMaxPagePx);
+                     pa.w, pa.h, r.dpi, dpi, PrintJob::kMaxPagePx);
         }
-        dpi = ny;
     }
-    Raster r;
-    r.pxPerMm = dpi / kMmPerInch;
-    r.w       = std::max(1, static_cast<int>(std::lround(pa.w * r.pxPerMm)));
-    r.h       = std::max(1, static_cast<int>(std::lround(pa.h * r.pxPerMm)));
-    r.cx      = pa.x + pa.w * 0.5;
-    r.cy      = pa.y + pa.h * 0.5;
     return r;
 }
 
@@ -355,54 +432,54 @@ bool PrintProgressWindow::renderPage(int page, bool read,
                  "sidan ritas inte");
         return false;
     }
-    gfx::Renderer& r = *c.r;
-    // Sidans Ctx: fönstrets resurser, tema och fonter, med målets täthet.
-    Ctx sc     = c;
-    sc.box     = gfx::Rectf{0.0f, 0.0f, static_cast<float>(raster_.w),
-                            static_cast<float>(raster_.h)};
-    sc.area    = sc.box;
-    sc.scale   = static_cast<float>(raster_.pxPerMm * kMmPerInch / kLogicalPerInch);
-    sc.pxPerMm = static_cast<float>(raster_.pxPerMm);
+    bool komplett = true;
+    const bool ok = renderRaster(
+        c, raster_, [&](Painter& p) { more = draw_(page, p); }, read, rgba, komplett);
+    if (!komplett)
+        gfx::log("PrintJob::run: sidan %d har bilder som inte hann laddas "
+                 "upp på %d varv — de saknas",
+                 page, kMaxUploadRounds);
+    return ok;
+}
 
-    for (int varv = 0;; ++varv) {
-        // Varje varv börjar som en frame: släpp det döda, öppna budgeten.
-        if (c.images)
-            c.images->trim(app().canvasMemoryBudget(), app().canvasUploadBudget());
-        if (!r.beginOffscreen())
-            return false;   // inuti en frame — renderaren loggar orsaken
-        const std::unique_ptr<gfx::RenderTarget> mål =
-            r.createRenderTarget(raster_.w, raster_.h);
-        if (!mål->image().valid()) {
-            r.endOffscreen();
-            gfx::log("PrintJob::run: sidans mål (%d × %d) gick inte att skapa",
-                     raster_.w, raster_.h);
-            return false;
-        }
-        r.pushTarget(*mål, gfx::Color{255, 255, 255, 255});
-        detail::PaintContext f;
-        f.c      = &sc;
-        f.res    = c.canvas;
-        f.world  = gfx::MapView{raster_.cx, raster_.cy, raster_.pxPerMm, 0.0,
-                                0.0,        false,      sc.box};
-        f.screen = detail::localView(sc.box, sc.scale);
-        f.zoom   = raster_.pxPerMm / sc.scale;
-        {
-            // Målaren tömmer sin sista sats när den går ur räckvidd — innan
-            // målet poppas.
-            Painter p(f, false);
-            more = draw_(page, p);
-        }
-        r.popTarget();
-        r.endOffscreen();
-        if (c.images && c.images->uploadsDeferred()) {
-            if (varv + 1 < kMaxUploadRounds)
-                continue;   // en bild väntade — sidan ritas om
-            gfx::log("PrintJob::run: sidan %d har bilder som inte hann laddas "
-                     "upp på %d varv — de saknas",
-                     page, kMaxUploadRounds);
-        }
-        return !read || r.readTarget(*mål, rgba);
+// --------------------------------------------------------------- sidan som bild
+
+std::optional<PageImage> renderPageImage(AppWindow& window, double widthMm,
+                                         double heightMm, double dpi,
+                                         const std::function<void(Painter&)>& draw)
+{
+    if (!(std::isfinite(widthMm) && std::isfinite(heightMm) && std::isfinite(dpi) &&
+          widthMm > 0.0 && heightMm > 0.0 && dpi > 0.0)) {
+        gfx::log("renderPageImage(%g, %g, %g): måtten och tätheten måste vara "
+                 "ändliga och större än 0 — ingen bild",
+                 widthMm, heightMm, dpi);
+        return std::nullopt;
     }
+    if (!draw) {
+        gfx::log("renderPageImage: ingen ritfunktion — ingen bild");
+        return std::nullopt;
+    }
+    if (!window.isOpen()) {
+        gfx::log("renderPageImage: fönstret är inte öppet (renderaren är "
+                 "fönstrets) — ingen bild");
+        return std::nullopt;
+    }
+    const Ctx c = window.root().behaviorCtx();
+    if (!c.r || !c.canvas) {
+        gfx::log("renderPageImage: fönstret har ingen renderare — ingen bild");
+        return std::nullopt;
+    }
+    const PageRaster raster =
+        pageRaster(Rect{0.0, 0.0, widthMm, heightMm}, dpi,
+                   std::min(PrintJob::kMaxPagePx, c.r->maxTextureSize()));
+    std::vector<std::uint8_t> px;
+    bool                      komplett = true;
+    if (!renderRaster(c, raster, draw, true, px, komplett))
+        return std::nullopt;
+    Bitmap bild(raster.w, raster.h, px.data(), 0);
+    if (!bild.valid())
+        return std::nullopt;   // Bitmap loggar orsaken
+    return PageImage{std::move(bild), raster.dpi, komplett};
 }
 
 // ---------------------------------------------------------------- jobbet

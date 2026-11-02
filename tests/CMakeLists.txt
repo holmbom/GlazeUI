@@ -61,8 +61,12 @@ target_compile_definitions(roundtrip_gate
 #                `fixtures/components` av samma skäl: en
 #                timer och en systemfältsikon som medlemmar, kopplingar med
 #                sin EGEN sendertyp och fönstrets nya nakna anrop.
+#                `fixtures/titlebar` av samma skäl: namnlistens glyfknapp
+#                (`setGlyphOnly`, `dock`), menyraden i namnlisten och
+#                `topBar.adopt(…)` mot den INBYGGDA namnlisten.
 set(CALLS_FIXTURE "")
-glaze_add_window(CALLS_FIXTURE fixtures/calls fixtures/order fixtures/components)
+glaze_add_window(CALLS_FIXTURE fixtures/calls fixtures/order fixtures/components
+                 fixtures/titlebar)
 add_executable(calls_fixture fixtures/calls_main.cpp ${CALLS_FIXTURE})
 target_link_libraries(calls_fixture PRIVATE glaze)
 target_include_directories(calls_fixture PRIVATE fixtures)

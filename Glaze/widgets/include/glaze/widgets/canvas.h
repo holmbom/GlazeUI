@@ -1010,7 +1010,9 @@ public:
     // med fönstret dolt, men kräver ett öppet fönster (dess renderare). Tomt
     // (+ `gfx::log`) utan fönster, inuti en ritning, med w eller h ≤ 0, en
     // ogiltig kamera eller ett mål som inte gick att skapa. En bild som
-    // väntar på bildcachens uppladdningsbudget saknas (loggas).
+    // väntar på bildcachens uppladdningsbudget saknas (loggas). Fönstrets täthet
+    // gäller; en bild med egen täthet och alla bilder ger `renderPageImage`
+    // (glaze/print.h) med `Painter::drawCanvas`.
     std::optional<Bitmap> renderToBitmap(int w, int h, const Camera3D& camera);
 
     // ------------------------------------------------------------ MINNET

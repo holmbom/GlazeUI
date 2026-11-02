@@ -291,21 +291,6 @@ public:
     void restore();
     bool isMaximized() const;
 
-    // ---------------------------------------------------- caption-barerna
-    // TopBar — den riktiga namnlisten — byggs i
-    // konstruktorn när fönstret har eget chrome (Chrome::Custom), eller
-    // LATT när `setChrome(Custom)` väljer det efteråt;
-    // null vid Native/None. Plattforms-defaultbarnen (Windows: titel +
-    // glyf-trio; Mac: traffic lights) byggs där och kopplas till fönster-
-    // kontrollerna; baren customizas fritt via topBar()->add<T>() m.m.
-    // Transparent fönster (fri geometri) döljer baren. Svaret följer den
-    // GÄLLANDE chromen: ett fönster som byggt sin bar och sedan bytt till
-    // Native eller None svarar null (baren står kvar dold).
-    TopBar* topBar()
-    {
-        return chrome_ == gfx::Chrome::Custom ? topBar_ : nullptr;
-    }
-
     // Statusraden är ett FÄLT (`statusBar`) och inte en lat metod: den
     // skapas med fönstret, adopteras i
     // konstruktorn direkt efter TopBar och är DOLD. En dold widget skär
@@ -1564,7 +1549,7 @@ private:
     // fönstret äger och som överlever det).
     void forgetWidgets();
 
-    // FÖNSTRETS INBYGGDA får aldrig lämna trädet: `topBar_`, `menuBar`,
+    // FÖNSTRETS INBYGGDA får aldrig lämna trädet: `topBar`, `menuBar`,
     // `statusBar` och `appIcon` läses OVILLKORLIGT av `chromeInsetH()`,
     // `buildTopBar`s wiring och namnlistens motvikt, och de tre senare är
     // dessutom VÄRDE-medlemmar som fönstret äger — ett `unadopt` hade
@@ -1846,6 +1831,14 @@ public:
     // tillstånd — ingen `.glazeui`-form.
     bool isKeyHeld(gfx::Key k) const;
 
+    // NAMNLISTEN — publikt värde-fält, rotens första barn och DOLD utan eget
+    // chrome (Chrome::Custom) och i ett transparent fönster. Plattforms-
+    // defaultbarnen (titeln och fönsterknapparna) byggs när fönstret har eget
+    // chrome. Glyfknappar och andra barn läggs till med
+    // `topBar.addStart<T>()`/`addEnd<T>()` (top_bar.h), och `chrome()` säger om
+    // fönstret har den.
+    TopBar      topBar;
+
     // STATUSRADEN — publikt värde-fält. Deklarerad EFTER
     // `root_` med flit: medlemmar rivs i OMVÄND deklarationsordning, så
     // raden dör FÖRE roten — samma ordning som fönsterklassens egna
@@ -1867,8 +1860,7 @@ public:
     // är en ordning som kan ändras av misstag.
     //
     // Den ligger i KLIENTYTAN och inte i chromet: den får ingen
-    // Caption-roll, och `pushHitRegions` (som bara särbehandlar `topBar_`)
-    // behöver inte röras alls.
+    // Caption-roll. Med `menuBar.setInTitleBar(true)` står den i namnlisten.
     //
     // Deklarerad EFTER `statusBar` så den rivs FÖRE den — och båda före
     // `root_`, av samma skäl som statusraden.
@@ -1885,17 +1877,19 @@ public:
     // OS-ikonen kvar. Deklarerad sist så den rivs först, före `root_`.
     AppIcon     appIcon;
 
+    // Menyradens plats ändrades (`MenuBar::setInTitleBar`): flytten mellan roten
+    // och namnlisten. Fönstrets egen väg, utan `transferChild`.
+    void menuBarPlaceChanged();
+
 private:
-    // Caption-barerna — TopBar är ägd av roten och
-    // pekaren ett uppslag; StatusBar är fältet ovanför. TopBar byggs i
-    // ctorn vid Chrome::Custom (buildTopBar).
-    TopBar*    topBar_    = nullptr;
+    void placeMenuBar();
+
     bool controlBox_ = true, minimizeBox_ = true, maximizeBox_ = true;
 
     void buildTopBar();         // plattforms-defaults + wiring (OS-check)
     void applyCaptionBoxes();   // controlBox/min/max → show/hide
 
-    // CHROME-TRÄDETS RÖTTER: `topBar_` och `appIcon`
+    // CHROME-TRÄDETS RÖTTER: `topBar` och `appIcon`
     // resolvas mot chrome-ctx:t = HELA klientytan, inte innehållsytan. EN
     // fråga som de sex vandringarna ställer (skadan, full och partiell
     // ritning, widgetarnas lager, hit-testen och `ctxFor`) — ett glömt
@@ -2208,7 +2202,7 @@ private:
     std::vector<DamageMark> damageMarks_;
 
     friend class MenuPresentation;   // setMenuKeyHook (öppen menys tangenter)
-    friend class AppIcon;   // platsen läser topBar_, settrarna applyWindowIcon
+    friend class AppIcon;   // settrarna applyWindowIcon
     friend class ToolTipWindow;      // toolTipClosed (tooltipens popup)
     // Systemfältsmenyns värd: `toolWindow_`, och
     // `initX_`/`initY_` så att den skapas direkt vid ikonen — på rätt skärm

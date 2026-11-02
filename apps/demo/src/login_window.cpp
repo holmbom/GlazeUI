@@ -19,12 +19,11 @@ LoginWindow::LoginWindow()
     g.topLeftDark = glaze::tint(bla, 0.25f);   // de andra hörnen: bakgrunden
     setWindowGradient(g);
 
-    // LÄGET: solen i mörkt, halvcirkeln i ljust — knappen visar vart den leder.
-    auto* lage    = add<glaze::ToolButton>();
-    lage->name    = "lage";
-    lage->anchors = {false, true, true, false};
-    lage->right   = 12;
-    lage->y       = 12;
+    // LÄGET, en glyf i namnlisten: solen i mörkt, halvcirkeln i ljust — knappen
+    // visar vart den leder.
+    auto* lage = topBar.addEnd<glaze::ToolButton>();
+    lage->name = "lage";
+    lage->setGlyphOnly(true);
     lage->setImg(glaze::stockIcon(glaze::StockIcon::Contrast));
     lage->setToolTip("Växla mellan ljust och mörkt");
     lage->onClick = [this, lage] {

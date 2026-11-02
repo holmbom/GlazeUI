@@ -431,7 +431,7 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   `kSlateRegular`): en tätare stil ska kunna korta dem var för sig.
   Komponenternas tal har sina skäl VID talen (verktygsfältets härledda par:
   `toolbar_gate`), och blocken står i passens ordning, det senaste SIST.
-- **`app_window.cpp`** — fönstrets liv och gradient (`drawWindowGradient`): `show`/`showOwned` (init-blocket:
+- **`app_window.cpp`** — fönstrets liv, gradient (`drawWindowGradient`) och menyradens plats (`placeMenuBar`): `show`/`showOwned` (init-blocket:
   OS-fönster, skärmens mått (`measureDisplay` — `effectiveDisplay` ovanpå
   backendens `displayMetrics`, invalidering vid ändring, och EN loggrad per
   skärm-id och process när måttet är antaget; körs också vid
@@ -778,7 +778,7 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   `continued = wantsFrame() || hasPosted()` — det GLOBALA `hasPosted` är mätfelet i PERFORMANCE anm. 16.
   `app_window.cpp` mäter Content och Overlay och räknar DamageRects/FullDamage (full ⇒ 1); en bild utanför
   pumpen (D3D11:s `WM_SIZE`) får `outsidePump`. Ritytans faser och räknare: ../canvas/ och widgets/.
-- **`print.cpp`** — `PrintJob` + TU-lokala `PrintProgressWindow`: en sida per pump-svans, rastrerad med ritytans motor (`beginOffscreen`, Ctx med sidans täthet), om tills ingen bild väntar.
+- **`print.cpp`** — `PrintJob` + TU-lokala `PrintProgressWindow`: en sida per pump-svans, rastrerad med ritytans motor (`beginOffscreen`, Ctx med sidans täthet), om tills ingen bild väntar. `renderRaster` är EN väg för jobbet och `renderPageImage`, utan skrivare.
 - **`component.cpp`** — komponentregistret. **`window_placement.h`** (INTERN)
   — startplatsen och logisk ↔ placeringsrymd ur `gfx::screens()` (PRIMÄRENS
   skala, närmaste skärm, klämning mot arbetsytan); ren, grindad i geometry_gate P.

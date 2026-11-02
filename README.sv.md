@@ -33,7 +33,8 @@ vilken källfil som helst.
 - **Språk:** ramverkets texter finns inbyggda på svenska, engelska, norska
   och finska; en app lägger till sina egna i en `language.bin`.
 - **App-funktioner:** ikon i systemfältet, appens timer, programikon,
-  fönstrets plats och läge, och egna menyer.
+  fönstrets plats och läge, egna menyer och en namnlist som kan bära menyer och
+  glyfknappar.
 - **Sidopaket** (valfria, utanför ramverket): `Threads` (en trådpool vars
   svar postas tillbaka till UI-tråden), `Networking` (TCP, UDP, DNS, ping
   och HTTP(S) genom OS:ets egen stack) och `Terminal` (en terminal-widget i

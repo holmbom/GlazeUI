@@ -34,10 +34,13 @@
 // vakten och `g_skips` syns i sammanfattningen. Ett test som ljuger är
 // sämre än inget test.
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <functional>
 #include <string>
+
+#include <gfx/null_renderer.h>
 
 #include <glaze/glaze.h>
 
@@ -437,6 +440,345 @@ void fallInnehallsyta()
     check(w.contentSize().h > 0.0f, "innehållsytan är fortfarande positiv");
 }
 
+// ------------------------------------------------------ NAMNLISTLÄGET
+//
+// `setInTitleBar`: raden flyttas ur klientytan och skär ingen remsa, rubrikerna
+// får en bredd utifrån, och rymmer de inte visas de som ryms plus ⋯.
+//
+// HEADLESS: innehållshöjden med och utan läget (ett fönster som inte öppnats),
+// och SNITTET på en fristående rad med en fast teckenbredd (FalskFont) — de
+// handräknade rektarna, ⋯ som en rubrik till, den dolda rubriken som varken
+// har en rekt eller träffas, och genvägen som når en dold rubrik.
+//
+// Sabotage (skrivna, inte körda):
+//   · `chromeInsetH` räknar menyraden också i namnlisten ... fall A (höjden
+//     dubbelräknad: `titel` blir `rad`)
+//   · `cut` utan namnlistvakten (snitt också utan läget) ..... fall B
+//   · `cut` utan `std::floor` (en halv pixel klipper) ......... fall B (full bredd)
+//   · ⋯-knappen placerad vid radens ände, inte efter rubriken . fall B (moreRect)
+//   · `titleRect` utan snittet (en dold rubrik får en rekt) ... fall B
+//   · `titleStart` utan `inTitleBar_` (ikonens plats dubbelt) . fall B (är 0
+//     här: fristående rad — fångas av layout_gate)
+//   · `contentSize` utan rubrikernas summa ................... fall B (bredden)
+//   · speglingens aktivering mot kopian, inte originalet ..... fall C (krysset)
+//   · `dropStaleMenu` borttagen ............................... fall C (stängs)
+
+class FalskFont final : public gfx::NullFont {
+public:
+    FalskFont(float adv, float h) : adv_(adv), h_(h) {}
+
+    gfx::Sizef measure(const std::string& s) const override
+    {
+        std::size_t n = 0;
+        for (char ch : s)
+            if ((static_cast<unsigned char>(ch) & 0xC0) != 0x80)
+                ++n;
+        return gfx::Sizef{adv_ * static_cast<float>(n), h_};
+    }
+    float height() const override { return h_; }
+    bool  valid() const override { return true; }
+    float prefixWidth(const std::string&, std::size_t bytes) const override
+    {
+        return adv_ * static_cast<float>(bytes);
+    }
+    std::size_t byteIndexAtX(const std::string& s, float) const override
+    {
+        return s.size();
+    }
+    std::size_t fitWidth(const std::string& s, float) const override
+    {
+        return s.size();
+    }
+
+private:
+    float adv_;
+    float h_;
+};
+
+// Raden med geometrin och musen nåbara (protected) och `Widget::measure`.
+struct ProvRad : glaze::MenuBar {
+    using glaze::MenuBar::cut;
+    using glaze::MenuBar::kMore;
+    using glaze::MenuBar::moreMenu;
+    using glaze::MenuBar::moreRect;
+    using glaze::MenuBar::mouseDown;
+    using glaze::MenuBar::mouseMove;
+    using glaze::MenuBar::titleAt;
+    using glaze::MenuBar::titleRect;
+    using glaze::Widget::measure;
+};
+
+bool nara(float a, float b) { return std::abs(a - b) < 0.01f; }
+
+glaze::Ctx ctxFor(gfx::Font& f)
+{
+    glaze::Ctx c{};
+    c.font        = &f;
+    c.headingFont = nullptr;
+    c.scale       = 1.0f;
+    c.ui          = glaze::UI::Slate;
+    c.style       = &glaze::defaultStyle(glaze::UI::Slate);
+    c.theme       = &glaze::Theme::slateDefault().light;
+    c.area        = gfx::Rectf{0.0f, 0.0f, 400.0f, 300.0f};
+    return c;
+}
+
+// A. Innehållshöjden: en menyrad i namnlisten skär ingen remsa ur klientytan.
+void fallNamnlistHojd()
+{
+    glaze::AppWindow w("meny", 400, 300, gfx::Chrome::Custom);
+    w.setContentSize(400, 300);
+    const float utan = w.clientSize().h;
+    w.menuBar.show();
+    const float rad = w.clientSize().h;
+    check(rad > utan, "namnlist A: en synlig menyrad växer klientytan",
+          std::to_string(utan) + " -> " + std::to_string(rad));
+
+    w.menuBar.setInTitleBar(true);
+    check(w.menuBar.inTitleBar(), "namnlist A: setInTitleBar(true) sätter läget");
+    const float titel = w.clientSize().h;
+    check(std::abs(titel - utan) < 1.5f,
+          "namnlist A: i namnlisten skär raden ingen remsa — höjden som utan "
+          "rad (inte dubbelräknad)",
+          std::to_string(utan) + " mot " + std::to_string(titel));
+
+    w.menuBar.setInTitleBar(false);
+    check(!w.menuBar.inTitleBar() && std::abs(w.clientSize().h - rad) < 1.5f,
+          "namnlist A: tillbaka i innehållsytan skär raden sin remsa igen",
+          std::to_string(w.clientSize().h));
+}
+
+// B. Snittet på en fristående rad, FalskFont 7 per tecken. Rektarna är
+// handräknade ur rubrikernas bredd (tecken × 7 + 2 × menuBarPadX) och ⋯-knappens
+// längd (toolOverflowW).
+void fallNamnlistSnitt()
+{
+    const glaze::Style& st = glaze::defaultStyle(glaze::UI::Slate);
+    FalskFont           f(7.0f, st.uiFontSize);
+    const glaze::Ctx    c = ctxFor(f);
+
+    ProvRad rad;
+    rad.dock   = glaze::Dock::None;
+    rad.x      = 0.0f;
+    rad.y      = 0.0f;
+    rad.height = 24.0f;
+    int dold   = 0;
+    for (const char* t : {"Arkiv", "Redigera", "Visa", "Hjälp"}) {
+        glaze::Menu& m = rad.addMenu(t);
+        m.addItem("Post");
+    }
+    glaze::Menu& hjalp = *rad.menuAt(3);
+    hjalp.items[0].shortcut = {gfx::Key::D, gfx::kModCtrl};
+    hjalp.items[0].onClick  = [&dold] { ++dold; };
+
+    const auto tw = [&](int antalTecken) {
+        return 7.0f * float(antalTecken) + 2.0f * st.menuBarPadX;
+    };
+    const float w0 = tw(5), w1 = tw(8), w2 = tw(4), w3 = tw(5);
+    const float summa = w0 + w1 + w2 + w3;
+    const float mer   = st.toolOverflowW;
+
+    // Utan läget: inget snitt, hur smal raden än är.
+    rad.width = 50.0f;
+    check(!rad.inTitleBar() && rad.cut(c).shown == 4 && !rad.cut(c).more,
+          "namnlist B: utan läget finns inget snitt");
+
+    rad.setInTitleBar(true);
+    check(rad.isPlain(), "namnlist B: namnlistläget gör raden REN (ingen yta)");
+
+    // Alla rymms: precis rubrikernas summa.
+    rad.width = summa;
+    check(rad.cut(c).shown == 4 && !rad.cut(c).more,
+          "namnlist B: raden på rubrikernas summa visar alla, ingen ⋯");
+    check(nara(rad.titleRect(c, 2).x, w0 + w1) && nara(rad.titleRect(c, 2).w, w2),
+          "namnlist B: rubrikernas rektar står efter varandra från 0",
+          std::to_string(rad.titleRect(c, 2).x));
+    check(rad.moreRect(c).w == 0.0f, "namnlist B: ingen rekt för ⋯ när alla ryms");
+
+    // Ett överskott på en halv pixel är avrundning, inte ett snitt.
+    rad.width = summa - 0.5f;
+    check(rad.cut(c).shown == 4 && !rad.cut(c).more,
+          "namnlist B: en halv pixel för lite klipper inte");
+
+    // Plats för två rubriker och ⋯ — och inte för en tredje.
+    rad.width = w0 + w1 + mer + 0.5f;
+    check(rad.cut(c).shown == 2 && rad.cut(c).more,
+          "namnlist B: de två första ryms, resten döljs, ⋯ visas",
+          std::to_string(rad.cut(c).shown));
+    check(nara(rad.moreRect(c).x, w0 + w1) && nara(rad.moreRect(c).w, mer),
+          "namnlist B: ⋯ står direkt efter den sista synliga rubriken",
+          std::to_string(rad.moreRect(c).x));
+    check(rad.titleRect(c, 2).w == 0.0f && rad.titleRect(c, 3).w == 0.0f,
+          "namnlist B: en dold rubrik har ingen rekt");
+    const gfx::Rectf bas = rad.resolve(c);
+    const float      my  = bas.y + bas.h / 2.0f;
+    check(rad.titleAt(c, bas.x + w0 / 2.0f, my) == 0 &&
+              rad.titleAt(c, bas.x + w0 + w1 / 2.0f, my) == 1,
+          "namnlist B: de synliga rubrikerna träffas");
+    check(rad.titleAt(c, bas.x + w0 + w1 + mer / 2.0f, my) == ProvRad::kMore,
+          "namnlist B: ⋯ träffas");
+    check(rad.titleAt(c, bas.x + w0 + w1 + mer + 0.25f, my) == -1,
+          "namnlist B: en dold rubrik träffas inte (där den hade stått)");
+
+    // För smalt för en enda rubrik: bara ⋯.
+    rad.width = mer - 1.0f;
+    check(rad.cut(c).shown == 0 && rad.cut(c).more,
+          "namnlist B: smalare än ⋯ visar ingen rubrik");
+
+    // Naturlig bredd: rubrikernas summa, höjden menyradens.
+    rad.width = 0.0f;
+    check(nara(ProvRad::measure(rad, c).w, summa) &&
+              nara(ProvRad::measure(rad, c).h, 24.0f),
+          "namnlist B: den naturliga bredden är rubrikernas summa",
+          std::to_string(ProvRad::measure(rad, c).w));
+
+    // GENVÄGEN når en dold rubrik.
+    rad.width = w0 + mer;
+    check(rad.cut(c).shown == 1 && rad.cut(c).more,
+          "namnlist B: en rubrik och ⋯ (förberedelse)");
+    check(rad.tryShortcut(gfx::Key::D, gfx::kModCtrl) && dold == 1,
+          "namnlist B: genvägen söker också de dolda rubrikernas menyer",
+          std::to_string(dold));
+}
+
+// C. ⋯-menyn med fönster: ett tryck på ⋯ öppnar en meny med en undermeny per
+// dold rubrik, speglad; aktiveringen går genom ORIGINALMENYN (krysset ändras
+// där, handlern körs med raden som sender), och ändras snittet medan menyn är
+// öppen stängs den. Som fallMedFonster: en kedja av postade steg.
+struct RadVard : glaze::AppWindow {
+    ProvRad     rad;
+    glaze::Menu probe;
+    RadVard() : glaze::AppWindow("menu_gate namnlist", 420, 160, gfx::Chrome::None)
+    {
+        rad.dock   = glaze::Dock::None;
+        rad.x      = 0.0f;
+        rad.y      = 0.0f;
+        rad.width  = 60.0f;
+        rad.height = 24.0f;
+        probe.addItem("Probe");
+        root().adopt(rad);
+    }
+    void tryck(float x, float y)
+    {
+        const glaze::Ctx c = rad.behaviorCtx();
+        rad.mouseDown(c, x, y);
+    }
+};
+
+void fallNamnlistMeny()
+{
+    RadVard w;
+    w.setOffscreen(true);
+
+    glaze::MenuBar& r = w.rad;
+    r.setInTitleBar(true);
+    int                 om   = 0;
+    glaze::Widget*      avs  = nullptr;
+    for (const char* t : {"Arkiv", "Redigera", "Visa", "Hjälp"})
+        r.addMenu(t).addItem("Post");
+    glaze::Menu& hjalp = *r.menuAt(3);
+    hjalp.items.clear();
+    hjalp.addCheck("Rutnät");
+    hjalp.addItem("Om").onClick = [&](glaze::Widget* s, glaze::ClickArgs&) {
+        ++om;
+        avs = s;
+    };
+
+    bool                  kedjanKordes = false;
+    int                   steg         = 0;
+    std::function<void()> nasta;
+    nasta = [&] {
+        switch (steg++) {
+        case 0: {
+            kedjanKordes = true;
+            w.probe.popupAt(w.rad, 5.0f, 5.0f);
+            if (!w.probe.isOpen()) {
+                std::printf("  --   namnlistens menyfall hoppas över: "
+                            "popupfönstret kom aldrig upp\n");
+                ++g_skips;
+                w.close();
+                return;
+            }
+            w.probe.close();
+            break;
+        }
+        case 1: {
+            const glaze::Ctx c    = w.rad.behaviorCtx();
+            const auto       kort = w.rad.cut(c);
+            check(kort.more && kort.shown < 4,
+                  "namnlist C: 60 px ryms inte alla rubriker — ⋯ visas",
+                  std::to_string(kort.shown));
+            const gfx::Rectf bas  = w.rad.resolve(c);
+            const gfx::Rectf mer  = glaze::Draw::project(c, bas, w.rad.moreRect(c));
+            w.tryck(mer.x + mer.w / 2.0f, mer.y + mer.h / 2.0f);
+            check(w.rad.isMoreOpen() && w.rad.openIndex() == -1 &&
+                      w.rad.moreMenu().isOpen(),
+                  "namnlist C: trycket på ⋯ öppnar ⋯-menyn");
+            const auto& m = w.rad.moreMenu().items;
+            check(m.size() == std::size_t(4) - kort.shown &&
+                      m.back().text.str() == "Hjälp" && m.back().submenu.size() == 2,
+                  "namnlist C: en undermeny per dold rubrik, med den speglade "
+                  "strukturen",
+                  std::to_string(m.size()));
+            if (m.empty()) {
+                w.close();
+                return;
+            }
+            const int h = int(m.size()) - 1;   // Hjälp är den sista dolda
+            check(m[std::size_t(h)].submenu[0].checkable &&
+                      !m[std::size_t(h)].submenu[0].checked,
+                  "namnlist C: den speglade posten är en kryssbar post");
+            // AKTIVERINGEN: genom originalets `activatePath`.
+            w.rad.moreMenu().activatePath({h, 0}, &w.rad);
+            check(hjalp.items[0].checked,
+                  "namnlist C: krysset ändras i ORIGINALMENYN (en källa)");
+            w.rad.moreMenu().activatePath({h, 1}, &w.rad);
+            check(om == 1 && avs == &w.rad,
+                  "namnlist C: originalposten körde sin handler med raden som "
+                  "sender",
+                  std::to_string(om));
+            w.rad.closeMenu();
+            break;
+        }
+        case 2: {
+            check(!w.rad.isMoreOpen() && !w.rad.moreMenu().isOpen() &&
+                      glaze::app().windowCount() == 1,
+                  "namnlist C: closeMenu stänger också ⋯-menyn");
+            const glaze::Ctx c   = w.rad.behaviorCtx();
+            const gfx::Rectf bas = w.rad.resolve(c);
+            const gfx::Rectf mer = glaze::Draw::project(c, bas, w.rad.moreRect(c));
+            w.tryck(mer.x + mer.w / 2.0f, mer.y + mer.h / 2.0f);
+            check(w.rad.isMoreOpen(), "namnlist C: ⋯ öppnas igen");
+            // Raden blir bred nog för alla — snittet ändras, menyn är inaktuell.
+            w.rad.width = 400.0f;
+            w.rad.invalidate();
+            const glaze::Ctx c2 = w.rad.behaviorCtx();
+            w.rad.mouseMove(c2, 1.0f, 1.0f);
+            check(!w.rad.isMoreOpen() && w.rad.openIndex() == -1,
+                  "namnlist C: en öppen ⋯-meny stängs när snittet ändras");
+            break;
+        }
+        case 3:
+            check(!w.rad.moreMenu().isOpen() && glaze::app().windowCount() == 1,
+                  "namnlist C: ⋯-menyns popup är riven i pump-svansen");
+            w.close();
+            return;
+        default:
+            w.close();
+            return;
+        }
+        glaze::app().post(nasta);
+    };
+    glaze::app().post(nasta);
+    w.run();
+
+    if (!kedjanKordes) {
+        std::printf("  --   namnlistens menyfall hoppades över: inget fönster "
+                    "kunde skapas (ingen display)\n");
+        ++g_skips;
+    }
+}
+
 // ------------------------------------------------------ POPUP utan fönster
 void fallPopupUtanFonster()
 {
@@ -703,8 +1045,11 @@ int main(int argc, char** argv)
     fallAccelerator();
     fallMenyrad();
     fallInnehallsyta();
+    fallNamnlistHojd();
+    fallNamnlistSnitt();
     fallPopupUtanFonster();
     fallMedFonster();
+    fallNamnlistMeny();
 
     if (g_skips)
         std::printf("     %d block överhoppade (se raderna ovan)\n", g_skips);

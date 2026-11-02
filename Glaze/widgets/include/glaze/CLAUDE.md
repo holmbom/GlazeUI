@@ -482,7 +482,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   `isOpen()`/`isHidden()`, **fönster-kontrollerna**
   `minimize()`/`maximize()`/`restore()`/ `isMaximized()` (.NET-formen över
   fasaden; växling = `isMaximized() ? restore() : maximize()` —
-  CaptionButton-mönstret), **caption-barerna** `topBar()` (null vid
+  CaptionButton-mönstret), **caption-barerna** **`topBar`** (värdefält, dold vid
   Native/None; transparent döljer den)/**`statusBar`** och **`menuBar`**
   (publika VÄRDE-FÄLT deklarerade EFTER `root_`, adopterade LÅNADE i ctorn
   efter TopBar — menyraden först — och DOLDA; se widgets/)/`setControlBox`/
@@ -532,8 +532,8 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   **RAMEN, PLATSEN, LÄGET OCH PEKAREN**
   (FONSTER_OCH_TIMER, samma avsnitt där): `setChrome(c)`/`chrome()` — ett
   attribut; öppet loggas det och väntar i `nextChrome_`; Custom bygger
-  namnlisten LATT (`applyChrome`) och lägger den FÖRST i roten, och `topBar()`
-  svarar bara vid Custom. `StartPosition {Default, CenterScreen, CenterOwner,
+  namnlistens barn LATT (`applyChrome`), och `topBar` står alltid FÖRST i roten och
+  syns bara vid Custom. `StartPosition {Default, CenterScreen, CenterOwner,
   Manual}` + `setStartPosition`, `setLocation(x, y)` (före första visningen —
   också i `onLoad` — Manual, efter en flytt i normalläge utan klämning),
   `setWindowState`/`windowState()` (före första visningen startläget, också
@@ -942,7 +942,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   `ProfilePhase::Compile`, `PumpProfile::depth`, `profilePhaseName`/
   `profileCountName`. INGA statiska variabler och inga inline-variabler i
   headern (DELAT LÄGE (1)); registret bor i cpp:n. Utanför regel 8 med flit.
-- **`print.h`** — **`glaze::PrintJob`** (REQ8 10): systemets utskrift, `FileDialog`s klassform; sidan med ritytans `Painter` i mm, rastrerad (besluten i headern).
+- **`print.h`** — **`glaze::PrintJob`** (REQ8 10): systemets utskrift, `FileDialog`s klassform; sidan med ritytans `Painter` i mm, rastrerad (besluten i headern). Bredvid den **`renderPageImage`**: samma sida som `Bitmap`, med egen täthet och utan skrivare.
 - **`component.h`** — **`glaze::Component`** (FONSTER_OCH_TIMER, WinForms
   `Component`): basen för det som står som MEDLEM utan att vara en widget.
   `name` (speglat som `Widget::name` — writern emitterar namnraden på varje

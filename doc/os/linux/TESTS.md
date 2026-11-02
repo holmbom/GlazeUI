@@ -1410,3 +1410,17 @@ vWorld.xy)`; `kPointsGlsl*`: `vClipPx` (noperspective) och `vAnchor`),
   läge med knappen uppe till höger.
   *Rätt utfall:* grinden grön; gradienten följer fönstrets rundade hörn, inga
   veck eller skarvar och inga glipor vid hörnen.
+
+- **Menyer och glyfknappar i namnlisten** (delad kod, blint på Linux):
+  `TopBar::extrasRect` (`top_bar.cpp`) och träffkartan i `pushHitRegions`.
+  *Gör:* kör `demo --slate` och `demo --login` på Wayland och X11, dra i fönstrets
+  storlek, klicka på menyer, ⋯ och glyfer, och dra fönstret i tom yta.
+  *Rätt utfall:* titeln mitt i området som blir kvar, kortas och visas till sist
+  inte, rubriker samlas under ⋯, popuper under sin rubrik också på Wayland, och
+  bara tom yta drar fönstret. Med stor ikon står ikonen över namnlisten och det
+  första verktygsfältet, och fältets barn börjar efter den.
+
+- **En sida som bild** (delad kod, aldrig körd på GL): `renderPageImage`
+  (`Glaze/widgets/src/print.cpp`) fungerar också på Linux, där utskriften saknas.
+  *Gör:* kör `print_gate`, fall P8–P12, på Wayland och X11.
+  *Rätt utfall:* grinden grön, och bilden inte spegelvänd.

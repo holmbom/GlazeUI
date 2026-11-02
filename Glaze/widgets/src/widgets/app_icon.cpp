@@ -23,6 +23,7 @@
 
 #include "glaze/app_window.h"
 #include "glaze/draw.h"
+#include "glaze/widgets/tool_bar.h"
 
 #include "../menu_path.h"
 #include "../prop_parse.h"
@@ -114,11 +115,29 @@ std::pair<ImageSource, ImageSource> AppIcon::effectiveIcons() const
     return detail::effectiveIcons(icon_, small_);
 }
 
-bool AppIcon::showsLarge() const
+// Menyraden om den står på egen rad, annars fönstrets översta remsa om den är ett
+// verktygsfält. En remsa till vänster eller höger framför fältet flyttar det från
+// hörnet, och en nederst rör det inte.
+const Bar* AppIcon::rowBeside() const
 {
     const AppWindow* w = appWindow();
-    return large_ && !noIcon_ && w && &w->appIcon == this && w->topBar_ &&
-           w->topBar_->isVisible() && w->menuBar.isVisible();
+    if (!large_ || noIcon_ || !w || &w->appIcon != this || !w->topBar.isVisible())
+        return nullptr;
+    if (w->menuBar.isVisible() && w->menuBar.parent() != &w->topBar)
+        return &w->menuBar;
+    for (const Widget* ch : parent()->children()) {
+        if (!ch->isVisible() || !ch->inDockFlow() || ch->dock == Dock::None ||
+            ch->dock == Dock::Bottom)
+            continue;
+        const auto* falt = dynamic_cast<const ToolBar*>(ch);
+        return falt && falt->dock == Dock::Top && !falt->isFloating() ? falt : nullptr;
+    }
+    return nullptr;
+}
+
+bool AppIcon::showsLarge() const
+{
+    return rowBeside() != nullptr;
 }
 
 float AppIcon::reservedWidth(const Ctx& c, Row row) const
@@ -142,15 +161,19 @@ gfx::Sizef AppIcon::contentSize(const Ctx& c) const
             return gfx::Sizef{c.style->barHeight, c.style->barHeight};
         // Ingen ikon eller ingen namnlist (Native/None, transparent
         // fönster) ⇒ ingen plats.
-        const TopBar* tb = w->topBar_;
-        if (noIcon_ || !tb || !tb->isVisible())
+        if (noIcon_ || !w->topBar.isVisible())
             return gfx::Sizef{0.0f, 0.0f};
         // AXELREGELN som chromets höjd (`chromeInsetH`): satt höjd vinner,
         // annars stilens.
-        float sida = tb->height > 0.0f ? tb->height : c.style->barHeight;
-        if (showsLarge())
-            sida += w->menuBar.height > 0.0f ? w->menuBar.height
-                                             : c.style->menuRowH;
+        float sida =
+            w->topBar.height > 0.0f ? w->topBar.height : c.style->barHeight;
+        if (const Bar* rad = rowBeside()) {
+            if (rad == &w->menuBar)
+                sida += w->menuBar.height > 0.0f ? w->menuBar.height
+                                                 : c.style->menuRowH;
+            else
+                sida += measure(*rad, c).h;
+        }
         return gfx::Sizef{sida, sida};
     }
     }

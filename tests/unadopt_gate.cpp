@@ -322,10 +322,7 @@ void fallInbyggda()
     // CHROME-barn som TopBar: `isBuiltinMember` måste känna den, annars
     // lämnar en borttagning namnlistens motvikt och hit-kartan hängande.
     check(!w.root().unadopt(w.appIcon), "appIcon nekas");
-    if (glaze::TopBar* tb = w.topBar())
-        check(!w.root().unadopt(*tb), "topBar nekas");
-    else
-        check(false, "fönstret saknar TopBar (Chrome::Custom förväntades)");
+    check(!w.root().unadopt(w.topBar), "topBar nekas");
     check(barnen(w.root()) == före, "…och rot-trädet är orört",
           barnen(w.root()));
 

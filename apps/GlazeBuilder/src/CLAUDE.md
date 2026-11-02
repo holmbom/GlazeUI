@@ -579,7 +579,7 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   builderns `rebuildPreview` (`previewComponents_`); ingenting ritar dem —
   komponentfacket är fas 2 (TODO 70).
 - **`window_tree.h/.cpp`** — `bld::buildWindowTree(win, model, origin)`:
-  modellen → trädet i ett RIKTIGT `AppWindow` (inbyggda först, sedan
+  modellen → trädet i ett RIKTIGT `AppWindow` (inbyggda först — också `topBar`, så att `topBar.adopt(x)` hamnar i namnlisten —, sedan
   adopt-ordningen, satserna i källordning) och widgeten per modellnod
   tillbaka. Delad av glaze-render och `tests/pixel_gate.cpp` (en kopia i
   grinden hade mätt kopian och inte verktyget). Builderns egen canvas bygger INTE

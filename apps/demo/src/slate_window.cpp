@@ -236,8 +236,21 @@ void SlateWindow::valjLage(glaze::ThemeMode m)
     synkaUtseende();
 }
 
+bool SlateWindow::morktNu() const
+{
+    return &theme().resolve(themeMode()) == &theme().dark;
+}
+
+void SlateWindow::vaxlaLage()
+{
+    valjLage(morktNu() ? glaze::ThemeMode::Light : glaze::ThemeMode::Dark);
+}
+
 void SlateWindow::synkaUtseende()
 {
+    // Glyfen visar vart den leder: solen i mörkt, halvcirkeln i ljust.
+    lageGlyf_->setImg(ikon(morktNu() ? glaze::StockIcon::Brightness
+                                     : glaze::StockIcon::Contrast));
     temaDd_->setSelectedIndex(temaIndex_);
     for (int i = 0; i < glaze::themeCount(glaze::UI::Slate); ++i)
         temaMeny_->items[static_cast<std::size_t>(i)].checked = i == temaIndex_;
@@ -258,6 +271,22 @@ void SlateWindow::synkaUtseende()
                                                      : "system";
     visa("Slate · " + glaze::themeAt(glaze::UI::Slate, temaIndex_).name + " · " +
          namn);
+}
+
+void SlateWindow::vaxlaStorIkon()
+{
+    const bool stor = !appIcon.isLarge();
+    appIcon.setLarge(stor);
+    storIkon_->setChecked(stor);
+    menuBar.setItemChecked({"Visa", "Stor ikon"}, stor);
+}
+
+void SlateWindow::vaxlaMenyer()
+{
+    const bool namnlist = !menuBar.inTitleBar();
+    menuBar.setInTitleBar(namnlist);
+    menyGlyf_->setChecked(namnlist);
+    menuBar.setItemChecked({"Visa", "Menyer i namnlisten"}, namnlist);
 }
 
 // ------------------------------------------------------------------- menyerna
@@ -305,6 +334,36 @@ void SlateWindow::byggMenyer()
     menuBar.addRadio("Visa", "Lista", true);
     menuBar.addRadio("Visa", "Detaljer");
     menuBar.addRadio("Visa", "Ikoner");
+    menuBar.addSeparator("Visa");
+
+    // NAMNLISTEN: menyerna och två glyfknappar, som kortas och samlas under ⋯
+    // när fönstret görs smalt.
+    menuBar.setInTitleBar(true);
+    menuBar.addCheck("Visa", "Menyer i namnlisten", true);
+    menuBar.setHandler({"Visa", "Menyer i namnlisten"}, [this] { vaxlaMenyer(); });
+    menuBar.addCheck("Visa", "Stor ikon");
+    menuBar.setHandler({"Visa", "Stor ikon"}, [this] { vaxlaStorIkon(); });
+    auto glyf = [](glaze::ToolButton* b, glaze::StockIcon i, const char* tips) {
+        b->setGlyphOnly(true);
+        b->setImg(ikon(i));
+        b->setToolTip(tips);
+        return b;
+    };
+    glyf(topBar.addStart<glaze::ToolButton>(), glaze::StockIcon::Search, "Sök");
+    storIkon_ = glyf(topBar.addEnd<glaze::ToolButton>(), glaze::StockIcon::Sidebar,
+                     "Stor ikon");
+    storIkon_->setCheckable(true);
+    storIkon_->onClick = [this] { vaxlaStorIkon(); };
+    menyGlyf_ = glyf(topBar.addEnd<glaze::ToolButton>(), glaze::StockIcon::Menu,
+                     "Menyer i namnlisten");
+    menyGlyf_->setCheckable(true);
+    menyGlyf_->setChecked(true);
+    menyGlyf_->onClick = [this] { vaxlaMenyer(); };
+    glyf(topBar.addEnd<glaze::ToolButton>(), glaze::StockIcon::Help, "Inaktiverad")
+        ->disable();
+    lageGlyf_ = glyf(topBar.addEnd<glaze::ToolButton>(), glaze::StockIcon::Contrast,
+                     "Växla mellan ljust och mörkt (F9)");
+    lageGlyf_->onClick = [this] { vaxlaLage(); };
 
     // TEMAT: en radiopost per tema i Slate, först i menyn så att indexet i
     // menyn är temats index. Under dem stegen och läget.
@@ -320,10 +379,7 @@ void SlateWindow::byggMenyer()
     menuBar.setHandler({"Tema", "Nästa tema"},
                        [this] { valjTema(temaIndex_ + 1); });
     menuBar.addItem("Tema", "Växla ljust och mörkt", "F9");
-    menuBar.setHandler({"Tema", "Växla ljust och mörkt"}, [this] {
-        valjLage(themeMode() == glaze::ThemeMode::Dark ? glaze::ThemeMode::Light
-                                                       : glaze::ThemeMode::Dark);
-    });
+    menuBar.setHandler({"Tema", "Växla ljust och mörkt"}, [this] { vaxlaLage(); });
     menuBar.addSubmenu("Tema", "Läge");
     menuBar.addRadio({"Tema", "Läge"}, "System", true);
     menuBar.addRadio({"Tema", "Läge"}, "Ljust");

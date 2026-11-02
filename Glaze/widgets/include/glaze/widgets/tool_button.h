@@ -71,6 +71,14 @@
 // alltid UNDER knappen, också i ett lodrätt verktygsfält — en skriven
 // begränsning.
 //
+// GLYFLÄGET (`setGlyphOnly`) — knappen är bara en glyf, som i namnlisten: den
+// mäter `titleGlyphW` × `capsuleH`, ignorerar text och pil och ritas lika i
+// alla tre UI. Vila är bara glyfen — ingen platta och ingen kontur; en
+// rundad platta i `capsuleHover` under pekaren och `capsulePress` vid tryck;
+// ett påslaget läge (`checked`) färgar glyfen med `accent`; inaktiv tonas den
+// med `iconFade`. Med menyposter öppnar ett tryck menyn som vanligt, men utan
+// pil och utan delad pildel.
+//
 // INTE HÄR med flit: radiogrupper av verktyg (wxITEM_RADIO). En radiogrupp
 // går att bygga med `checkable` + `onClick` i dag.
 
@@ -130,6 +138,18 @@ public:
     // no-op. Lägger om syskonen, som bilden.
     void  setIconSize(float px);
     float iconSize() const { return iconSize_; }
+
+    // GLYFLÄGET — se filhuvudet. Av som förval. Måttet ändras, så syskonen
+    // läggs om.
+    void setGlyphOnly(bool on)
+    {
+        if (glyphOnly_ == on)
+            return;
+        glyphOnly_ = on;
+        invalidate();
+        relayoutSiblings();
+    }
+    bool glyphOnly() const { return glyphOnly_; }
 
     // VÄXLINGEN. Av = en vanlig verktygsknapp (bara `onClick`). På = varje
     // ANVÄNDARklick slår `checked` om och fyrar `onChange` FÖRE `onClick`
@@ -239,8 +259,8 @@ public:
     bool focusable() const override { return false; }
 
     // setProp-egenskaper: text, img ("lista/nyckel"), imagePos
-    // (left/right/above/below), checkable, checked, split, iconSize (ett
-    // tal). Menyn byggs med add-satserna, inte med props.
+    // (left/right/above/below), checkable, checked, split, glyphOnly,
+    // iconSize (ett tal). Menyn byggs med add-satserna, inte med props.
     bool setProp(const std::string& key, const std::string& value) override;
 
     // ÖVERSATT text — regel 8:s tr-väg. Utan den blir
@@ -263,8 +283,9 @@ protected:
     // rutan `toolArrowW` i AUTO-bredden och pilen i ritningen. Utan pil finns
     // ingen pildel, så hela knappen är menyns också när den är delad.
     // Verktygsfältets överflödsknapp svarar false — dess ikon säger att den
-    // öppnar en meny (tool_bar.cpp). Trycket följer POSTERNA och inte pilen.
-    virtual bool showsArrow() const { return hasMenu(); }
+    // öppnar en meny (tool_bar.cpp) — och glyfläget har ingen pil heller.
+    // Trycket följer POSTERNA och inte pilen.
+    virtual bool showsArrow() const { return hasMenu() && !glyphOnly_; }
 
 private:
     // DET ETT KLICK GÖR — växlingen med `onChange`/`onCommit` och sedan
@@ -280,6 +301,10 @@ private:
     // Bild + text som EN sak (Button-mönstret), med ikonen tonad när
     // knappen är inaktiv. `fg` är textfärgen — den väljs av ritgrenen.
     Content content(const Ctx& c, gfx::Color fg) const;
+
+    // Glyfläget ritas (alla tre UI): ingen platta i vila, en rundad platta
+    // under pekaren och trycket, glyfen i `accent` när läget är påslaget.
+    void drawGlyph(const Ctx& c);
 
     // Hover, tryck eller öppen meny på en aktiv knapp — det som tänder
     // plattan i alla tre ritningarna (vilken platta avgör grenen).
@@ -306,6 +331,7 @@ private:
     bool        checkable_ = false;
     bool        checked_   = false;
     bool        split_     = false;
+    bool        glyphOnly_ = false;
     bool        open_      = false;   // menyn visas
     // DET HÄR TRYCKET VAR MENYNS (öppnade eller stängde den) och blir inget
     // klick — satt i `mouseDown`, läst i `clicked()` för samma tryck.

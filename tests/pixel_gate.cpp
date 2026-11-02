@@ -304,7 +304,7 @@ std::vector<Nod> samla(Fixtur& win, const bld::WindowModel& m)
     // Programikonen är chrome som TopBar: att dölja den
     // flyttar namnlistens motvikt och — i den stora formen — menyradens
     // början, alltså geometrin nivåmätningen förutsätter står still.
-    const glaze::Widget* inbyggda[] = {win.topBar(), &win.menuBar,
+    const glaze::Widget* inbyggda[] = {&win.topBar, &win.menuBar,
                                        &win.statusBar, &win.appIcon};
     struct Steg {
         glaze::Widget* w;

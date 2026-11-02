@@ -830,14 +830,17 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   plats bland de SYNLIGA kapsel-syskonen — avgör vilken ände som rundas) och
   `drawGlyphs(pen, restoreFill)` (TECKNET, delat; `restoreFill` = det BAKOM knappen).
   INTE fokuserbar. `setProp`: kind/shape (`"style"` = äldre alias).
-- **`top_bar.h`** — `TopBar : Bar`, den RIKTIGA namnlisten: skapas ALLTID av
-  AppWindow vid `Chrome::Custom`; namngivna pekare `titleLabel`/
+- **`top_bar.h`** — `TopBar : Bar`, den RIKTIGA namnlisten: värdefältet
+  `AppWindow::topBar`, standardbarnen byggda vid `Chrome::Custom`. Bär menyer och
+  glyfer med `addStart`/`addEnd` (sidan är barnets `dock`) och `setShowTitle`;
+  namngivna pekare `titleLabel`/
   `minButton`/`maxButton`/`closeButton` (null när de saknas). Överrider
   `topRadius()` med `AppWindow::cornerRadius()` — namnlisten ligger mot
   fönstrets övre hörn och måste rundas med EXAKT samma tal som bakgrunden,
   annars sticker en fyrkantig remsa ut ur ett rundat fönster. Och
   **`innerEdgeInsets`**: fönstrets EGEN namnlist hoppar över den STORA ikonen.
-- **`menu_bar.h`** — `MenuBar : Bar`, MENYRADEN (MENYER, 2026-08-19). Ett
+- **`menu_bar.h`** — `MenuBar : Bar`, MENYRADEN (`setInTitleBar`: i namnlisten,
+  med ⋯ för rubriker som inte ryms). Ett
   publikt VÄRDE-FÄLT på `AppWindow` — `window.menuBar` — som skapas med
   fönstret, adopteras LÅNAD i konstruktorn EFTER TopBar och FÖRE
   statusraden, och är DOLD tills `menuBar.show();`. Den ligger i KLIENTYTAN
@@ -886,7 +889,8 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   knappens egen meny, kontroller som poster som ger fokus — ett barn i överflödet med fokus VISAS
   (`childFocusChanged` ritar om). `minLength` är bandets krympgolv. `setProp`: text, band, floating,
   floatable, overflow + Bars.
-- **`tool_button.h`** — `ToolButton : Widget`, VERKTYGSKNAPPEN (post 11).
+- **`tool_button.h`** — `ToolButton : Widget`, VERKTYGSKNAPPEN (`setGlyphOnly`:
+  bara glyfen, en platta vid hover och tryck).
   Buttons ord: `text` (TrText, INGET `title`-alias), `img`, `imagePos` (de tre
   lägger om syskonen, `relayoutSiblings`); plus `checkable`/`checked` och
   `onChange`/`onCommit` (växlingen; före `onClick`). Tre saker skiljer den från
@@ -922,7 +926,7 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   (PROGRAMIKON, 2026-10-11; "appicon"). Det tredje värdefältet på
   `AppWindow` (`appIcon`), SYNLIGT som förval: ogiltig `icon()` = GlazeUI-
   ikonen, `setSmallIcon` en egen liten, `setNoIcon(true)` ingen alls,
-  `setLarge(true)` en BEGÄRAN som gäller med synlig menyrad, `hide()` döljer
+  `setLarge(true)` en BEGÄRAN som gäller med en rad under namnlisten (`rowBeside`: menyraden eller det översta verktygsfältet), `hide()` döljer
   den i fönstret men inte på OS:et. Ett CHROME-rotbarn som TopBar, vänster
   på Windows/Linux, höger på macOS (statiska `onRightSide()`). **`reservedWidth(c,
   Row)`** är geometrins ENDA sanning (logiska px) — motvikten

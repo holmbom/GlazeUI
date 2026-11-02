@@ -414,7 +414,7 @@ void MainWindow::initializeComponent()
 - Strängar med andra escapes (`\x41`, `\u00e5`) blir opaka — skriv tecknen som UTF-8.
 - Läsaren och kompilatorn är två oberoende grindar: bygg OCH kör glaze-render efter varje handredigering.
 - Syskonankare får bara peka på TIDIGARE adopterade syskon; ett namn längre fram faller tyst tillbaka på `x`/`y` (`layout`).
-- Fönstrets INBYGGDA medlemmar `menuBar`, `statusBar` och `appIcon` deklareras aldrig i regionen och adopteras aldrig — de bär bara satser (`appIcon.setLarge(true);`, `appIcon.addItem({}, "Nytt");`). `{}` är en laglig stig (programmenyns rot) och en laglig bild (`appIcon.setIcon({})` = förvalet).
+- Fönstrets INBYGGDA medlemmar `topBar`, `menuBar`, `statusBar` och `appIcon` deklareras aldrig i regionen och adopteras aldrig — de bär bara satser (`appIcon.setLarge(true);`, `appIcon.addItem({}, "Nytt");`). `{}` är en laglig stig (programmenyns rot) och en laglig bild (`appIcon.setIcon({})` = förvalet).
 - Ett nakent `hide();` kompilerar och ger DOLD START i appen, men previewn utför det medvetet inte — ritbordet ska visa fönstret, och dold start hör hemma i `main`.
 - Komponenterna står SIST i regionen (writerns nodordning: inbyggda, adopt-ordningen, sedan de icke-adopterade) — en annan ordning läses men skrivs om vid nästa spara.
 - `setAcceptButton(okBtn);` pekar på en medlem med NAMN: byter noden namn i GlazeBuilder följer argumentet med, och tas noden bort försvinner raden. Ett namn som inte är en `glaze::Button` i trädet bevaras opakt (loggas, utförs inte). glaze-render och VS Code-previewn utför satsen, så standardknappens accent syns där; GlazeBuilders canvas utför inga fönsteranrop.
@@ -539,7 +539,7 @@ Basklassen varje fönster ärver. Konstruktorn skapar inget OS-fönster (tvåfas
 - `void setTitle(TrText t);` · `void setContentSize(int w, int h);` (ytan mellan namnlist och statusrad, räknas om vid stilbyte) · `void setClientSize(int w, int h)` · `void setMinimumSize(int w, int h);` · `void setMaximumSize(int w, int h);` — logiska px, 0 = obegränsat, min == max = fast storlek.
 - I INNEHÅLLSMÅTT, som `setContentSize`: `void setMinimumContentSize(int w, int h);` · `void setMaximumContentSize(int w, int h);` · `void setFixedContentSize(int w, int h);` (innehållsytan exakt w × h och inte ändringsbar — `isFixedSize()`) · `gfx::Sizef minimumContentSize() const;` · `gfx::Sizef maximumContentSize() const;` — chromets höjd räknas på av ramverket och följer statusraden och stilen; `minimumSize()`/`maximumSize()` svarar alltid i klientmått. Klient- och innehållsformen utesluter varandra per gräns: den som sätts SIST gäller.
 - `void setSizeToContent(SizeToContent s);` (`Manual`, `Width`, `Height`, `WidthAndHeight`) · `void setSizeToContentMode(SizeToContentMode m);` (`GrowAndShrink` = låst, förvalet · `GrowOnly` = innehållet som minsta storlek) — se fallgroparna.
-- `void setModal(bool on)` · `void setPopup(bool on)` (utan fokus, stängs vid klick utanför) · `void setPopupTakesKeys(bool on);` + `bool popupTakesKeys() const;` (en popup som TAR TANGENTBORDET — en sökruta, en kommandopalett; före `show()`, se fallgroparna) · `void setTransparent(bool on)` (per-pixel-alfa, inget chrome) · `void setTopmost(bool on);` + `bool topmost() const;` · `void setShowInTaskbar(bool on);` + `bool showInTaskbar() const;` (false = ingen knapp i aktivitetsfältet — attribut, före `show()`; `tray-icon`) · `void setControlBox(bool on);` (och `setMinimizeBox`/`setMaximizeBox`) · `void minimize();` `maximize();` `restore();` · ctorns `gfx::Chrome`: `Custom` (förval, vår namnlist — `TopBar* topBar()`), `Native` (OS:ets), `None` — eller `setChrome(c)` före `show()`
+- `void setModal(bool on)` · `void setPopup(bool on)` (utan fokus, stängs vid klick utanför) · `void setPopupTakesKeys(bool on);` + `bool popupTakesKeys() const;` (en popup som TAR TANGENTBORDET — en sökruta, en kommandopalett; före `show()`, se fallgroparna) · `void setTransparent(bool on)` (per-pixel-alfa, inget chrome) · `void setTopmost(bool on);` + `bool topmost() const;` · `void setShowInTaskbar(bool on);` + `bool showInTaskbar() const;` (false = ingen knapp i aktivitetsfältet — attribut, före `show()`; `tray-icon`) · `void setControlBox(bool on);` (och `setMinimizeBox`/`setMaximizeBox`) · `void minimize();` `maximize();` `restore();` · ctorns `gfx::Chrome`: `Custom` (förval, vår namnlist — fältet `topBar`), `Native` (OS:ets), `None` — eller `setChrome(c)` före `show()`
 - Ramen, startplatsen, läget och geometrin: `setChrome` · `setStartPosition` · `setLocation` · `setWindowState`/`windowState()` · `WindowGeometry geometry() const` (`window-placement`) · väntepekaren `setUseWaitCursor(bool)` (`cursors`) · en timer som hör till APPEN är `glaze::Timer` (`timer`)
 - `StatusBar statusBar;` · `MenuBar menuBar;` — publika fält, dolda tills `show()`. `template <class T, class... Args> T* add(Args&&... args)` · `Widget& root()` · `template <class T = Widget> T* find(const std::string& name)`
 - `void invalidate()` (full omritning) · `void setAnimating(bool on)` (vsync-takt tills du stänger av) · `gfx::Window& window()` → `startTimer(std::uint32_t id, std::uint32_t ms)`/`stopTimer(std::uint32_t id)`, ticken som `gfx::EventType::Timer` i `event()`
@@ -650,7 +650,7 @@ Nakna fönsteranrop och de inbyggda fälten — standard- och avbrytknappen med 
 Var ett fönster hamnar när det öppnas, i vilket läge, med vilken ram — och hur appen sparar och återställer geometrin (WinForms `StartPosition`/`Location`/`WindowState`/`RestoreBounds`). Allt sätts FÖRE `show()`/`run()` eller i `onLoad`: fönstret skapas dolt, `onLoad` fyras, och startplatsen räknas om precis före den första visningen — så fönstret aldrig hoppar.
 
 ### API
-- `void setChrome(gfx::Chrome c);` · `gfx::Chrome chrome() const;` — `Custom` (förval, vår namnlist), `Native` (OS:ets) eller `None` (ingen ram — en splash). Ett ATTRIBUT: efter `show()` loggas anropet och gäller nästa öppning. `topBar()` är nullptr utom vid `Custom`.
+- `void setChrome(gfx::Chrome c);` · `gfx::Chrome chrome() const;` — `Custom` (förval, vår namnlist), `Native` (OS:ets) eller `None` (ingen ram — en splash). Ett ATTRIBUT: efter `show()` loggas anropet och gäller nästa öppning. Fältet `topBar` är dolt utom vid `Custom`.
 - `enum class StartPosition { Default, CenterScreen, CenterOwner, Manual };` · `void setStartPosition(StartPosition p);` · `StartPosition startPosition() const;` — `Default` = OS:et väljer; `CenterScreen` = mitt i arbetsytan på ägarens skärm, utan ägare primärskärmens; `CenterOwner` = mitt över ägarens klientyta (en dold eller minimerad ägare ⇒ som `CenterScreen`); `Manual` = `setLocation`s plats.
 - `void setLocation(int x, int y);` — LOGISKA px, KLIENTYTANS hörn för eget chrome (förvalet) — storleksramen utanför den synliga kanten räknas bort (`platforms`); med `Native` på Windows ramens yttre hörn. Före den FÖRSTA VISNINGEN (före `show()`, i `onLoad` och i en dold start som inte visats): startplatsen (sätter `Manual`), klämd in i skärmens ARBETSYTA när fönstret visas. Efter: flyttar fönstret dit i normalläge, utan klämning; maximerat eller minimerat loggas och ignoreras.
 - `enum class gfx::WindowState { Normal, Minimized, Maximized };` · `void setWindowState(gfx::WindowState s);` · `gfx::WindowState windowState() const;` — före den första visningen startläget (vid första synligheten, också efter en dold start — och `minimize()`/`maximize()`/`restore()` byter då startläget i stället för att visa fönstret); därefter = `minimize()`/`maximize()`/`restore()`. `windowState()` svarar med begäran före den första visningen och med det FAKTISKA läget sedan.
@@ -3074,7 +3074,9 @@ Menyns STRUKTUR står i filen (previewn ritar pilen och bygger menyn — den öp
 - `Bar`: `Spacer* addGap(float width = 0)` — ett FAST mellanrum i raden, i `width` logiska px och utan argument stilens `spacerW` (8 px). Kortform för en `Spacer` med `setGrow(0)`, som är formen i `.glazeui`.
 - `Bar`: `void setPlain(bool on)` / `bool isPlain() const` — REN RAD: bara flexen, utan fyllning och hårlinje, och barnen behåller sin MÄTTA höjd (centrerad i baren) i stället för att fylla den — en knapprad i en dialog som inte ska se ut som ett verktygsfält. Av som förval. Ett barn utan eget mått (en `Spacer`) fyller baren som förut.
 - `Spacer`: `explicit Spacer(float g = 1.0f)` · `void setGrow(float g)` / `float grow() const` — grow 0 + `width` = fast lucka.
-- `AppWindow::statusBar` (värdefält, `glaze::StatusBar`) · `TopBar* AppWindow::topBar()` — `nullptr` med `Chrome::Native`/`None`.
+- `AppWindow::statusBar` (värdefält, `glaze::StatusBar`) · `AppWindow::topBar` (värdefält, `glaze::TopBar`) — dolt med `Chrome::Native`/`None`.
+- `TopBar`: NAMNLISTEN KAN BÄRA MENYER OCH GLYFKNAPPAR: `[ikon] [menyer] [start …] … Titel … [… slut] [– □ ✕]`, och macOS speglar raden. `template <class T> T* addStart(args…)` · `T* addEnd(args…)` lägger ett barn i start- eller slutgruppen; `dock = Dock::Right` på barnet är slutgruppen, allt annat startgruppen. `void setShowTitle(bool on)` / `bool showTitle() const`. Titeln centreras i området som blir kvar, med stilens `titleMinGap` (24 px) på båda sidor, kortas till `Titel…` och visas till sist inte. Bär namnlisten inget extra står titeln mitt i hela fönstret. I Slate tonas menyerna och glyferna.
+- `ToolButton::setGlyphOnly(bool on)` / `bool glyphOnly() const` — en enkel glyf, utan knappdel och text: bara bilden i vila, en platta vid hover och tryck, glyfen i accent när den är ikryssad (`setCheckable`) och tonad när den är inaktiverad. Mått `titleGlyphW` × `capsuleH`. Klick, `onChange`, verktygstips och menyposter är som vanligt, utan pil. Görs för namnlisten men fungerar i varje remsa.
 - `StatusBar`-FÄLTEN (WinForms `StatusBarPanel`): `struct StatusPanel { TrText text; float width = 0.0f; bool fill = false; }` · `void addPanel(TrText text = {}, float width = 0.0f, bool fill = false)` · `void setPanel(int index, TrText text, float width = 0.0f, bool fill = false)` (tilldelning) · `void setPanels(std::vector<StatusPanel> panels)` · `void setPanelText(int index, TrText text)` (bara texten) · `int panelCount() const` · `StatusPanel panel(int index) const` · `const std::string& panelText(int index) const`. Bredden `> 0` är fast (logiska px, ellips), `<= 0` AUTO (texten + luften), och `fill` lägger en lika andel av det LEDIGA ovanpå bredden — den är golvet, så ett fyllande fält kapar aldrig sin text när raden rymmer den. Ryms inte raden rinner den över åt höger; ett fyllande fält som hellre ska kortas får en liten satt bredd.
 - `TopBar`: `Label* titleLabel() const` · `CaptionButton* minButton() const` · `maxButton()` · `closeButton()`.
 - `CaptionButton`: `enum class Kind { Minimize, Maximize, Close }` · `enum class Shape { Glyph, Circle, Capsule }` · `setKind`/`setShape`/`setRestoreGlyph`.
@@ -3097,8 +3099,11 @@ public:
         statusBar.adopt(fyll);          // Spacer med grow 1 tar luckan
         statusBar.adopt(position);
 
-        if (glaze::TopBar* tb = topBar())   // nullptr utan eget chrome
-            tb->add<glaze::Button>("Hjälp");   // SIST: efter fönsterknapparna (Win/Linux)
+        auto* hjalp = topBar.addEnd<glaze::ToolButton>();   // före fönsterknapparna
+        hjalp->setGlyphOnly(true);
+        hjalp->setImg(glaze::stockIcon(glaze::StockIcon::Help));
+        hjalp->setToolTip("Hjälp");
+        menuBar.setInTitleBar(true);                        // menyerna efter ikonen
     }
 
 private:
@@ -3125,15 +3130,26 @@ statusBar.setPanels({{"Klar", 0, true}, {"Rad 1, kol 1", 110}});
 statusBar.addPanel("100 %");
 statusBar.setPanelText(1, "Rad 12, kol 4");
 ```
-`statusBar` (och `menuBar`) deklareras inte i GlazeBuilder-regionen — de finns redan på fönstret. Namnlisten anpassas bara i kod.
+`statusBar`, `menuBar` och `topBar` deklareras inte i GlazeBuilder-regionen — de finns redan på fönstret. Namnlisten:
+```cpp
+hjalp.setGlyphOnly(true);
+hjalp.setToolTip("Hjälp");
+hjalp.dock = glaze::Dock::Right;      // slutgruppen, utan raden startgruppen
+menuBar.setInTitleBar(true);
+menuBar.show();
+topBar.setShowTitle(false);
+topBar.adopt(hjalp);
+```
 
 ### Fallgropar
-- `topBar()->add<T>(…)` lägger barnet SIST — på Windows/Linux efter fönsterknapparna; det finns ingen insättning på plats.
+- Barnen i namnlisten har företräde framför titeln och rinner över hellre än att krympa: det finns inget överflöde för dem. Håll dem få.
+- Bara `dock` läses på ett barn i namnlisten, som sida. `Chrome::Native`/`None` och transparenta fönster har ingen synlig namnlist, och barnen syns då inte.
+- `setShowTitle(false)` tar bara bort titeln ur namnlisten; `setTitle` gäller fortfarande för OS:et (aktivitetsfältet, Alt+Tab).
 - `setPlain(true)` gäller en vanlig `Bar`; `TopBar`/`StatusBar`/`ToolBar` är chrome och inte gjorda för den. Höjden är densamma som förut (`height`, annars `barHeight`): en rad med högre barn behöver en satt höjd.
 - Barnens dock/anchors/x/y ignoreras i en `Bar`; bara mätt bredd och `Spacer`-vikt räknas. En fristående `Bar` har ingen AUTO-bredd — docka den eller sätt `width`.
 - Fönsterknapparna döljs med `setControlBox`/`setMinimizeBox`/`setMaximizeBox` på fönstret (se `app-window`), inte genom att röra `CaptionButton`.
 - Statusradens fält är BARN i barnordning bland appens egna (en förloppsindikator står där den adopteras) — i en handskriven `.glazeui` står fältsatserna EFTER trädbygget när raden också bär appens barn. `setPanels` ändrar de befintliga fälten på plats. En inaktiverad rad dämpar sina fält; appens egna barn släcks för sig.
-- Namnlisten bär programikonen (`appIcon`, ett rotbarn i chrome-trädet och INTE ett barn i `TopBar`): vänster på Windows/Linux, höger på macOS, med en motvikt på andra sidan så titeln förblir centrerad. Den STORA ikonen täcker namnlist + menyrad och namnlistens hårlinje hoppar över den (`app-icon`).
+- Namnlisten bär programikonen (`appIcon`, ett rotbarn i chrome-trädet och INTE ett barn i `TopBar`): vänster på Windows/Linux, höger på macOS, med en motvikt på andra sidan så titeln förblir centrerad. Den STORA ikonen täcker namnlisten och raden under (menyraden eller det översta verktygsfältet), och namnlistens hårlinje hoppar över den (`app-icon`).
 <!-- END:widget-bars -->
 
 <!-- BEGIN:widget-list-view | listview listvy table tabell kolumner columns details report gridview wxlistctrl qtableview multiselect flerval sortering sort onactivate kryss checkboxes checks oncheck -->
@@ -3793,6 +3809,7 @@ STRUKTUREN som platta satser (previewn visar menyraden), HANDLERNA i kod med `se
 - Programmenyn på programikonen har samma vokabulär med den TOMMA stigen `{}` som roten: `appIcon.addItem({}, "Nytt")`, `appIcon.setHandler("Nytt", …)`. På menyraden är en tom stig fortfarande ett fel (`app-icon`). Samma genväg i menyraden och programmenyn: menyraden vinner.
 - Systemfältets meny (`glaze::TrayIcon`) har programmenyns vokabulär med `{}` som roten men inget genvägsargument — inget fönster tar dess acceleratorer. Den visas i ett internt värdfönster, så en posts `sender` är värdfönstrets rot och inte ikonen: fånga ikonen i lambdan (`tray-icon`).
 - Verktygsknappens rullgardin (`glaze::ToolButton`) har samma vokabulär som systemfältets — `{}` som roten, inget genvägsargument — och en posts `sender` är knappen (`widget-tool-bar`).
+- `menuBar.setInTitleBar(true)` / `inTitleBar()` lägger menyraden i namnlisten, efter ikonen, utan egen yta och hårlinje (`widget-bars`). Rubriker som inte ryms samlas under ⋯, som visar dem som undermenyer; genvägarna gäller också för dem. I ett öppet fönster flyttas raden i pump-svansen och en öppen meny stängs. Utan synlig namnlist (`Chrome::Native`/`None`, transparent fönster) står raden kvar på sin vanliga plats.
 - En snabbmeny från ett SLÄPP (en rityta som tar högertrycket själv): `if (auto p = yta.toWindow(e.local)) meny.popupAt(yta, p->x, p->y);` — `toWindow` ger fönstrets fysiska px som `popupAt` tar.
 - En genväg utan modifierare (`"M"`) körs inte medan ett textfält har fokus och tangenten skriver — text vinner över genvägen (`app-window`).
 - En snabbmeny MOT EN NOD eller RAD: högertrycket har redan valt den, så läs den ur sender — `trad.onContextMenu = [this](glaze::Widget*, glaze::ContextMenuArgs& e) { if (!trad.contextPath().empty()) meny.popupAt(trad, e.x, e.y); };` (`ListBox`/`ListView`: `contextRow()`).
@@ -3810,7 +3827,8 @@ Varje `AppWindow` har FÄLTET `appIcon` (`glaze::AppIcon`), SYNLIGT som förval:
 - `void setIcon(ImageSource img);` / `const ImageSource& icon() const;` — en asset eller en `glaze::Bitmap`; ogiltig (`{}`) = FÖRVALET (GlazeUI-ikonen). Ändrade Bitmap-pixlar når fönstret OCH OS-ikonen med ett nytt `setIcon(sammaBild)`; en `RenderTexture` duger i fönstret men inte som OS-ikon (pixlarna finns bara på GPU:n — avvisas med en logg).
 - `void setSmallIcon(ImageSource img);` / `const ImageSource& smallIcon() const;` — egen liten bild; annars skalas `icon()` ner.
 - `void setNoIcon(bool on);` / `bool isNoIcon() const;` — INGEN ikon alls: ingen plats i namnlisten, ingen OS-ikon.
-- `void setLarge(bool on);` / `bool isLarge() const;` — en BEGÄRAN: gäller bara medan menyraden är synlig.
+- `void setLarge(bool on);` / `bool isLarge() const;` — en BEGÄRAN: ikonen täcker namnlisten och raden under, och raden börjar bredvid ikonen. Raden är menyraden om den står på egen rad, annars fönstrets översta verktygsfält; med `menuBar.setInTitleBar(true)` hamnar alltså menyerna i namnlisten och fältet bredvid ikonen. Utan en sådan rad är ikonen liten. Ett verktygsfält i en `DockHost` räknas inte, och inte heller ett fält som en remsa till vänster eller höger står efter.
+- `const Bar* rowBeside() const;` — raden som står bredvid ikonen just nu, eller `nullptr` när ikonen är liten.
 - `appIcon.hide()` — döljer ikonen i fönstret men OS-ikonen står kvar (WinForms `ShowIcon = false`).
 - `std::pair<ImageSource, ImageSource> effectiveIcons() const;` — bildparet som GÄLLER (egen bild eller förvalet); `static constexpr bool onRightSide();` — true på macOS.
 - Programmenyn har menyradens vokabulär med den TOMMA stigen `{}` som roten: `addItem(path, text, shortcut = "")` · `addCheck` · `addRadio` · `addSeparator(path)` · `addSubmenu(path, text)` · `setHandler(path, f)` · `setItemIcon`/`setItemEnabled`/`setItemChecked(path, …)` (postens tillstånd, `menus`) · `MenuItem* itemAtPath(path)` · `Menu& menu()` (träd-API:t — samma tillstånd) · `openMenu()`/`closeMenu()`/`isMenuOpen()`.
@@ -4257,6 +4275,33 @@ Ingen form — utskriften är ett anrop i en handler, som en dialog.
 - `setPaper`/`setPaperSize`/`setOrientation`/`setCopies` EFTER dialogen öppnar samma skrivare på nytt vid nästa `run`, och `printableArea()` är hela papperet till dess — sätt formatet före `showDialog`.
 - macOS: dialogen är appmodal (inget ark), och jobbet skickas när sista sidan ritats, med systemets förloppspanel.
 - En RITYTA på sidan: `p.drawCanvas(karta, glaze::Rect{20, 20, 170, 120}, kamera)` ritar ritytans lager med kameran i rektangeln (mm på sidan), i sidans upplösning — ingen förrenderad bild behövs (`renderToBitmap` fungerar inte inuti `rita`, `canvas-painter`). Ritytan får sitta i ägarfönstret.
+
+### En sida som bild
+`renderPageImage` ritar en sida med samma `Painter` som utskriften, utan skrivare och på alla tre plattformarna: för en flersidig utskrift som förbereds sida för sida, ett kartblad i exakt skala eller en export över skärmens upplösning.
+
+- `std::optional<PageImage> renderPageImage(AppWindow& window, double widthMm, double heightMm, double dpi, const std::function<void(Painter&)>& draw)` — en vit sida i sidans mm, `glaze::mm` är millimeter på sidan. Tomt (+ logg) vid mått eller täthet som inte är ändliga och över 0, ingen ritfunktion, ett stängt fönster, ett anrop inuti en ritning eller ett mål som inte gick att skapa.
+- `PageImage`: `Bitmap bitmap`, `double dpi` (tätheten bilden fick) och `bool complete`.
+
+```cpp
+// 1:1000 — en meter i världen är en millimeter på sidan. Kamerans zoom är logiska
+// px per världsenhet, och en logisk px är 1/96 tum.
+const double zoom = (1000.0 / 1000.0) * 96.0 / 25.4;
+const glaze::Camera kamera{{500.0, 300.0}, zoom, 0.0f, 0.0f};
+
+const auto sida = glaze::renderPageImage(*this, 297.0, 210.0, 300.0, [&](glaze::Painter& p) {
+    p.drawCanvas(karta, glaze::Rect{10, 10, 277, 190}, kamera);
+    p.drawText({10, 205}, "Blad 1", textStil);
+});
+if (sida && sida->complete)
+    spara(sida->bitmap);
+```
+
+Fallgropar:
+- `draw` kan köras MER ÄN EN GÅNG (när en bild väntade på uppladdningen) och ska rita deterministiskt. Alla bilder är med i bilden som returneras. `complete` är false bara när en sida har fler nya bilder än de 256 omritningarna räcker till vid appens uppladdningsbudget.
+- En LÄGRE TÄTHET är möjlig: den längsta sidan är högst `PrintJob::kMaxPagePx` punkter och aldrig över renderarens största textur, så A1 i 300 dpi (9 933 punkter) blir ungefär 248 dpi. Läs `dpi`; bilden kaklas inte.
+- Fönstret får vara dolt men måste vara öppet. Ritytan får sitta i ett annat fönster. Etiketterna tonar inte på en sida, och skärmens etiketter och träffar står orörda.
+- Anropas i en handler eller `onLoad`, inte inuti `draw` eller `PageFn`, och inte i en ritning. I en `PageFn` ritar `p.drawCanvas` direkt på sidan.
+- `drawCanvas` ritar ritytans lager, inte dess bakgrund eller rutnät. Vill du ha bakgrunden, fyll rektangeln först.
 
 <!-- END:print -->
 

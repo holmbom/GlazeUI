@@ -32,7 +32,7 @@ any other source file.
 - **Languages:** the framework's strings are built in for Swedish, English,
   Norwegian and Finnish; an app adds its own in a `language.bin`.
 - **App features:** tray icon, app timer, program icon, window placement and
-  state, and our own menus.
+  state, our own menus, and a title bar that can carry menus and glyph buttons.
 - **Side packages** (optional, outside the framework): `Threads` (a worker
   pool with results posted back to the UI thread), `Networking` (TCP, UDP,
   DNS, ping and HTTP(S) through the OS's own stack) and `Terminal` (a

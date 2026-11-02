@@ -248,7 +248,7 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   nya etiketter; ombyggd när körningen, tätheten eller atlasepoken ändrats),
   **`findGlyphs(run)`** (bygget SOM DET RITADES, bara om det byggdes ur
   körningens nuvarande version — BYGGER ALDRIG: träffprovet frågar utanför
-  en frame, där en atlas inte får laddas upp), `atlas(familj)` (EN
+  en frame, där en atlas inte får laddas upp), `setPageRender` (en sidas text i egna byggen, så att skärmens etikettträffar står orörda), `atlas(familj)` (EN
   `gfx::SdfAtlas` per familj sedan CANVAS_TEXT_OCH_BILD, med alla stilarna
   i sig; nyckeln är byggarens `fontKey`),
   `ramp(stopp)` (LRU, tak 256), `grid(färg, bredd)`, **ETIKETTERNA**

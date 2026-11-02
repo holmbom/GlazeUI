@@ -108,6 +108,10 @@ bool argImg(const std::string& v, glaze::ImageSource& ut);
 // `{}` med valfria blanksteg — programmenyns rotstig.
 bool tommaKlamrar(const std::string& v);
 
+// `true`/`false` (tomt = true) — definierad bland Call-grenarnas parsrar;
+// menyradens plats i namnlisten behöver den redan här.
+bool argBool(const std::string& args, bool& out);
+
 // `glaze::px(…)`/`glaze::mm(…)`/`glaze::world(…)` eller ett naket tal → ett
 // mått — definierad bland ritytans literalparsrar; textstorleken
 // behöver den redan här.
@@ -341,6 +345,24 @@ void applyProp(glaze::Widget& w, const Prop& p, const char* origin)
                 return;
             }
             cv->setInputMode(std::move(läge));
+            return;
+        }
+    }
+    // MENYRADENS PLATS — `menuBar.setInTitleBar(true);` normaliseras av
+    // readern till `Prop{"inTitleBar", "true"}`. Typad väg: sättaren flyttar
+    // raden mellan fönstrets rot och namnlisten, en strukturändring som här
+    // sker på ett fönster som inte är öppet (trädbygget och satserna körs före
+    // första visningen). Ett värde som inte är en bool är OPAKT och raden
+    // ORÖRD.
+    if (p.field == "inTitleBar") {
+        if (auto* mb = dynamic_cast<glaze::MenuBar*>(&w)) {
+            bool på = false;
+            if (!argBool(p.value, på)) {
+                gfx::log("%s(%s): opak inTitleBar-rad (ingen bool, utförs "
+                         "inte)", origin, w.name.c_str());
+                return;
+            }
+            mb->setInTitleBar(på);
             return;
         }
     }
@@ -4690,6 +4712,18 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
         // emitteras som ett CALL, och värdenormaliseringen nedan hade gjort
         // identifieraren i `minEtikett.setWidthGroup(grupp);` till gruppnamnet.
         // Bara en strängliteral; annars opakt och etiketten orörd.
+        // MENYRADENS PLATS likaså: en egen MenuBar-subklass emitteras som ett
+        // CALL, och `inTitleBar` har bara den typade grenen i `applyProp`.
+        if (fält == "inTitleBar" && dynamic_cast<glaze::MenuBar*>(&w)) {
+            bool på = false;
+            if (!argBool(call.args, på)) {
+                gfx::log("%s(%s): opakt setInTitleBar-anrop (ingen bool, "
+                         "utförs inte)", origin, w.name.c_str());
+                return false;
+            }
+            applyProp(w, Prop{fält, call.args}, origin);
+            return true;
+        }
         if (fält == "widthGroup" && dynamic_cast<glaze::Label*>(&w)) {
             std::string grupp;
             if (!parseCppString(call.args, grupp)) {

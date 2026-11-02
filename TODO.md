@@ -54,15 +54,14 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
   En kolumn med kryssrutor (klick och Space, `onCommit` som de andra), och `setCellEditor`/`setCellChoices` per cell med `Editor::None` för en låst cell; kolumnens redigerare är förval.
 - 💡 **Redigerbar kombinationsruta (`ComboBox`)**
   En `Dropdown` där man också kan skriva ett eget värde: `text()`, `setItems`, `onChange` när texten ändras och `onCommit` vid Enter eller fokusförlust; listan filtreras gärna på det som skrivits.
-- 💡 **Menyer och glyfknappar i namnlisten** — [top_bar.h](Glaze/widgets/include/glaze/widgets/top_bar.h)
-  `menuBar.setInTitleBar(true)` efter ikonen, `ToolButton` med `topBar()->addStart`/`addEnd` före fönsterknapparna; sista rubrikerna under ⋯ i ett smalt fönster, i `.glazeui` och previewn. Inloggningsrutans läges-knapp flyttar upp.
-  Titeln centreras i området som blir kvar, kortas till `Titel…` med ett minsta avstånd (24 px) och kan stängas av (`setShowTitle(false)`); fönster utan något i namnlisten står kvar som i dag.
 - 💡 **Linfysik: nedhäng efter temperatur, töjning, vind och is**
   Linor mellan fästpunkter som hänger korrekt (kedjekurva med elasticitet och värmeutvidgning), belastade av simulerad vind och is, med temperaturen som parameter.
   Öppet: en generell förmåga i ramverket eller appens beräkning.
 - 🟠 **Windows- och Mac-testet** — [doc/os/](doc/os/)
   Kvar är rader som kräver hårdvara eller handtest: mus, skärmskalning och VS Code på Windows; andra skärm, PC-tangentbord och Intel-Mac på macOS.
   Stängs när `doc/os/windows/TESTS.md` och `doc/os/macos/TESTS.md` är TOMMA.
+- 🟢 **En sida som bild med egen täthet** — [print.h](Glaze/widgets/include/glaze/print.h)
+  `renderPageImage` delar utskriftens sidritning, och `print_gate` P8–P14 är gröna på Windows. Kvar är Eriks test i en riktig utskrift, och macOS och Linux (`doc/os`).
 - 🟢 🐛 **`scene3d_pixel_gate` K2: ett grafikkort listas två gånger** — [gpu_util.h](Glaze/gfx/src/gpu_util.h)
   DXGI gav Intel-kortet två gånger på en dator med Intel- och NVIDIA-kort. `mergeSameCards` slår ihop samma id och adress i uppräkningen; kvar är Eriks test.
 

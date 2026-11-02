@@ -2,11 +2,13 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <gfx/print.h>
 
 #include "glaze/app_window.h"
+#include "glaze/canvas/bitmap.h"     // renderPageImage
 #include "glaze/canvas/geometry.h"   // Rect
 #include "glaze/canvas/painter.h"
 #include "glaze/language.h"
@@ -193,5 +195,36 @@ private:
     bool               cancelled_ = false;
     int                printed_   = 0;
 };
+
+// EN SIDA SOM BILD — samma ritning som en utskriftssida, utan skrivare: en vit
+// sida `widthMm` × `heightMm`, en `Painter` i sidans mm och `glaze::mm` som
+// millimeter på sidan. `Painter::drawCanvas` ritar en rityta i sidans upplösning
+// med sina lager, sin kartkamera eller 3D-kamera och sitt klipp. Så förbereds en
+// flersidig utskrift sida för sida, eller exporteras ett kartblad i exakt skala.
+//
+//     auto sida = glaze::renderPageImage(*this, 297.0, 210.0, 300.0, [&](glaze::Painter& p) {
+//         p.drawCanvas(karta, glaze::Rect{10, 10, 277, 190}, kamera);
+//     });
+//
+// Bilderna väntar inte: sidan ritas om tills varje bild är uppladdad, så `draw` kan
+// köras flera gånger och ska rita deterministiskt. Fönstret ger renderaren, temat
+// och fonterna; det får vara dolt men måste vara öppet, och ritytan får sitta i ett
+// annat fönster. Anropas utanför en ritning — i en handler eller `onLoad`, inte i
+// `draw` eller `PageFn`.
+struct PageImage {
+    Bitmap bitmap;
+    // Tätheten bilden fick: den begärda, eller lägre när den längsta sidan annars
+    // går över `PrintJob::kMaxPagePx` eller renderarens största textur.
+    double dpi = 0.0;
+    // false = bilder saknas: fler än taket för omritningarna väntade på uppladdning.
+    bool complete = true;
+};
+
+// Tomt (+ `gfx::log`): mått eller täthet som inte är ändliga och över 0, ingen
+// ritfunktion, ett fönster som inte är öppet, ett anrop inuti en ritning eller ett
+// mål som inte gick att skapa.
+std::optional<PageImage> renderPageImage(AppWindow& window, double widthMm,
+                                         double heightMm, double dpi,
+                                         const std::function<void(Painter&)>& draw);
 
 } // namespace glaze
