@@ -54,6 +54,9 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
   En kolumn med kryssrutor (klick och Space, `onCommit` som de andra), och `setCellEditor`/`setCellChoices` per cell med `Editor::None` för en låst cell; kolumnens redigerare är förval.
 - 💡 **Redigerbar kombinationsruta (`ComboBox`)**
   En `Dropdown` där man också kan skriva ett eget värde: `text()`, `setItems`, `onChange` när texten ändras och `onCommit` vid Enter eller fokusförlust; listan filtreras gärna på det som skrivits.
+- 💡 **Fönstrets gradient: svag bakgrund med fyra hörnfärger**
+  Av som förval, global med `glaze::setWindowGradient` och per fönster. Varje hörn är en färg (temaroll eller egen) plus en styrka mot bakgrunden, så den följer ljust, mörkt och temabyte.
+  Kräver en rektangel med hörnfärger i alla tre backendarna, genomskinliga remsor när den är på, partiell omritning utan skarvar och formen i `.glazeui` och previewn.
 - 💡 **Linfysik: nedhäng efter temperatur, töjning, vind och is**
   Linor mellan fästpunkter som hänger korrekt (kedjekurva med elasticitet och värmeutvidgning), belastade av simulerad vind och is, med temperaturen som parameter.
   Öppet: en generell förmåga i ramverket eller appens beräkning.
