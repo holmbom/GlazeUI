@@ -802,6 +802,11 @@ struct Style {
     float spinChevronH;          //   och halva höjden
     float toolArrowGlyphH;       // verktygsknappens pil, höjden (`toolArrowGlyph`
                                  // är bredden)
+
+    // ---- NAMNLISTEN. Sist i structen, av samma skäl.
+    float titleMinGap;           // titelns minsta avstånd till grannarna, per sida
+    float titleGlyphW;           // en glyfknapps bredd (`ToolButton::setGlyphOnly`);
+                                 // höjden är `capsuleH`
 };
 
 // ------------------------------------------------------- UI -> dess styles

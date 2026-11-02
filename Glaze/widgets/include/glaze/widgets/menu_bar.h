@@ -48,6 +48,24 @@ public:
     MenuBar();
     ~MenuBar();
 
+    // I NAMNLISTEN (top_bar.h): raden försvinner och innehållsytan växer, och
+    // rubrikerna står efter ikonen. Fönstret flyttar raden; i ett öppet fönster
+    // sker det i pump-svansen. Utan eget chrome stannar den i innehållsytan.
+    //
+    // Raden har då rubrikernas summa som naturlig bredd och får vilken bredd
+    // som helst under den. Rymms inte alla visas de som ryms plus en ⋯-knapp
+    // (`StockIcon::MoreHorizontal`, längden `Style::toolOverflowW`) efter den
+    // sista; ett tryck på den öppnar en meny med en undermeny per dold rubrik.
+    // Snittet räknas per fråga ur radens bredd, som verktygsfältets, och
+    // knappen är DATA i raden som rubrikerna — inget barn, inget tabbstopp.
+    // Undermenyerna är SPEGLAR: kryss och radio ändras i originalmenyn, vars
+    // handler körs med raden som sender. Genvägarna söker alla menyer, också de
+    // dolda rubrikernas. Utan namnlistläget finns inget snitt.
+    void setInTitleBar(bool on);
+    bool inTitleBar() const { return inTitleBar_; }
+    // Det kortaste namnlisten får ge raden, logiska px.
+    float titleBarMinWidth(const Ctx& c) const;
+
     // Lägg till en rubrik och få MENYN att fylla. Referensen är STABIL
     // (menyerna ligger bakom `unique_ptr`) — till skillnad från
     // `Menu::addItem`, som pekar in i en vektor. Det är inte en
@@ -141,10 +159,14 @@ public:
     bool tryShortcut(gfx::Key k, std::uint32_t mods);
 
     // Öppna/stäng en rubriks meny programmatiskt (menyradens egen
-    // navigering använder dem, och testerna).
+    // navigering använder dem, och testerna). En rubrik som snittet dolt
+    // (namnlistläget) öppnas inte — den nås genom ⋯-menyn. `closeMenu`
+    // stänger också ⋯-menyn.
     void openMenu(int i);
     void closeMenu();
-    int  openIndex() const { return open_; }
+    // Rubriken med öppen meny, annars −1 (också när ⋯-menyn är öppen).
+    int  openIndex() const { return open_ >= 0 ? open_ : -1; }
+    bool isMoreOpen() const { return open_ == kMore; }
 
     // Titlarna är data ⇒ INGET tabbstopp, av samma skäl som raderna i en
     // lista inte är widgets.
@@ -159,19 +181,52 @@ protected:
     void mouseDown(const Ctx& c, float mx, float my) override;
     void mouseMove(const Ctx& c, float mx, float my) override;
 
+    // ⋯-knappens index i `open_`, `hover_` och `titleAt`: ett eget index
+    // bredvid rubrikernas, så att ett tillagt rubrikantal aldrig flyttar det.
+    static constexpr int kMore = -2;
+
+    // SNITTET i namnlistläget: de `shown` första rubrikerna ryms i radens
+    // faktiska bredd, och `more` säger att ⋯-knappen står efter dem (rymdes
+    // alla är det false). Utan namnlistläget visas alla.
+    struct Cut {
+        std::size_t shown = 0;
+        bool        more  = false;
+    };
+    Cut cut(const Ctx& c) const;
+
+    // GEOMETRIN ÄR EN SANNING (regel 3): ritningen och hit-testen läser
+    // samma, i widget-lokala LOGISKA px. En rubrik som snittet dolt har en
+    // tom rekt och träffas aldrig; `titleAt` svarar rubrikens index, `kMore`
+    // för ⋯-knappen eller −1.
+    gfx::Rectf titleRect(const Ctx& c, int i) const;
+    gfx::Rectf moreRect(const Ctx& c) const;
+    int        titleAt(const Ctx& c, float mx, float my) const;
+
+    // ⋯-menyn: byggs vid varje tryck som öppnar den, ur de dolda rubrikerna.
+    Menu& moreMenu() { return more_; }
+
 private:
     struct Entry {
         TrText                title;   // TOKEN
         std::unique_ptr<Menu> menu;    // STABIL adress — se addMenu
     };
 
-    // GEOMETRIN ÄR EN SANNING (regel 3): ritningen och hit-testen läser
-    // samma två, i widget-lokala LOGISKA px.
-    gfx::Rectf titleRect(const Ctx& c, int i) const;
-    int        titleAt(const Ctx& c, float mx, float my) const;
+    float titleWidth(const Ctx& c, std::size_t k) const;
     // Var den första rubriken börjar — efter den stora programikonen
-    // annars vid kanten.
+    // annars vid kanten, och 0 i namnlisten (där TopBar placerar raden).
     float      titleStart(const Ctx& c) const;
+
+    // Menyn med `open_`, eller nullptr.
+    Menu* openedMenu();
+    // En öppen meny som snittet gjort inaktuell — en dold rubrik, eller ⋯ när
+    // knappen eller de dolda rubrikerna ändrats sedan den byggdes — stängs.
+    // Kontrolleras i ritningen och i musens krokar, utan timer. Svarar om
+    // något stängdes; ritningen behöver inte rita om, musens krokar gör det.
+    bool dropStaleMenu(const Cut& cut);
+    void openMore();
+    void fillMoreMenu(std::size_t shown);
+    // Höger/Vänster på rotnivån: nästa rubrik eller ⋯ i radens ordning.
+    bool stepFrom(int slot, int dir);
 
     // Stigupplösningen för den platta formen — vektorn posterna ska in i.
     std::vector<MenuItem>* resolvePath(const MenuPath& path);
@@ -180,8 +235,11 @@ private:
     void setHover(int i);
 
     std::vector<Entry> entries_;
-    int open_  = -1;   // rubrik med öppen meny
-    int hover_ = -1;
+    Menu        more_;               // ⋯-menyn, en undermeny per dold rubrik
+    std::size_t moreShown_ = 0;      // antalet synliga rubriker när den byggdes
+    int open_  = -1;   // rubrik med öppen meny, `kMore` eller −1
+    int hover_ = -1;   // rubriken under pekaren, `kMore` eller −1
+    bool inTitleBar_ = false;
 };
 
 } // namespace glaze

@@ -1,6 +1,8 @@
 #pragma once
 #include <cstddef>
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "glaze/menu.h"
@@ -92,5 +94,35 @@ bool setMenuItemEnabled(MenuItem* it, const char* who, const MenuPath& path,
                         bool on);
 bool setMenuItemChecked(MenuItem* it, const char* who, const MenuPath& path,
                         bool on);
+
+// SPEGLINGEN — poster som en undermeny i en annan meny (verktygsfältets och
+// namnlistens överflöde). `från` kopieras post för post till `till`: text,
+// bild, genväg och tillstånd, undermenyerna rekursivt — utom handlern.
+// Varje post som inte är en separator eller en undermeny aktiveras genom
+// `aktivera` med INDEX-STIGEN till sin förlaga i `från` (`stig` är stigen till
+// `från` självt, tom i roten). Anroparen väljer vad aktiveringen betyder —
+// originalmenyns `Menu::activatePath` med sin egen sender — så kryss och radio
+// har EN källa och förlagans handler körs som om den valts där.
+using MirrorActivate = std::function<void(const std::vector<int>&)>;
+
+inline void mirrorMenuItems(const std::vector<MenuItem>& från,
+                            std::vector<MenuItem>& till,
+                            const MirrorActivate& aktivera,
+                            const std::vector<int>& stig = {})
+{
+    for (std::size_t i = 0; i < från.size(); ++i) {
+        const MenuItem& p = från[i];
+        MenuItem        k = p;
+        k.submenu.clear();
+        k.onClick = nullptr;
+        std::vector<int> s = stig;
+        s.push_back(static_cast<int>(i));
+        if (!p.submenu.empty())
+            mirrorMenuItems(p.submenu, k.submenu, aktivera, s);
+        else if (!p.separator)
+            k.onClick = [aktivera, s] { aktivera(s); };
+        till.push_back(std::move(k));
+    }
+}
 
 } // namespace glaze::detail

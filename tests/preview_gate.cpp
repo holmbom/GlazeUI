@@ -197,6 +197,19 @@
 // `applyWindowCall` (fallFonsteranrop), `setPopupTakesKeys`-grenen borttagen,
 // `textSize`-grenen i `applyProp` borttagen och `harTextstorlek` utan en typ
 // (fallTextstorlek).
+//
+// Namnlisten mäts i `fallNamnlist` (namnlistfixturen genom
+// `bld::buildWindowTree`: `topBar` är fönstrets egen namnlist, `lage` hamnar
+// under den med `dock` Right, `setShowTitle(false)`, `setInTitleBar(true)` och
+// `setGlyphOnly(true)` utförs, menyraden står under `topBar` med Custom och
+// kvar i roten utan; fälten var för sig, och en icke-bool är OPAK) och i
+// kravmatrisen (`glyphOnly`, `showTitle`, `inTitleBar`). SABOTAGEN som ska
+// fälla den: `topBar`-grenen borttagen ur `builtinWidget` (lage hamnar i
+// roten, topBar blir inte fönstrets), `inTitleBar`-grenen borttagen ur
+// `applyProp` (menyraden stannar i roten och fältet lagras inte: MenuBar har
+// ingen `setProp`-nyckel), `argBool` som godtar vad som helst (en icke-bool
+// sätter läget) och en av de tre raderna borttagen ur `kSetterFields`
+// (matrisen).
 
 #include <algorithm>
 #include <cctype>
@@ -1618,7 +1631,7 @@ void fallKomponenter()
     check(nodVidget(r.model, perNod, "klocka") == nullptr &&
               nodVidget(r.model, perNod, "ikon") == nullptr,
           "komponenter: trädbyggaren skapar ingen widget för en komponent");
-    check(w.topBar() == nullptr && w.chrome() == gfx::Chrome::None,
+    check(!w.topBar.isVisible() && w.chrome() == gfx::Chrome::None,
           "komponenter: setChrome(None) ⇒ ingen namnlist");
     check(w.startPosition() == glaze::StartPosition::CenterOwner,
           "komponenter: setStartPosition(CenterOwner) efter setLocation");
@@ -1986,13 +1999,13 @@ void fallRadioEnval()
 void fallFonsterRam()
 {
     glaze::AppWindow w("preview_gate", 400, 300, gfx::Chrome::Custom);
-    check(w.topBar() != nullptr, "ram: (fixturen) Custom har en namnlist");
+    check(w.topBar.isVisible(), "ram: (fixturen) Custom har en namnlist");
     check(bld::applyWindowCall(w, {"setChrome", "gfx::Chrome::None"},
                                "preview_gate") &&
-              w.topBar() == nullptr && w.chrome() == gfx::Chrome::None,
+              !w.topBar.isVisible() && w.chrome() == gfx::Chrome::None,
           "ram: setChrome(gfx::Chrome::None) ⇒ ingen namnlist");
     check(bld::applyWindowCall(w, {"setChrome", "Custom"}, "preview_gate") &&
-              w.topBar() != nullptr,
+              w.topBar.isVisible(),
           "ram: den bara token Custom godtas och tar tillbaka namnlisten");
     check(!bld::applyWindowCall(w, {"setChrome", "gfx::Chrome::Glas"},
                                 "preview_gate") &&
@@ -2057,6 +2070,89 @@ void fallFonsterRam()
           "ram: resetCursor() utförs");
 }
 
+// ==================================================== NAMNLISTEN
+//
+// `topBar` är en INBYGGD fönstermedlem (`kBuiltins`): trädbyggaren svarar
+// fönstrets EGEN namnlist, `topBar.adopt(lage)` lägger glyfknappen i den, och
+// satserna `setShowTitle`, `setInTitleBar` och `setGlyphOnly` UTFÖRS. Fixturen
+// är samma fil som calls_fixture kompilerar.
+void fallNamnlist()
+{
+    const std::string sökväg =
+        std::string(GLAZE_TEST_ROOT) + "/tests/fixtures/titlebar.h";
+    bld::ReadResult r = bld::readWindow(sökväg);
+    check(r.ok, "namnlist: fixturen läses", r.error);
+    if (!r.ok)
+        return;
+
+    // ---- Custom: menyraden flyttar in i namnlisten, titeln är av.
+    {
+        glaze::AppWindow w("preview_gate", 480, 240, gfx::Chrome::Custom);
+        const std::vector<glaze::Widget*> perNod =
+            bld::buildWindowTree(w, r.model, "preview_gate");
+        auto* lage = dynamic_cast<glaze::ToolButton*>(
+            nodVidget(r.model, perNod, "lage"));
+        check(nodVidget(r.model, perNod, "topBar") == &w.topBar,
+              "namnlist: topBar är fönstrets EGEN namnlist, ingen ny widget");
+        check(lage && lage->parent() == &w.topBar,
+              "namnlist: lage adopteras i fönstrets topBar");
+        check(lage && lage->dock == glaze::Dock::Right,
+              "namnlist: lage.dock = Right (slutgruppen) utförs");
+        check(lage && lage->glyphOnly(),
+              "namnlist: setGlyphOnly(true) lagras på knappen");
+        check(!w.topBar.showTitle(),
+              "namnlist: topBar.setShowTitle(false) utförs");
+        check(w.menuBar.inTitleBar() && w.menuBar.parent() == &w.topBar,
+              "namnlist: setInTitleBar(true) utförs och raden står under "
+              "topBar");
+        check(w.menuBar.isVisible(),
+              "namnlist: menuBar.show() utförs");
+        check(w.topBar.isVisible(),
+              "namnlist: Custom behåller namnlisten synlig");
+    }
+
+    // ---- Chrome::None: baren är dold men barnet adopteras ändå, och menyraden
+    //      står kvar i roten (ingen namnlist att flytta in i).
+    {
+        glaze::AppWindow w("preview_gate", 480, 240, gfx::Chrome::None);
+        const std::vector<glaze::Widget*> perNod =
+            bld::buildWindowTree(w, r.model, "preview_gate");
+        glaze::Widget* lage = nodVidget(r.model, perNod, "lage");
+        check(lage && lage->parent() == &w.topBar && !w.topBar.isVisible(),
+              "namnlist: utan Custom adopteras lage i den DOLDA baren");
+        check(w.menuBar.inTitleBar() && w.menuBar.parent() == &w.root(),
+              "namnlist: utan Custom står menyraden kvar i roten");
+    }
+
+    // ---- Fälten var för sig, med sina fel former.
+    auto g = build("glaze::ToolButton", {{"glyphOnly", "true"}});
+    check(g && dynamic_cast<glaze::ToolButton*>(g.get())->glyphOnly(),
+          "namnlist: glyphOnly-fältet når knappen");
+
+    auto t = build("glaze::TopBar", {{"showTitle", "false"}});
+    check(t && !dynamic_cast<glaze::TopBar*>(t.get())->showTitle(),
+          "namnlist: showTitle-fältet når namnlisten");
+
+    auto m = build("glaze::MenuBar", {{"inTitleBar", "true"}});
+    check(m && dynamic_cast<glaze::MenuBar*>(m.get())->inTitleBar(),
+          "namnlist: inTitleBar-fältet når menyraden");
+    if (m) {
+        auto* mb = dynamic_cast<glaze::MenuBar*>(m.get());
+        bld::applyProp(*m, {"inTitleBar", "false"}, "preview_gate");
+        check(!mb->inTitleBar(), "namnlist: inTitleBar tillbaka till false");
+        bld::applyProp(*m, {"inTitleBar", "kanske"}, "preview_gate");
+        check(!mb->inTitleBar(),
+              "namnlist: ett inTitleBar som inte är en bool är OPAKT, "
+              "menyraden orörd");
+        check(bld::applyCall(*m, {"setInTitleBar", "true"}, "preview_gate") &&
+                  mb->inTitleBar(),
+              "namnlist: setInTitleBar(true) som anrop (setter-fallbacken) "
+              "utförs");
+        check(!bld::applyCall(*m, {"setInTitleBar", "kanske"}, "preview_gate"),
+              "namnlist: setInTitleBar med en icke-bool är ett opakt anrop");
+    }
+}
+
 // ==================================================== SETTER-TYPMATRISEN
 //
 // Grinden ligger HÄR och inte i `roundtrip_gate` av
@@ -2116,6 +2212,11 @@ const Vantad kVantadMatris[] = {
     // DEN DELADE KNAPPEN: ett bool-argument — EXAKT typen.
     // Rullgardinens poster är Call-satser (fallKnappmeny).
     {"glaze::ToolButton",    "split",         false},
+    // NAMNLISTEN: glyfknappen, titelns synlighet och menyradens plats — tre
+    // bools, alla exakta typer.
+    {"glaze::ToolButton",    "glyphOnly",     false},
+    {"glaze::TopBar",        "showTitle",     false},
+    {"glaze::MenuBar",       "inTitleBar",    false},
     // VERKTYGSFÄLTETS BAND — exakt.
     {"glaze::ToolBar",       "band",          false},
     // VERKTYGSFÄLTET: titeln, det flytande läget och flytbarheten — exakt.
@@ -8536,6 +8637,7 @@ int main(int argc, char** argv)
     fallEgnaWidgetar();
     fallRadioEnval();
     fallFonsterRam();
+    fallNamnlist();
     fallSetterMatris();
     fallVerktygsfalt();
     fallGruppram();

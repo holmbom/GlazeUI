@@ -1291,15 +1291,13 @@ void fallTopBarInstans()
 
     // ---- a) fönstrets EGEN namnlist står stilla när menyraden visas
     glaze::AppWindow win("grind", 400, 300);
-    if (glaze::TopBar* tb = win.topBar()) {
-        const gfx::Rectf före = tb->resolve(c);
+    {
+        const gfx::Rectf före = win.topBar.resolve(c);
         win.menuBar.show();
-        const gfx::Rectf efter = tb->resolve(c);
+        const gfx::Rectf efter = win.topBar.resolve(c);
         okNära(efter.y, före.y,
                "AppWindows namnlist rör sig INTE av menyraden");
-        ok(!tb->inDockFlow(), "fönstrets topBar_ står utanför dock-flödet");
-    } else {
-        ok(false, "fönstret saknar TopBar (Chrome::Custom förväntades)");
+        ok(!win.topBar.inDockFlow(), "fönstrets topBar står utanför dock-flödet");
     }
 
     // ---- b) en VANLIG nästlad TopBar är ett vanligt barn och SKA skäras
@@ -2201,6 +2199,202 @@ void fallGruppramRadbrytning()
     }
 }
 
+// FALL 26 mäter NAMNLISTEN när den bär menyer och glyfer. Utan något extra står
+// titeln mitt i baren. Med glyfer och menyer står titeln mitt i området som blir
+// kvar, grupperna vid sina kanter, och när det blir trångt håller titeln sitt
+// minsta avstånd, kortas och försvinner till sist, medan menyraden krymper ned
+// till sin kortaste bredd. Förväntade värden är handräknade. Sabotage som ska fälla
+// det: motvikten kvar med glyfer (titelns mitt), marginalen utelämnad (trångt),
+// `setShowTitle` utan effekt (titelns bredd). MÄTER INTE den speglade raden på
+// macOS (hoppas över där, doc/os).
+void fallNamnlisten()
+{
+    std::printf("\n=== 26. namnlisten med menyer och glyfer ===\n");
+    if (glaze::AppIcon::onRightSide()) {
+        std::printf("  SKIP den speglade raden mäts på macOS för hand\n");
+        return;
+    }
+
+    const glaze::Style& st = glaze::defaultStyle(glaze::UI::Slate);
+    FalskFont           f(7.0f, st.uiFontSize);
+    glaze::AppWindow    win("Titel", 800, 300);
+    glaze::TopBar&      tb = win.topBar;
+    const auto yta = [&](float bredd) {
+        glaze::Ctx c = ctxFör(st, f, 1.0f, gfx::Rectf{0, 0, bredd, 300});
+        c.area = static_cast<const glaze::Widget&>(tb).childArea(c);
+        return c;
+    };
+    const auto ytan = [&](const glaze::Widget& w, float bredd) {
+        return w.resolve(yta(bredd));
+    };
+    const float ikon  = st.barHeight;   // den lilla ikonens plats
+    const float lucka = st.toolGap;
+    const glaze::Widget& titel = *tb.titleLabel();
+    const glaze::Widget& min   = *tb.minButton();
+
+    // Utan extra: mitt i hela baren (motvikten).
+    gfx::Rectf t = ytan(titel, 800);
+    okNära(t.x + t.w / 2.0f, 400.0f, "utan extra: titeln mitt i hela baren");
+
+    // En glyf i slutgruppen: den står intill fönsterknapparna, och titeln mitt i
+    // området mellan ikonen och glyfen.
+    auto* slut = tb.addEnd<glaze::ToolButton>("G");
+    gfx::Rectf g = ytan(*slut, 800);
+    okNära(g.x + g.w + lucka, ytan(min, 800).x, "slutgruppen intill fönsterknapparna");
+    t = ytan(titel, 800);
+    okNära(t.x + t.w / 2.0f, (ikon + g.x) / 2.0f,
+           "en glyf: titeln mitt i området som blir kvar");
+
+    // Menyerna efter ikonen och startgruppen efter dem. "Arkiv" = 5 · 7 + 2 · pad.
+    win.menuBar.addMenu("Arkiv");
+    win.menuBar.setInTitleBar(true);
+    win.menuBar.show();
+    ok(win.menuBar.parent() == &tb, "menyraden står i namnlisten");
+    const float rubrik = 35.0f + 2.0f * st.menuBarPadX;
+    const gfx::Rectf m = ytan(win.menuBar, 800);
+    okNära(m.x, ikon, "menyerna börjar efter ikonen");
+    okNära(m.w, rubrik, "menyerna har rubrikernas bredd");
+    auto* start = tb.addStart<glaze::ToolButton>("S");
+    const gfx::Rectf s = ytan(*start, 800);
+    okNära(s.x, m.x + m.w + lucka, "startgruppen efter menyerna");
+    g = ytan(*slut, 800);
+    t = ytan(titel, 800);
+    okNära(t.x + t.w / 2.0f, (s.x + s.w + g.x) / 2.0f,
+           "med menyer: titeln mitt mellan startgruppen och slutgruppen");
+
+    // TRÅNGT: en lång titel kortas och håller avståndet på båda sidor.
+    win.setTitle("En mycket lång titel som inte ryms i namnlisten alls");
+    const float smal = 420.0f;
+    const gfx::Rectf ts = ytan(titel, smal);
+    const gfx::Rectf ss = ytan(*start, smal);
+    const gfx::Rectf gs = ytan(*slut, smal);
+    ok(ts.w > 0.0f && ts.x >= ss.x + ss.w + st.titleMinGap - 0.5f &&
+           ts.x + ts.w <= gs.x - st.titleMinGap + 0.5f,
+       "trångt: titeln kortas med sitt minsta avstånd");
+
+    // MYCKET TRÅNGT: titeln är borta, och menyraden är inte kortare än sin minsta.
+    ok(ytan(titel, 300).w > 0.0f, "trångt: den kortaste formen visas så länge den ryms");
+    const gfx::Rectf tb0 = ytan(titel, 220);
+    ok(tb0.w == 0.0f, "för trångt: titeln visas inte");
+    ok(ytan(win.menuBar, 200).w >= win.menuBar.titleBarMinWidth(yta(200)) - 0.5f,
+       "för trångt: menyraden behåller sin kortaste bredd");
+
+    // En titel kortare än den kortaste formen visas i sin hela längd.
+    win.setTitle("I");
+    ok(ytan(titel, 800).w > 0.0f, "en kort titel visas");
+    win.setTitle("Titel");
+
+    // Titeln av: ingen bredd, och på igen: den är tillbaka.
+    tb.setShowTitle(false);
+    ok(ytan(titel, 800).w == 0.0f, "setShowTitle(false) tar bort titeln");
+    tb.setShowTitle(true);
+    ok(ytan(titel, 800).w > 0.0f, "setShowTitle(true) tar tillbaka den");
+
+    // Tillbaka utan extra: raden i roten och titeln mitt i baren igen.
+    win.menuBar.setInTitleBar(false);
+    ok(win.menuBar.parent() == &win.root(), "menyraden tillbaka i roten");
+    tb.unadopt(*start);
+    tb.unadopt(*slut);
+    t = ytan(titel, 800);
+    okNära(t.x + t.w / 2.0f, 400.0f, "utan extra igen: titeln mitt i hela baren");
+
+    // RAMEN STYR: utan namnlist står menyerna i innehållsytan och räknas i
+    // chromet, och de följer med när ramen byts.
+    glaze::AppWindow ram("ram", 400, 300, gfx::Chrome::None);
+    ram.menuBar.setInTitleBar(true);
+    ram.menuBar.show();
+    ok(ram.menuBar.parent() == &ram.root(), "utan namnlist: menyraden i roten");
+    ram.setContentSize(400, 300);
+    okNära(ram.clientSize().h, 300.0f + st.menuRowH,
+           "utan namnlist: menyradens höjd räknas i chromet");
+    ram.setChrome(gfx::Chrome::Custom);
+    ok(ram.menuBar.parent() == &ram.topBar, "Custom: menyraden i namnlisten");
+    okNära(ram.clientSize().h, 300.0f + st.barHeight,
+           "Custom: menyradens höjd räknas inte");
+    ram.setChrome(gfx::Chrome::None);
+    ok(ram.menuBar.parent() == &ram.root() && ram.menuBar.isVisible(),
+       "None igen: menyraden tillbaka i roten, synlig");
+}
+
+// FALL 27 mäter den STORA IKONEN bredvid ett verktygsfält: ikonen är stor bara när
+// det finns en rad under namnlisten, dess sida är namnlisten + radens höjd, och
+// fältets barn börjar vid ikonen. Bara det översta fältet, och aldrig ett fält som
+// en remsa vid sidan flyttat från hörnet. Sabotage som ska fälla det: `rowBeside`
+// tar varje fält (det andra fältets barn), skärningen i `childArea` utelämnad.
+// MÄTER INTE att ikonen ritas ovanpå fältet eller träffas före det; det provas för
+// hand.
+void fallStorIkon()
+{
+    std::printf("\n=== 27. stor ikon bredvid ett verktygsfält ===\n");
+    const glaze::Style& st = glaze::defaultStyle(glaze::UI::Slate);
+    FalskFont           f(7.0f, st.uiFontSize);
+    const glaze::Ctx    c = ctxFör(st, f, 1.0f, gfx::Rectf{0, 0, 800, 300});
+
+    glaze::AppWindow     win("Titel", 800, 300);
+    const glaze::Widget& ikon = win.appIcon;
+    const float          liten = st.barHeight;
+    const float          stor  = liten + st.toolBarH;
+    // Barnens början, räknad från fältets vänsterkant, och deras bredd.
+    const auto start = [&](const glaze::ToolBar& t) {
+        const glaze::Widget& w = t;
+        return w.childArea(c).x - w.resolve(c).x;
+    };
+    const auto bredd = [&](const glaze::ToolBar& t) {
+        return static_cast<const glaze::Widget&>(t).childArea(c).w;
+    };
+    const float luft = st.toolBarPadX;
+
+    win.appIcon.setLarge(true);
+    okNära(ikon.resolve(c).h, liten, "utan rad under namnlisten: liten ikon");
+
+    auto* forsta = win.add<glaze::ToolBar>();
+    auto* andra  = win.add<glaze::ToolBar>();
+    okNära(ikon.resolve(c).h, stor, "verktygsfältet: höjden är namnlisten + fältet");
+    okNära(ikon.resolve(c).w, stor, "verktygsfältet: bredden lika stor");
+    ok(win.appIcon.rowBeside() == forsta, "det översta fältet står bredvid ikonen");
+    okNära(start(*forsta), glaze::AppIcon::onRightSide() ? luft : stor + luft,
+           "barnen börjar vid ikonen");
+    okNära(bredd(*forsta), 800.0f - stor - 2.0f * luft, "barnens bredd krymper med ikonen");
+    okNära(start(*andra), luft, "det andra fältet går hela vägen");
+
+    // Statusraden är en remsa nederst och flyttar inget från hörnet.
+    win.statusBar.show();
+    ok(win.appIcon.rowBeside() == forsta, "statusraden ändrar inget");
+
+    // Dolt fält: nästa står överst.
+    forsta->hide();
+    ok(win.appIcon.rowBeside() == andra, "det översta fältet dolt: nästa tar raden");
+    forsta->show();
+
+    // Menyraden på egen rad går före, i namnlisten lämnar den raden åt fältet.
+    win.menuBar.addMenu("Arkiv");
+    win.menuBar.show();
+    ok(win.appIcon.rowBeside() == &win.menuBar, "menyraden på egen rad går före");
+    okNära(ikon.resolve(c).h, liten + st.menuRowH, "höjden är namnlisten + menyraden");
+    okNära(start(*forsta), luft, "fältet under menyraden går hela vägen");
+    win.menuBar.setInTitleBar(true);
+    ok(win.appIcon.rowBeside() == forsta, "menyerna i namnlisten: fältet tar raden");
+    okNära(ikon.resolve(c).h, stor, "menyerna i namnlisten: stor ikon");
+
+    win.appIcon.setLarge(false);
+    ok(win.appIcon.rowBeside() == nullptr, "liten ikon: ingen rad bredvid");
+    okNära(ikon.resolve(c).h, liten, "liten ikon: namnlistens höjd");
+    okNära(start(*forsta), luft, "liten ikon: fältet går hela vägen");
+
+    // En remsa vid sidan före fältet flyttar det från hörnet.
+    glaze::AppWindow sida("Titel", 800, 300);
+    sida.add<glaze::Panel>()->dock = glaze::Dock::Left;
+    sida.add<glaze::ToolBar>();
+    sida.appIcon.setLarge(true);
+    ok(sida.appIcon.rowBeside() == nullptr, "remsa vid sidan före fältet: ingen rad");
+
+    // Utan namnlist finns ingen ikon att göra stor.
+    glaze::AppWindow utan("Titel", 800, 300, gfx::Chrome::None);
+    utan.add<glaze::ToolBar>();
+    utan.appIcon.setLarge(true);
+    ok(utan.appIcon.rowBeside() == nullptr, "utan namnlist: ingen rad");
+}
+
 int main(int argc, char** argv)
 {
     for (int i = 1; i < argc; ++i)
@@ -2227,6 +2421,8 @@ int main(int argc, char** argv)
     fallInvers();
     fallBuiltinNamn();
     fallTopBarInstans();
+    fallNamnlisten();
+    fallStorIkon();
     fallKompositExtent();
     fallHojdForBredd();
     fallExtentMedBredd();

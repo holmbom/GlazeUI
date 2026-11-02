@@ -237,7 +237,18 @@ AppWindow::AppWindow(TrText title, int width, int height,
     root_.setClip(false);
     root_.setOwnerForTree(this);
 
-    // Eget chrome = riktig namnlist som widget.
+    // NAMNLISTEN är ett värde-fält och rotens första barn, dold utan eget
+    // chrome. UTANFÖR DOCK-FLÖDET — och det gäller DEN HÄR INSTANSEN, inte typen
+    // `TopBar`: den resolvas mot chrome-Ctx:t = HELA klientytan, medan menyrad
+    // och statusrad skär i INNEHÅLLSytan. En vanlig nästlad TopBar är ett helt
+    // vanligt barn och SKA skäras av sina dockade syskon. Standardbarnen byggs
+    // bara när fönstret har eget chrome (`buildTopBar`), så att en meny eller en
+    // tooltip inte bär på dem.
+    topBar.name        = "topBar";
+    topBar.inDockFlow_ = false;
+    if (chrome_ != gfx::Chrome::Custom)
+        topBar.hide();
+    root_.adopt(topBar);
     if (chrome_ == gfx::Chrome::Custom)
         buildTopBar();
 
@@ -305,18 +316,6 @@ AppWindow::AppWindow(TrText title, int width, int height,
 // restoreGlyph speglas per repaint i renderContent.
 void AppWindow::buildTopBar()
 {
-    auto tb = std::make_unique<TopBar>();
-    topBar_ = tb.get();
-    // UTANFÖR DOCK-FLÖDET — och det gäller DEN HÄR INSTANSEN, inte typen
-    // `TopBar`. Namnlisten resolvas mot chrome-Ctx:t =
-    // HELA klientytan, medan menyrad och statusrad skär i INNEHÅLLSytan.
-    // Utan haken tryckte `menuBar.show()` ner namnlisten med en
-    // menyradshöjd — en widget placerad i en area som inte är dess egen.
-    // En vanlig nästlad TopBar (galleriets grupp 8) är ett helt vanligt
-    // barn och SKA skäras av sina dockade syskon.
-    topBar_->inDockFlow_ = false;
-    root_.adopt(std::move(tb));
-
     using CB = CaptionButton;
 
     // Kantluften är HÄRLEDD, inte vald: kapseln ska ha samma avstånd till
@@ -328,14 +327,16 @@ void AppWindow::buildTopBar()
     const float  pad = 0.5f * (st.barHeight - st.capsuleH);
 
     auto gap = [this](float w) {
-        auto* s  = topBar_->add<Spacer>(0.0f);
+        auto* s  = topBar.add<Spacer>(0.0f);
         s->width = w;
+        topBar.edgeGap_ = s;
     };
     auto title = [this] {
-        topBar_->addSpacer();
-        topBar_->titleLabel_      = topBar_->add<Label>(title_);
-        topBar_->titleLabel_->setRole(Label::Role::Titlebar);
-        topBar_->addSpacer();
+        topBar.titleBefore_ = topBar.addSpacer();
+        topBar.titleLabel_  = topBar.add<Label>(title_);
+        topBar.titleLabel_->setRole(Label::Role::Titlebar);
+        topBar.titleLabel_->setElide(true);
+        topBar.titleAfter_  = topBar.addSpacer();
     };
     // ORDNINGEN följer PLATTFORMEN — till skillnad från FORMEN, som är vår
     // och lika överallt (kapseln). macOS läser stäng · minimera ·
@@ -349,23 +350,23 @@ void AppWindow::buildTopBar()
     // ändarna rundas rätt utan att någon säger till.
     auto buttons = [this] {
         auto add = [this](CB::Kind k) {
-            return topBar_->add<CB>(k, CB::Shape::Capsule);
+            return topBar.add<CB>(k, CB::Shape::Capsule);
         };
 #ifdef __APPLE__
-        topBar_->closeButton_ = add(CB::Kind::Close);
-        topBar_->minButton_   = add(CB::Kind::Minimize);
-        topBar_->maxButton_   = add(CB::Kind::Maximize);
+        topBar.closeButton_ = add(CB::Kind::Close);
+        topBar.minButton_   = add(CB::Kind::Minimize);
+        topBar.maxButton_   = add(CB::Kind::Maximize);
 #else
-        topBar_->minButton_   = add(CB::Kind::Minimize);
-        topBar_->maxButton_   = add(CB::Kind::Maximize);
-        topBar_->closeButton_ = add(CB::Kind::Close);
+        topBar.minButton_   = add(CB::Kind::Minimize);
+        topBar.maxButton_   = add(CB::Kind::Maximize);
+        topBar.closeButton_ = add(CB::Kind::Close);
 #endif
     };
 
     // MOTVIKTEN i motsatt ände från klustret — där programikonen sitter —
     // är en `CaptionBalance` (klustret + kantluften, eller ikonens plats
     // om den är bredare).
-    auto balance = [this] { topBar_->add<CaptionBalance>(); };
+    auto balance = [this] { topBar.balance_ = topBar.add<CaptionBalance>(); };
 
 #ifdef __APPLE__
     gap(pad);
@@ -379,11 +380,11 @@ void AppWindow::buildTopBar()
     gap(pad);
 #endif
 
-    topBar_->minButton_->onClick = [this](Widget*, ClickArgs&) { minimize(); };
-    topBar_->maxButton_->onClick = [this](Widget*, ClickArgs&) {
+    topBar.minButton_->onClick = [this](Widget*, ClickArgs&) { minimize(); };
+    topBar.maxButton_->onClick = [this](Widget*, ClickArgs&) {
         isMaximized() ? restore() : maximize();
     };
-    topBar_->closeButton_->onClick = [this](Widget*, ClickArgs&) { close(); };
+    topBar.closeButton_->onClick = [this](Widget*, ClickArgs&) { close(); };
 }
 
 void AppWindow::setTitle(TrText t)
@@ -398,9 +399,8 @@ void AppWindow::setTitle(TrText t)
 void AppWindow::repushTitle()
 {
     win_->setTitle(title_.str());
-    if (topBar_ && topBar_->titleLabel()) {
-        topBar_->titleLabel()->setText(title_);   // settern invaliderar
-    }
+    if (topBar.titleLabel())
+        topBar.titleLabel()->setText(title_);   // settern invaliderar
 }
 
 // .NET-semantiken: controlBox av släcker alla tre; min/max styr styckvis.
@@ -425,20 +425,20 @@ void AppWindow::setMaximizeBox(bool on)
 
 void AppWindow::applyCaptionBoxes()
 {
-    if (!topBar_)
+    if (!topBar.closeButton())
         return;
     auto apply = [](CaptionButton* b, bool on) {
         if (b)
             on ? b->show() : b->hide();
     };
-    apply(topBar_->minButton(), controlBox_ && minimizeBox_);
+    apply(topBar.minButton(), controlBox_ && minimizeBox_);
     // `isFixedSize()` är EN sanning som ALLT chrome läser (window.h).
     // `pushHitRegions` och knapparna läser samma. Ett låst fönster visar därför
     // ingen maximera-knapp som ser tryckbar ut och inte kan göra något:
     // chromet lovar inget OS:et vägrar, precis
     // samma fel som `setMaximizeBox` finns för att undvika.
-    apply(topBar_->maxButton(), controlBox_ && maximizeBox_ && !isFixedSize());
-    apply(topBar_->closeButton(), controlBox_);
+    apply(topBar.maxButton(), controlBox_ && maximizeBox_ && !isFixedSize());
+    apply(topBar.closeButton(), controlBox_);
 }
 
 // ------------------------------------------------ RAMEN
@@ -460,24 +460,15 @@ void AppWindow::setChrome(gfx::Chrome c)
     applyChrome(c);
 }
 
-// NAMNLISTEN BYGGS LATT — bara när ett fönster som konstruerades utan
-// Custom väljer det, så ett fönster utan namnlist slipper den (varje
-// meny, tooltip och dropdown skulle annars bära en dold namnlist). Den läggs
-// FÖRST i rotordningen, där konstruktorn lägger den: programikonen står då
-// efter den — överst i z och först i träffen, över namnlisten — och trädet är
-// det ett fönster konstruerat med Custom har. Inte `unadopt` + `adopt` av
-// ikonen: den är en INBYGGD medlem, och `unadopt` nekar dem per kontrakt
-// (`isBuiltinMember`).
+// NAMNLISTENS STANDARDBARN BYGGS LATT — bara när ett fönster som konstruerades
+// utan Custom väljer det, så ett fönster utan namnlist slipper dem (varje
+// meny, tooltip och dropdown skulle annars bära på dem). Själva baren står alltid
+// först i roten, så trädet är det ett fönster konstruerat med Custom har.
 void AppWindow::applyChrome(gfx::Chrome c)
 {
     chrome_ = c;
-    if (c == gfx::Chrome::Custom && !topBar_) {
-        buildTopBar();   // adopterar baren SIST …
-        auto& barn = root_.children_;
-        barn.erase(std::find(barn.begin(), barn.end(),
-                             static_cast<Widget*>(topBar_)));
-        barn.insert(barn.begin(), topBar_);   // … och här FÖRST
-    }
+    if (c == gfx::Chrome::Custom && !topBar.closeButton())
+        buildTopBar();
     syncTopBar();
     applyCaptionBoxes();
     applyContentSize();   // chromets höjd ändrades — en innehållsstorlek följer
@@ -489,12 +480,11 @@ void AppWindow::applyChrome(gfx::Chrome c)
 // remsa, så `chromeInsetH` och programikonens plats följer med.
 void AppWindow::syncTopBar()
 {
-    if (!topBar_)
-        return;
     if (chrome_ == gfx::Chrome::Custom && !transparent_)
-        topBar_->show();
+        topBar.show();
     else
-        topBar_->hide();
+        topBar.hide();
+    placeMenuBar();   // menyerna följer: utan namnlist står de i innehållsytan
 }
 
 // Fönstrets hörnradie i FYSISKA px — 0 när fönstret inte är rundat eller
@@ -1182,12 +1172,13 @@ float AppWindow::chromeInsetH() const
 {
     const Style& st = App::themeState().style;
     float        h  = 0.0f;
-    if (chrome_ == gfx::Chrome::Custom && topBar_ && topBar_->isVisible())
-        h += topBar_->height > 0.0f ? topBar_->height : st.barHeight;
+    if (chrome_ == gfx::Chrome::Custom && topBar.isVisible())
+        h += topBar.height > 0.0f ? topBar.height : st.barHeight;
     // MENYRADEN är klientyta men skär ändå en remsa ur innehållsytan —
     // samma axelregel som de andra barerna: satt höjd vinner, annars
-    // stilens `menuRowH` (en menyradsrubrik är en menyrad).
-    if (menuBar.isVisible())
+    // stilens `menuRowH` (en menyradsrubrik är en menyrad). I namnlisten
+    // skär den ingenting.
+    if (menuBar.isVisible() && menuBar.parent() != &topBar)
         h += menuBar.height > 0.0f ? menuBar.height : st.menuRowH;
     if (statusBar.isVisible())
         h += statusBar.height > 0.0f ? statusBar.height : st.statusBarH;
@@ -2252,8 +2243,8 @@ void AppWindow::pushHitRegions(const Ctx& cch)
             rr(client.w - b, 0.0f, b, client.h, R::ResizeRight);
         }
 
-        if (topBar_ && topBar_->isVisible()) {
-            Widget* tbw = topBar_;   // childArea via basens publika kontrakt
+        if (topBar.isVisible()) {
+            Widget* tbw = &topBar;   // childArea via basens publika kontrakt
             const gfx::Rectf barRect = tbw->resolve(cch);
             captionH = barRect.h / s;
 
@@ -2358,9 +2349,9 @@ void AppWindow::renderContent(gfx::Window& win)
     // här, så ett byte gäller från fönstrets nästa frame.
     images_->trim(App::instance_->canvasMemoryBudget(),
                   App::instance_->canvasUploadBudget());
-    // Ritytans resurser släpps också BARA här: det döda
-    // (ombyggda chunkar och körningar, rivna rytor) och det som ersattes mitt
-    // i förra framen.
+    // Ritytans resurser släpps också BARA i en frames början (här och på en
+    // utskriftssida, print.cpp): det döda (ombyggda chunkar och körningar, rivna
+    // rytor) och det som ersattes mitt i förra framen.
     canvas_->trim();
     // …och fältens fria textstorlekar över taket (font_set.h) —
     // samma ställe av samma skäl: ingen batch pekar på en atlas här.
@@ -2394,8 +2385,8 @@ void AppWindow::renderContent(gfx::Window& win)
 
     // Spegla maximerings-läget till maximize-knappens restore-glyf — per
     // repaint, ingen event-bokföring behövs (billig bool-läsning).
-    if (topBar_ && topBar_->maxButton())
-        topBar_->maxButton()->setRestoreGlyph(win_->maximized());
+    if (topBar.maxButton())
+        topBar.maxButton()->setRestoreGlyph(win_->maximized());
     const Ctx cch = chromeCtx(c);   // TopBars area (hela klientytan)
     // BILDENS STEG FÖRE kartan och skadeinsamlingen: ett steg som
     // ändrar tillstånd (dockningens modellsynk) invaliderar, och skadan tas
@@ -2465,8 +2456,12 @@ void AppWindow::renderContent(gfx::Window& win)
             c.r->fillRoundedRect(client, cornerRadius(), c.theme->colors.windowBg);
         drawWindowGradient(c, client);
         frame(c);
+        // Programikonen sist: den stora står ovanpå raden bredvid sig, som kan ha
+        // lagts till efter den.
         for (const auto& ch : root_.children())
-            drawTree(*ch, isChromeRoot(*ch) ? cch : c);
+            if (ch != &appIcon)
+                drawTree(*ch, isChromeRoot(*ch) ? cch : c);
+        drawTree(appIcon, cch);
         recordDamage({client});
         return;
     }
@@ -2481,7 +2476,9 @@ void AppWindow::renderContent(gfx::Window& win)
         drawWindowGradient(c, client);   // hela ytans gradient, klippt till recten
         frame(c);
         for (const auto& ch : root_.children())
-            drawTreePartial(*ch, isChromeRoot(*ch) ? cch : c, dr);
+            if (ch != &appIcon)
+                drawTreePartial(*ch, isChromeRoot(*ch) ? cch : c, dr);
+        drawTreePartial(appIcon, cch, dr);
         c.r->popClip();
     }
     recordDamage(rects);
@@ -2958,8 +2955,11 @@ Widget* AppWindow::widgetAt(float mx, float my, const Ctx& c)
 {
     // Rotens barn bakifrån: senast tillagda ligger överst. TopBar (första
     // barnet) hit-testas mot chrome-ctx:t — dess remsa ligger utanför
-    // innehållsytan så ordningen spelar ingen roll för överlapp.
+    // innehållsytan så ordningen spelar ingen roll för överlapp. Programikonen
+    // först: den ritas sist.
     const Ctx cch = chromeCtx(c);
+    if (Widget* hit = widgetAtRec(appIcon, cch, mx, my))
+        return hit;
     const auto& top = root_.children();
     for (auto it = top.rbegin(); it != top.rend(); ++it)
         if (Widget* hit = widgetAtRec(**it, isChromeRoot(**it) ? cch : c, mx, my))
@@ -3469,13 +3469,50 @@ void AppWindow::restartCaretTimer(Widget* w)
 //      ska inte komma tillbaka hovrat eller nedtryckt.
 bool AppWindow::isBuiltinMember(const Widget& w) const
 {
-    return &w == static_cast<const Widget*>(topBar_) || &w == &menuBar ||
+    return &w == static_cast<const Widget*>(&topBar) || &w == &menuBar ||
            &w == &statusBar || &w == &appIcon;
 }
 
 bool AppWindow::isChromeRoot(const Widget& w) const
 {
-    return &w == static_cast<const Widget*>(topBar_) || &w == &appIcon;
+    return &w == static_cast<const Widget*>(&topBar) || &w == &appIcon;
+}
+
+// MENYRADEN FLYTTAS mellan roten och namnlisten: fönstrets egen väg, för
+// `transferChild` nekar inbyggda medlemmar. Rotens barnordning är carve-ordningen,
+// så tillbaka hamnar den direkt efter namnlisten, där konstruktorn lägger den.
+// Aldrig mitt i en dispatch: ett öppet fönster gör flytten i pump-svansen.
+void AppWindow::menuBarPlaceChanged()
+{
+    if (!open_) {
+        placeMenuBar();
+        return;
+    }
+    menuBar.closeMenu();
+    glaze::app().post([this, vakt = Widget::HandlerGuard(menuBar)] {
+        if (vakt.ok())
+            placeMenuBar();
+    });
+}
+
+void AppWindow::placeMenuBar()
+{
+    const bool namnlist =
+        menuBar.inTitleBar() && chrome_ == gfx::Chrome::Custom && !transparent_;
+    Widget&    mål      = namnlist ? static_cast<Widget&>(topBar) : root_;
+    menuBar.setPlain(namnlist);   // namnlisten är ytan och hårlinjen
+    if (menuBar.parent() == &mål)
+        return;
+    menuBar.parent()->detach(menuBar);
+    mål.adopt(menuBar);
+    if (!namnlist) {
+        auto& barn = root_.children_;
+        barn.erase(std::find(barn.begin(), barn.end(),
+                             static_cast<Widget*>(&menuBar)));
+        barn.insert(barn.begin() + 1, &menuBar);
+    }
+    applyContentSize();
+    invalidate();
 }
 
 // Tre tillstånd: INGEN ikon (`noIcon` — tom lista), appens

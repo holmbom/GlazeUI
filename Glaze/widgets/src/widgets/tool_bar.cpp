@@ -35,6 +35,7 @@
 #include "glaze/widgets/tool_button.h"   // AUTO-tjockleken, överflödet
 
 #include "../dock/dock_model.h"   // dragtröskeln, delad med dockningens drag
+#include "../menu_path.h"         // speglingen av en knapps poster
 #include "../prop_parse.h"
 
 namespace glaze {
@@ -410,10 +411,18 @@ gfx::Sizef ToolBar::contentSize(const Ctx& c) const
 // luft. Luften är LOGISKA px och ytan FYSISK, så omräkningen sker här på
 // konsumtionssidan, som Panels egen scrollförskjutning. Klampad ≥ 0: en
 // remsa som satts lägre än sin egen luft ger barnen noll höjd i stället
-// för en negativ.
+// för en negativ. Står fältet bredvid den stora programikonen börjar barnen vid
+// ikonen; ytan och hårlinjen går hela vägen, som på menyraden, och ikonen ritas
+// ovanpå.
 gfx::Rectf ToolBar::childArea(const Ctx& c) const
 {
-    const gfx::Rectf a  = Bar::childArea(c);
+    gfx::Rectf a = Bar::childArea(c);
+    if (const AppWindow* w = appWindow(); w && w->appIcon.rowBeside() == this) {
+        const float ikon = w->appIcon.reservedWidth(c, AppIcon::Row::Menu) * c.scale;
+        if (!AppIcon::onRightSide())
+            a.x += ikon;
+        a.w = std::max(0.0f, a.w - ikon);
+    }
     const float      g  = gripLength(c) * c.scale;
     const float      px = c.style->toolBarPadX * c.scale;   // längs fältet
     const float      py = c.style->toolBarPadY * c.scale;   // tvärs
@@ -883,37 +892,17 @@ MenuItem ToolBar::buttonItem(ToolButton& b) const
         undermeny.submenu.push_back(std::move(klick));
         undermeny.submenu.emplace_back().separator = true;
     }
-    std::vector<int> stig;
-    mirrorItems(b.menu().items, undermeny.submenu, b, vakt, stig);
+    // KNAPPENS POSTER SOM UNDERMENY: speglade hela (menyn visar en
+    // ögonblicksbild ändå), och varje post aktiveras genom KNAPPENS egen meny
+    // med knappen som sender: dess kryss och radiogrupp ändras där, och
+    // postens handler är knappens. Stigen är den i knappens meny.
+    detail::mirrorMenuItems(
+        b.menu().items, undermeny.submenu,
+        [vakt, knapp](const std::vector<int>& stig) {
+            if (vakt.ok())
+                knapp->menu().activatePath(stig, knapp);
+        });
     return undermeny;
-}
-
-// KNAPPENS POSTER SOM UNDERMENY: posten kopieras hel — text, bild, genväg och
-// tillstånd (menyn visar en ögonblicksbild ändå) — utom handlern och
-// undermenyn, och varje post aktiveras genom KNAPPENS egen meny med knappen
-// som sender: dess kryss och radiogrupp ändras där, och postens handler är
-// knappens. Stigen är den i knappens meny.
-void ToolBar::mirrorItems(const std::vector<MenuItem>& från,
-                          std::vector<MenuItem>& till, ToolButton& b,
-                          const HandlerGuard& vakt, std::vector<int>& stig)
-{
-    ToolButton* const knapp = &b;
-    for (std::size_t i = 0; i < från.size(); ++i) {
-        const MenuItem& p = från[i];
-        MenuItem        k = p;
-        k.submenu.clear();
-        k.onClick = nullptr;
-        stig.push_back(static_cast<int>(i));
-        if (!p.submenu.empty())
-            mirrorItems(p.submenu, k.submenu, b, vakt, stig);
-        else if (!p.separator)
-            k.onClick = [vakt, knapp, s = stig] {
-                if (vakt.ok())
-                    knapp->menu().activatePath(s, knapp);
-            };
-        stig.pop_back();
-        till.push_back(std::move(k));
-    }
 }
 
 // EN INBÄDDAD KONTROLL SOM POST — bara det som kan ta fokus har en. Posten

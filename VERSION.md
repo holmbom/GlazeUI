@@ -21,6 +21,13 @@ versionen sätts.
 
 ## Nästa
 
+## 0.6.0
+
+- **New** — namnlisten kan bära menyer och glyfknappar: `menuBar.setInTitleBar(true)`, `topBar.addStart<T>()`/`addEnd<T>()` (i `.glazeui` `topBar.adopt(x)` och `x.dock = glaze::Dock::Right`), `ToolButton::setGlyphOnly` och `topBar.setShowTitle`. Titeln centreras i området som blir kvar och kortas, och rubriker som inte ryms samlas under ⋯.
+- **New** — den stora programikonen kan stå bredvid fönstrets översta verktygsfält: med `appIcon.setLarge(true)` och menyerna i namnlisten börjar fältet vid ikonen.
+- **New** — `renderPageImage`: en sida som bild med egen täthet, med `Painter` och `drawCanvas` som utskriften, där alla bilder är med i första anropet och svaret säger vilken täthet det blev.
+- **Brytande** — `AppWindow::topBar()` är nu värdefältet `topBar`, dolt utan eget chrome.
+
 ## 0.5.0
 
 - **New** — fönstrets gradient: en svag bakgrund med en färg per hörn, av som förval. Global med `App::setWindowGradient`, per fönster med `AppWindow::setWindowGradient`, och i `.glazeui` med `setGradientCorner`/`setGradientAccent`. Ljust och mörkt läge har var sin uppsättning hörn (`glaze::tint`, `glaze::tintAccent`).

@@ -30,11 +30,11 @@
 // **PLATSEN** sitter i CHROME-trädet som TopBar: ett rotbarn utanför
 // dock-flödet, placerat mot hela klientytan — vänstra hörnet på Windows och
 // Linux, HÖGRA på macOS (där sitter fönsterknapparna till vänster). Den är
-// en kvadrat med namnlistens höjd, och med `setLarge(true)` OCH en synlig
-// menyrad täcker den namnlist + menyrad och menyraden börjar bredvid. Stor
-// är en BEGÄRAN: utan menyrad blir ikonen liten. Geometrin är EN sanning,
-// `reservedWidth`, som namnlistens motvikt, menyradens rubriker och
-// namnlistens hårlinje läser.
+// en kvadrat med namnlistens höjd, och med `setLarge(true)` täcker den namnlisten
+// och raden under, som börjar bredvid: menyraden på egen rad, annars fönstrets
+// översta verktygsfält (`rowBeside`). Stor är en BEGÄRAN: utan en sådan rad blir
+// ikonen liten. Geometrin är EN sanning, `reservedWidth`, som namnlistens motvikt,
+// menyradens rubriker, verktygsfältets barn och namnlistens hårlinje läser.
 //
 // **PROGRAMMENYN** byggs med MENYRADENS vokabulär (hård regel 8), där den
 // TOMMA stigen är roten:
@@ -53,6 +53,8 @@
 
 namespace glaze {
 
+class Bar;
+
 class AppIcon : public Widget {
 public:
     AppIcon();
@@ -70,10 +72,13 @@ public:
     // INGEN IKON ALLS — varken i namnlisten eller hos OS:et.
     void setNoIcon(bool on);
     bool isNoIcon() const { return noIcon_; }
-    // STOR ikon över namnlist + menyrad — en begäran, som bara gäller medan
-    // menyraden syns.
+    // STOR ikon över namnlisten och raden under — en begäran, som bara gäller
+    // medan det finns en sådan rad.
     void setLarge(bool on);
     bool isLarge() const { return large_; }
+    // Raden som står bredvid den stora ikonen JUST NU, eller nullptr när ikonen
+    // inte är stor.
+    const Bar* rowBeside() const;
 
     // ---------------------------------------------------------- programmenyn
     // MenuBars platta form, med den TOMMA stigen `{}` som roten. Okänd stig
@@ -160,8 +165,7 @@ protected:
     void mouseDown(const Ctx& c, float mx, float my) override;
 
 private:
-    // Täcker ikonen namnlist + menyrad JUST NU (begärd, med plats och med
-    // synlig menyrad)?
+    // Täcker ikonen namnlisten och raden under JUST NU?
     bool showsLarge() const;
     // Platsen ändrades (storlek, synlighet) — rita om och lägg om syskonen.
     void placeChanged();

@@ -36,7 +36,18 @@
 //   (P1 — den andra rutan skriver över den första), `PaintingScope` bort ur
 //   `drawCanvas` (P6 — onPaint-anropet ritar), måttet i px taget ur rektangelns
 //   mm (P1 — fel upplösning).
-//   MÄTER INTE skrivaren, PDF-utdata, del-vyer eller rutnätet (ritas inte).
+//   P8  `renderPageImage`: 100 m i 1:1000 mäter 100 mm och en linje på 6,0 mm mäter
+//       6,0 mm i två tätheter. P9 ett dolt fönster ger samma mått. P10 alla bilder finns med
+//       i första anropet trots en uppladdning per varv. P11 fler bilder än varven
+//       räcker till svarar `complete` false. P12 taket sänker tätheten och säger
+//       vilken; fel indata och ett anrop inifrån en ritning ger ingen bild.
+//   P13 etiketterna tonar inte på en sida. P14 en sida tar inte skärmens träffar.
+//   Sabotage som SKA fälla dem: `sc.pxPerMm` kvar på fönstrets (P8 — linjen),
+//   `continue` bort ur `renderRaster` (P10), `complete = false` bort (P11),
+//   `pageRaster` utan taket (P12), `pageRender` bort ur `a.labelFade` (P13),
+//   `pageGlyphs_` bort ur `glyphs` (P14).
+//   MÄTER INTE skrivaren, PDF-utdata, del-vyer eller rutnätet (ritas inte), eller
+//   att 300 dpi är lika skarpt som `drawCanvas` på en utskriftssida — de delar väg.
 
 #include <algorithm>
 #include <cmath>
@@ -393,6 +404,245 @@ void fallP7()
           std::to_string(n3) + " → " + std::to_string(n4));
 }
 
+// P8–P12 SIDAN SOM BILD (`renderPageImage`). Pixeln under sidans punkt i mm.
+const std::uint8_t* bildVid(const glaze::PageImage& b, double xMm, double yMm)
+{
+    const double pxPerMm = b.dpi / kMmPerInch;
+    return b.bitmap.pixels() +
+           (static_cast<std::size_t>(yMm * pxPerMm) * b.bitmap.width() +
+            static_cast<std::size_t>(xMm * pxPerMm)) * 4;
+}
+
+// Antal röda pixlar i raden vid y (mm) längs bilden — ett mått i millimeter
+// genom bildens täthet.
+double rödMm(const glaze::PageImage& b, double yMm)
+{
+    const double pxPerMm = b.dpi / kMmPerInch;
+    const int    rad     = static_cast<int>(yMm * pxPerMm);
+    int          n       = 0;
+    for (int x = 0; x < b.bitmap.width(); ++x)
+        if (är(b.bitmap.pixels() + (static_cast<std::size_t>(rad) * b.bitmap.width() + x) * 4,
+               kRöd, 60))
+            ++n;
+    return n / pxPerMm;
+}
+
+double rödMmLodrätt(const glaze::PageImage& b, double xMm)
+{
+    const double pxPerMm = b.dpi / kMmPerInch;
+    const int    kol     = static_cast<int>(xMm * pxPerMm);
+    int          n       = 0;
+    for (int y = 0; y < b.bitmap.height(); ++y)
+        if (är(b.bitmap.pixels() + (static_cast<std::size_t>(y) * b.bitmap.width() + kol) * 4,
+               kRöd, 60))
+            ++n;
+    return n / pxPerMm;
+}
+
+// En pixel per färg, så att varje bild är en egen uppladdning.
+glaze::Bitmap enfärgad(gfx::Color f)
+{
+    glaze::Bitmap b(2, 2);
+    b.fill(f);
+    return b;
+}
+
+// P8 SKALAN OCH TÄTHETEN: en rityta i meter med en ruta på 100 × 40 m, ritad i
+// 1:1000 på en sida med en linje på 6,0 mm, mäter 100 mm, 40 mm och 6,0 mm i TVÅ
+// tätheter — de som fönstrets täthet hade gjort fel.
+// P9 DOLT FÖNSTER: `hide()` före `show()` ger samma mått.
+void fallP8P9()
+{
+    Värd v;
+    v.setOffscreen(true);
+    v.show();
+    if (!v.isOpen()) {
+        std::printf("  --   P8 hoppades över: inget fönster kunde skapas\n");
+        ++g_skips;
+        return;
+    }
+    v.yta.addShape(glaze::Shape::rect({0, 0, 100, 40}, kRöd));
+    // 1 m = 1 mm på sidan: 1:1000.
+    const glaze::Camera kam{{50, 20}, mmZoom(), 0.0f, 0.0f};
+    for (const double dpi : {127.0, 254.0}) {
+        const auto b = glaze::renderPageImage(v, 200.0, 120.0, dpi, [&](glaze::Painter& p) {
+            p.drawCanvas(v.yta, glaze::Rect{20, 10, 120, 60}, kam);
+            p.drawLine({20, 100}, {180, 100}, glaze::Stroke{kRöd, glaze::mm(6.0)});
+        });
+        const std::string d = " i " + std::to_string(static_cast<int>(dpi)) + " dpi";
+        check(b.has_value() && b->bitmap.valid(), "P8 en bild" + d);
+        if (!b)
+            return;
+        const double pxPerMm = dpi / kMmPerInch;
+        check(std::abs(b->dpi - dpi) < 1e-9, "P8 bilden har den begärda tätheten" + d);
+        check(b->bitmap.width() == static_cast<int>(std::lround(200.0 * pxPerMm)) &&
+                  b->bitmap.height() == static_cast<int>(std::lround(120.0 * pxPerMm)),
+              "P8 bildens mått följer tätheten" + d);
+        check(b->complete, "P8 inga bilder saknas" + d);
+        check(std::abs(rödMm(*b, 40.0) - 100.0) < 0.5, "P8 100 m i 1:1000 mäter 100 mm" + d,
+              std::to_string(rödMm(*b, 40.0)));
+        check(std::abs(rödMmLodrätt(*b, 80.0) - 46.0) < 0.5,
+              "P8 40 m mäter 40 mm och linjen 6,0 mm" + d,
+              std::to_string(rödMmLodrätt(*b, 80.0)));
+        check(är(bildVid(*b, 5.0, 40.0), kVit), "P8 sidan är vit utanför rutan" + d);
+    }
+
+    Värd dolt;
+    dolt.hide();
+    dolt.show();
+    if (!dolt.isOpen())
+        return;
+    dolt.yta.addShape(glaze::Shape::rect({0, 0, 100, 40}, kRöd));
+    const auto b = glaze::renderPageImage(dolt, 200.0, 120.0, 127.0, [&](glaze::Painter& p) {
+        p.drawCanvas(dolt.yta, glaze::Rect{20, 10, 120, 60}, kam);
+    });
+    check(b.has_value() && std::abs(rödMm(*b, 40.0) - 100.0) < 0.5,
+          "P9 ett dolt fönster ger samma mått");
+}
+
+// P10 ALLA BILDER I FÖRSTA ANROPET: en uppladdning per varv, och fem bilder på en
+// rityta och fem i målaren är alla med. P11 TAKET: fler bilder än varven räcker
+// till svarar `complete` false, och bilden finns ändå.
+void fallP10P11()
+{
+    Värd v;
+    v.setOffscreen(true);
+    v.show();
+    if (!v.isOpen())
+        return;
+    v.window().renderFrame();
+    const std::size_t förval = glaze::app().canvasUploadBudget();
+    glaze::app().setCanvasUploadBudget(1);
+
+    std::vector<glaze::Bitmap> rutor;
+    for (int i = 0; i < 10; ++i)
+        rutor.push_back(enfärgad(gfx::Color{static_cast<std::uint8_t>(200 + i), 0, 0, 255}));
+    for (int i = 0; i < 5; ++i)
+        v.yta.addShape(glaze::Shape::image({i * 10.0, 0.0, 10.0, 10.0}, rutor[std::size_t(i)]));
+    const glaze::Camera kam{{25, 5}, mmZoom(), 0.0f, 0.0f};
+    int varv = 0;
+    const auto b = glaze::renderPageImage(v, 60.0, 30.0, 50.8, [&](glaze::Painter& p) {
+        ++varv;
+        p.drawCanvas(v.yta, glaze::Rect{5, 5, 50, 10}, kam);
+        for (int i = 0; i < 5; ++i)
+            p.drawImage(glaze::Rect{5.0 + i * 10.0, 20.0, 10.0, 5.0}, rutor[std::size_t(5 + i)]);
+    });
+    check(b.has_value() && b->complete, "P10 sidan är komplett");
+    check(varv > 1, "P10 uppladdningen väntade, så sidan ritades om",
+          std::to_string(varv));
+    if (b) {
+        bool allaRitytan = true, allaMålaren = true;
+        for (int i = 0; i < 5; ++i) {
+            allaRitytan = är(bildVid(*b, 10.0 + i * 10.0, 10.0),
+                             gfx::Color{static_cast<std::uint8_t>(200 + i), 0, 0, 255}, 3) &&
+                          allaRitytan;
+            allaMålaren = är(bildVid(*b, 10.0 + i * 10.0, 22.0),
+                             gfx::Color{static_cast<std::uint8_t>(205 + i), 0, 0, 255}, 3) &&
+                          allaMålaren;
+        }
+        check(allaRitytan, "P10 alla bilder på ritytan finns med");
+        check(allaMålaren, "P10 alla bilder i målaren finns med");
+    }
+
+    std::vector<glaze::Bitmap> många;
+    for (int i = 0; i < 300; ++i)
+        många.push_back(enfärgad(
+            gfx::Color{static_cast<std::uint8_t>(i), static_cast<std::uint8_t>(i >> 8), 1, 255}));
+    const auto t = glaze::renderPageImage(v, 30.0, 30.0, 25.4, [&](glaze::Painter& p) {
+        for (std::size_t i = 0; i < många.size(); ++i)
+            p.drawImage(glaze::Rect{double(i % 30), double(i / 30), 1.0, 1.0}, många[i]);
+    });
+    check(t.has_value() && !t->complete,
+          "P11 fler bilder än varven räcker till: complete false, och en bild ändå");
+    glaze::app().setCanvasUploadBudget(förval);
+}
+
+// P13 ETIKETTERNA TONAR INTE på en sida: med `setLabelFade(true)` är en etikett
+// fullt röd på första sidan och på nästa, med en annan kamera.
+// P14 SKÄRMENS ETIKETTER STÅR KVAR: en sida i en annan täthet får inte ta
+// etikettens träff på ritytan, utan att ritytan ritas om.
+void fallP13P14()
+{
+    Värd v;
+    v.setOffscreen(true);
+    v.show();
+    if (!v.isOpen())
+        return;
+    v.yta.setLabelFade(true);
+    v.yta.setCamera(glaze::Camera{{50, 50}, mmZoom(), 0.0f, 0.0f});
+    v.yta.addShape(glaze::Shape::text(
+        {50, 50}, "Etikett", glaze::TextStyle{.size = glaze::mm(10.0f), .color = kRöd}));
+    v.window().renderFrame();
+
+    const auto rödaPixlar = [](const glaze::PageImage& b) {
+        int n = 0;
+        for (int i = 0; i < b.bitmap.width() * b.bitmap.height(); ++i)
+            if (är(b.bitmap.pixels() + std::size_t(i) * 4, kRöd, 40))
+                ++n;
+        return n;
+    };
+    const auto sidan = [&](glaze::Point mitt) {
+        return glaze::renderPageImage(v, 100.0, 60.0, 50.8, [&](glaze::Painter& p) {
+            p.drawCanvas(v.yta, glaze::Rect{0, 0, 100, 60},
+                         glaze::Camera{mitt, mmZoom(), 0.0f, 0.0f});
+        });
+    };
+    const auto första = sidan({50, 50});
+    const auto andra  = sidan({40, 45});
+    check(första.has_value() && rödaPixlar(*första) > 50,
+          "P13 etiketten är fullt röd på första sidan",
+          första ? std::to_string(rödaPixlar(*första)) : std::string{});
+    check(andra.has_value() && rödaPixlar(*andra) > 50,
+          "P13 etiketten är fullt röd med en annan kamera",
+          andra ? std::to_string(rödaPixlar(*andra)) : std::string{});
+
+    const gfx::Sizef   yta = v.yta.actualSize();
+    const glaze::Point mitt{yta.w / 2.0, yta.h / 2.0};
+    check(!v.yta.hitTest(mitt).empty(), "P14 etiketten träffas före sidan");
+    const auto sida = glaze::renderPageImage(v, 100.0, 60.0, 254.0, [&](glaze::Painter& p) {
+        p.drawCanvas(v.yta, glaze::Rect{0, 0, 100, 60},
+                     glaze::Camera{{50, 50}, mmZoom(), 0.0f, 0.0f});
+    });
+    check(sida.has_value() && !v.yta.hitTest(mitt).empty(),
+          "P14 etiketten träffas efter en sida i en annan täthet");
+}
+
+// P12 TAKET OCH FELEN: en sida över taket får en lägre täthet och anroparen får veta
+// vilken. Fel mått, ingen ritfunktion, ett stängt fönster och ett anrop inifrån en
+// ritning ger ingen bild.
+void fallP12()
+{
+    Värd v;
+    v.setOffscreen(true);
+    v.show();
+    if (!v.isOpen())
+        return;
+    v.window().renderFrame();
+    const auto tom = [](glaze::Painter&) {};
+    const auto lång = glaze::renderPageImage(v, 1000.0, 10.0, 300.0, tom);
+    check(lång.has_value() && lång->dpi < 300.0, "P12 över taket: en lägre täthet");
+    if (lång) {
+        const int tak = std::max(lång->bitmap.width(), lång->bitmap.height());
+        check(tak <= glaze::PrintJob::kMaxPagePx, "P12 längsta sidan inom taket",
+              std::to_string(tak));
+        check(std::abs(lång->bitmap.width() / lång->dpi * kMmPerInch - 1000.0) < 1.0,
+              "P12 tätheten stämmer med bildens mått",
+              std::to_string(lång->dpi));
+    }
+    check(!glaze::renderPageImage(v, 0.0, 10.0, 300.0, tom), "P12 bredden 0: ingen bild");
+    check(!glaze::renderPageImage(v, 10.0, -1.0, 300.0, tom), "P12 negativ höjd: ingen bild");
+    check(!glaze::renderPageImage(v, 10.0, 10.0, 0.0, tom), "P12 tätheten 0: ingen bild");
+    check(!glaze::renderPageImage(v, 10.0, 10.0, std::nan(""), tom), "P12 NaN: ingen bild");
+    check(!glaze::renderPageImage(v, 10.0, 10.0, 96.0, nullptr), "P12 ingen ritfunktion");
+    Värd stängt;
+    check(!glaze::renderPageImage(stängt, 10.0, 10.0, 96.0, tom), "P12 stängt fönster");
+    std::optional<glaze::PageImage> inre = glaze::PageImage{};
+    const auto yttre = glaze::renderPageImage(v, 10.0, 10.0, 96.0, [&](glaze::Painter&) {
+        inre = glaze::renderPageImage(v, 10.0, 10.0, 96.0, tom);
+    });
+    check(yttre.has_value() && !inre, "P12 inifrån en ritning: ingen bild, och den yttre lever");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -406,6 +656,10 @@ int main(int argc, char** argv)
     fallP5();
     fallP6();
     fallP7();
+    fallP8P9();
+    fallP10P11();
+    fallP12();
+    fallP13P14();
     if (g_skips > 0 && g_fall == 0) {
         std::printf("=== print_gate: hoppades över (ingen display) ===\n");
         return 77;

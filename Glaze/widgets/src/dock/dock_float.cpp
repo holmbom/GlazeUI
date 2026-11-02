@@ -343,8 +343,7 @@ void DockFloatWindow::setUp()
     // står kvar.
     setChrome(gfx::Chrome::Custom);
     if (DockHost::isFloatDragSupported()) {
-        if (TopBar* t = topBar())
-            t->hide();
+        topBar.hide();
         appIcon.hide();
     }
     setMinimizeBox(false);

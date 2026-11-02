@@ -91,6 +91,8 @@ void CanvasResources::trim()
         it = it->second.src.expired() ? chunks_.erase(it) : std::next(it);
     for (auto it = glyphs_.begin(); it != glyphs_.end();)
         it = it->second.src.expired() ? glyphs_.erase(it) : std::next(it);
+    if (pageGlyphsUsed_ + 2 < r_->frameSerial())
+        pageGlyphs_.clear();
     // …och ritytor som rivits: deras placering och synlighetsbild — och
     // deras 3D-mål.
     for (auto it = labels_.begin(); it != labels_.end();)
@@ -117,6 +119,8 @@ void CanvasResources::trim()
                 a->clear();
         ++atlasEpoch_;
         for (auto& [id, e] : glyphs_)
+            e.build = GlyphBuild{};
+        for (auto& [id, e] : pageGlyphs_)
             e.build = GlyphBuild{};
     }
 }
@@ -199,7 +203,9 @@ const CanvasResources::GlyphBuild&
 CanvasResources::glyphs(const std::shared_ptr<detail::RunData>& run,
                         const GlyphEnv& env)
 {
-    auto [it, fresh] = glyphs_.try_emplace(run->id);
+    if (pageRender_)
+        pageGlyphsUsed_ = r_->frameSerial();
+    auto [it, fresh] = (pageRender_ ? pageGlyphs_ : glyphs_).try_emplace(run->id);
     GlyphEntry& e    = it->second;
     if (fresh)
         e.src = run;
@@ -231,8 +237,9 @@ CanvasResources::glyphs(const std::shared_ptr<detail::RunData>& run,
 const CanvasResources::GlyphBuild*
 CanvasResources::findGlyphs(const detail::RunData& run) const
 {
-    const auto it = glyphs_.find(run.id);
-    if (it == glyphs_.end() || it->second.version != run.glyphVersion ||
+    const auto& karta = pageRender_ ? pageGlyphs_ : glyphs_;
+    const auto  it    = karta.find(run.id);
+    if (it == karta.end() || it->second.version != run.glyphVersion ||
         it->second.atlasEpoch != atlasEpoch_)
         return nullptr;
     return &it->second.build;

@@ -232,3 +232,19 @@ fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
   till höger.
   *Rätt utfall:* grinden grön; blått i övre vänstra hörnet mot vitt, ett dämpat
   blått mörkt, inga veck eller skarvar, och inga Metal-valideringsfel.
+
+- **Menyer och glyfknappar i namnlisten** (delad kod, den speglade raden aldrig
+  körd): `TopBar::extrasRect` (`top_bar.cpp`) och `layout_gate` fall 26, som hoppar
+  över raden på macOS.
+  *Gör:* kör `demo --slate` och `demo --login`, dra i fönstrets storlek, klicka på
+  menyer, ⋯ och glyfer, och dra fönstret i tom yta.
+  *Rätt utfall:* `[✕ – □] [glyfer] … Titel … [glyfer] [menyer] [ikon]`; titeln mitt i
+  området som blir kvar, kortas och visas till sist inte, rubriker samlas under ⋯,
+  och popuper hamnar under sin rubrik. Med Visa → Stor ikon står ikonen i högra
+  hörnet över namnlisten och det första verktygsfältet, och fältets barn slutar före
+  den (`ToolBar::childArea`).
+
+- **En sida som bild** (delad kod, aldrig körd på Metal): `renderPageImage`
+  (`Glaze/widgets/src/print.cpp`).
+  *Gör:* kör `print_gate`, fall P8–P12.
+  *Rätt utfall:* grinden grön, och inga Metal-valideringsfel.

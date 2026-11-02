@@ -1039,6 +1039,15 @@ constexpr SetterFieldSpec kSetterFields[] = {
     // `checkable`. Rullgardinens poster (`addItem({}, …)` och postens tre
     // tillstånd) är Call-satser, som programikonens.
     {"glaze::ToolButton",    "split",         false},
+    // GLYFKNAPPEN — en bool, EXAKT ToolButton: knappen i namnlisten visar
+    // bara bilden, `lage.setGlyphOnly(true);`.
+    {"glaze::ToolButton",    "glyphOnly",     false},
+    // NAMNLISTEN — titeln (`topBar.setShowTitle(false);`) och menyradens plats
+    // (`menuBar.setInTitleBar(true);`) är bools, exakta typer. Barnen i
+    // namnlisten adopteras med `topBar.adopt(x);` och väljer sida med det
+    // råa fältet `dock`.
+    {"glaze::TopBar",        "showTitle",     false},
+    {"glaze::MenuBar",       "inTitleBar",    false},
     // VERKTYGSFÄLTETS BAND — ett heltal, setter-fält som
     // flikkontrollens `selectedIndex`. Kanten är det råa layoutfältet `dock`.
     // Titeln i det flytande fönstrets rubrik heter `text`
@@ -1509,13 +1518,16 @@ namespace {
 // konstruktor — de deklareras alltså aldrig i GlazeBuilder-regionen.
 // `statusBar` och `menuBar` är DOLDA tills något gör
 // `<id>.show();`; `appIcon` är den första som är
-// SYNLIG som förval — `appIcon.hide();` döljer den i fönstret.
+// SYNLIG som förval — `appIcon.hide();` döljer den i fönstret. `topBar` är
+// namnlisten: dold utan `Chrome::Custom`, och `topBar.adopt(x)` lägger ett
+// barn i den (sidan väljs med barnets `dock`).
 // Att det är en TABELL och inte ett specialfall är hela poängen: nästa
 // inbyggda fönsterwidget är en RAD, inte en gren.
 constexpr BuiltinMember kBuiltins[] = {
     {"statusBar", "glaze::StatusBar"},
     {"menuBar",   "glaze::MenuBar"},
     {"appIcon",   "glaze::AppIcon"},
+    {"topBar",    "glaze::TopBar"},
 };
 } // namespace
 
@@ -1700,8 +1712,8 @@ bool renameNode(WindowModel& m, const std::string& från,
         return false;
     }
     if (builtinMember(till) || n->builtin) {
-        fel = "inbyggda fönstermedlemmar (statusBar/menuBar) kan inte "
-              "döpas om";
+        fel = "inbyggda fönstermedlemmar (statusBar/menuBar/appIcon/topBar) "
+              "kan inte döpas om";
         return false;
     }
 

@@ -444,6 +444,11 @@ constexpr Style kSlateRegular{
     /* spinChevronW    */ 3.5f,     // 7 × 3.5 i en halva på 10: luft runt om
     /* spinChevronH    */ 1.75f,
     /* toolArrowGlyphH */ 3.5f,     // bredden 7: samma 2:1 som dropdownens pil
+
+    // ---- Namnlisten. SIST i tabellen, som fälten.
+    /* titleMinGap */ 24.0f,
+    /* titleGlyphW */ 28.0f,        // ikonen 16 med luft: smalare än fönster-
+                                    // knappens fack (`capsuleSeg` 34)
 };
 
 // De fyra `*DefaultLen` är AVSIKTLIGT samma tal (200 logiska px). En remsa

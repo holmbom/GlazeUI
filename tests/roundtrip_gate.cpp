@@ -218,6 +218,7 @@ int main()
                           "apps/demo/src/form_dialog.h",
                           "tests/fixtures/calls.h",
                           "tests/fixtures/components.h",
+                          "tests/fixtures/titlebar.h",
                           "tests/fixtures/terminal.h"})
         sparPolicy(root() + f);
 
@@ -232,6 +233,9 @@ int main()
                           // Komponenterna i regionen,
                           // deras kopplingar och fönstrets anrop.
                           "tests/fixtures/components.h",
+                          // Namnlisten — glyfknappen, menyraden och den
+                          // inbyggda `topBar`.
+                          "tests/fixtures/titlebar.h",
                           // Sidopaketets widget i regionen.
                           "tests/fixtures/terminal.h"})
         byteIdentisk(root() + f);
@@ -1690,6 +1694,77 @@ int main()
                    m.nodes[0].builtin && m.nodes[1].id == "ruta" &&
                    m.nodes[2].id == "chip",
                "order: nodordningen är builtin-först, sedan adopt-ordning");
+        }
+    }
+
+    // ---- NAMNLISTEN. `topBar` är en INBYGGD medlem som `statusBar`: ingen
+    // medlemsrad i regionen, ingen `name`-rad i filen, och `topBar.adopt(lage)`
+    // är dess FÖRSTA referens. Byte-identiteten ovan bär återskrivningen
+    // (setter-raderna `setGlyphOnly`/`setInTitleBar`/`setShowTitle` och fältet
+    // `dock`); här mäts modellen. SABOTAGEN som ska fälla den: `topBar` borttagen
+    // ur `kBuiltins` (adopt-raden blir fail-safe), `glyphOnly`/`showTitle`/
+    // `inTitleBar` borttagna ur `kSetterFields` (writern skriver fältrader och
+    // calls_fixture kompilerar inte).
+    {
+        const std::string h = root() + "tests/fixtures/titlebar.h";
+        bld::ReadResult   r = bld::readWindow(h);
+        ok(r.ok, "namnlist: fixturen läses (" + r.error + ")");
+        if (r.ok) {
+            const bld::WindowModel& m = r.model;
+
+            // Builtins först, i ordningen de refereras; sedan adopt-ordningen.
+            ok(m.nodes.size() == 3 && m.nodes[0].id == "menuBar" &&
+                   m.nodes[0].builtin && m.nodes[1].id == "topBar" &&
+                   m.nodes[1].builtin &&
+                   m.nodes[1].type == "glaze::TopBar" &&
+                   m.nodes[2].id == "lage" && !m.nodes[2].builtin,
+               "namnlist: nodordningen är builtin-först (menuBar, topBar), "
+               "sedan lage");
+            ok(m.parentOf("lage") == "topBar" && m.isAdopted("lage"),
+               "namnlist: lage adopteras i den inbyggda topBar");
+
+            // Settrarna normaliseras till fält, typmedvetet.
+            const bld::Stmt* glyf = m.findProp("lage", "glyphOnly");
+            const bld::Stmt* sida = m.findProp("lage", "dock");
+            const bld::Stmt* tips = m.findProp("lage", "toolTip");
+            const bld::Stmt* titel = m.findProp("topBar", "showTitle");
+            const bld::Stmt* plats = m.findProp("menuBar", "inTitleBar");
+            ok(glyf && glyf->value == "true" && sida &&
+                   sida->value == "glaze::Dock::Right" && tips &&
+                   titel && titel->value == "false" && plats &&
+                   plats->value == "true",
+               "namnlist: setGlyphOnly, dock, setToolTip, setShowTitle och "
+               "setInTitleBar läses som fält med sina värden");
+
+            // Inget namn på de inbyggda; migreringen lägger bara till lages.
+            ok(bld::nameState(m, m.nodes[1]) == bld::NameState::Saknas &&
+                   bld::nameState(m, m.nodes[0]) == bld::NameState::Saknas,
+               "namnlist: topBar och menuBar har ingen name-rad");
+
+            // En medlemsrad för topBar skrivs aldrig.
+            const std::string region = bld::emitRegion(m, "\n");
+            ok(region.find("topBar") == std::string::npos &&
+                   region.find("glaze::ToolButton lage;") != std::string::npos,
+               "namnlist: regionen deklarerar lage men aldrig topBar");
+
+            // En vanlig nod kan inte heta topBar, och topBar kan inte döpas om.
+            bld::WindowModel kopia = m;
+            std::string      f1, f2;
+            ok(!bld::renameNode(kopia, "lage", "topBar", f1) &&
+                   !bld::renameNode(kopia, "topBar", "rubrikrad", f2),
+               "namnlist: renameNode vägrar både till och från topBar");
+
+            // En name-rad på topBar är tvetydig: migreringen vägrar (regel 4).
+            bld::WindowModel namngiven = m;
+            bld::Stmt        rad;
+            rad.kind   = bld::Stmt::Kind::Prop;
+            rad.target = "topBar";
+            rad.name   = "name";
+            rad.value  = "\"topBar\"";
+            namngiven.stmts.push_back(rad);
+            std::string f3;
+            ok(!bld::migrateNames(namngiven, f3),
+               "namnlist: en name-rad på topBar får ingen att öppna filen");
         }
     }
 

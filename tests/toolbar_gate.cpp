@@ -142,7 +142,7 @@
 //                                                              "Senast")
 //        · `buttonItem` med `textToken()` alltid ........... 12 (ikonknappen)
 //        · separatorerna utan dubblettvakt ................. 12 (två i rad)
-//        · `mirrorItems` med överflödsknappen som sender .... 12 (avs)
+//        · speglingens aktivering med överflödsknappen som sender 12 (avs)
 //        · `controlItem` utan `kanTaFokus` .................. 12 (etiketten)
 //        · `overflowCut` utan `revealed` ................... 12 (sökfältet
 //                                                              syns inte)
@@ -155,6 +155,23 @@
 //      Sabotagen:
 //        · spärren bort i `drawTree` ....................... 13 (full)
 //        · spärren bort i `drawTreePartial` ................ 13 (partiell)
+//  14. GLYFLÄGET (`setGlyphOnly`, headless, alla tre UI): knappen mäter
+//      `titleGlyphW` × `capsuleH` med eller utan text och meny (en satt bredd
+//      vinner, av ger den vanliga knappens mått); vila är bara glyfen utan
+//      platta, hover en platta i `capsuleHover` UNDER glyfen, tryck i
+//      `capsulePress`; påslaget läge har ingen platta och standardikonens
+//      pixlar är de ur ett tema med `text` = `accent` (jämförda med
+//      `detail::stockBitmap`), avslaget de ur `text`; inaktiv har ingen platta
+//      ens under pekaren och ikonen tonad med `iconFade`; klick, tooltip,
+//      inget tabbstopp och `setProp("glyphOnly")`.
+//      Sabotagen:
+//        · `contentSize` utan glyfgrenen (texten och pilen räknas) 14 (måttet)
+//        · plattan ritas också i vila .......................... 14 (vila)
+//        · hover och tryck med samma färg ...................... 14 (tryck)
+//        · `drawGlyph` utan temakopian (ikonen i `text`) ........ 14 (accent)
+//        · `showsArrow` utan `!glyphOnly_` ..................... 14 (bredden
+//                                                                 med meny)
+//        · `drawGlyph` utan `på`-vakten ......................... 14 (inaktiv)
 //
 // VAD DEN INTE MÄTER, skrivet så anspråket inte överdrivs:
 //   - hur det SER UT — färgerna per UI och tillstånd verifieras renderat
@@ -2061,6 +2078,194 @@ void fallPrickar()
     }
 }
 
+// ------------------------------------------------- 14. GLYFLÄGET
+//
+// En glyfknapp mäter stilens `titleGlyphW` × `capsuleH` (text och pil räknas
+// inte, en satt axel vinner), ritas utan platta i vila, med `capsuleHover`
+// under pekaren och `capsulePress` vid tryck, och påslaget läge färgar
+// standardikonen i `accent` — den rastreras ur `text` och mäts genom pixlarna
+// renderern får. Inaktiv: ingen platta och ikonen tonad. Alla tre UI.
+
+// Hover och tryck sätts som AppWindow gör det — fälten är protected.
+struct ProvGlyf : glaze::ToolButton {
+    void hovra(bool på) { hovered_ = på; }
+    void tryck(bool på) { pressed_ = på; }
+};
+
+// Inspelningen med de PIXLAR varje uppladdad bild fick.
+struct PixInspelning : Inspelning {
+    std::vector<std::vector<std::uint8_t>> pixlar;
+
+    std::unique_ptr<gfx::Image> createImage(int w, int h, gfx::ImageFormat f,
+                                            const void* px, std::size_t stride,
+                                            bool mipmaps) override
+    {
+        const std::size_t rad = static_cast<std::size_t>(w) * 4u;
+        const std::size_t steg = stride ? stride : rad;
+        std::vector<std::uint8_t> kopia;
+        if (px && f == gfx::ImageFormat::Rgba8)
+            for (int y = 0; y < h; ++y) {
+                const auto* p = static_cast<const std::uint8_t*>(px) +
+                                static_cast<std::size_t>(y) * steg;
+                kopia.insert(kopia.end(), p, p + rad);
+            }
+        pixlar.push_back(std::move(kopia));
+        return Inspelning::createImage(w, h, f, px, stride, mipmaps);
+    }
+};
+
+// Ritar widgeten i en 28 × 24-ruta (som `rita`) med en inspelning som tar
+// emot pixlarna.
+void ritaPix(PixInspelning& rec, glaze::Widget& w, glaze::UI ui)
+{
+    glaze::ImageCache   bilder(rec);
+    const glaze::Style& st = glaze::defaultStyle(ui);
+    FalskFont           f(7.0f, st.uiFontSize);
+    glaze::Ctx          c = ctxFör(ui, f);
+    c.r      = &rec;
+    c.images = &bilder;
+    c.box    = gfx::Rectf{0.0f, 0.0f, 28.0f, 24.0f};
+    w.render(c);
+}
+
+int antalFyll(const std::vector<Inspelning::Anrop>& logg)
+{
+    int n = 0;
+    for (const auto& a : logg)
+        if (a.vad == "fyll")
+            ++n;
+    return n;
+}
+
+void fallGlyf()
+{
+    const glaze::ImageSource ikon =
+        glaze::stockIcon(glaze::StockIcon::MoreHorizontal);
+    for (const glaze::UI ui :
+         {glaze::UI::Slate, glaze::UI::Glaze, glaze::UI::Minimalistic}) {
+        const std::string namn  = ui == glaze::UI::Slate   ? "Slate"
+                                  : ui == glaze::UI::Glaze ? "Glaze"
+                                                           : "Minimalistic";
+        const glaze::Style& st = glaze::defaultStyle(ui);
+        FalskFont           f(7.0f, st.uiFontSize);
+        const glaze::Ctx    c   = ctxFör(ui, f);
+        const auto&         col = c.theme->colors;
+
+        // MÅTTET: glyfbredden och kapselhöjden, oberoende av text och meny;
+        // en satt axel vinner; av ger den vanliga knappens mått tillbaka.
+        ProvGlyf b;
+        b.setImg(ikon);
+        b.setText("Lång text");
+        const gfx::Sizef vanlig = Meter::measure(b, c);
+        b.setGlyphOnly(true);
+        check(b.glyphOnly(), namn + ": setGlyphOnly(true) sätter läget");
+        gfx::Sizef s = Meter::measure(b, c);
+        check(nära(s.w, st.titleGlyphW) && nära(s.h, st.capsuleH),
+              namn + ": glyfknappen mäter titleGlyphW × capsuleH, texten "
+              "räknas inte",
+              std::to_string(s.w) + " × " + std::to_string(s.h));
+        b.addItem({}, "Post");
+        s = Meter::measure(b, c);
+        check(nära(s.w, st.titleGlyphW),
+              namn + ": en meny ger ingen pilruta i bredden",
+              std::to_string(s.w));
+        b.width = 40.0f;
+        s       = Meter::measure(b, c);
+        check(nära(s.w, 40.0f) && nära(s.h, st.capsuleH),
+              namn + ": en satt bredd vinner, höjden är kapselns",
+              std::to_string(s.w) + " × " + std::to_string(s.h));
+        b.width = 0.0f;
+        b.setGlyphOnly(false);
+        check(!b.glyphOnly() && Meter::measure(b, c).w > vanlig.w,
+              namn + ": av ger den vanliga knappens mått (med pilen)",
+              std::to_string(Meter::measure(b, c).w));
+
+        // VILA, HOVER, TRYCK: platta bara när pekaren är på den.
+        ProvGlyf g;
+        g.setImg(ikon);
+        g.setGlyphOnly(true);
+        PixInspelning vila;
+        ritaPix(vila, g, ui);
+        const Bildfakta fv = bildfakta(vila.logg);
+        check(antalFyll(vila.logg) == 0 && fv.bilder == 1 &&
+                  fv.opacitet == 1.0f,
+              namn + ": vila — bara glyfen, ingen platta",
+              std::to_string(antalFyll(vila.logg)) + " fyllningar");
+
+        g.hovra(true);
+        PixInspelning hov;
+        ritaPix(hov, g, ui);
+        check(antalFyll(hov.logg) == 1 && hov.logg.front().vad == "fyll" &&
+                  hov.logg.front().färg == col.capsuleHover &&
+                  bildfakta(hov.logg).bilder == 1,
+              namn + ": hover — en platta i capsuleHover UNDER glyfen",
+              std::to_string(antalFyll(hov.logg)) + " fyllningar");
+
+        g.tryck(true);
+        PixInspelning ner;
+        ritaPix(ner, g, ui);
+        check(antalFyll(ner.logg) == 1 && ner.logg.front().färg == col.capsulePress,
+              namn + ": tryck — plattan i capsulePress");
+        g.tryck(false);
+        g.hovra(false);
+
+        // PÅSLAGET LÄGE: ingen platta i vila, och standardikonen rastrerad i
+        // `accent` — pixlarna är de ur ett tema vars `text` är `accent`.
+        g.setCheckable(true);
+        g.setChecked(true);
+        PixInspelning på;
+        ritaPix(på, g, ui);
+        glaze::Theme::Colors accentTema = col;
+        accentTema.text                 = col.accent;
+        const glaze::Bitmap accentBild  = glaze::detail::stockBitmap(
+            glaze::StockIcon::MoreHorizontal, 16, ikon.stockStyle(), accentTema);
+        const glaze::Bitmap textBild = glaze::detail::stockBitmap(
+            glaze::StockIcon::MoreHorizontal, 16, ikon.stockStyle(), col);
+        const std::size_t byte =
+            static_cast<std::size_t>(accentBild.width()) *
+            static_cast<std::size_t>(accentBild.height()) * 4u;
+        check(byte > 0 &&
+                  std::memcmp(accentBild.pixels(), textBild.pixels(), byte) != 0,
+              namn + ": facit — accent- och textikonen är olika pixlar");
+        check(antalFyll(på.logg) == 0 && på.pixlar.size() == 1 &&
+                  på.pixlar[0].size() == byte &&
+                  std::memcmp(på.pixlar[0].data(), accentBild.pixels(), byte) == 0,
+              namn + ": påslaget — ingen platta, ikonen i accent",
+              std::to_string(på.pixlar.size()) + " bilder");
+        PixInspelning ovan;
+        g.setChecked(false);
+        ritaPix(ovan, g, ui);
+        check(ovan.pixlar.size() == 1 && ovan.pixlar[0].size() == byte &&
+                  std::memcmp(ovan.pixlar[0].data(), textBild.pixels(), byte) == 0,
+              namn + ": avslaget — ikonen i text");
+
+        // INAKTIV: ingen platta (inte ens under pekaren) och ikonen tonad.
+        g.hovra(true);
+        g.disable();
+        PixInspelning död;
+        ritaPix(död, g, ui);
+        const Bildfakta fd = bildfakta(död.logg);
+        check(antalFyll(död.logg) == 0 && fd.bilder == 1 &&
+                  std::fabs(fd.opacitet - (1.0f - st.iconFade)) < 1e-6f,
+              namn + ": inaktiv — ingen platta, ikonen tonad med iconFade",
+              std::to_string(fd.opacitet));
+
+        // OFÖRÄNDRAT: klick, verktygstips och inget tabbstopp, och setProp.
+        ProvKnapp k;
+        k.setGlyphOnly(true);
+        int n = 0;
+        k.onClick = [&] { ++n; };
+        k.setToolTip("Växla läge");
+        k.clicked();
+        check(n == 1 && k.toolTip() == "Växla läge" && !k.focusable(),
+              namn + ": klick, tooltip och inget tabbstopp som förut");
+        glaze::ToolButton p;
+        check(p.setProp("glyphOnly", "true") && p.glyphOnly() &&
+                  p.setProp("glyphOnly", "false") && !p.glyphOnly(),
+              namn + ": setProp(\"glyphOnly\")");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -2083,6 +2288,7 @@ int main(int argc, char** argv)
     fallIkonstorlek();
     fallSlojan();
     fallPixlar();
+    fallGlyf();
     fallRullgardin();
     fallStaende();
     fallFlytande();

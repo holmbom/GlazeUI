@@ -722,9 +722,9 @@ int main(int argc, char** argv)
     // konstruktorn, alltså mätbart utan fönster.
     {
         MätWindow w;
-        glaze::TopBar* tb = w.topBar();
-        check(tb && tb->maxButton(), "chrome: namnlisten har en maxknapp");
-        if (tb && tb->maxButton()) {
+        glaze::TopBar* tb = &w.topBar;
+        check(tb->maxButton(), "chrome: namnlisten har en maxknapp");
+        if (tb->maxButton()) {
             check(tb->maxButton()->isVisible(),
                   "chrome: obegränsat fönster visar maximera");
 

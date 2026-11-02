@@ -896,7 +896,7 @@ bool Widget::validateRelease(const Widget& w, bool ägdKrävs,
         return false;
     }
     // …och FÖNSTRETS inbyggda är samma kategori, bara en nivå upp:
-    // `topBar_`/`menuBar`/`statusBar` läses ovillkorligt av
+    // `topBar`/`menuBar`/`statusBar` läses ovillkorligt av
     // `chromeInsetH()`. Frågan går via ägaren eftersom fönstrets rot är en
     // vanlig `Panel` och inte en egen typ som kunde overrida ovan.
     if (const AppWindow* f = liveOwner(); f && f->isBuiltinMember(w)) {

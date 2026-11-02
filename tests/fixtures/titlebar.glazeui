@@ -1,0 +1,22 @@
+// GENERERAD av GlazeBuilder — redigera i GlazeBuilder, inte här.
+#include "titlebar.h"
+
+TitlebarFixture::TitlebarFixture() { initializeComponent(); }
+
+void TitlebarFixture::initializeComponent()
+{
+    setTitle("Namnlist");
+    setClientSize(480, 240);
+
+    lage.name = "lage";
+    lage.setGlyphOnly(true);
+    lage.setToolTip("Växla mellan ljust och mörkt");
+    lage.dock = glaze::Dock::Right;
+
+    menuBar.setInTitleBar(true);
+    menuBar.show();
+
+    topBar.setShowTitle(false);
+
+    topBar.adopt(lage);
+}

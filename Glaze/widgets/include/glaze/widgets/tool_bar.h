@@ -337,12 +337,6 @@ private:
     MenuItem buttonItem(ToolButton& b) const;
     bool     controlItem(Widget& w, const std::vector<Widget*>& order,
                          MenuItem& out) const;
-    // En knapps poster som undermeny i `to`: samma text, bild och tillstånd,
-    // och varje post aktiveras genom KNAPPENS meny (`Menu::activatePath`) med
-    // knappen som sender — `path` är stigen dit, och `guard` knappens vakt.
-    static void mirrorItems(const std::vector<MenuItem>& from,
-                            std::vector<MenuItem>& to, ToolButton& b,
-                            const HandlerGuard& guard, std::vector<int>& path);
 
     OverflowButton* overflow_   = nullptr;   // ägd, skapad i konstruktorn
     bool            overflowOn_ = true;

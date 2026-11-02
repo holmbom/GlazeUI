@@ -42,9 +42,9 @@
 //        W4 (bara Windows, visar ett fönster) normalt öppnat, sedan
 //           `maximize()` och stängt ⇒ kortet: Maximized med normalstorleken;
 //           öppnat igen ⇒ `clientSize()` är normalstorleken.
-//        W5 `setChrome(None)` före öppning ⇒ `topBar() == nullptr` (D3D11:
+//        W5 `setChrome(None)` före öppning ⇒ `topBar` dold (D3D11:
 //           WS_POPUP); ett fönster konstruerat med None och sedan
-//           `setChrome(Custom)` ⇒ namnlisten byggs LATT, FÖRST i roten, och
+//           `setChrome(Custom)` ⇒ namnlistens barn byggs LATT, den står FÖRST i roten, och
 //           programikonen står sist — trädet ett fönster konstruerat med
 //           Custom har.
 //        W6 CenterOwner: a) en DOLD ägare (offscreen) ⇒
@@ -179,8 +179,7 @@
 //   · d3d11_window.cpp: `trackNormalPosition` bort ur WM_MOVE ............ W2
 //   · app.cpp executeClose: kortet tas inte (`closedGeometry_`) .......... W4
 //   · app.cpp executeClose: `initW_/initH_` inte återställda ............. W4
-//   · app_window.cpp applyChrome: namnlisten inte flyttad FÖRST .......... W5
-//   · app_window.cpp: `topBar()` svarar `topBar_` oavsett ram ............ W5
+//   · app_window.cpp syncTopBar: namnlisten synlig oavsett ram ........... W5
 //   · app_window.cpp showOwned: ägarrektangeln tagen också för en dold
 //     ägare ............................................................. W6a
 //   · app_window.cpp showOwned: `startPlacement` bort (OS:et väljer) ..... W1
@@ -867,10 +866,10 @@ void delW()
         glaze::AppWindow  w(titel, 300, 200);
         w.setOffscreen(true);
         w.setChrome(gfx::Chrome::None);
-        check(w.topBar() == nullptr && w.chrome() == gfx::Chrome::None,
+        check(!w.topBar.isVisible() && w.chrome() == gfx::Chrome::None,
               "W5 setChrome(None) före öppning ⇒ ingen namnlist");
         const bool kördes = iPumpen(w, [&] {
-            check(w.topBar() == nullptr, "W5 … också öppet");
+            check(!w.topBar.isVisible(), "W5 … också öppet");
 #ifdef GLAZE_BACKEND_D3D11
             const HWND h = hwndFör(titel);
             check(h && (GetWindowLongPtrW(h, GWL_STYLE) & WS_POPUP) != 0,
@@ -883,13 +882,15 @@ void delW()
 
         glaze::AppWindow lat(unikTitel("W5-lat"), 300, 200, gfx::Chrome::None);
         const std::size_t före = lat.root().children().size();
-        check(lat.topBar() == nullptr, "W5 (fixturen) konstruerat utan namnlist");
+        check(!lat.topBar.isVisible() && !lat.topBar.closeButton(),
+              "W5 (fixturen) konstruerat utan namnlist och utan dess barn");
         lat.setChrome(gfx::Chrome::Custom);
         const auto& barn = lat.root().children();
-        check(lat.topBar() != nullptr && lat.chrome() == gfx::Chrome::Custom,
-              "W5 setChrome(Custom) bygger namnlisten LATT");
-        check(barn.size() == före + 1 && !barn.empty() &&
-                  barn.front() == lat.topBar(),
+        check(lat.topBar.isVisible() && lat.topBar.closeButton() &&
+                  lat.chrome() == gfx::Chrome::Custom,
+              "W5 setChrome(Custom) bygger namnlistens barn LATT");
+        check(barn.size() == före && !barn.empty() &&
+                  barn.front() == &lat.topBar,
               "W5 namnlisten står FÖRST i roten, som konstruktorn lagt den",
               tal(static_cast<double>(barn.size())));
         check(!barn.empty() && barn.back() == &lat.appIcon,
@@ -900,8 +901,8 @@ void delW()
         bool sammaOrdning = facit.size() == barn.size();
         for (std::size_t i = 0; sammaOrdning && i < facit.size(); ++i)
             sammaOrdning = facit[i]->name == barn[i]->name &&
-                           (facit[i] == custom.topBar()) ==
-                               (barn[i] == lat.topBar());
+                           (facit[i] == &custom.topBar) ==
+                               (barn[i] == &lat.topBar);
         check(sammaOrdning,
               "W5 rotordningen är densamma som för ett fönster konstruerat "
               "med Custom");

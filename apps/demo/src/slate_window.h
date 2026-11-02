@@ -19,7 +19,8 @@ class Terminal;
 //
 // Fönstret låser UI:t till Slate och gör temat lätt att byta: remsan överst
 // (◀ vallistan ▶ och läget), menyn Tema, F7/F8 för föregående och nästa tema
-// och F9 för att växla mellan ljust och mörkt.
+// och F9 eller glyfen längst till höger i namnlisten för att växla mellan ljust
+// och mörkt.
 //
 // Komponenterna står också där de hamnar i en app: i menyraden, i tre
 // verktygsfält (två liggande och ett stående) och i STATUSRADEN, som bär en av
@@ -56,7 +57,12 @@ private:
     // remsan, menyn och statusraden.
     void valjTema(int index);
     void valjLage(glaze::ThemeMode m);
+    void vaxlaLage();      // till motsatsen av det som syns, också från System
+    bool morktNu() const;
     void synkaUtseende();
+    // Glyfen och menyposten, som följer varandra. De två ger namnlistens fyra lägen.
+    void vaxlaStorIkon();
+    void vaxlaMenyer();
 
     void visa(const std::string& text);   // statusradens första fält
 
@@ -70,6 +76,9 @@ private:
     glaze::ToolButton* lageSystem_ = nullptr;
     glaze::ToolButton* lageLjust_  = nullptr;
     glaze::ToolButton* lageMorkt_  = nullptr;
+    glaze::ToolButton* lageGlyf_   = nullptr;   // i namnlisten
+    glaze::ToolButton* storIkon_   = nullptr;   // i namnlisten
+    glaze::ToolButton* menyGlyf_   = nullptr;   // i namnlisten
 
     // Förloppet som rör sig, så att fyllnaden går att bedöma i rörelse.
     glaze::Timer     takt_;

@@ -160,6 +160,8 @@ statusradens fält. Grupper i ett verktygsfält skiljs med en `Separator`.
   genomskinlighet i appen — ramverkets ritning är utseendet. En egen widget
   ritar innanför `c.bounds()` med temats roller (MANUAL `custom-widget`);
   `setTransparent` är för specialfönster, inte ett utseende.
+- **Få glyfer i namnlisten.** Glyfknappar (`setGlyphOnly`) är för det man växlar
+  ofta, och de har inget överflöde. Ge varje en tooltip och en menypost.
 - **Fönstrets gradient är svag.** `setWindowGradient` (MANUAL `appearance`) är
   för fönster som ska kännas lite extra, som en inloggning eller en splash. Håll
   hörnen ljusa i ljust läge och dämpade i mörkt, så att texten behåller sin

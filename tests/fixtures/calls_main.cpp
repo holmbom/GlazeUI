@@ -13,6 +13,7 @@
 #include "calls.h"
 #include "components.h"   // komponenterna, samma skäl
 #include "order.h"   // satsordningens fixtur, samma skäl
+#include "titlebar.h"   // namnlistens fixtur, samma skäl
 
 int main()
 {

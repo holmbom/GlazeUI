@@ -203,6 +203,11 @@ const BuilderWindow::FieldMeta BuilderWindow::kFieldMeta[] = {
     // Den DELADE knappen. Rullgardinens poster är anrop och
     // har ingen panelrad.
     {"glaze::ToolButton", "split",     FieldKind::Bool, "true;false", ""},
+    // GLYFKNAPPEN — bara bilden, för namnlisten.
+    {"glaze::ToolButton", "glyphOnly", FieldKind::Bool, "true;false", ""},
+    // NAMNLISTEN — titelns synlighet och menyradens plats.
+    {"glaze::TopBar",     "showTitle",  FieldKind::Bool, "true;false", ""},
+    {"glaze::MenuBar",    "inTitleBar", FieldKind::Bool, "true;false", ""},
     // IKONENS SIDA — Buttons rad, 0 = AUTO.
     {"glaze::ToolButton", "iconSize",  FieldKind::Number, "", ""},
     // Verktygsfältets BAND i en dockningsyta — 0 är yttersta.

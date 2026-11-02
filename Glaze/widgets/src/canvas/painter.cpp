@@ -1016,7 +1016,7 @@ bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& 
     Target3DArgs a;
     a.samples    = canvas.multisample();
     a.camera     = cam3;
-    a.labelFade  = canvas.labelFade();
+    a.labelFade  = canvas.labelFade() && !ctx.res->pageRender();
     a.layerPaint = layerPaintOf(canvas);
 
     // MÅLETS NYCKEL — det ritningen beror på: ritytan och dess

@@ -729,7 +729,7 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   färgplätt mitt i namnlisten; bar.cpp och den här filen är ETT paket.
   TRAFIKLJUSEN ritas likadant i alla tre — de speglar en macOS-KONVENTION,
   och en gul ring betyder inte "minimera".
-- **`menu_bar.cpp`** — MENYRADEN (MENYER): ytan är Bars (`Bar::draw` →
+- **`menu_bar.cpp`** — MENYRADEN (MENYER, snittet `cut` och ⋯ med speglade menyer i namnlisten): ytan är Bars (`Bar::draw` →
   `fillBody`/`innerEdge` — menyraden är samma sorts remsa som topplisten och
   statusraden och ska se ut så), rubrikerna ritas här. TITLARNA ÄR DATA och
   inte barn, så `titleRect` är EN sanning som ritningen och hit-testen
@@ -750,7 +750,7 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
 - **`app_icon.cpp`** — PROGRAMIKONEN. `contentSize` (`measureScope()`
   `Root` — den läser namnlistens och menyradens tillstånd) är geometrins enda källa: FRISTÅENDE (registret, previewn) namnlistens
   kvadrat, utan synlig TopBar eller med `noIcon` {0, 0}, annars kvadraten
-  namnlist [+ menyrad när `showsLarge()` — stor begärd, synlig menyrad] med
+  namnlist [+ raden under när `rowBeside()` svarar — stor begärd, menyraden på egen rad eller det översta verktygsfältet] med
   axelregeln på barernas `height`; `reservedWidth` läser den. `draw` ritar
   PLATTAN (`capsuleHover`/`capsulePress`, `appIconPlateInset`/`appIconRadius`)
   bara när menyn har poster och är öppen eller hovrad, och bilden med
@@ -759,7 +759,7 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   räknas om ur sina levande pixlar per (id, w, h) i bildcachen. `mouseDown`
   togglar i menyradens ordning (popup-stängningen är redan köad); settrarna
   invaliderar, flyttar chromet (`placeChanged`) och sätter om OS-ikonen.
-- **`top_bar.cpp` / `status_bar.cpp`** — StatusBar har registreringen och
+- **`top_bar.cpp` / `status_bar.cpp`** — TopBar: `extrasRect` placerar raden när den bär menyer och glyfer. StatusBar har registreringen och
   en `contentSize()`-override: default-höjden är **`Style::statusBarH`**
   (`setContentSize` räknar baklänges genom chromet, så höjden måste följa
   stilen — inget tal i konstruktorn);
