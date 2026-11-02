@@ -244,6 +244,9 @@ float Bar::topRadius(const Ctx&) const
 // flisor där den möter innehållet.
 void Bar::fillBody(const Ctx& c, gfx::Color fill) const
 {
+    // Fönstrets gradient syns genom remsan.
+    if (const AppWindow* w = appWindow(); w && w->windowGradient().active())
+        return;
     const gfx::Rectf b = c.bounds();
     const float      r = topRadius(c);
     if (r <= 0.0f) {

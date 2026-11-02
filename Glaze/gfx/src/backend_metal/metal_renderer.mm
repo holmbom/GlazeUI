@@ -1388,6 +1388,21 @@ void MetalRenderer::fillRect(const Rectf& r, Color c)
     quad(r, Rectf{0, 0, 0, 0}, c);   // uv 0 → vita texturens enda texel
 }
 
+void MetalRenderer::fillQuadCorners(const Rectf& r, Color topLeft, Color topRight,
+                                    Color bottomRight, Color bottomLeft)
+{
+    setState(nil, MTLPrimitiveTypeTriangle, ImageFilter::Nearest);
+    const float x1 = r.x, y1 = r.y, x2 = r.x + r.w, y2 = r.y + r.h;
+    const std::uint32_t tl = pack(topLeft), tr = pack(topRight);
+    const std::uint32_t br = pack(bottomRight), bl = pack(bottomLeft);
+    batch_.push_back({x1, y1, 0.0f, 0.0f, tl});   // uv 0 → vita texturens texel
+    batch_.push_back({x2, y1, 0.0f, 0.0f, tr});
+    batch_.push_back({x1, y2, 0.0f, 0.0f, bl});
+    batch_.push_back({x2, y1, 0.0f, 0.0f, tr});
+    batch_.push_back({x2, y2, 0.0f, 0.0f, br});
+    batch_.push_back({x1, y2, 0.0f, 0.0f, bl});
+}
+
 void MetalRenderer::strokeRect(const Rectf& r, Color c)
 {
     // Fyra 1-px-stavar istället för linjer — exakt pixeltäckning i hörnen

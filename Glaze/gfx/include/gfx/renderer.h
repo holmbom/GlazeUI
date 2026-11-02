@@ -134,6 +134,15 @@ public:
     // premultiplicerad — och ett mål med djup får djupet 1.
     virtual void clear(Color c) = 0;
     virtual void fillRect(const Rectf& r, Color c) = 0;
+    // EN QUAD MED FYRA HÖRNFÄRGER, två trianglar med färgen interpolerad i
+    // respektive triangel — grunden för `fillRectCorners`.
+    virtual void fillQuadCorners(const Rectf& r, Color topLeft, Color topRight,
+                                 Color bottomRight, Color bottomLeft) = 0;
+    // EN REKTANGEL MED FYRA HÖRNFÄRGER och en jämn, bilinjär övergång. Ritas som
+    // ett rutnät av quadar: två trianglar över hela ytan hade gett ett synligt
+    // veck längs diagonalen när ett enda hörn avviker.
+    void fillRectCorners(const Rectf& r, Color topLeft, Color topRight,
+                         Color bottomRight, Color bottomLeft);
     virtual void strokeRect(const Rectf& r, Color c) = 0;
     virtual void line(float x1, float y1, float x2, float y2, Color c) = 0;
 

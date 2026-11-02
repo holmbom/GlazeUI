@@ -12,6 +12,7 @@
 
 #include <gfx/platform.h>
 
+#include "glaze/app_window.h"   // bakgrunden bakom återställ-tecknet
 #include "glaze/draw.h"
 
 #include "../prop_parse.h"
@@ -347,7 +348,12 @@ void CaptionButton::drawCapsule(const Ctx& c) const
     // konturen; annars läser klustret som en enda knapp
     // vars kant flyttar sig.
     const bool isClose = kind_ == Kind::Close;
-    gfx::Color under    = kapsel ? col.capsuleBody : col.windowBg;
+    const AppWindow* fönster = appWindow();
+    gfx::Color under = kapsel    ? col.capsuleBody
+                       : fönster ? fönster->windowBackgroundAt(
+                                       c, c.box.x + c.box.w / 2.0f,
+                                       c.box.y + c.box.h / 2.0f)
+                                 : col.windowBg;
     gfx::Color glyph    = col.chromeGlyph;
     if (hot()) {
         under = isClose     ? col.capsuleClose

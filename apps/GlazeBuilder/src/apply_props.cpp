@@ -4832,6 +4832,42 @@ bool applyWindowCall(glaze::AppWindow& w, const Call& call,
             return true;
         }
     }
+    // FÖNSTRETS GRADIENT — en sats per hörn: hörnet, färgen och styrkan, eller
+    // hörnet och styrkan för temats accent.
+    if (call.method == "setGradientCorner" || call.method == "setGradientAccent") {
+        const std::vector<std::string> a = delaArgument(call.args);
+        glaze::WindowCorner hörn{};
+        const bool accent = call.method == "setGradientAccent";
+        if (!a.empty() &&
+            enumVärde(a[0], {"glaze::WindowCorner::", "WindowCorner::", ""},
+                      {{"TopLeft", glaze::WindowCorner::TopLeft},
+                       {"TopRight", glaze::WindowCorner::TopRight},
+                       {"BottomRight", glaze::WindowCorner::BottomRight},
+                       {"BottomLeft", glaze::WindowCorner::BottomLeft},
+                       {"TopLeftDark", glaze::WindowCorner::TopLeftDark},
+                       {"TopRightDark", glaze::WindowCorner::TopRightDark},
+                       {"BottomRightDark", glaze::WindowCorner::BottomRightDark},
+                       {"BottomLeftDark", glaze::WindowCorner::BottomLeftDark}},
+                      hörn)) {
+            const auto styrka = [](const std::string& s, float& ut) {
+                char* slut = nullptr;
+                ut         = std::strtof(s.c_str(), &slut);
+                return slut != s.c_str() && (*slut == '\0' || *slut == 'f');
+            };
+            float s = 1.0f;
+            if (accent && a.size() == 2 && styrka(a[1], s)) {
+                w.setGradientAccent(hörn, s);
+                return true;
+            }
+            gfx::Color färg{};
+            if (!accent && (a.size() == 2 || a.size() == 3) &&
+                parseColorLiteral(a[1], färg) &&
+                (a.size() == 2 || styrka(a[2], s))) {
+                w.setGradientCorner(hörn, färg, s);
+                return true;
+            }
+        }
+    }
     if (call.method == "setStartPosition") {
         glaze::StartPosition sp{};
         if (enumVärde(call.args,

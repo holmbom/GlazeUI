@@ -63,6 +63,40 @@ void Renderer::pushClip(const Rectf& r, float radius)
     applyTop();
 }
 
+void Renderer::fillRectCorners(const Rectf& r, Color topLeft, Color topRight,
+                               Color bottomRight, Color bottomLeft)
+{
+    constexpr int kSteg = 16;   // rutnätet: fint nog för att inga veck ska synas
+    const auto kanal = [](std::uint8_t a, std::uint8_t b, float t) {
+        return static_cast<std::uint8_t>(
+            std::lround(float(a) + (float(b) - float(a)) * t));
+    };
+    const auto blanda = [&](Color a, Color b, float t) {
+        return Color{kanal(a.r, b.r, t), kanal(a.g, b.g, t), kanal(a.b, b.b, t),
+                     kanal(a.a, b.a, t)};
+    };
+    const auto punkt = [&](int ix, int iy) {
+        const float u = float(ix) / float(kSteg);
+        const float v = float(iy) / float(kSteg);
+        return blanda(blanda(topLeft, topRight, u),
+                      blanda(bottomLeft, bottomRight, u), v);
+    };
+    const auto läge = [](float start, float längd, int i) {
+        return start + längd * float(i) / float(kSteg);
+    };
+    for (int iy = 0; iy < kSteg; ++iy) {
+        const float y0 = läge(r.y, r.h, iy);
+        const float y1 = läge(r.y, r.h, iy + 1);
+        for (int ix = 0; ix < kSteg; ++ix) {
+            const float x0 = läge(r.x, r.w, ix);
+            const float x1 = läge(r.x, r.w, ix + 1);
+            fillQuadCorners(Rectf{x0, y0, x1 - x0, y1 - y0}, punkt(ix, iy),
+                            punkt(ix + 1, iy), punkt(ix + 1, iy + 1),
+                            punkt(ix, iy + 1));
+        }
+    }
+}
+
 void Renderer::popClip()
 {
     if (clipStack_.empty()) {

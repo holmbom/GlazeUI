@@ -261,6 +261,11 @@ void deriveRoles(Theme::Colors& c)
 
 } // namespace
 
+gfx::Color WindowGradient::Corner::resolve(const Theme::Colors& c) const
+{
+    return mix(c.windowBg, color.value_or(c.accent), strength);
+}
+
 const Theme::Variant& Theme::muted(const Variant& v)
 {
     // Andelarna (0..1) mot ytan bakom remsan.

@@ -28,7 +28,8 @@ vilken källfil som helst.
 - **Rityta:** en 2D- och 3D-scen med kamera: former i lager på GPU:n, text
   och bilder, meshar, punktmoln, terräng, egna shaderprogram och plockning.
 - **Utseende:** tre UI-familjer (Glaze, Slate, Minimalistic), var och en med
-  egna teman, ljust och mörkt läge och storlekar.
+  egna teman, ljust och mörkt läge och storlekar, plus en valfri gradient på
+  fönstret.
 - **Språk:** ramverkets texter finns inbyggda på svenska, engelska, norska
   och finska; en app lägger till sina egna i en `language.bin`.
 - **App-funktioner:** ikon i systemfältet, appens timer, programikon,

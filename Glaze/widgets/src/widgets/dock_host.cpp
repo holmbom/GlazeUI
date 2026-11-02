@@ -1374,7 +1374,7 @@ void DockHost::draw(const Ctx& c)
     };
     auto handtagsremsor = [&] {
         for (const DockGeometry::HandleStrip& hs : g.handleStrips)
-            Draw::rect(c, hs.rect, 0.0f, col.windowBg);
+            fillWindowSurface(c, hs.rect);
     };
     // BANDEN — verktygsfältens remsa längs hela kanten (VS:s bricka):
     // barens yta `windowBg` och hårlinjen mot innehållet i `frame`, så att
@@ -1384,7 +1384,7 @@ void DockHost::draw(const Ctx& c)
         const Pen pen{col.frame, m.borderWidth};
         for (const DockGeometry::Band& band : g.bands) {
             const gfx::Rectf& r = band.rect;
-            Draw::rect(c, r, 0.0f, col.windowBg);
+            fillWindowSurface(c, r);
             switch (band.edge) {
             case Dock::Top:
                 Draw::line(c, r.x, r.y + r.h, r.x + r.w, r.y + r.h, pen);
@@ -1428,7 +1428,7 @@ void DockHost::draw(const Ctx& c)
         for (const DockGeometry::Cell& cell : g.cells) {
             if (cell.tabs.empty())
                 continue;
-            Draw::rect(c, cell.tabRow, 0.0f, col.windowBg);
+            fillWindowSurface(c, cell.tabRow);
             Draw::line(c, cell.tabRow.x, cell.tabRow.y,
                        cell.tabRow.x + cell.tabRow.w, cell.tabRow.y,
                        Pen{kant, m.borderWidth});
@@ -1515,7 +1515,7 @@ void DockHost::draw(const Ctx& c)
         for (const DockGeometry::Cell& cell : g.cells) {
             if (cell.tabs.empty())
                 continue;
-            Draw::rect(c, cell.tabRow, 0.0f, col.windowBg);
+            fillWindowSurface(c, cell.tabRow);
             Draw::line(c, cell.tabRow.x, cell.tabRow.y,
                        cell.tabRow.x + cell.tabRow.w, cell.tabRow.y,
                        Pen{col.border, m.borderWidth});

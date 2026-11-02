@@ -461,7 +461,7 @@ bor i `src/backend_*/` — läcker en typ hit är abstraktionen bruten.
   rotate, Windows Direct Manipulation + råa HID-kontakter) till en sekvens.
   Inga nya virtuella: eventen är data från varje backends väg (src/CLAUDE.md).
 - **`renderer.h`** — abstrakt `gfx::Renderer`: `clear`/`fillRect`/`strokeRect`/
-  `line`/`drawText` + de rikare primitiven `fillRoundedRect`/
+  `line`/`drawText`/`fillQuadCorners`/`fillRectCorners` (fyra hörnfärger, rutnät) + de rikare primitiven `fillRoundedRect`/
   `strokeRoundedRect(…, width)`/`dropShadow`/`innerShadow` (fysiska px;
   radius klampas till halva kortsidan; D3D11 ritar dem analytiskt med SDF,
   backends utan SDF-stöd tesselerar) + font-fabrikerna `loadFont(path, …)`

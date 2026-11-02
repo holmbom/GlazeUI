@@ -115,6 +115,7 @@ class NullRenderer : public Renderer {
 public:
     void clear(Color) override {}
     void fillRect(const Rectf&, Color) override {}
+    void fillQuadCorners(const Rectf&, Color, Color, Color, Color) override {}
     void strokeRect(const Rectf&, Color) override {}
     void line(float, float, float, float, Color) override {}
     void fillRoundedRect(const Rectf&, float, Color) override {}

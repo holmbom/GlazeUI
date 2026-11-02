@@ -431,7 +431,7 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   `kSlateRegular`): en tätare stil ska kunna korta dem var för sig.
   Komponenternas tal har sina skäl VID talen (verktygsfältets härledda par:
   `toolbar_gate`), och blocken står i passens ordning, det senaste SIST.
-- **`app_window.cpp`** — fönstrets liv: `show`/`showOwned` (init-blocket:
+- **`app_window.cpp`** — fönstrets liv och gradient (`drawWindowGradient`): `show`/`showOwned` (init-blocket:
   OS-fönster, skärmens mått (`measureDisplay` — `effectiveDisplay` ovanpå
   backendens `displayMetrics`, invalidering vid ändring, och EN loggrad per
   skärm-id och process när måttet är antaget; körs också vid

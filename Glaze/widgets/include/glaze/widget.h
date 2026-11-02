@@ -2091,6 +2091,9 @@ protected:
     // utan yta (det hör hemma i `frameStep`); det som stegas per BILD — en
     // ritytas tick, en obestämd förloppsindikator — pausar med flit (regel 1).
     virtual void draw(const Ctx& c) = 0;
+    // En remsa i fönstrets egen färg (widget-lokala logiska px): `windowBg`, och
+    // ingenting när fönstrets gradient är på — den ska synas igenom.
+    void fillWindowSurface(const Ctx& c, const gfx::Rectf& r) const;
 
     // WIDGETENS OVERLAY-LAGER — det som ändras oftare än
     // innehållet och inte ska kosta en omritning av det: ritytans gummiband

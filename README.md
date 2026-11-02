@@ -28,7 +28,7 @@ any other source file.
   text and images, meshes, point clouds, terrain, custom shader programs and
   picking.
 - **Look:** three UI families (Glaze, Slate, Minimalistic), each with its own
-  themes, light and dark mode, and sizes.
+  themes, light and dark mode, and sizes, plus an optional window gradient.
 - **Languages:** the framework's strings are built in for Swedish, English,
   Norwegian and Finnish; an app adds its own in a `language.bin`.
 - **App features:** tray icon, app timer, program icon, window placement and

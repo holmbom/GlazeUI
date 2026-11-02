@@ -621,6 +621,70 @@ ThemeMode AppWindow::themeMode() const
     return App::themeState().mode;
 }
 
+void AppWindow::setWindowGradient(std::optional<WindowGradient> g)
+{
+    gradient_ = std::move(g);
+    invalidate();
+}
+
+const WindowGradient& AppWindow::windowGradient() const
+{
+    return gradient_ ? *gradient_ : App::themeState().gradient;
+}
+
+void AppWindow::setGradientCorner(WindowCorner w, gfx::Color c, float strength)
+{
+    if (!gradient_)
+        gradient_.emplace();
+    gradient_->corner(w) = tint(c, strength);
+    invalidate();
+}
+
+void AppWindow::setGradientAccent(WindowCorner w, float strength)
+{
+    if (!gradient_)
+        gradient_.emplace();
+    gradient_->corner(w) = tintAccent(strength);
+    invalidate();
+}
+
+gfx::Color AppWindow::windowBackgroundAt(const Ctx& c, float x, float y) const
+{
+    const auto&           col = c.theme->colors;
+    const WindowGradient& g   = windowGradient();
+    const gfx::Sizef      sz  = clientSize();
+    if (transparent_ || !g.active() || sz.w <= 0.0f || sz.h <= 0.0f)
+        return col.windowBg;
+    const bool  mörkt = c.theme == &App::themeState().theme.dark;
+    const float u     = std::clamp(x / (sz.w * c.scale), 0.0f, 1.0f);
+    const float v     = std::clamp(y / (sz.h * c.scale), 0.0f, 1.0f);
+    const gfx::Color topp =
+        color::mix((mörkt ? g.topLeftDark : g.topLeft).resolve(col),
+                   (mörkt ? g.topRightDark : g.topRight).resolve(col), u);
+    const gfx::Color botten =
+        color::mix((mörkt ? g.bottomLeftDark : g.bottomLeft).resolve(col),
+                   (mörkt ? g.bottomRightDark : g.bottomRight).resolve(col), u);
+    return color::mix(topp, botten, v);
+}
+
+void AppWindow::drawWindowGradient(const Ctx& c, const gfx::Rectf& client)
+{
+    const WindowGradient& g = windowGradient();
+    if (transparent_ || !g.active())
+        return;
+    const auto& col   = c.theme->colors;
+    const bool  mörkt = c.theme == &App::themeState().theme.dark;
+    if (roundedChrome_)
+        c.r->pushClip(client, cornerRadius());
+    c.r->fillRectCorners(client,
+                         (mörkt ? g.topLeftDark : g.topLeft).resolve(col),
+                         (mörkt ? g.topRightDark : g.topRight).resolve(col),
+                         (mörkt ? g.bottomRightDark : g.bottomRight).resolve(col),
+                         (mörkt ? g.bottomLeftDark : g.bottomLeft).resolve(col));
+    if (roundedChrome_)
+        c.r->popClip();
+}
+
 // Säkerhetsnät: ett fönster som fortfarande är öppet när C++-objektet dör
 // (objektet ska normalt överleva sin stängning — användaren äger det) rivs
 // direkt så App-registret inte pekar på ett lik.
@@ -2399,6 +2463,7 @@ void AppWindow::renderContent(gfx::Window& win)
         // är ett hål, inte en form.
         if (roundedChrome_)
             c.r->fillRoundedRect(client, cornerRadius(), c.theme->colors.windowBg);
+        drawWindowGradient(c, client);
         frame(c);
         for (const auto& ch : root_.children())
             drawTree(*ch, isChromeRoot(*ch) ? cch : c);
@@ -2413,6 +2478,7 @@ void AppWindow::renderContent(gfx::Window& win)
     for (const auto& dr : rects) {
         c.r->pushClip(dr);
         c.r->fillRect(dr, c.theme->colors.windowBg);   // clear ignorerar klipp
+        drawWindowGradient(c, client);   // hela ytans gradient, klippt till recten
         frame(c);
         for (const auto& ch : root_.children())
             drawTreePartial(*ch, isChromeRoot(*ch) ? cch : c, dr);

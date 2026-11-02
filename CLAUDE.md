@@ -504,6 +504,12 @@ aldrig CMakeLists; "nytt fönster" påminner i statusraden.
   slår allt — och båda, liksom `disable()`/`hide()` och en lossad widget,
   OMPRÖVAR pekaren direkt med den senast kända muspositionen
   (`refreshCursor`), utan att musen rör sig. En inaktiv widget visar pilen.
+- **FÖNSTRETS GRADIENT**: `WindowGradient` (theme.h) är en svag bakgrund med en färg och styrka per
+  hörn mot `windowBg`, av som förval, en uppsättning för ljust och en för mörkt. `App::setWindowGradient` är
+  global, `AppWindow::setWindowGradient` per fönster och går före, och `setGradientCorner`/`setGradientAccent`
+  är den platta formen i `.glazeui`. Den ritas i full och partiell väg (`drawWindowGradient`), hela ytans
+  gradient under renderarens klipp, så omritning inte ger skarvar. En remsa i fönstrets färg ritas med
+  `Widget::fillWindowSurface` (Bar: `fillBody`), som släpper igenom gradienten; paneler med ram behåller sin yta.
 - **ICKE-VISUELLA MEDLEMMAR I `.glazeui`** (FONSTER_OCH_TIMER): en
   `glaze::Component` (Timer, TrayIcon, egna) står i regionen som en medlem
   som ALDRIG adopteras, med settrar, anrop och kopplingar vars sender är

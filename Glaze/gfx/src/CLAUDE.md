@@ -122,7 +122,9 @@ utanför sin mapp (metal_backend.h bär ObjC-typer — BARA .mm-filer).
   uv-affin, meta), `packSceneClip(SceneClip)` som packar det och
   `rebindClipMasks`, regeln för när maskerna binds om; en saknad mask är den
   VITA texturen i alla tre.
-- **`renderer.cpp`** — backend-neutralt: klipp-stackens delade logik
+- **`renderer.cpp`** — backend-neutralt: `fillRectCorners` (ett rutnät av
+  `fillQuadCorners`, så att ett avvikande hörn inte ger ett veck längs diagonalen)
+  och klipp-stackens delade logik
   (`pushClip`/`popClip` — intersektion, en tom yta på hela pixlar så att
   backendens avrundning utåt inte öppnar en pixelrad, obalans loggas). Backends
   implementerar bara `applyClip(scissor, masks, count)`; rundningen (UTÅT

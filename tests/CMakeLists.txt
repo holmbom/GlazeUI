@@ -87,6 +87,11 @@ endif()
 add_executable(window_gate window_gate.cpp)
 target_link_libraries(window_gate PRIVATE glaze)
 
+# gradient_gate  FÖNSTRETS GRADIENT: hörnen, rutnätet, arvet från appen, den
+#                platta formen och bilden i ett dolt fönster.
+add_executable(gradient_gate gradient_gate.cpp)
+target_link_libraries(gradient_gate PRIVATE glaze)
+
 # post_gate  TRÅDSÄKER POST: en bakgrundstråd postar
 #            `close()` medan pumpen SOVER i waitEvent — `run()` ska
 #            returnera. Grinden fångar att ett
@@ -296,6 +301,8 @@ add_executable(clip_gate clip_gate.cpp)
 target_link_libraries(clip_gate PRIVATE glaze)
 
 add_test(NAME contrast_gate COMMAND contrast_gate)
+add_test(NAME gradient_gate COMMAND gradient_gate)
+set_tests_properties(gradient_gate PROPERTIES SKIP_RETURN_CODE 77)
 add_test(NAME version_gate COMMAND version_gate)
 add_test(NAME clip_gate COMMAND clip_gate)
 set_tests_properties(clip_gate PROPERTIES TIMEOUT 30)

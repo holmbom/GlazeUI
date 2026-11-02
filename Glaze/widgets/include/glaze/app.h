@@ -145,6 +145,11 @@ public:
     // inte av sättaren — ordningen ägs av backenden. Ramverket exponerar
     // API:t; APPEN äger lagringen (ingen inställningsfil här).
     float userScale() const;
+
+    // FÖNSTRENS GRADIENT, global (theme.h). Ett fönster med en egen
+    // (`AppWindow::setWindowGradient`) följer sin egen. En tom gradient är av.
+    void setWindowGradient(const WindowGradient& g);
+    const WindowGradient& windowGradient() const;
     void  setUserScale(float s);
 
     // SKÄRMKALIBRERINGEN — appens egen mätning av en
@@ -372,6 +377,7 @@ private:
     struct ThemeState {
         UI        ui    = UI::Glaze;
         Theme     theme;                     // default = Theme::glazeDefault()
+        WindowGradient gradient;             // av som förval
         Style     style = defaultStyle(UI::Glaze);
         ThemeMode mode  = ThemeMode::System; // System följer OS:et i drift
     };

@@ -1999,6 +1999,34 @@ void fallFonsterRam()
               w.chrome() == gfx::Chrome::Custom,
           "ram: ett okänt värde är opakt och ändrar ingenting");
 
+    // Fönstrets gradient: previewn UTFÖR de platta satserna, och en okänd form
+    // är opak och ändrar ingenting.
+    check(bld::applyWindowCall(w,
+                               {"setGradientCorner",
+                                "glaze::WindowCorner::TopLeft, gfx::Color{150, 205, 255}"},
+                               "preview_gate") &&
+              w.windowGradient().topLeft.color.has_value() &&
+              w.windowGradient().topLeft.color->g == 205 &&
+              w.windowGradient().topLeft.strength == 1.0f,
+          "gradient: setGradientCorner(TopLeft, färg)");
+    check(bld::applyWindowCall(w,
+                               {"setGradientCorner",
+                                "glaze::WindowCorner::TopLeftDark, gfx::Color{150, 205, 255}, 0.25f"},
+                               "preview_gate") &&
+              w.windowGradient().topLeftDark.strength == 0.25f,
+          "gradient: setGradientCorner(TopLeftDark, färg, styrka)");
+    check(bld::applyWindowCall(w,
+                               {"setGradientAccent",
+                                "glaze::WindowCorner::BottomRight, 0.08f"},
+                               "preview_gate") &&
+              !w.windowGradient().bottomRight.color.has_value() &&
+              w.windowGradient().bottomRight.strength == 0.08f,
+          "gradient: setGradientAccent(BottomRight, styrka)");
+    check(!bld::applyWindowCall(w, {"setGradientCorner", "glaze::WindowCorner::Mitten, gfx::Color{1, 2, 3}"},
+                                "preview_gate"),
+          "gradient: ett okänt hörn är opakt");
+    w.setWindowGradient(std::nullopt);
+
     check(bld::applyWindowCall(w,
                                {"setStartPosition",
                                 "glaze::StartPosition::CenterScreen"},

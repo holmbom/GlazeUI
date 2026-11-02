@@ -393,6 +393,8 @@ public:
 
     void  clear(Color c) override;
     void  fillRect(const Rectf& r, Color c) override;
+    void  fillQuadCorners(const Rectf& r, Color topLeft, Color topRight,
+                          Color bottomRight, Color bottomLeft) override;
     void  strokeRect(const Rectf& r, Color c) override;
     void  line(float x1, float y1, float x2, float y2, Color c) override;
     void  fillRoundedRect(const Rectf& r, float radius, Color c) override;

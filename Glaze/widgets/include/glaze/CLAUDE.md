@@ -623,7 +623,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   `friend class TrayHostWindow` (systemfältsmenyns värd: `toolWindow_` — ett
   verktygsfönster som TAR fokus — och `initX_`/`initY_`).
 - **`color.h`** (REQ9_TERMINAL B9) — FÄRGHJÄLPARNA `glaze::color::hsl`/`mix` (klampad, `t` > 1 extrapolerar)/`luminance`/`contrast` (WCAG)/`hueDegrees(Hue)`: temats egen matematik, publik för ett sidopaket som HÄRLEDER färger ur temat (terminalens schema); `contrast_gate` mäter med samma funktion. Inget tillstånd (`src/color.cpp`).
-- **`theme.h`** — PALETTEN och ALLA färger: `ThemeMode { System, Light,
+- **`theme.h`** — PALETTEN och ALLA färger, fönstrets `WindowGradient`, `Theme::muted`: `ThemeMode { System, Light,
   Dark }` + **`enum class Hue`** (Neutral/Red/Orange/Amber/Green/Teal/Blue/
   Indigo/Violet + `kAllHues`/`kHueCount` — ENUM och inte fri vinkel, för
   kontrasten varierar kraftigt med kulören och ett enum går att GRINDA) +

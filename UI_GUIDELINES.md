@@ -160,6 +160,10 @@ statusradens fält. Grupper i ett verktygsfält skiljs med en `Separator`.
   genomskinlighet i appen — ramverkets ritning är utseendet. En egen widget
   ritar innanför `c.bounds()` med temats roller (MANUAL `custom-widget`);
   `setTransparent` är för specialfönster, inte ett utseende.
+- **Fönstrets gradient är svag.** `setWindowGradient` (MANUAL `appearance`) är
+  för fönster som ska kännas lite extra, som en inloggning eller en splash. Håll
+  hörnen ljusa i ljust läge och dämpade i mörkt, så att texten behåller sin
+  kontrast — i mörkt läge räcker en styrka runt 0,25.
 - **Kontrasten sköter temat.** Rollerna (`Text`, `Dim`, `Accent`) håller
   4,5:1 i alla teman och båda lägena; en hårdkodad färg gör det inte i mörkt
   läge.
