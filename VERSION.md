@@ -10,16 +10,21 @@ man byter version.
 
 Versionen står på ETT ställe, [`glaze/version.h`](Glaze/widgets/include/glaze/version.h)
 (rot-CMakeLists läser den, `version_gate` mäter att de är lika), och varje
-version har git-taggen `vX.Y.Z`. En PATCH (0.2.1) är bara rättelser och
-bryter aldrig API:t — ett program byggt mot x.y.0 bygger mot varje x.y.n —
-och testas med de relevanta testerna på det OS den byggdes på. Ny
-funktionalitet eller ett brott gör versionen till en MINOR (0.3.0), som bör
-testas på alla tre OS men får släppas utan; en MAJOR (1.0.0) testas helt på
-alla tre. Det som
+version har git-taggen `vX.Y.Z`. En PATCH (0.2.1) är rättelser och mindre ny
+funktionalitet och bryter aldrig API:t — ett program byggt mot x.y.0 bygger mot
+varje x.y.n — och testas med de relevanta testerna på det OS den byggdes på. En
+MINOR (0.3.0) bryter API:t eller bär stor ny funktionalitet, och bör testas på
+alla tre OS men får släppas utan. En MAJOR (1.0.0) är stora förändringar och
+mycket nytt, och testas helt på alla tre. Det som
 görs efter en version samlas under **Nästa** och får sitt nummer när
 versionen sätts.
 
 ## Nästa
+
+## 0.6.1
+
+- **Fix** — Windows: utskriftsdialogen gjorde ingenting efter klick på Skriv ut i en app som visat `Mesh`, `Instances` eller `Points3` på en rityta, eller skapat ett eget program. Shaderkompilatorn kör nu på en egen tråd.
+- **New** — `PrintJob::lastError()`: felbeskedet efter ett `false` ur `showDialog` och `run`, en mening på appens språk. Tom när användaren avbröt.
 
 ## 0.6.0
 

@@ -75,11 +75,18 @@ struct PrintSettings {
 // true, Linux false.
 bool printAvailable();
 
+// Utfallet av utskriftsdialogen.
+enum class PrintDialogResult : std::uint8_t {
+    Print,           // användaren valde att skriva ut
+    Cancelled,       // användaren avbröt — inget fel, ingen logg
+    DialogFailed,    // dialogen gick inte att visa (loggat)
+    PrinterFailed,   // användaren valde att skriva ut, men skrivaren gick inte
+                     // att öppna (loggat)
+};
+
 // SYSTEMETS UTSKRIFTSDIALOG, modal över `owner` (nullptr = ingen ägare).
-// Inställningarna är förvalen in och valen ut. true = användaren valde att
-// skriva ut; false = dialogen avbröts, ingen skrivare finns, eller ett fel
-// (loggat) — `s` är då orörd.
-bool showPrintDialog(Window* owner, PrintSettings& s);
+// Inställningarna är förvalen in och valen ut; `s` ändras bara vid `Print`.
+PrintDialogResult showPrintDialog(Window* owner, PrintSettings& s);
 
 // SKRIVAREN `s.printer` utan dialog (tom = STANDARDSKRIVAREN), med
 // inställningarnas papper, orientering och kopior: fyller UT-fälten och

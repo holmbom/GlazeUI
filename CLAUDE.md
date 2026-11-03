@@ -18,9 +18,10 @@ den ENDA källan — rot-CMakeLists läser talen till `project(VERSION …)` och
 `version_gate` mäter att de är lika — och varje version har git-taggen
 `vX.Y.Z`. Ändringarna mellan versionerna står kortfattat i
 [VERSION.md](VERSION.md) (`**Fix**`/`**New**`, en rad var, ingen komplett
-historik). **En PATCH (0.2.1) är bara rättelser och bryter ALDRIG API:t** —
-ett program byggt mot x.y.0 bygger mot varje x.y.n; ny funktionalitet eller
-ett brott gör versionen till en MINOR (x.n+1.0). **En PATCH testas med de
+historik). **En PATCH (0.2.1) är rättelser och mindre ny funktionalitet och
+bryter ALDRIG API:t** — ett program byggt mot x.y.0 bygger mot varje x.y.n; **en
+MINOR (x.n+1.0) bryter API:t eller bär stor ny funktionalitet; en MAJOR är stora
+förändringar och mycket nytt.** **En PATCH testas med de
 relevanta testerna på det OS vi sitter på och släpps; en MINOR (0.3.0) bör
 testas på alla tre OS men får släppas utan; en MAJOR (1.0.0) kräver ALLA
 tester på ALLA tre OS** innan den taggas (se Testerna under Arbetsflöde).

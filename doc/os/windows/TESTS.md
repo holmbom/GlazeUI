@@ -968,6 +968,17 @@ Koden: `Glaze/widgets/src/widgets/markdown_view.cpp`, `Glaze/widgets/src/markdow
 `Glaze/gfx/src/backend_d3d11/d3d11_print.cpp` och `Glaze/widgets/src/print.cpp`.
 Ingen grind kan öppna systemets dialog eller en skrivare — det här är händer.
 
+- [ ] **Utskrift efter 3D-innehåll**: `compileHlsl` kör `D3DCompile` på en egen
+  tråd. En app med `Shape::pointCloud`, `Shape::mesh` och `Shape::instances` på en
+  `Canvas`: rita, och anropa sedan `showDialog` för första gången i processen, med
+  Microsoft Print to PDF och med en fysisk skrivare. *Rätt utfall:* en färdig
+  utskrift i båda; utskrift utan 3D-innehåll fungerar som förut, och `compileNs`
+  och `programsBuilt` visar samma start och menyöppning som före ändringen.
+- [ ] **Avbryt är inget fel**: Avbryt i dialogen. *Rätt utfall:* `showDialog` false,
+  `lastError()` tom och ingen loggrad. En DC som uteblir kan inte framkallas längre
+  utan att ta bort tråden i `compileHlsl`: gör det tillfälligt, och *rätt utfall* är
+  en loggrad med `GetLastError` 995 och `lastError()` "Skrivaren gick inte att öppna."
+
 - [ ] **Dialogen**: `PrintJob::showDialog(*this)` med A4 liggande och 2 kopior
   förvalda — PrintDlgEx öppnar över ägaren med standardskrivaren, liggande och
   2 kopior; Avbryt ger false, Skriv ut ger `printerName()` och

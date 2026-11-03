@@ -255,12 +255,12 @@ bool printAvailable()
     return true;
 }
 
-bool showPrintDialog(Window* owner, PrintSettings& s)
+PrintDialogResult showPrintDialog(Window* owner, PrintSettings& s)
 {
     const HWND ägare = owner ? static_cast<D3dWindow*>(owner)->hwnd() : nullptr;
     if (!platformInitialized() || !ägare) {
         log("Utskrift: dialogen kräver ett öppet ägarfönster");
-        return false;
+        return PrintDialogResult::DialogFailed;
     }
     const std::wstring printer = defaultPrinter();
 
@@ -287,7 +287,11 @@ bool showPrintDialog(Window* owner, PrintSettings& s)
     pd.nCopies    = 1;   // kopiorna bär DEVMODE:n
     pd.nStartPage = START_PAGE_GENERAL;
 
+    SetLastError(0);
     const HRESULT hr = PrintDlgExW(&pd);
+    // Felkoderna läses före allt annat — nästa API-anrop skriver över dem.
+    const DWORD sysFel = GetLastError();
+    const DWORD dlgFel = CommDlgExtendedError();
     // Det dialogen lämnar ägs av oss, vilket svar det än blev.
     struct Släpp {
         PRINTDLGEXW& pd;
@@ -305,10 +309,18 @@ bool showPrintDialog(Window* owner, PrintSettings& s)
     if (FAILED(hr)) {
         log("Utskrift: PrintDlgEx misslyckades (0x%08lx)",
             static_cast<unsigned long>(hr));
-        return false;
+        return PrintDialogResult::DialogFailed;
     }
-    if (pd.dwResultAction != PD_RESULT_PRINT || !pd.hDC)
-        return false;   // avbruten (också Verkställ + Avbryt)
+    if (pd.dwResultAction != PD_RESULT_PRINT)
+        return PrintDialogResult::Cancelled;   // också Verkställ + Avbryt
+    if (!pd.hDC) {
+        // Användaren valde att skriva ut, men drivrutinen gav ingen DC.
+        log("Utskrift: skrivaren gick inte att öppna efter dialogen "
+            "(GetLastError %lu, CommDlgExtendedError 0x%08lx)",
+            static_cast<unsigned long>(sysFel),
+            static_cast<unsigned long>(dlgFel));
+        return PrintDialogResult::PrinterFailed;
+    }
 
     const auto* dm =
         pd.hDevMode ? static_cast<const DEVMODEW*>(GlobalLock(pd.hDevMode))
@@ -331,7 +343,7 @@ bool showPrintDialog(Window* owner, PrintSettings& s)
     }
     s.native       = std::make_shared<PrinterDc>(pd.hDC);
     släpp.behållDc = true;
-    return true;
+    return PrintDialogResult::Print;
 }
 
 bool openPrinter(PrintSettings& s)

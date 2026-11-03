@@ -64,6 +64,8 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
   `renderPageImage` delar utskriftens sidritning, och `print_gate` P8–P14 är gröna på Windows. Kvar är Eriks test i en riktig utskrift, och macOS och Linux (`doc/os`).
 - 🟢 🐛 **`scene3d_pixel_gate` K2: ett grafikkort listas två gånger** — [gpu_util.h](Glaze/gfx/src/gpu_util.h)
   DXGI gav Intel-kortet två gånger på en dator med Intel- och NVIDIA-kort. `mergeSameCards` slår ihop samma id och adress i uppräkningen; kvar är Eriks test.
+- 🟢 🐛 **Utskrift efter 3D-innehåll gör ingenting på Windows** — [d3d11_renderer.cpp](Glaze/gfx/src/backend_d3d11/d3d11_renderer.cpp)
+  `D3DCompile` hindrade tråden från att skapa en skrivar-DC, så dialogen svarade som Avbryt. Kompilatorn går på en egen tråd, och `PrintJob::lastError()` säger felet. `print_dc_gate` är grön; kvar är en riktig skrivare och Eriks test.
 
 ## Utseendepasset — UI, Tema och Style, PARKERAT
 

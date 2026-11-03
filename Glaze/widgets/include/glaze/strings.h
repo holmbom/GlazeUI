@@ -227,6 +227,11 @@ inline constexpr std::uint32_t ColorDialogTitle = 256;  // "Färg"
 // efter ordet, så ordföljden är lika i alla fyra språken).
 inline constexpr std::uint32_t PrintTitle = 400;  // "Skriver ut"
 inline constexpr std::uint32_t PrintPage  = 401;  // "Sida"
+// FELBESKEDEN — `PrintJob::lastError()`.
+inline constexpr std::uint32_t PrintErrorUnsupported = 402;  // "Utskrift finns inte på den här plattformen."
+inline constexpr std::uint32_t PrintErrorPrinter     = 403;  // "Skrivaren gick inte att öppna."
+inline constexpr std::uint32_t PrintErrorDialog      = 404;  // "Utskriftsdialogen gick inte att öppna."
+inline constexpr std::uint32_t PrintErrorJob         = 405;  // "Utskriften misslyckades."
 
 // ------------------------- VERKTYGSFÄLTETS ÖVERFLÖDE
 // Blocket 420–429 är överflödets.
@@ -237,7 +242,7 @@ inline constexpr std::uint32_t ToolBarMore    = 420;  // "Visa mer"
 inline constexpr std::uint32_t ToolBarControl = 421;  // "Kontroll"
 
 // NÄSTA LEDIGA ID ÄR 84 (blocket 160–199 är dockningens; 167 nästa där —
-// 255–269 färgväljarens och färgdialogens, 257 nästa där — 400–409 utskriftens, 402 nästa
+// 255–269 färgväljarens och färgdialogens, 257 nästa där — 400–409 utskriftens, 406 nästa
 // där — och 420–429 verktygsfältets överflöde, 422 nästa där).
 // Talet står som en KOMMENTAR och inte som en konstant: `lang_gate` del 2
 // läser den här filen som TEXT och kräver att varje

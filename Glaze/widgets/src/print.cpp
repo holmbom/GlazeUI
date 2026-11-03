@@ -185,6 +185,8 @@ public:
     ~PrintProgressWindow() override;
 
     bool succeeded() const { return succeeded_; }
+    // Har jobbet nått ett slut? false efter `run` = fönstret öppnades aldrig.
+    bool ended() const { return done_; }
 
 protected:
     // Språkbytet: titeln och knappen är `TrText`, statusraden byggs om.
@@ -203,6 +205,7 @@ private:
     void postStep();
     void step();
     void abortJob();
+    void failJob();
     // Ritar sidan; `read` = läs tillbaka bilden. false = ett fel (loggat).
     bool renderPage(int page, bool read, std::vector<std::uint8_t>& rgba,
                     bool& more);
@@ -366,6 +369,15 @@ void PrintProgressWindow::abortJob()
     doc_->abort();
 }
 
+// Ett FEL mitt i jobbet: inget avbrott, så `isCancelled()` står kvar.
+void PrintProgressWindow::failJob()
+{
+    done_       = true;
+    job_.error_ = tr(str::PrintErrorJob);
+    doc_->abort();
+    close();
+}
+
 // ETT STEG — sidan `page_`: ritas, skickas om den ligger i intervallet, och
 // nästa steg postas eller jobbet avslutas.
 void PrintProgressWindow::step()
@@ -385,14 +397,12 @@ void PrintProgressWindow::step()
     std::vector<std::uint8_t> px;
     bool                      mer = true;
     if (!renderPage(sida, skickas, px, mer)) {
-        abortJob();
-        close();
+        failJob();
         return;
     }
     if (skickas) {
         if (!doc_->addPage(px.data(), raster_.w, raster_.h)) {
-            abortJob();
-            close();
+            failJob();
             return;
         }
         ++job_.printed_;
@@ -409,6 +419,8 @@ void PrintProgressWindow::step()
         done_ = true;
         if (job_.printed_ > 0) {
             succeeded_ = doc_->finish();
+            if (!succeeded_)
+                job_.error_ = tr(str::PrintErrorJob);
         } else {
             gfx::log("PrintJob::run: ingen sida i intervallet %d–%d — inget "
                      "skrivs ut",
@@ -600,63 +612,88 @@ PageMargins PrintJob::margins() const
 
 bool PrintJob::showDialog(AppWindow& owner)
 {
+    error_ = TrText{};
     if (!isSupported()) {
         logUnsupported("showDialog");
+        error_ = tr(str::PrintErrorUnsupported);
         return false;
     }
     if (running_) {
         gfx::log("PrintJob::showDialog: jobbet skriver ut — ingen dialog");
+        error_ = tr(str::PrintErrorDialog);
         return false;
     }
     if (!owner.isOpen()) {
         gfx::log("PrintJob::showDialog: ägaren '%s' är inte öppen",
                  owner.title().c_str());
+        error_ = tr(str::PrintErrorDialog);
         return false;
     }
     // En KOPIA: en avbruten dialog lämnar egenskaperna orörda.
     gfx::PrintSettings s = settings_;
-    if (!gfx::showPrintDialog(&owner.window(), s))
+    switch (gfx::showPrintDialog(&owner.window(), s)) {
+    case gfx::PrintDialogResult::Print:
+        settings_ = std::move(s);
+        return true;
+    case gfx::PrintDialogResult::Cancelled:
         return false;
-    settings_ = std::move(s);
-    return true;
+    case gfx::PrintDialogResult::DialogFailed:
+        error_ = tr(str::PrintErrorDialog);
+        return false;
+    case gfx::PrintDialogResult::PrinterFailed:
+        error_ = tr(str::PrintErrorPrinter);
+        return false;
+    }
+    return false;
 }
 
 bool PrintJob::run(AppWindow& owner, int pages, PageFn draw)
 {
+    error_ = TrText{};
     if (!isSupported()) {
         logUnsupported("run");
+        error_ = tr(str::PrintErrorUnsupported);
         return false;
     }
     if (running_) {
         gfx::log("PrintJob::run: jobbet skriver redan ut");
+        error_ = tr(str::PrintErrorJob);
         return false;
     }
     if (!draw || pages < 0) {
         gfx::log("PrintJob::run: en ritfunktion och ett sidantal ≥ 0 krävs");
+        error_ = tr(str::PrintErrorJob);
         return false;
     }
     if (!owner.isOpen()) {
         gfx::log("PrintJob::run: ägaren '%s' är inte öppen (renderaren är "
                  "fönstrets)",
                  owner.title().c_str());
+        error_ = tr(str::PrintErrorJob);
         return false;
     }
     printed_   = 0;
     cancelled_ = false;
     // Utan en öppen skrivare: den senast valda (eller standardskrivaren) med
     // egenskaperna — backenden loggar.
-    if (!settings_.native && !gfx::openPrinter(settings_))
+    if (!settings_.native && !gfx::openPrinter(settings_)) {
+        error_ = tr(str::PrintErrorPrinter);
         return false;
+    }
     const std::string& namn = title_.str().empty() ? owner.title() : title_.str();
     std::unique_ptr<gfx::PrintDocument> doc = gfx::beginPrintDocument(settings_, namn);
-    if (!doc)
-        return false;   // backenden loggar orsaken
+    if (!doc) {   // backenden loggar orsaken
+        error_ = tr(str::PrintErrorJob);
+        return false;
+    }
     running_ = true;
     bool ok  = false;
     {
         PrintProgressWindow w(*this, std::move(doc), pages, std::move(draw));
         w.run(owner);
         ok = w.succeeded();
+        if (!w.ended())
+            error_ = tr(str::PrintErrorJob);
     }
     running_ = false;
     return ok;
