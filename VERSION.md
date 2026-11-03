@@ -21,6 +21,11 @@ versionen sätts.
 
 ## Nästa
 
+## 0.6.1
+
+- **Fix** — Windows: utskriftsdialogen gjorde ingenting efter klick på Skriv ut i en app som visat `Mesh`, `Instances` eller `Points3` på en rityta, eller skapat ett eget program. Shaderkompilatorn kör nu på en egen tråd.
+- **New** — `PrintJob::lastError()`: felbeskedet efter ett `false` ur `showDialog` och `run`, en mening på appens språk. Tom när användaren avbröt.
+
 ## 0.6.0
 
 - **New** — namnlisten kan bära menyer och glyfknappar: `menuBar.setInTitleBar(true)`, `topBar.addStart<T>()`/`addEnd<T>()` (i `.glazeui` `topBar.adopt(x)` och `x.dock = glaze::Dock::Right`), `ToolButton::setGlyphOnly` och `topBar.setShowTitle`. Titeln centreras i området som blir kvar och kortas, och rubriker som inte ryms samlas under ⋯.

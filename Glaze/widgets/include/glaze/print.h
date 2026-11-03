@@ -156,9 +156,14 @@ public:
     // SYSTEMETS UTSKRIFTSDIALOG, modal över `owner` (som måste vara öppet).
     // Förvalen är egenskaperna ovan. true = användaren valde att skriva ut,
     // och skrivaren, papperet, orienteringen, kopiorna och intervallet är
-    // hans val; false = avbruten, ingen skrivare eller inget
-    // utskriftssystem (loggat) — egenskaperna är orörda.
+    // användarens val; false = avbruten (`lastError()` tom, ingen logg) eller
+    // ett fel (`lastError()` säger vilket, loggat) — egenskaperna är orörda.
     bool showDialog(AppWindow& owner);
+
+    // FELBESKEDET efter ett `false` ur `showDialog` eller `run`, en mening på
+    // appens språk att visa för användaren. Tom = inget fel: användaren
+    // avbröt, eller inget låg i intervallet. Töms av nästa `showDialog`/`run`.
+    const std::string& lastError() const { return error_.str(); }
 
     // Skrivaren — tom före dialogen (eller före `run` utan dialog, som tar
     // standardskrivaren).
@@ -172,8 +177,9 @@ public:
     // svarar false. Utan dialog först skriver jobbet ut på
     // standardskrivaren. `owner` måste vara öppet (renderaren och
     // förloppsfönstrets ägare). true = jobbet skickades; false = avbrutet,
-    // inget att skriva ut eller ett fel (loggat). Medan jobbet går är
-    // `isRunning()` sann och `cancel()` avbryter det efter sidan som ritas.
+    // inget att skriva ut eller ett fel (loggat, `lastError()`). Medan jobbet
+    // går är `isRunning()` sann och `cancel()` avbryter det efter sidan som
+    // ritas.
     bool run(AppWindow& owner, int pages, PageFn draw);
     void cancel();
     bool isRunning() const { return running_; }
@@ -190,6 +196,7 @@ private:
 
     gfx::PrintSettings settings_;
     TrText             title_;
+    TrText             error_;
     int                dpi_       = 300;
     bool               running_   = false;
     bool               cancelled_ = false;

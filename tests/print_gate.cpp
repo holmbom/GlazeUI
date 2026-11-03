@@ -46,6 +46,11 @@
 //   `continue` bort ur `renderRaster` (P10), `complete = false` bort (P11),
 //   `pageRaster` utan taket (P12), `pageRender` bort ur `a.labelFade` (P13),
 //   `pageGlyphs_` bort ur `glyphs` (P14).
+//   P15 `PrintJob::lastError()`: tom före första anropet, felbeskedet efter ett
+//   `false` ur `showDialog` och `run` med ett stängt fönster, och texten följer språket.
+//   Sabotage som SKA fälla den: `error_ = tr(str::PrintErrorDialog)` bort ur
+//   `showDialog`s fönsterprov, `error_` som en `std::string` upplöst vid felet (bytet).
+//   Skrivarens DC efter en kompilering mäter print_dc_gate.
 //   MÄTER INTE skrivaren, PDF-utdata, del-vyer eller rutnätet (ritas inte), eller
 //   att 300 dpi är lika skarpt som `drawCanvas` på en utskriftssida — de delar väg.
 
@@ -643,6 +648,45 @@ void fallP12()
     check(yttre.has_value() && !inre, "P12 inifrån en ritning: ingen bild, och den yttre lever");
 }
 
+// P15 FELBESKEDET: ett fel ser inte ut som ett avbrott. Utan utskriftssystem (Linux)
+// är beskedet det, annars dialogens eller jobbets.
+void fallP15()
+{
+    Värd öppet;
+    öppet.setOffscreen(true);
+    öppet.show();
+    if (!öppet.isOpen())
+        return;
+    const auto beskedet = [](std::uint32_t id) {
+        return glaze::tr(glaze::PrintJob::isSupported() ? id
+                                                        : glaze::str::PrintErrorUnsupported);
+    };
+    glaze::PrintJob jobb;
+    check(jobb.lastError().empty(), "P15 inget fel före första anropet");
+
+    Värd stängt;
+    const glaze::TrText dialogen = beskedet(glaze::str::PrintErrorDialog);
+    check(!jobb.showDialog(stängt), "P15 showDialog med ett stängt fönster: false");
+    check(!jobb.lastError().empty() && jobb.lastError() == dialogen.str(),
+          "P15 showDialog: dialogens felbesked", jobb.lastError());
+
+    const glaze::TrText jobbet = beskedet(glaze::str::PrintErrorJob);
+    const auto          tom    = [](int, glaze::Painter&) { return false; };
+    check(!jobb.run(stängt, 1, tom), "P15 run med ett stängt fönster: false");
+    check(!jobb.lastError().empty() && jobb.lastError() == jobbet.str(),
+          "P15 run: jobbets felbesked", jobb.lastError());
+    check(!jobb.run(öppet, -1, tom) && jobb.lastError() == jobbet.str(),
+          "P15 run med ett negativt sidantal: jobbets felbesked", jobb.lastError());
+
+    const std::string förut = glaze::language();
+    glaze::setLanguage("en");
+    const std::string engelska = jobb.lastError();
+    glaze::setLanguage("sv");
+    check(!engelska.empty() && engelska != jobb.lastError() && jobb.lastError() == jobbet.str(),
+          "P15 felbeskedet följer språket", engelska + " / " + jobb.lastError());
+    glaze::setLanguage(förut);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -660,6 +704,7 @@ int main(int argc, char** argv)
     fallP10P11();
     fallP12();
     fallP13P14();
+    fallP15();
     if (g_skips > 0 && g_fall == 0) {
         std::printf("=== print_gate: hoppades över (ingen display) ===\n");
         return 77;

@@ -248,3 +248,8 @@ fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
   (`Glaze/widgets/src/print.cpp`).
   *Gör:* kör `print_gate`, fall P8–P12.
   *Rätt utfall:* grinden grön, och inga Metal-valideringsfel.
+
+- **Utskriftsdialogens utfall** (blint skrivet): `showPrintDialog` i
+  `Glaze/gfx/src/backend_metal/metal_print.mm` svarar `PrintDialogResult`.
+  *Gör:* kör `print_gate` fall P15, och Avbryt i dialogen i en app.
+  *Rätt utfall:* grinden grön; efter Avbryt `showDialog` false och `lastError()` tom.

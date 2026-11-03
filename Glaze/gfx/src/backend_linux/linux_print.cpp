@@ -23,9 +23,9 @@ bool printAvailable()
     return false;
 }
 
-bool showPrintDialog(Window*, PrintSettings&)
+PrintDialogResult showPrintDialog(Window*, PrintSettings&)
 {
-    return false;
+    return PrintDialogResult::DialogFailed;
 }
 
 bool openPrinter(PrintSettings&)

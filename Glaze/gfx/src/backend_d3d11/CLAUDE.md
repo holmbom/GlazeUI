@@ -296,6 +296,8 @@ egen fil; backendarnas 3D-del hade inte rymts under 1000 rader).
   DC:n (`PHYSICALWIDTH`/`PHYSICALOFFSETX`/`HORZRES` …, orienterade). Sidan =
   `StartPage` + `StretchDIBits` (HALFTONE, BGRA top-down) över `HORZRES` ×
   `VERTRES` + `EndPage`. DC:n (`PrinterDc`) är `PrintSettings::native`.
+  `PD_RESULT_PRINT` utan `hDC` är inget avbrott: loggat med `GetLastError` och
+  `CommDlgExtendedError`, svaret `PrintDialogResult::PrinterFailed`.
   `hwndOwner` måste vara giltigt — `D3dWindow::hwnd()` finns för det. Länkar
   `comdlg32` och `winspool`.
 - **`d3d11_touchpad.h/.cpp`** (TODO 53) — STYRPLATTAN per fönster
@@ -324,7 +326,12 @@ egen fil; backendarnas 3D-del hade inte rymts under 1000 rader).
   (d3dcompiler_47.dll är OS-komponent) — EN gång per process: `compileHlsl`
   sparar bytekoden per (källa, ingång, mål, definitioner), för varje fönster
   har en egen enhet och kompilerade förut ALLA program (~12) på nytt, så en
-  meny eller dropdown tog 0,5–1 s att öppna (0.1.4). `loadFont` kopplar fontens
+  meny eller dropdown tog 0,5–1 s att öppna (0.1.4). **KOMPILATORN GÅR PÅ EN EGEN
+  TRÅD** (`std::thread` + `join` per miss, UI-tråden väntar): efter vissa program
+  kan tråden som kört `D3DCompile` inte längre skapa en skrivar-DC (`CreateDC` och
+  `PrintDlgEx` ger NULL, fel 995 ur skrivardrivrutinen; orsaken i tråden är okänd).
+  Ett nytt anrop till `D3DCompile` måste gå genom `compileHlsl`. Grind:
+  `print_dc_gate`. `loadFont` kopplar fontens
   device-pekare före `load`. **Retained-RT:n** (`offTex_/offRtv_/offSrv_`,
   följer backbufferns storlek): `beginFrame` binder den (`activeRtv_`),
   `composite()` flushar, byter till backbuffern och ritar RT:n som

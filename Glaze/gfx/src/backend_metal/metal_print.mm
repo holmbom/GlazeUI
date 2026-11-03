@@ -241,7 +241,7 @@ bool printAvailable()
     return true;
 }
 
-bool showPrintDialog(Window* owner, PrintSettings& s)
+PrintDialogResult showPrintDialog(Window* owner, PrintSettings& s)
 {
     (void)owner;   // appmodal — se filhuvudet
     @autoreleasepool {
@@ -251,10 +251,10 @@ bool showPrintDialog(Window* owner, PrintSettings& s)
         panel.options = NSPrintPanelShowsCopies | NSPrintPanelShowsPageRange |
                         NSPrintPanelShowsPaperSize | NSPrintPanelShowsOrientation;
         if ([panel runModalWithPrintInfo:info] != NSModalResponseOK)
-            return false;
+            return PrintDialogResult::Cancelled;
         readSettings(info, s);
         s.native = std::make_shared<MacPrintInfo>(MacPrintInfo{info});
-        return true;
+        return PrintDialogResult::Print;
     }
 }
 

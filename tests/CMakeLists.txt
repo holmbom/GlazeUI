@@ -634,6 +634,18 @@ target_include_directories(print_gate
 add_test(NAME print_gate COMMAND print_gate)
 set_tests_properties(print_gate PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 
+# print_dc_gate  SKRIVARENS DC EFTER 3D-PROGRAMMEN (bara Windows): ritar ett
+#                punktmoln på sin enda tråd och skapar sedan en DC för Microsoft
+#                Print to PDF på samma tråd — `D3DCompile` på den tråden hade gett
+#                NULL, fel 995. En egen process, för en DC skapad före
+#                kompileringen döljer felet. 77 = skrivaren saknas => SKIPPED.
+if(WIN32)
+    add_executable(print_dc_gate print_dc_gate.cpp)
+    target_link_libraries(print_dc_gate PRIVATE glaze gdi32 winspool)
+    add_test(NAME print_dc_gate COMMAND print_dc_gate)
+    set_tests_properties(print_dc_gate PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+endif()
+
 # dnd_gate  DRAG-AND-DROPS grind: lasten och effektmasken
 #           headless, sedan ROUTINGEN genom fönstrets riktiga ingång
 #           (`AppWindow::handleEvent`, protected — WinForms WndProc) i ett

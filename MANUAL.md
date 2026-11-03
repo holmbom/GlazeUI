@@ -4235,7 +4235,8 @@ Utskrift genom OPERATIVSYSTEMETS utskriftssystem — en PDF fås genom systemets
 - `void setPaper(PaperSize p);` (`A3`, `A4`, `A5`, `A6`, `Letter`, `Legal`, `Tabloid`) · `void setPaperSize(double bMm, double hMm);` (egna, stående) · `PaperSize paper() const;` (`Custom` för egna mått)
 - `void setOrientation(PageOrientation o);` (`Portrait`, `Landscape`) · `double paperWidth() const;` / `double paperHeight() const;` — de ORIENTERADE måtten, sidans rymd.
 - `void setCopies(int n);` · `void setPageRange(int från, int till);` (från 1; 0, 0 = alla) · `void setPageCount(int n);` (dialogens tak) · `void setResolution(int dpi);` (förval 300, 72–1200, aldrig över skrivarens)
-- `bool showDialog(AppWindow& ägare);` — true = skriv ut; valen står sedan i egenskaperna (`printerName()`, `copies()`, `fromPage()`/`toPage()`, papperet och orienteringen). Avbruten = false och egenskaperna orörda.
+- `bool showDialog(AppWindow& ägare);` — true = skriv ut; valen står sedan i egenskaperna (`printerName()`, `copies()`, `fromPage()`/`toPage()`, papperet och orienteringen). Avbruten eller ett fel = false och egenskaperna orörda.
+- `const std::string& lastError() const;` — felbeskedet efter ett `false` ur `showDialog` eller `run`, en mening på appens språk att visa rakt av ("Skrivaren gick inte att öppna."). Tom = inget fel: användaren avbröt, eller inget låg i intervallet. Töms av nästa anrop.
 - `Rect printableArea() const;` · `PageMargins margins() const;` — det utskrivbara området och marginalerna i mm (hela papperet före en skrivare valts).
 - `bool run(AppWindow& ägare, int sidor, PageFn rita);` — `sidor` > 0, eller 0 = sida för sida tills `rita` svarar false. `PageFn` är `bool(int sida, Painter& p)`, sidan från 1; false = sista sidan. Utan dialog först: standardskrivaren. Ett modalt förloppsfönster med Avbryt visas medan jobbet går.
 - `void cancel();` · `bool isRunning() const;` · `bool isCancelled() const;` · `int pagesPrinted() const;`
@@ -4253,12 +4254,13 @@ void ritaSida(int sida, glaze::Painter& p, const glaze::PrintJob& jobb)
 utskrift->onClick = [this] {
     jobb_.setPaper(glaze::PaperSize::A4);
     jobb_.setPageCount(3);
-    if (!jobb_.showDialog(*this))
-        return;   // avbruten
-    jobb_.run(*this, 3, [this](int sida, glaze::Painter& p) {
-        ritaSida(sida, p, jobb_);
-        return true;
-    });
+    const bool utskriven = jobb_.showDialog(*this) &&
+                           jobb_.run(*this, 3, [this](int sida, glaze::Painter& p) {
+                               ritaSida(sida, p, jobb_);
+                               return true;
+                           });
+    if (!utskriven && !jobb_.lastError().empty())   // tom = användaren avbröt
+        glaze::messageBox(*this, jobb_.lastError());
 };
 // glaze::PrintJob jobb_;   — medlem: nästa run skriver ut på samma skrivare
 ```

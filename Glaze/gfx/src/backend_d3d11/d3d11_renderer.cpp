@@ -15,6 +15,8 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <system_error>
+#include <thread>
 #include <unordered_map>
 
 #include "d3d11_backend.h"
@@ -355,8 +357,23 @@ ComPtr<ID3DBlob> D3dRenderer::compileHlsl(const std::string& src,
     HRESULT          hr = E_FAIL;
     {
         const StatTimer klocka(stats_.compileNs);   // bara missen kostar
-        hr = D3DCompile(src.data(), src.size(), nullptr, defines, nullptr,
-                        entry, target, 0, 0, &blob, &err);
+        // EN EGEN TRÅD: efter vissa program kan tråden som kompilerade inte
+        // längre skapa en skrivar-DC — CreateDC och PrintDlgEx ger ingen DC,
+        // med fel 995 ur drivrutinen. Bara D3DCompile gör det, och en annan
+        // tråd som kompilerar påverkar inte den här. Anroparen väntar, så
+        // cachen är fortfarande UI-trådens ensam.
+        const auto kompilera = [&] {
+            hr = D3DCompile(src.data(), src.size(), nullptr, defines, nullptr,
+                            entry, target, 0, 0, &blob, &err);
+        };
+        try {
+            std::thread(kompilera).join();
+        } catch (const std::system_error& e) {
+            log("HLSL-kompilering (%s): ingen tråd att kompilera på (%s) — "
+                "kompilerar här, utskrift kan sluta fungera",
+                entry, e.what());
+            kompilera();
+        }
     }
     if (FAILED(hr)) {
         // Kompilatorns text — nullterminerad, men storleken räknar ofta in

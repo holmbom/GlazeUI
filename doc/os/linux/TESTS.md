@@ -1424,3 +1424,8 @@ vWorld.xy)`; `kPointsGlsl*`: `vClipPx` (noperspective) och `vAnchor`),
   (`Glaze/widgets/src/print.cpp`) fungerar också på Linux, där utskriften saknas.
   *Gör:* kör `print_gate`, fall P8–P12, på Wayland och X11.
   *Rätt utfall:* grinden grön, och bilden inte spegelvänd.
+
+- **Utskriftens felbesked** (blint skrivet): `showPrintDialog` i
+  `Glaze/gfx/src/backend_linux/linux_print.cpp` svarar `PrintDialogResult`.
+  *Gör:* kör `print_gate` fall P15.
+  *Rätt utfall:* grinden grön; `lastError()` säger att utskrift inte finns på plattformen.
