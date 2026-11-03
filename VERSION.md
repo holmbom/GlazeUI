@@ -21,6 +21,17 @@ versionen sätts.
 
 ## Nästa
 
+## 0.6.2
+
+- **Fix** — Windows: Avbryt i skrivarens spara-ruta redovisades som ett misslyckande. Det är nu ett avbrott: `run` svarar false, `isCancelled()` är sann och `lastError()` tom.
+- **Fix** — Windows: kryssrutan "Skriv till fil" i utskriftsdialogen hade ingen verkan och är borttagen.
+- **Fix** — ett sidintervall helt utanför dokumentet skrev ut en sida utanför dokumentet. Inget skrivs ut nu, och utfallet är `NothingToPrint`.
+- **Fix** — den stora programikonen blev liten när verktygsfälten låg i en `DockHost`. Den följer nu det yttersta bandet vid överkanten: stor medan ett fält är dockat där.
+- **New** — utskrift till fil: `PrintJob::setOutputFile` och `setPrinter` skriver utan frågor. Frågar skrivaren efter fil visas vår spara-dialog med namnet ifyllt (`setSuggestedFileName`, av med `setFilePrompt(false)`, `promptsForFile()`).
+- **New** — `PrintJob::outcome()`: `Ok`, `Cancelled`, `NothingToPrint`, `FileFailed` eller `Failed` efter `showDialog` och `run`.
+- **New** — standardikonerna `ThemeSystem`, `ThemeLight` och `ThemeDark`, glyferna för en lägesväljare.
+- **New** — `UI_GUIDELINES.md` har ett avsnitt om glyfer och ikoner.
+
 ## 0.6.1
 
 - **Fix** — Windows: utskriftsdialogen gjorde ingenting efter klick på Skriv ut i en app som visat `Mesh`, `Instances` eller `Points3` på en rityta, eller skapat ett eget program. Shaderkompilatorn kör nu på en egen tråd.

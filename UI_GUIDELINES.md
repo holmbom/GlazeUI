@@ -173,6 +173,35 @@ statusradens fält. Grupper i ett verktygsfält skiljs med en `Separator`.
   glaze-render på `.glazeui`-filen med designraden ändrad (`ui=Slate`,
   `ui=Glaze`, `ui=Minimalistic`) visar på en sekund om något krockar.
 
+## Glyfer och ikoner
+
+En glyf ska stämma överallt: i alla storlekar, i ljust och mörkt läge, i mono och
+färg, inaktiv och ikryssad.
+
+- **Ta en standardikon när det finns en** (`glaze::stockIcon`, MANUAL
+  `stock-icons`). Den är en vektor och klarar allt av sig själv: 16, 24, 32 och
+  48 px, varje skärmskala, temats färger i båda lägena, accentfärgen på en ikryssad
+  glyfknapp och tonen på en inaktiv kontroll. Färgvarianten är
+  `StockIconStyle::Color`.
+- **En egen bild ritas som den är** (`assets.bin`, `glaze::Bitmap`). Den tonas när
+  kontrollen är inaktiv, men den följer inte temats textfärg, blir inte accentfärgad
+  när knappen är ikryssad och har ingen ljus och mörk variant. Därför:
+  - Välj en bild som syns mot både ljus och mörk yta, eller byt den själv med
+    `setImg` där appen byter läge.
+  - Lägg den i varje storlek den används i. Storleksklassen bärs av listan i
+    `assets.bin`, så det blir en lista per storlek.
+  - Visa valt läge i en egen bild med något annat än accentfärgen, till exempel en
+    annan bild.
+- **Bedöm glyfen i 16 px.** Där står den i namnlisten och i verktygsfält, och där
+  faller detaljer bort först. Pröva i ljust och mörkt läge.
+- **Glyfer som hör ihop ska väga lika.** Står de bredvid varandra får inte en vara
+  mycket tyngre än de andra.
+
+En ny standardikon i ramverket är en ritbeskrivning i en ruta på 24 × 24
+(`Glaze/widgets/src/stock_icon.cpp`), med en post i `kDefs` och, om den har en accent,
+i `kFärger`. Programmet `stockicon_sheet` i `tests/` ritar varje ikon i alla storlekar,
+i mono och färg, ljust och mörkt — titta på den innan ikonen är klar.
+
 ## Exempel — en dialog efter riktlinjerna
 
 ```cpp

@@ -29,8 +29,14 @@
 //
 // DIALOGEN ÄR SYSTEMETS — ett MEDVETET undantag från "dialogerna är våra"
 // (filväljaren, färgdialogen): skrivaren, kopiorna, sidintervallet och
-// skrivarens EGNA inställningar (drivrutinens flikar, PDF-skrivarens filval)
-// finns bara i OS:ets dialog.
+// skrivarens EGNA inställningar (drivrutinens flikar) finns bara i OS:ets
+// dialog.
+//
+// TILL FIL: filvalet är VÅRT. En skrivare som frågar efter fil när jobbet
+// startar (Microsoft Print to PDF) har en systemruta som inte går att fylla i,
+// så `PrintJob` visar `FileDialog` med namnet ifyllt och en fråga före
+// överskrivning: direkt efter Skriv ut i `showDialog`, annars i `run`. Filen
+// går också att ange med `setOutputFile`, och då frågar ingen.
 //
 // EN KLASS MED EGENSKAPER, som `FileDialog` — många in- och utvärden
 // (papperet, orienteringen, kopiorna och intervallet in; skrivaren, måtten
@@ -93,6 +99,17 @@ struct PageMargins {
     double bottom = 0.0;
 };
 
+// HUR DET SENASTE `showDialog` ELLER `run` GICK.
+enum class PrintOutcome : std::uint8_t {
+    None,             // inget anrop än
+    Ok,               // `showDialog`: valen är klara. `run`: jobbet skickades,
+                      // vilket inte säger att papperet kommit ut
+    Cancelled,        // användaren avbröt, i någon dialog eller i förloppet
+    NothingToPrint,   // ingen sida låg i intervallet
+    FileFailed,       // filen gick inte att skriva (`lastError()`)
+    Failed,           // något annat fel (`lastError()`)
+};
+
 class PrintJob {
 public:
     // Sidans ritning: sidnumret FRÅN 1 (samma tal som dialogens intervall)
@@ -111,10 +128,40 @@ public:
     // false.
     static bool isSupported();
 
-    // DOKUMENTETS NAMN i skrivarkön (och PDF-skrivarens förslag). Tomt =
-    // ägarfönstrets titel.
+    // DOKUMENTETS NAMN i skrivarkön, och filvalets förslag när inget annat är
+    // satt. Tomt = ägarfönstrets titel.
     void          setTitle(TrText t) { title_ = std::move(t); }
     const TrText& title() const { return title_; }
+
+    // SKRIVAREN för en `run` utan dialog (tom = standardskrivaren). Dialogens
+    // val ersätter den. Skrivaren öppnas vid nästa `run`.
+    void setPrinter(std::string name);
+
+    // FILEN jobbet skrivs till (UTF-8; en relativ sökväg görs absolut direkt),
+    // utan att någon frågar. Tom = ingen fil. En befintlig fil skrivs över utan
+    // fråga — det är appens sak att fråga. Filen gäller tills den ändras, men
+    // väljer användaren en skrivare som inte frågar efter fil i `showDialog` töms
+    // den. En sådan skrivare utan dialog skriver sina rådata till filen, så välj
+    // skrivaren med `setPrinter`. Avbryts jobbet skapas ingen ny fil och en
+    // befintlig fil blir orörd. Efter filvalet står användarens fil här; den
+    // gäller ett jobb, och nästa `run` frågar igen.
+    void               setOutputFile(std::string utf8);
+    const std::string& outputFile() const { return settings_.outputFile; }
+
+    // FILVALETS FÖRSLAG ("Ritning 12", gärna utan ändelse — den läggs till när
+    // skrivarens är känd). Tom = jobbets titel. Bara Windows har filvalet.
+    void               setSuggestedFileName(std::string utf8) { suggestedName_ = std::move(utf8); }
+    const std::string& suggestedFileName() const { return suggestedName_; }
+
+    // FILVALET (förval på). Av: glaze frågar inte, utan appen sätter filen
+    // själv när `promptsForFile()` är sann, eller så frågar systemets ruta.
+    void setFilePrompt(bool on) { filePrompt_ = on; }
+    bool filePrompt() const { return filePrompt_; }
+
+    // Frågar skrivaren efter en fil när jobbet startar? Giltig när skrivaren är
+    // vald (efter `showDialog` eller `run`). Windows: porten PORTPROMPT:. macOS
+    // och Linux: false.
+    bool promptsForFile() const { return settings_.promptsForFile; }
 
     // PAPPERET — ett standardformat eller egna mått i mm (stående: bredden
     // den korta sidan). Mått ≤ 0 eller som inte är ändliga ⇒ `gfx::log` och
@@ -158,7 +205,12 @@ public:
     // och skrivaren, papperet, orienteringen, kopiorna och intervallet är
     // användarens val; false = avbruten (`lastError()` tom, ingen logg) eller
     // ett fel (`lastError()` säger vilket, loggat) — egenskaperna är orörda.
+    // Frågar skrivaren efter fil visas filvalet innan anropet svarar, och Avbryt
+    // där är samma sak som Avbryt i dialogen.
     bool showDialog(AppWindow& owner);
+
+    // UTFALLET av det senaste `showDialog` eller `run`.
+    PrintOutcome outcome() const { return outcome_; }
 
     // FELBESKEDET efter ett `false` ur `showDialog` eller `run`, en mening på
     // appens språk att visa för användaren. Tom = inget fel: användaren
@@ -194,9 +246,22 @@ private:
     // orienteringen eller kopiorna ändrades) — namnet står kvar.
     void reopenPrinter();
 
+    // Filvalet för inställningarna `s`: vår dialog över `owner`. true = en fil
+    // vald (i `chosen`), false = Avbryt.
+    bool askForFile(AppWindow& owner, const gfx::PrintSettings& s, std::string& chosen);
+    // Utfallet, felbeskedet och avbrottet av ett jobbresultat.
+    void setResult(gfx::PrintJobResult r);
+
     gfx::PrintSettings settings_;
     TrText             title_;
     TrText             error_;
+    std::string        suggestedName_;
+    PrintOutcome       outcome_    = PrintOutcome::None;
+    bool               filePrompt_ = true;
+    // `outputFile` är vald i vår dialog (annars appens), och ett jobb har
+    // redan använt den.
+    bool               fileFromDialog_ = false;
+    bool               fileSpent_      = false;
     int                dpi_       = 300;
     bool               running_   = false;
     bool               cancelled_ = false;

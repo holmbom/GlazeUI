@@ -33,10 +33,9 @@ bool openPrinter(PrintSettings&)
     return false;
 }
 
-std::unique_ptr<PrintDocument> beginPrintDocument(const PrintSettings&,
-                                                  const std::string&)
+PrintStart beginPrintDocument(const PrintSettings&, const std::string&)
 {
-    return nullptr;
+    return PrintStart{};   // Failed — inget jobb startar
 }
 
 } // namespace gfx

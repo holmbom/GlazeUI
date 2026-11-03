@@ -23,6 +23,7 @@
 
 #include "glaze/app_window.h"
 #include "glaze/draw.h"
+#include "glaze/widgets/dock_host.h"
 #include "glaze/widgets/tool_bar.h"
 
 #include "../menu_path.h"
@@ -116,8 +117,10 @@ std::pair<ImageSource, ImageSource> AppIcon::effectiveIcons() const
 }
 
 // Menyraden om den står på egen rad, annars fönstrets översta remsa om den är ett
-// verktygsfält. En remsa till vänster eller höger framför fältet flyttar det från
-// hörnet, och en nederst rör det inte.
+// verktygsfält. Är remsan en dockningsyta är det dess yttersta band vid överkanten,
+// så ikonen följer fälten: den är stor medan ett fält är dockat där. En remsa till
+// vänster eller höger framför fältet flyttar det från hörnet, och en nederst rör
+// det inte.
 const Bar* AppIcon::rowBeside() const
 {
     const AppWindow* w = appWindow();
@@ -129,6 +132,10 @@ const Bar* AppIcon::rowBeside() const
         if (!ch->isVisible() || !ch->inDockFlow() || ch->dock == Dock::None ||
             ch->dock == Dock::Bottom)
             continue;
+        if (const auto* värd = dynamic_cast<const DockHost*>(ch))
+            return värd->dock == Dock::Fill || värd->dock == Dock::Top
+                       ? värd->topBandBar()
+                       : nullptr;
         const auto* falt = dynamic_cast<const ToolBar*>(ch);
         return falt && falt->dock == Dock::Top && !falt->isFloating() ? falt : nullptr;
     }
@@ -171,6 +178,8 @@ gfx::Sizef AppIcon::contentSize(const Ctx& c) const
             if (rad == &w->menuBar)
                 sida += w->menuBar.height > 0.0f ? w->menuBar.height
                                                  : c.style->menuRowH;
+            else if (const auto* värd = dynamic_cast<const DockHost*>(rad->parent()))
+                sida += värd->topBandHeight(c);
             else
                 sida += measure(*rad, c).h;
         }

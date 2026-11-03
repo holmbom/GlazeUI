@@ -178,9 +178,15 @@ SlateWindow::SlateWindow()
     setContentSize(1560, 900);
     setMinimumSize(1000, 600);
 
+    dock_       = add<glaze::DockHost>();
+    dock_->name = "faltYta";
+    dock_->dock = glaze::Dock::Fill;
+    dock_->onChange = [this] { synkaFalt(); };
+
     byggMenyer();
     byggTemaFalt();
     byggVerktygsFalt();
+    byggFaltMeny();
     byggStatusrad();
     byggSida();
 
@@ -248,9 +254,6 @@ void SlateWindow::vaxlaLage()
 
 void SlateWindow::synkaUtseende()
 {
-    // Glyfen visar vart den leder: solen i mörkt, halvcirkeln i ljust.
-    lageGlyf_->setImg(ikon(morktNu() ? glaze::StockIcon::Brightness
-                                     : glaze::StockIcon::Contrast));
     temaDd_->setSelectedIndex(temaIndex_);
     for (int i = 0; i < glaze::themeCount(glaze::UI::Slate); ++i)
         temaMeny_->items[static_cast<std::size_t>(i)].checked = i == temaIndex_;
@@ -259,6 +262,9 @@ void SlateWindow::synkaUtseende()
     lageSystem_->setChecked(m == glaze::ThemeMode::System);
     lageLjust_->setChecked(m == glaze::ThemeMode::Light);
     lageMorkt_->setChecked(m == glaze::ThemeMode::Dark);
+    glyfSystem_->setChecked(m == glaze::ThemeMode::System);
+    glyfLjust_->setChecked(m == glaze::ThemeMode::Light);
+    glyfMorkt_->setChecked(m == glaze::ThemeMode::Dark);
     menuBar.setItemChecked({"Tema", "Läge", "System"},
                            m == glaze::ThemeMode::System);
     menuBar.setItemChecked({"Tema", "Läge", "Ljust"},
@@ -361,9 +367,20 @@ void SlateWindow::byggMenyer()
     menyGlyf_->onClick = [this] { vaxlaMenyer(); };
     glyf(topBar.addEnd<glaze::ToolButton>(), glaze::StockIcon::Help, "Inaktiverad")
         ->disable();
-    lageGlyf_ = glyf(topBar.addEnd<glaze::ToolButton>(), glaze::StockIcon::Contrast,
-                     "Växla mellan ljust och mörkt (F9)");
-    lageGlyf_->onClick = [this] { vaxlaLage(); };
+    // LÄGET, intill fönsterknapparna: det valda lyser i accentfärgen. Trycket
+    // slår om kryssrutan, och `synkaUtseende` sätter den rätt igen.
+    auto lageGlyf = [&](glaze::StockIcon i, const char* tips, glaze::ThemeMode m) {
+        auto* b = glyf(topBar.addEnd<glaze::ToolButton>(), i, tips);
+        b->setCheckable(true);
+        b->onClick = [this, m] { valjLage(m); };
+        return b;
+    };
+    glyfSystem_ = lageGlyf(glaze::StockIcon::ThemeSystem, "Följ systemet",
+                           glaze::ThemeMode::System);
+    glyfLjust_  = lageGlyf(glaze::StockIcon::ThemeLight, "Ljust",
+                           glaze::ThemeMode::Light);
+    glyfMorkt_  = lageGlyf(glaze::StockIcon::ThemeDark, "Mörkt",
+                           glaze::ThemeMode::Dark);
 
     // TEMAT: en radiopost per tema i Slate, först i menyn så att indexet i
     // menyn är temats index. Under dem stegen och läget.
@@ -403,8 +420,10 @@ void SlateWindow::byggMenyer()
 
 void SlateWindow::byggTemaFalt()
 {
-    auto* f = add<glaze::ToolBar>();
-    f->name = "temaFalt";
+    auto* f   = dock_->add<glaze::ToolBar>();
+    temaFalt_ = f;
+    f->name   = "temaFalt";
+    f->setText("Tema");
     f->setOverflow(false);
 
     f->add<glaze::Label>("Tema");
@@ -451,8 +470,11 @@ void SlateWindow::byggVerktygsFalt()
     };
 
     // LIGGANDE: ikonknappar i alla lägen och en av varje inbäddad kontroll.
-    auto* f = add<glaze::ToolBar>();
-    f->name = "verktyg";
+    auto* f  = dock_->add<glaze::ToolBar>();
+    verktyg_ = f;
+    f->name  = "verktyg";
+    f->setText("Verktyg");
+    f->setBand(1);
     ikonknapp(f, glaze::StockIcon::New, "Nytt");
     ikonknapp(f, glaze::StockIcon::Open, "Öppna");
     ikonknapp(f, glaze::StockIcon::Save, "Spara (inaktiverad)")->disable();
@@ -502,14 +524,80 @@ void SlateWindow::byggVerktygsFalt()
     forl->setValue(60);
 
     // STÅENDE, vid fönstrets vänsterkant.
-    auto* s = add<glaze::ToolBar>();
-    s->name = "verktygStaende";
+    auto* s      = dock_->add<glaze::ToolBar>();
+    verktygSida_ = s;
+    s->name      = "verktygStaende";
+    s->setText("Sidofält");
     s->dock = glaze::Dock::Left;
     ikonknapp(s, glaze::StockIcon::Search, "Sök");
     ikonknapp(s, glaze::StockIcon::Folder, "Mapp");
     s->add<glaze::Separator>();
     ikonknapp(s, glaze::StockIcon::Grid, "Rutnät")->setCheckable(true);
     ikonknapp(s, glaze::StockIcon::Trash, "Inaktiverad")->disable();
+}
+
+void SlateWindow::byggFaltMeny()
+{
+    menuBar.addSeparator("Visa");
+    menuBar.addSubmenu("Visa", "Verktygsfält");
+    const auto visning = [this](const char* text, glaze::ToolBar* f) {
+        menuBar.addCheck({"Visa", "Verktygsfält"}, text, true);
+        menuBar.setHandler({"Visa", "Verktygsfält", text}, [this, f] {
+            if (f->isVisible())
+                f->hide();
+            else
+                f->show();
+            synkaFalt();
+        });
+    };
+    visning("Tema", temaFalt_);
+    visning("Verktyg", verktyg_);
+    visning("Sidofält", verktygSida_);
+    menuBar.addSeparator({"Visa", "Verktygsfält"});
+    menuBar.addItem({"Visa", "Verktygsfält"}, "Lägg till fält");
+    menuBar.setHandler({"Visa", "Verktygsfält", "Lägg till fält"},
+                       [this] { laggTillFalt(); });
+    menuBar.addItem({"Visa", "Verktygsfält"}, "Ta bort senaste fältet");
+    menuBar.setHandler({"Visa", "Verktygsfält", "Ta bort senaste fältet"},
+                       [this] { taBortFalt(); });
+    synkaFalt();
+}
+
+// Ett nytt fält hamnar sist i det yttersta bandet vid överkanten.
+void SlateWindow::laggTillFalt()
+{
+    auto* f = dock_->add<glaze::ToolBar>();
+    f->name = "extra" + std::to_string(++extraNr_);
+    f->setText("Extra " + std::to_string(extraNr_));
+    auto* a = f->add<glaze::ToolButton>();
+    a->setImg(ikon(glaze::StockIcon::Star));
+    a->setToolTip(f->text());
+    auto* b = f->add<glaze::ToolButton>();
+    b->setImg(ikon(glaze::StockIcon::Flag));
+    b->setToolTip(f->text());
+    extraFalt_.push_back(f);
+    synkaFalt();
+}
+
+// Fältet kan flyta i ett eget fönster, så det är dess förälder som släpper det.
+void SlateWindow::taBortFalt()
+{
+    if (extraFalt_.empty())
+        return;
+    glaze::ToolBar* f = extraFalt_.back();
+    extraFalt_.pop_back();
+    f->parent()->releaseOwned(*f);
+    synkaFalt();
+}
+
+void SlateWindow::synkaFalt()
+{
+    menuBar.setItemChecked({"Visa", "Verktygsfält", "Tema"}, temaFalt_->isVisible());
+    menuBar.setItemChecked({"Visa", "Verktygsfält", "Verktyg"}, verktyg_->isVisible());
+    menuBar.setItemChecked({"Visa", "Verktygsfält", "Sidofält"},
+                           verktygSida_->isVisible());
+    menuBar.setItemEnabled({"Visa", "Verktygsfält", "Ta bort senaste fältet"},
+                           !extraFalt_.empty());
 }
 
 // ---------------------------------------------------------------- statusraden
@@ -593,9 +681,8 @@ glaze::Bar* SlateWindow::rad(float h)
 
 void SlateWindow::byggSida()
 {
-    sida_       = add<glaze::Panel>();
+    sida_       = dock_->add<glaze::Panel>();   // huvudytan
     sida_->name = "sida";
-    sida_->dock = glaze::Dock::Fill;
     sida_->showScrollbars(true);
 
     radKnapparOchVal();

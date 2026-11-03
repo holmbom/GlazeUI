@@ -926,7 +926,7 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   (PROGRAMIKON, 2026-10-11; "appicon"). Det tredje värdefältet på
   `AppWindow` (`appIcon`), SYNLIGT som förval: ogiltig `icon()` = GlazeUI-
   ikonen, `setSmallIcon` en egen liten, `setNoIcon(true)` ingen alls,
-  `setLarge(true)` en BEGÄRAN som gäller med en rad under namnlisten (`rowBeside`: menyraden eller det översta verktygsfältet), `hide()` döljer
+  `setLarge(true)` en BEGÄRAN som gäller med en rad under namnlisten (`rowBeside`: menyraden, det översta verktygsfältet eller en `DockHost`s yttersta band vid överkanten), `hide()` döljer
   den i fönstret men inte på OS:et. Ett CHROME-rotbarn som TopBar, vänster
   på Windows/Linux, höger på macOS (statiska `onRightSide()`). **`reservedWidth(c,
   Row)`** är geometrins ENDA sanning (logiska px) — motvikten

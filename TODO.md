@@ -57,15 +57,11 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 - 💡 **Linfysik: nedhäng efter temperatur, töjning, vind och is**
   Linor mellan fästpunkter som hänger korrekt (kedjekurva med elasticitet och värmeutvidgning), belastade av simulerad vind och is, med temperaturen som parameter.
   Öppet: en generell förmåga i ramverket eller appens beräkning.
+- 💡 **Appens egna glyfer i alla varianter** — [stock_icon.h](Glaze/widgets/include/glaze/stock_icon.h)
+  En egen bild följer inte temat. Vektor som standardikonerna (alla storlekar, mono, färg, ljust och mörkt) och bildvarianter per storlek och läge i `assets.bin`; sedan skärps `UI_GUIDELINES.md`.
 - 🟠 **Windows- och Mac-testet** — [doc/os/](doc/os/)
   Kvar är rader som kräver hårdvara eller handtest: mus, skärmskalning och VS Code på Windows; andra skärm, PC-tangentbord och Intel-Mac på macOS.
   Stängs när `doc/os/windows/TESTS.md` och `doc/os/macos/TESTS.md` är TOMMA.
-- 🟢 **En sida som bild med egen täthet** — [print.h](Glaze/widgets/include/glaze/print.h)
-  `renderPageImage` delar utskriftens sidritning, och `print_gate` P8–P14 är gröna på Windows. Kvar är Eriks test i en riktig utskrift, och macOS och Linux (`doc/os`).
-- 🟢 🐛 **`scene3d_pixel_gate` K2: ett grafikkort listas två gånger** — [gpu_util.h](Glaze/gfx/src/gpu_util.h)
-  DXGI gav Intel-kortet två gånger på en dator med Intel- och NVIDIA-kort. `mergeSameCards` slår ihop samma id och adress i uppräkningen; kvar är Eriks test.
-- 🟢 🐛 **Utskrift efter 3D-innehåll gör ingenting på Windows** — [d3d11_renderer.cpp](Glaze/gfx/src/backend_d3d11/d3d11_renderer.cpp)
-  `D3DCompile` hindrade tråden från att skapa en skrivar-DC, så dialogen svarade som Avbryt. Kompilatorn går på en egen tråd, och `PrintJob::lastError()` säger felet. `print_dc_gate` är grön; kvar är en riktig skrivare och Eriks test.
 
 ## Utseendepasset — UI, Tema och Style, PARKERAT
 

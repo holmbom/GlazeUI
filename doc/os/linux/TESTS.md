@@ -1425,6 +1425,11 @@ vWorld.xy)`; `kPointsGlsl*`: `vClipPx` (noperspective) och `vAnchor`),
   *Gör:* kör `print_gate`, fall P8–P12, på Wayland och X11.
   *Rätt utfall:* grinden grön, och bilden inte spegelvänd.
 
+- **Utskriftens jobbstart** (blint skrivet): `beginPrintDocument` i
+  `Glaze/gfx/src/backend_linux/linux_print.cpp` svarar `PrintStart`.
+  *Gör:* bygg och kör `print_gate` fall P16.
+  *Rätt utfall:* det bygger, grinden är grön, och `outcome()` är `Failed`.
+
 - **Utskriftens felbesked** (blint skrivet): `showPrintDialog` i
   `Glaze/gfx/src/backend_linux/linux_print.cpp` svarar `PrintDialogResult`.
   *Gör:* kör `print_gate` fall P15.

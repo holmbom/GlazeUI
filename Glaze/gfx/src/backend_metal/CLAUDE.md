@@ -214,7 +214,11 @@ normalspårningen, startläget och de tre nya pekarna.
   vyn `GlazePrintView` (`knowsPageRange:`, en pappersstor sida per bild,
   bilden på `imageablePageBounds`), utan panel och med systemets
   förloppspanel; `NSPrintAllPages` sätts, för intervallet är redan gjort.
-  Ägaren läses inte (appmodalt).
+  Ägaren läses inte (appmodalt). `outputFile` ger `NSPrintSaveJob` och
+  `NSPrintJobSavingURL` på jobbets egen kopia, efter en skrivkontroll
+  (`NSFileManager`), och filen måste finnas efter `runOperation`. `runOperation`
+  = NO svarar `Failed`, för orsaken går inte att läsa där. `promptsForFile` är
+  alltid false.
 - **EN AUTORELEASE-POOL PER FRAME** (`MetalWindow::renderFrame`, 2026-10-14):
   commandbuffern (`[queue_ commandBuffer]`), encoderna och drawablen är
   autoreleasade, och commandbuffern håller varje resurs den rört vid liv.

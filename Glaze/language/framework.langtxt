@@ -59,7 +59,7 @@
 # Id 400–409 är UTSKRIFTENS: förloppsfönstrets titel
 # (400, "Skriver ut" — Windows "Printing") och sidraden "Sida 3 / 10" (401,
 # ordet "Sida"; talen sätts efter det, så ordföljden är lika i alla fyra) och
-# felbeskeden i `PrintJob::lastError()` (402–405), hela meningar att visa rakt av.
+# felbeskeden i `PrintJob::lastError()` (402–406), hela meningar att visa rakt av.
 #
 # Id 420–429 är VERKTYGSFÄLTETS ÖVERFLÖDE:
 # överflödsknappens tooltip (420, "Visa mer" — Windows kommandofälts "See
@@ -95,7 +95,7 @@
 #         modersmålstalare
 #   nb/fi 166: "Verktøylinje"/"Työkalurivi" för VS:s Toolbar
 #         — Windows ord, utan modersmålstalare
-#   nb/fi 400–405: "Skriver ut"/"Tulostetaan", "Side"/"Sivu" och felbeskeden —
+#   nb/fi 400–406: "Skriver ut"/"Tulostetaan", "Side"/"Sivu" och felbeskeden —
 #         utan modersmålstalare
 #   nb/fi 420–421: "Vis mer"/"Näytä lisää" (Windows "Näytä
 #         lisää") och "Kontroll"/"Ohjausobjekti" (Microsofts term för en
@@ -203,6 +203,7 @@ id 402 "Utskrift finns inte på den här plattformen."
 id 403 "Skrivaren gick inte att öppna."
 id 404 "Utskriftsdialogen gick inte att öppna."
 id 405 "Utskriften misslyckades."
+id 406 "Filen gick inte att skriva."
 id 420 "Visa mer"
 id 421 "Kontroll"
 
@@ -306,6 +307,7 @@ id 402 "Printing is not available on this platform."
 id 403 "The printer could not be opened."
 id 404 "The print dialog could not be opened."
 id 405 "Printing failed."
+id 406 "The file could not be written."
 id 420 "See more"
 id 421 "Control"
 
@@ -409,6 +411,7 @@ id 402 "Utskrift er ikke tilgjengelig på denne plattformen."
 id 403 "Skriveren kunne ikke åpnes."
 id 404 "Utskriftsdialogen kunne ikke åpnes."
 id 405 "Utskriften mislyktes."
+id 406 "Filen kunne ikke skrives."
 id 420 "Vis mer"
 id 421 "Kontroll"
 
@@ -512,5 +515,6 @@ id 402 "Tulostus ei ole käytettävissä tällä alustalla."
 id 403 "Tulostinta ei voitu avata."
 id 404 "Tulostusikkunaa ei voitu avata."
 id 405 "Tulostus epäonnistui."
+id 406 "Tiedostoon ei voitu kirjoittaa."
 id 420 "Näytä lisää"
 id 421 "Ohjausobjekti"

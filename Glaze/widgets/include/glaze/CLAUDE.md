@@ -942,7 +942,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   `ProfilePhase::Compile`, `PumpProfile::depth`, `profilePhaseName`/
   `profileCountName`. INGA statiska variabler och inga inline-variabler i
   headern (DELAT LÄGE (1)); registret bor i cpp:n. Utanför regel 8 med flit.
-- **`print.h`** — **`glaze::PrintJob`** (REQ8 10): systemets utskrift, `FileDialog`s klassform; sidan med ritytans `Painter` i mm, rastrerad (besluten i headern), och `lastError()` (ett `TrText`, tom = inget fel). Bredvid den **`renderPageImage`**: samma sida som `Bitmap`, med egen täthet och utan skrivare.
+- **`print.h`** — **`glaze::PrintJob`** (REQ8 10): systemets utskrift, `FileDialog`s klassform; sidan med ritytans `Painter` i mm, rastrerad (besluten i headern), `lastError()` (ett `TrText`, tom = inget fel) och `outcome()`. Till fil: `setOutputFile`, och vår `FileDialog` med `setSuggestedFileName` när skrivaren frågar (`promptsForFile`, av med `setFilePrompt(false)`); `setPrinter` väljer skrivare utan dialog. Bredvid den **`renderPageImage`**: samma sida som `Bitmap`, med egen täthet och utan skrivare.
 - **`component.h`** — **`glaze::Component`** (FONSTER_OCH_TIMER, WinForms
   `Component`): basen för det som står som MEDLEM utan att vara en widget.
   `name` (speglat som `Widget::name` — writern emitterar namnraden på varje

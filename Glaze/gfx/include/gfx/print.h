@@ -15,7 +15,12 @@ namespace gfx {
 //
 // DIALOGEN ÄR SYSTEMETS — ett MEDVETET undantag från "dialogerna är våra"
 // — skrivarens egna inställningar
-// (drivrutinens flikar, PDF-skrivarens filval) finns bara i OS:ets dialog.
+// (drivrutinens flikar) finns bara i OS:ets dialog.
+//
+// TILL FIL: `PrintSettings::outputFile` skickar jobbet till en fil utan att
+// systemet frågar. `promptsForFile` säger att skrivaren annars skulle fråga
+// när jobbet startar (Windows: porten PORTPROMPT:), så att glaze kan fråga
+// först med sin egen dialog.
 //
 // APP-GLOBALT, och därför fria funktioner (systemfältets skäl, gfx/tray.h):
 // TRE implementationer i stället för sex, och ingen proxyfälla.
@@ -57,6 +62,8 @@ struct PrintSettings {
     // DOKUMENTETS SIDOR — dialogens gräns för intervallet; 0 = okänt (då
     // får intervallet gå till 9999).
     int pageCount = 0;
+    // FILEN jobbet skrivs till (UTF-8, absolut). Tom = skrivarens egen väg.
+    std::string outputFile;
 
     // ---- UT (efter `showPrintDialog`/`openPrinter`)
     // Skrivarens namn — också IN till `openPrinter` (tomt = standardskrivaren).
@@ -66,6 +73,10 @@ struct PrintSettings {
     // DET UTSKRIVBARA OMRÅDET i mm, från pappersets övre vänstra hörn i den
     // ORIENTERADE sidan (liggande A4 är 297 × 210 mm).
     Rectf       printableMm{};
+    // Skrivaren frågar efter en fil när jobbet startar, om `outputFile` är tom.
+    bool        promptsForFile = false;
+    // Filändelsen skrivaren producerar (".pdf"), tom när den inte är känd.
+    std::string outputExtension;
     // Backendens tillstånd — skrivarens DC (Windows), NSPrintInfo (macOS).
     // Opakt; tomt före dialogen.
     std::shared_ptr<void> native;
@@ -94,6 +105,14 @@ PrintDialogResult showPrintDialog(Window* owner, PrintSettings& s);
 // fel (loggat).
 bool openPrinter(PrintSettings& s);
 
+// Utfallet av ett jobbs start och slut.
+enum class PrintJobResult : std::uint8_t {
+    Ok,           // jobbet startade, eller skickades
+    Cancelled,    // användaren avbröt i skrivarens egen ruta — ingen logg
+    FileFailed,   // `outputFile` gick inte att skriva (loggat)
+    Failed,       // något annat fel (loggat)
+};
+
 // ETT JOBB — sidorna i ordning, sedan `finish` eller `abort`. Ett jobb som
 // rivs utan något av dem avbryts.
 class PrintDocument {
@@ -102,15 +121,20 @@ public:
     // EN SIDA: `rgba` (w × h, rak alfa) täcker det utskrivbara området.
     // false = skrivaren vägrade (loggat) — jobbet ska avbrytas.
     virtual bool addPage(const std::uint8_t* rgba, int w, int h) = 0;
-    // Skickar jobbet. false = det gick inte (loggat).
-    virtual bool finish() = 0;
+    // Skickar jobbet.
+    virtual PrintJobResult finish() = 0;
     // Inget skrivs ut; sidor som redan skickats tas tillbaka där OS:et kan.
     virtual void abort() = 0;
 };
 
+// Svaret från `beginPrintDocument`: `doc` finns bara när `result` är `Ok`.
+struct PrintStart {
+    PrintJobResult                 result = PrintJobResult::Failed;
+    std::unique_ptr<PrintDocument> doc;
+};
+
 // Startar ett jobb med titeln (dokumentets namn i skrivarkön) på skrivaren
-// i `s.native`. nullptr = ingen skrivare vald eller ett fel (loggat).
-std::unique_ptr<PrintDocument> beginPrintDocument(const PrintSettings& s,
-                                                  const std::string& title);
+// i `s.native`, till `s.outputFile` när den är satt.
+PrintStart beginPrintDocument(const PrintSettings& s, const std::string& title);
 
 } // namespace gfx

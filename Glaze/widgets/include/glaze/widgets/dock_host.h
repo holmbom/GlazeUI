@@ -591,6 +591,12 @@ private:
     detail::DockGeometry layoutIn(const detail::DockModel& m, const Ctx& c,
                                   const gfx::Rectf& b,
                                   const detail::DockLive& l) const;
+    // DEN STORA PROGRAMIKONEN står bredvid det yttersta bandet vid överkanten:
+    // bandets första synliga fält och bandets höjd. nullptr = inget fält där, så
+    // ikonen är liten. Banden ändras ⇒ `iconRowChanged`, som ritar om fönstret.
+    const ToolBar* topBandBar() const;
+    float          topBandHeight(const Ctx& c) const;
+    void           iconRowChanged();
     // `dock` och det PACKADE `band` för varje fält i modellen — efter en
     // verklig ändring. Ett fält som byter riktning byter
     // `width` och `height`.
@@ -817,6 +823,7 @@ private:
     friend class ToolBar;
     friend class DockFloatWindow;   // stängningen och synken
     friend class ToolFloatHeader;   // det flytande fältets rubrik
+    friend class AppIcon;           // fälten bredvid den stora ikonen
 };
 
 } // namespace glaze

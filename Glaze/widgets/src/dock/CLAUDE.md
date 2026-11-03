@@ -39,8 +39,10 @@ en `unique_ptr` till en framåtdeklarerad typ. Del av GlazeUI — se
     SAKNAS sätts in där, DOCKNING_DRAG T8: ett flytande fält som dockas med
     ett drag) och `packBarKeys`. `normalize` tar bort ett flytande fält ur
     ordningen, som en flytande panel ur remsorna.
-  - `detail::computeLayout(modell, yta, ctx, live, barSize)` → `DockGeometry`
-    i LOGISKA px med origo i värdens hörn: BANDEN (Top, Bottom, Left, Right,
+  - `detail::computeLayout(modell, yta, ctx, live, barSize, topStart, topEnd)` →
+    `DockGeometry` i LOGISKA px med origo i värdens hörn (`topStart`/`topEnd` är
+    luckan i det yttersta bandet vid överkanten för den stora programikonen, som
+    `DockHost::layoutIn` räknar): BANDEN (Top, Bottom, Left, Right,
     band 0 ytterst — tjockleken det tjockaste synliga fältets, fälten packade
     med `toolGap` och, när de inte ryms, KRYMPTA bakifrån ned till sin
     kortaste längd — REQ8 9) och zonerna för ett nytt innersta band, handtagsremsor
