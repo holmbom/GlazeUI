@@ -122,9 +122,11 @@ void ToolBar::setBand(int b)
         return;
     band_ = b;
     // I en värd flyttar fältet vid värdens nästa synk (fälten vann,
-    // dock_host.h) — syskonen och värden ritas om.
+    // dock_host.h) — syskonen och värden ritas om, och bandet kan ändra den stora
+    // programikonens rad.
     invalidate();
     relayoutSiblings();
+    notifyHost();
     if (DockHost* h = host())
         h->invalidate();
 }
@@ -413,11 +415,12 @@ gfx::Sizef ToolBar::contentSize(const Ctx& c) const
 // remsa som satts lägre än sin egen luft ger barnen noll höjd i stället
 // för en negativ. Står fältet bredvid den stora programikonen börjar barnen vid
 // ikonen; ytan och hårlinjen går hela vägen, som på menyraden, och ikonen ritas
-// ovanpå.
+// ovanpå. I ett band flyttar bandets layout hela fältet i stället.
 gfx::Rectf ToolBar::childArea(const Ctx& c) const
 {
     gfx::Rectf a = Bar::childArea(c);
-    if (const AppWindow* w = appWindow(); w && w->appIcon.rowBeside() == this) {
+    if (const AppWindow* w = appWindow();
+        w && !inBand() && w->appIcon.rowBeside() == this) {
         const float ikon = w->appIcon.reservedWidth(c, AppIcon::Row::Menu) * c.scale;
         if (!AppIcon::onRightSide())
             a.x += ikon;

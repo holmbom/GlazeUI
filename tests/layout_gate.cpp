@@ -2393,6 +2393,43 @@ void fallStorIkon()
     utan.add<glaze::ToolBar>();
     utan.appIcon.setLarge(true);
     ok(utan.appIcon.rowBeside() == nullptr, "utan namnlist: ingen rad");
+
+    // FLYTTBARA FÄLT: i en dockningsyta följer ikonen det yttersta bandet vid
+    // överkanten, och fälten börjar bredvid den. Sabotage som ska fälla det:
+    // `DockHost`-grenen bort ur `rowBeside` (första kontrollen), luckan bort ur
+    // `layoutIn` (fältets början), `topBandHeight` med första fältets höjd
+    // (ikonens höjd med ett högre fält i bandet).
+    glaze::AppWindow fri("Titel", 800, 300);
+    fri.menuBar.addMenu("Arkiv");
+    fri.menuBar.show();
+    fri.menuBar.setInTitleBar(true);
+    auto* yta  = fri.add<glaze::DockHost>();
+    yta->dock  = glaze::Dock::Fill;
+    auto* band = yta->add<glaze::ToolBar>();
+    auto* hogt = yta->add<glaze::ToolBar>();
+    hogt->hide();
+    fri.appIcon.setLarge(true);
+    const glaze::Widget& friIkon = fri.appIcon;
+    glaze::Ctx ytc = c;
+    ytc.area = gfx::Rectf{0, 0, 800, 300};
+    ok(fri.appIcon.rowBeside() == band, "dockningsyta: fältet står bredvid ikonen");
+    okNära(friIkon.resolve(c).h, stor, "dockningsyta: stor ikon");
+    if (!glaze::AppIcon::onRightSide())
+        okNära(static_cast<const glaze::Widget*>(yta)->placeChild(*band, ytc).x, stor,
+               "dockningsyta: fältet börjar vid ikonen");
+    hogt->height = 2.0f * st.toolBarH;
+    hogt->show();
+    okNära(friIkon.resolve(c).h, liten + 2.0f * st.toolBarH,
+           "dockningsyta: ikonen följer bandets högsta fält");
+    hogt->hide();
+    hogt->height = 0.0f;
+    band->dock = glaze::Dock::Left;
+    ok(fri.appIcon.rowBeside() == nullptr, "fältet flyttat till sidan: ingen rad");
+    okNära(friIkon.resolve(c).h, liten, "fältet flyttat till sidan: liten ikon");
+    band->dock = glaze::Dock::Top;
+    ok(fri.appIcon.rowBeside() == band, "fältet tillbaka: stor igen");
+    band->hide();
+    ok(fri.appIcon.rowBeside() == nullptr, "inget synligt fält: ingen rad");
 }
 
 int main(int argc, char** argv)

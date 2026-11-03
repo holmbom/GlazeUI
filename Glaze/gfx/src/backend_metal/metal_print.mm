@@ -14,6 +14,15 @@
 // utan dialog och med systemets förloppspanel. Sidintervallet har glaze
 // redan gjort — bara de valda sidorna skickas — så jobbet skriver ut ALLA
 // vyns sidor. Kopiorna står kvar i NSPrintInfo, och systemet skriver dem.
+//
+// TILL FIL: en satt `PrintSettings::outputFile` ger jobbets egen kopia av
+// NSPrintInfo `jobDisposition = NSPrintSaveJob` och `NSPrintJobSavingURL` med
+// filen, så att jobbet skrivs till filen och aldrig går till papper. Före
+// start kontrolleras att filen (eller, när den inte finns, dess katalog) går
+// att skriva, annars blir svaret `FileFailed`; efter `runOperation` kontrolleras
+// att filen finns. Skrivaren frågar aldrig efter fil här (`promptsForFile` är
+// false och `outputExtension` tom), och orsaken till ett misslyckat
+// `runOperation` går inte att läsa, så det blir `Failed`.
 
 #import <AppKit/AppKit.h>
 
@@ -132,6 +141,8 @@ void readSettings(NSPrintInfo* info, PrintSettings& s)
         s.fromPage = [d[NSPrintFirstPage] intValue];
         s.toPage   = [d[NSPrintLastPage] intValue];
     }
+    s.promptsForFile = false;   // NSPrintOperation frågar aldrig efter fil här
+    s.outputExtension.clear();
     NSPrinter* skrivare = info.printer;
     s.printer = skrivare.name ? std::string(skrivare.name.UTF8String) : std::string();
     NSValue* upplösning = skrivare.deviceDescription[NSDeviceResolution];
@@ -147,7 +158,11 @@ public:
     MetalPrintDocument(NSPrintInfo* info, const PrintSettings& s,
                        const std::string& title)
         : info_([info copy]), pages_([NSMutableArray array]),
-          title_([NSString stringWithUTF8String:title.c_str()])
+          title_([NSString stringWithUTF8String:title.c_str()]),
+          file_(s.outputFile.empty()
+                    ? nil
+                    : [NSURL fileURLWithPath:[NSString stringWithUTF8String:
+                                                           s.outputFile.c_str()]])
     {
         const CGFloat pb = s.paperMm.w * kPtPerMm;
         const CGFloat ph = s.paperMm.h * kPtPerMm;
@@ -189,13 +204,13 @@ public:
         return true;
     }
 
-    bool finish() override
+    PrintJobResult finish() override
     {
         if (!open_)
-            return false;
+            return PrintJobResult::Failed;
         open_ = false;
         if (pages_.count == 0)
-            return false;
+            return PrintJobResult::Failed;
         @autoreleasepool {
             GlazePrintView* vy = [[GlazePrintView alloc]
                 initWithFrame:NSMakeRect(0.0, 0.0, paper_.width,
@@ -206,6 +221,11 @@ public:
             vy.printable = printable_;
             // Intervallet är redan gjort: bara de valda sidorna finns i vyn.
             info_.dictionary[NSPrintAllPages] = @YES;
+            if (file_) {
+                // Jobbet sparas i filen och går aldrig till papper.
+                info_.jobDisposition                    = NSPrintSaveJob;
+                info_.dictionary[NSPrintJobSavingURL] = file_;
+            }
             NSPrintOperation* op =
                 [NSPrintOperation printOperationWithView:vy printInfo:info_];
             op.showsPrintPanel    = NO;
@@ -213,9 +233,16 @@ public:
             op.jobTitle           = title_;
             const BOOL ok = [op runOperation];
             pages_        = nil;
-            if (!ok)
+            if (!ok) {
                 log("Utskrift: NSPrintOperation skrev inte ut jobbet");
-            return ok;
+                return PrintJobResult::Failed;
+            }
+            if (file_ && ![[NSFileManager defaultManager]
+                              fileExistsAtPath:file_.path]) {
+                log("Utskrift: filen '%s' skrevs inte", file_.path.UTF8String);
+                return PrintJobResult::FileFailed;
+            }
+            return PrintJobResult::Ok;
         }
     }
 
@@ -229,6 +256,7 @@ private:
     NSPrintInfo*    info_;
     NSMutableArray* pages_;
     NSString*       title_;
+    NSURL*          file_;   // nil när jobbet inte går till en fil
     NSSize          paper_;
     NSRect          printable_;
     bool            open_ = true;
@@ -280,16 +308,36 @@ bool openPrinter(PrintSettings& s)
     }
 }
 
-std::unique_ptr<PrintDocument> beginPrintDocument(const PrintSettings& s,
-                                                  const std::string& title)
+PrintStart beginPrintDocument(const PrintSettings& s, const std::string& title)
 {
+    PrintStart start;   // Failed tills jobbet startat
     // `native` sätts bara här i filen, så typen är känd.
     const auto info = std::static_pointer_cast<MacPrintInfo>(s.native);
     if (!info || !info->info) {
         log("Utskrift: ingen skrivare vald");
-        return nullptr;
+        return start;
     }
-    return std::make_unique<MetalPrintDocument>(info->info, s, title);
+    if (!s.outputFile.empty()) {
+        @autoreleasepool {
+            NSFileManager* fm = [NSFileManager defaultManager];
+            NSString* path = [NSString stringWithUTF8String:s.outputFile.c_str()];
+            BOOL      katalog = NO;
+            const BOOL finns  = path && [fm fileExistsAtPath:path isDirectory:&katalog];
+            // En befintlig fil ska gå att skriva, annars ska katalogen det.
+            const BOOL går =
+                path && !katalog &&
+                (finns ? [fm isWritableFileAtPath:path]
+                       : [fm isWritableFileAtPath:[path stringByDeletingLastPathComponent]]);
+            if (!går) {
+                log("Utskrift: filen '%s' går inte att skriva", s.outputFile.c_str());
+                start.result = PrintJobResult::FileFailed;
+                return start;
+            }
+        }
+    }
+    start.result = PrintJobResult::Ok;
+    start.doc    = std::make_unique<MetalPrintDocument>(info->info, s, title);
+    return start;
 }
 
 } // namespace gfx

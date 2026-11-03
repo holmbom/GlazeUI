@@ -682,12 +682,13 @@ tre-fils-modellen och de hårda reglerna.
   Slates utseende. EN rullande sida med varje komponent, de flesta aktiva och
   inaktiverade, i rader (`Rad`, en ren Bar) vars celler (`Cell`) delar bredden
   efter vikt, så allt följer fönstret. Komponenterna står också i menyraden, i
-  tre verktygsfält och i statusraden, och menyerna och glyfknappar står i
-  namnlisten, så att ⋯ och titelns kortning går att prova genom att ändra
-  fönstrets storlek. Glyfen längst till höger växlar mellan ljust och mörkt. Två
-  glyfer, också i menyn Visa, ger namnlistens fyra lägen: menyerna i namnlisten och
-  den stora ikonen över namnlisten och raden under, menyraden eller det första
-  verktygsfältet. Temat byts i remsan överst, i menyn Tema
+  tre flyttbara verktygsfält (en `DockHost` runt sidan) och i statusraden, och
+  menyerna och glyfknappar står i namnlisten, så att ⋯ och titelns kortning går att
+  prova genom att ändra fönstrets storlek. Lägesglyferna intill fönsterknapparna
+  väljer system, ljust eller mörkt. Två glyfer, också i menyn Visa, ger namnlistens
+  fyra lägen: menyerna i namnlisten och den stora ikonen över namnlisten och raden
+  under, menyraden eller det yttersta bandet vid överkanten. Visa → Verktygsfält
+  visar och döljer fälten och lägger till och tar bort fler. Temat byts i remsan överst, i menyn Tema
   och med F7/F8/F9 (`valjTema`/`valjLage`, som `synkaUtseende` speglar). Texterna
   är literaler och inte tr-id: fönstret ingår inte i demons översatta yta.
 - **`window_lab.h/.cpp`** (FONSTER_OCH_TIMER F2) — **`demo --window-lab`**,

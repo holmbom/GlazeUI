@@ -32,8 +32,9 @@
 // Linux, HÖGRA på macOS (där sitter fönsterknapparna till vänster). Den är
 // en kvadrat med namnlistens höjd, och med `setLarge(true)` täcker den namnlisten
 // och raden under, som börjar bredvid: menyraden på egen rad, annars fönstrets
-// översta verktygsfält (`rowBeside`). Stor är en BEGÄRAN: utan en sådan rad blir
-// ikonen liten. Geometrin är EN sanning, `reservedWidth`, som namnlistens motvikt,
+// översta verktygsfält eller, i en `DockHost`, dess yttersta band vid överkanten
+// (`rowBeside`). Stor är en BEGÄRAN som följer raden: flyttas sista fältet därifrån
+// blir ikonen liten, och dockas ett fält där blir den stor igen. Geometrin är EN sanning, `reservedWidth`, som namnlistens motvikt,
 // menyradens rubriker, verktygsfältets barn och namnlistens hårlinje läser.
 //
 // **PROGRAMMENYN** byggs med MENYRADENS vokabulär (hård regel 8), där den

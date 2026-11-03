@@ -166,6 +166,9 @@ enum class StockIcon : std::uint16_t {
     FileZip, File7z, FileRar, FileTar, FileGz,
     // Filtyper — ljud och video (neutral)
     FileMp3, FileWav, FileMp4, FileMov,
+    // Utseendets läge — System (skärmen, halvt ifylld), ljust (solen), mörkt
+    // (månen). Glyferna för en lägesväljare, till exempel vid fönsterknapparna.
+    ThemeSystem, ThemeLight, ThemeDark,
 };
 
 // STILEN. `Mono` är den enfärgade konturen i temats textfärg. `Color` är

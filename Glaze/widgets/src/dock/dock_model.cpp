@@ -719,7 +719,7 @@ std::vector<float> fördela(float rum, const std::vector<float>& vikt,
 
 DockGeometry computeLayout(const DockModel& m, const gfx::Rectf& b,
                            const Ctx& c, const DockLive& live,
-                           const BarSize& barSize)
+                           const BarSize& barSize, float topStart, float topEnd)
 {
     const auto&  st = *c.style;
     DockGeometry g;
@@ -804,12 +804,17 @@ DockGeometry computeLayout(const DockModel& m, const gfx::Rectf& b,
             gb.edge  = kant;
             gb.index = band.index;
             gb.rect  = skär(rest, kant, t);
+            // Överkanten skärs först, så det första bandet här är fönstrets hörn.
+            const bool  hörnet = kant == Dock::Top && g.bands.empty();
+            const float lucka0 = hörnet ? topStart : 0.0f;
+            const float lucka1 = hörnet ? topEnd : 0.0f;
             // RYMS FÄLTEN INTE KRYMPER DE BAKIFRÅN: det sista först,
             // ned till sin kortaste längd (`BarExtent::minLength` — med
             // överflödet greppet, luften och överflödsknappen, så knapparna
             // som inte får plats nås i fältets meny), sedan det före. Ett fält
             // utan överflöde krymper inte (dess kortaste längd är hela).
-            const float bandLängd = stående ? gb.rect.h : gb.rect.w;
+            const float bandLängd =
+                std::max(0.0f, (stående ? gb.rect.h : gb.rect.w) - lucka0 - lucka1);
             float       behov     = st.toolGap * float(mått.size() - 1);
             for (const Mått& f : mått)
                 behov += f.längd;
@@ -825,8 +830,8 @@ DockGeometry computeLayout(const DockModel& m, const gfx::Rectf& b,
             // träffprovet och indikatorn läser samma ytor, så ett överfullt
             // stående fält ritas aldrig in i ett band vid nederkanten.
             const float slut = stående ? gb.rect.y + gb.rect.h
-                                       : gb.rect.x + gb.rect.w;
-            float pos = stående ? gb.rect.y : gb.rect.x;
+                                       : gb.rect.x + gb.rect.w - lucka1;
+            float pos = stående ? gb.rect.y : gb.rect.x + lucka0;
             for (const Mått& f : mått) {
                 ToolBar* const tb    = f.tb;
                 const float    start = std::min(pos, slut);

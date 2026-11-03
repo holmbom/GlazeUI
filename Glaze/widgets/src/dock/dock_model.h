@@ -401,10 +401,13 @@ inline constexpr Dock kBandEdges[4] = {Dock::Top, Dock::Bottom, Dock::Left,
 //, och längderna är ändliga och ryms i remsan.
 //
 // `c` ger stilen och fonten (handtagens textbredd), `barSize` verktygsfältens
-// mått; allt annat läses ur panelerna.
+// mått; allt annat läses ur panelerna. `topStart` och `topEnd` är luckorna i det
+// yttersta bandet vid överkanten, där programikonen står i fönstrets hörn: fälten
+// packas mellan dem, och bandets yta går hela vägen.
 DockGeometry computeLayout(const DockModel& m, const gfx::Rectf& b,
                            const Ctx& c, const DockLive& live,
-                           const BarSize& barSize);
+                           const BarSize& barSize, float topStart = 0.0f,
+                           float topEnd = 0.0f);
 
 // DRAGTRÖSKELN för dockningens fyra drag — panelens rubrik, värdens flik,
 // verktygsfältets grepp och det flytande fältets rubrik: har pekaren rört sig

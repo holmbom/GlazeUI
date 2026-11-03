@@ -751,6 +751,7 @@ bool DockHost::setLayout(const std::string& s)
     anims_.clear();
     syncOverlay(nullptr);
     invalidate();
+    iconRowChanged();
     guardFocus();
     postFloatSync();   // flytten mellan fönstren
     return true;

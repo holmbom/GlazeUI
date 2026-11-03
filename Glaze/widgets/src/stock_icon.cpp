@@ -1004,6 +1004,18 @@ constexpr Def kDefs[] = {
      "@fil @fspela B 1 12 19 8 1.5 K 2 13.5 17 5 MP4"},
     {StockIcon::FileMov, "FileMov",
      "@fil @fspela B 1 12 19 8 1.5 K 2 13.5 17 5 MOV"},
+    // ---------------------------------------------------- Utseendets läge
+    {StockIcon::ThemeSystem, "ThemeSystem",
+     "R 2 3 20 14 2 M 8 21 H 16 M 12 17 V 21 F M 12 3 H 20 Q 22 3 22 5 V 15 Q 22 "
+     "17 20 17 H 12 Z"},
+    {StockIcon::ThemeLight, "ThemeLight",
+     "C 12 12 5 M 12 2 V 4 M 12 20 V 22 M 2 12 H 4 M 20 12 H 22 M 4.9 4.9 L 6.2 "
+     "6.2 M 17.8 17.8 L 19.1 19.1 M 4.9 19.1 L 6.2 17.8 M 17.8 6.2 L 19.1 4.9"},
+    {StockIcon::ThemeDark, "ThemeDark",
+     "A 12 12 9 0 270 A 16.5 7.5 6.364 45 225 F M 21 12 Q 21 15.73 18.36 18.36 Q "
+     "15.73 21 12 21 Q 8.27 21 5.64 18.36 Q 3 15.73 3 12 Q 3 8.27 5.64 5.64 Q 8.27 "
+     "3 12 3 Q 10.14 4.86 10.14 7.5 Q 10.14 10.14 12 12 Q 13.86 13.86 16.5 13.86 Q "
+     "19.14 13.86 21 12 Z"},
 };
 
 constexpr int kAntal = static_cast<int>(sizeof(kDefs) / sizeof(kDefs[0]));
@@ -1015,7 +1027,7 @@ constexpr bool iOrdning()
     for (int i = 0; i < kAntal; ++i)
         if (static_cast<int>(kDefs[i].icon) != i)
             return false;
-    return kAntal == static_cast<int>(StockIcon::FileMov) + 1;
+    return kAntal == static_cast<int>(StockIcon::ThemeDark) + 1;
 }
 static_assert(iOrdning(), "kDefs ska ha en rad per StockIcon, i ordning");
 
@@ -1601,6 +1613,15 @@ constexpr Färg kFärger[] = {
     // Filtyper — data och webb (neutral)
     // Filtyper — arkiv (neutral)
     // Filtyper — ljud och video (neutral)
+    // Utseendets läge
+    {StockIcon::ThemeSystem,
+     "over blue F M 12 3 H 20 Q 22 3 22 5 V 15 Q 22 17 20 17 H 12 Z"},
+    {StockIcon::ThemeLight,
+     "yellow D 12 12 5"},
+    {StockIcon::ThemeDark,
+     "over yellow F M 21 12 Q 21 15.73 18.36 18.36 Q 15.73 21 12 21 Q 8.27 21 5.64 "
+     "18.36 Q 3 15.73 3 12 Q 3 8.27 5.64 5.64 Q 8.27 3 12 3 Q 10.14 4.86 10.14 7.5 "
+     "Q 10.14 10.14 12 12 Q 13.86 13.86 16.5 13.86 Q 19.14 13.86 21 12 Z"},
 };
 // GLYFERNA för den utstansade texten — streck i en ruta på 3 × 5 (rad 0
 // överst), samma språk som ikonerna men bara M L H V Q Z. Siffran 0 är O.

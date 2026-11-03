@@ -778,7 +778,7 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   `continued = wantsFrame() || hasPosted()` — det GLOBALA `hasPosted` är mätfelet i PERFORMANCE anm. 16.
   `app_window.cpp` mäter Content och Overlay och räknar DamageRects/FullDamage (full ⇒ 1); en bild utanför
   pumpen (D3D11:s `WM_SIZE`) får `outsidePump`. Ritytans faser och räknare: ../canvas/ och widgets/.
-- **`print.cpp`** — `PrintJob` + TU-lokala `PrintProgressWindow`: en sida per pump-svans, rastrerad med ritytans motor (`beginOffscreen`, Ctx med sidans täthet), om tills ingen bild väntar. `renderRaster` är EN väg för jobbet och `renderPageImage`, utan skrivare.
+- **`print.cpp`** — `PrintJob` + TU-lokala `PrintProgressWindow`: en sida per pump-svans, rastrerad med ritytans motor (`beginOffscreen`, Ctx med sidans täthet), om tills ingen bild väntar. `renderRaster` är EN väg för jobbet och `renderPageImage`, utan skrivare. Filvalet är EN privat väg (`askForFile`) för `showDialog` och `run`, och `setResult` sätter utfallet och felbeskedet i varje utgång. Bredvid den **`print_output.h`**: utskriftens rena regler, utan tillstånd och grindade i `print_gate`: vilken fil som står kvar (`keptOutputFile`, `fileForRun`), när filvalet visas (`needsFilePrompt`), ett känt tomt intervall (`emptyRange`), förslagets namn (`cleanFileName`, `suggestedName`) och jobbets resultat som utfall och felid (`outcomeOf`, `errorTextId`).
 - **`component.cpp`** — komponentregistret. **`window_placement.h`** (INTERN)
   — startplatsen och logisk ↔ placeringsrymd ur `gfx::screens()` (PRIMÄRENS
   skala, närmaste skärm, klämning mot arbetsytan); ren, grindad i geometry_gate P.

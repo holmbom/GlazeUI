@@ -18,6 +18,18 @@
 // området (HALFTONE — skrivaren har fler punkter än bilden har pixlar) och
 // EndPage. GDI tar en 32-bitars DIB i BGRA, så raden vänds kanal för kanal.
 //
+// TILL FIL: `PrintSettings::outputFile` går som `DOCINFO::lpszOutput`, så att
+// skrivaren inte frågar efter fil. Dialogens "Skriv till fil" är dold
+// (PD_HIDEPRINTTOFILE) — filen är appens val. `readPrinterOutput` läser ur
+// skrivarens inställningar om den frågar efter fil när jobbet startar (porten
+// PORTPROMPT:) och vilken ändelse den ger (en drivrutin med "PDF" i namnet:
+// ".pdf"). Före `StartDocW` provöppnas en befintlig fil för skrivning utan att
+// ändras, för en fil som är låst eller skrivskyddad får annars Windows egen
+// ruta i stället för ett fel. Felkoderna från `StartDocW` och `EndDoc` läses
+// direkt efter det misslyckade anropet och blir `PrintJobResult`: avbrott i
+// skrivarens ruta `Cancelled` (ingen logg), ett filfel `FileFailed` och allt
+// annat `Failed`.
+//
 // DC:n är `PrintSettings::native` (en `PrinterDc`) och rivs när den sista
 // kopian av inställningarna och det sista jobbet på den är borta.
 
@@ -28,6 +40,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cwctype>
 #include <vector>
 
 #include "gfx/platform.h"
@@ -170,9 +183,73 @@ void readSettings(HDC dc, const DEVMODEW* dm, PrintSettings& s)
               static_cast<float>(GetDeviceCaps(dc, VERTRES)) * wy};
 }
 
+// Innehåller `text` ordet `ord`, utan hänsyn till skiftläge?
+bool innehållerUtanSkiftläge(const wchar_t* text, const wchar_t* ord)
+{
+    if (!text)
+        return false;
+    std::wstring hö = text;
+    std::wstring nål = ord;
+    for (wchar_t& c : hö)
+        c = static_cast<wchar_t>(std::towlower(c));
+    for (wchar_t& c : nål)
+        c = static_cast<wchar_t>(std::towlower(c));
+    return hö.find(nål) != std::wstring::npos;
+}
+
+// UT-fälten `promptsForFile` och `outputExtension` ur skrivarens inställningar:
+// porten PORTPROMPT: betyder att skrivaren frågar efter fil när jobbet
+// startar, och "PDF" i drivrutinens namn ger ".pdf". Går skrivaren inte att
+// läsa loggas det och båda fälten nollställs.
+void readPrinterOutput(const std::wstring& printer, PrintSettings& s)
+{
+    s.promptsForFile = false;
+    s.outputExtension.clear();
+    std::wstring namn = printer;   // Win32 tar en skrivbar sträng
+    HANDLE       h    = nullptr;
+    if (!OpenPrinterW(namn.data(), &h, nullptr)) {
+        log("Utskrift: skrivarens inställningar gick inte att läsa (%lu)",
+            GetLastError());
+        return;
+    }
+    DWORD bytes = 0;
+    GetPrinterW(h, 2, nullptr, 0, &bytes);   // ERROR_INSUFFICIENT_BUFFER, längden
+    std::vector<BYTE> buf(bytes);
+    if (bytes == 0 || !GetPrinterW(h, 2, buf.data(), bytes, &bytes)) {
+        log("Utskrift: skrivarens inställningar gick inte att läsa (%lu)",
+            GetLastError());
+        ClosePrinter(h);
+        return;
+    }
+    ClosePrinter(h);
+    const auto* info = reinterpret_cast<const PRINTER_INFO_2W*>(buf.data());
+    s.promptsForFile = innehållerUtanSkiftläge(info->pPortName, L"PORTPROMPT:");
+    if (innehållerUtanSkiftläge(info->pDriverName, L"PDF"))
+        s.outputExtension = ".pdf";
+}
+
+// Felkoderna som betyder att filen `outputFile` inte gick att skriva.
+bool ärFilfel(DWORD fel)
+{
+    switch (fel) {
+    case ERROR_FILE_NOT_FOUND:
+    case ERROR_PATH_NOT_FOUND:
+    case ERROR_ACCESS_DENIED:
+    case ERROR_SHARING_VIOLATION:
+    case ERROR_LOCK_VIOLATION:
+    case ERROR_INVALID_NAME:
+    case ERROR_FILENAME_EXCED_RANGE:
+    case 3003:   // skrivskyddad fil
+        return true;
+    default:
+        return false;
+    }
+}
+
 class D3dPrintDocument final : public PrintDocument {
 public:
-    explicit D3dPrintDocument(std::shared_ptr<PrinterDc> dc) : dc_(std::move(dc))
+    D3dPrintDocument(std::shared_ptr<PrinterDc> dc, bool harFil)
+        : dc_(std::move(dc)), harFil_(harFil)
     {
     }
     ~D3dPrintDocument() override
@@ -222,16 +299,21 @@ public:
         return ritad;
     }
 
-    bool finish() override
+    PrintJobResult finish() override
     {
         if (!open_)
-            return false;
+            return PrintJobResult::Failed;
         open_ = false;
         if (EndDoc(dc_->dc) <= 0) {
-            log("Utskrift: EndDoc vägrade (%lu)", GetLastError());
-            return false;
+            // Läses direkt: felet ligger kvar efter ett lyckat anrop och skrivs
+            // över av nästa.
+            const DWORD fel = GetLastError();
+            if (fel == ERROR_CANCELLED || fel == ERROR_PRINT_CANCELLED)
+                return PrintJobResult::Cancelled;
+            log("Utskrift: EndDoc vägrade (%lu)", fel);
+            return harFil_ ? PrintJobResult::FileFailed : PrintJobResult::Failed;
         }
-        return true;
+        return PrintJobResult::Ok;
     }
 
     void abort() override
@@ -245,6 +327,7 @@ public:
 private:
     std::shared_ptr<PrinterDc> dc_;
     std::vector<std::uint8_t>  bgra_;
+    bool                       harFil_;
     bool                       open_ = true;
 };
 
@@ -271,7 +354,7 @@ PrintDialogResult showPrintDialog(Window* owner, PrintSettings& s)
     pd.hwndOwner   = ägare;
     pd.hDevMode    = printer.empty() ? nullptr : devModeFor(printer, s);
     pd.Flags = PD_RETURNDC | PD_USEDEVMODECOPIESANDCOLLATE | PD_NOSELECTION |
-               PD_NOCURRENTPAGE;
+               PD_NOCURRENTPAGE | PD_HIDEPRINTTOFILE;
     pd.nMinPage       = 1;
     pd.nMaxPage       = static_cast<DWORD>(max);
     pd.nMaxPageRanges = 1;
@@ -328,11 +411,18 @@ PrintDialogResult showPrintDialog(Window* owner, PrintSettings& s)
     readSettings(pd.hDC, dm, s);
     if (dm)
         GlobalUnlock(pd.hDevMode);
+    bool skrivarLäst = false;
     if (pd.hDevNames) {
         if (const auto* dn = static_cast<const DEVNAMES*>(GlobalLock(pd.hDevNames))) {
             s.printer = toUtf8(reinterpret_cast<const wchar_t*>(dn) + dn->wDeviceOffset);
             GlobalUnlock(pd.hDevNames);
+            readPrinterOutput(toWide(s.printer), s);
+            skrivarLäst = true;
         }
+    }
+    if (!skrivarLäst) {
+        s.promptsForFile = false;
+        s.outputExtension.clear();
     }
     if ((pd.Flags & PD_PAGENUMS) && pd.nPageRanges >= 1) {
         s.fromPage = static_cast<int>(intervall.nFromPage);
@@ -371,28 +461,61 @@ bool openPrinter(PrintSettings& s)
         return false;
     }
     s.printer = toUtf8(printer);
+    readPrinterOutput(printer, s);
     s.native  = std::make_shared<PrinterDc>(dc);
     return true;
 }
 
-std::unique_ptr<PrintDocument> beginPrintDocument(const PrintSettings& s,
-                                                  const std::string& title)
+PrintStart beginPrintDocument(const PrintSettings& s, const std::string& title)
 {
+    PrintStart start;   // Failed tills jobbet startat
     // `native` sätts bara här i filen, så typen är känd.
     std::shared_ptr<PrinterDc> dc = std::static_pointer_cast<PrinterDc>(s.native);
     if (!dc) {
         log("Utskrift: ingen skrivare vald");
-        return nullptr;
+        return start;
     }
-    const std::wstring namn = toWide(title);
-    DOCINFOW           di{};
+    const bool         harFil = !s.outputFile.empty();
+    const std::wstring namn   = toWide(title);
+    const std::wstring fil    = toWide(s.outputFile);   // lever under StartDocW
+    if (harFil) {
+        // Provöppnar en befintlig fil utan att skapa, korta av eller ändra den.
+        const HANDLE h = CreateFileW(
+            fil.c_str(), GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h != INVALID_HANDLE_VALUE) {
+            CloseHandle(h);
+        } else {
+            const DWORD fel = GetLastError();
+            if (fel != ERROR_FILE_NOT_FOUND && fel != ERROR_PATH_NOT_FOUND) {
+                log("Utskrift: filen '%s' går inte att skriva (%lu)",
+                    s.outputFile.c_str(), fel);
+                start.result = PrintJobResult::FileFailed;
+                return start;
+            }
+        }
+    }
+    DOCINFOW di{};
     di.cbSize      = sizeof(di);
     di.lpszDocName = namn.c_str();
+    di.lpszOutput  = harFil ? fil.c_str() : nullptr;
+    SetLastError(0);
     if (StartDocW(dc->dc, &di) <= 0) {
-        log("Utskrift: StartDoc vägrade (%lu)", GetLastError());
-        return nullptr;
+        // Läses direkt, före loggen.
+        const DWORD fel = GetLastError();
+        if (fel == ERROR_CANCELLED) {
+            start.result = PrintJobResult::Cancelled;
+            return start;
+        }
+        log("Utskrift: StartDoc vägrade (%lu)", fel);
+        start.result = harFil && ärFilfel(fel) ? PrintJobResult::FileFailed
+                                               : PrintJobResult::Failed;
+        return start;
     }
-    return std::make_unique<D3dPrintDocument>(std::move(dc));
+    start.result = PrintJobResult::Ok;
+    start.doc    = std::make_unique<D3dPrintDocument>(std::move(dc), harFil);
+    return start;
 }
 
 } // namespace gfx

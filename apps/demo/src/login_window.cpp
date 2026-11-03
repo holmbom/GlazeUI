@@ -19,18 +19,18 @@ LoginWindow::LoginWindow()
     g.topLeftDark = glaze::tint(bla, 0.25f);   // de andra hörnen: bakgrunden
     setWindowGradient(g);
 
-    // LÄGET, en glyf i namnlisten: solen i mörkt, halvcirkeln i ljust — knappen
-    // visar vart den leder.
+    // LÄGET, en glyf i namnlisten: solen i mörkt, månen i ljust — knappen visar
+    // vart den leder.
     auto* lage = topBar.addEnd<glaze::ToolButton>();
     lage->name = "lage";
     lage->setGlyphOnly(true);
-    lage->setImg(glaze::stockIcon(glaze::StockIcon::Contrast));
+    lage->setImg(glaze::stockIcon(glaze::StockIcon::ThemeDark));
     lage->setToolTip("Växla mellan ljust och mörkt");
     lage->onClick = [this, lage] {
         const bool mork = themeMode() != glaze::ThemeMode::Dark;
         setThemeMode(mork ? glaze::ThemeMode::Dark : glaze::ThemeMode::Light);
-        lage->setImg(glaze::stockIcon(mork ? glaze::StockIcon::Brightness
-                                           : glaze::StockIcon::Contrast));
+        lage->setImg(glaze::stockIcon(mork ? glaze::StockIcon::ThemeLight
+                                           : glaze::StockIcon::ThemeDark));
     };
 
     // Knapparna först: fältens ankare pekar bara bakåt, och de står nederst.

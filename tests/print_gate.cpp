@@ -50,7 +50,23 @@
 //   `false` ur `showDialog` och `run` med ett stängt fönster, och texten följer språket.
 //   Sabotage som SKA fälla den: `error_ = tr(str::PrintErrorDialog)` bort ur
 //   `showDialog`s fönsterprov, `error_` som en `std::string` upplöst vid felet (bytet).
-//   Skrivarens DC efter en kompilering mäter print_dc_gate.
+//   P16 FILREGLERNA (`src/print_output.h`) och utfallet utan skrivare: `outcome()` är
+//   None före första anropet och Failed efter ett stängt fönster, filen som står kvar
+//   efter skrivarvalet (en fysisk skrivare tömmer den, en fil vald i vår dialog frågas om
+//   på nytt, appens fil står kvar), filen i ett `run` (en använd dialogfil gäller inte
+//   igen), när filvalet visas, det tomma intervallet, förslagets rensning, ändelse och
+//   ordning, `setOutputFile` (absolut, åäö hela vägen, tom rensar), `setPrinter`, jobbets
+//   resultat som utfall och felid, ett känt tomt intervall i `run` som NothingToPrint,
+//   och texten för id 406 på två språk.
+//   Sabotage som SKA fälla den: tömningen ur `keptOutputFile` bort (P16 — en fysisk skrivare
+//   behåller filen), `!fromDialog` bort ur `keptOutputFile` (P16 — dialogfilen står kvar),
+//   `spent` struntad i `fileForRun` (P16 — en använd fil gäller igen), `emptyRange` utan
+//   `pages > 0` (P16), `cleanFileName` utan de förbjudna tecknen (P16),
+//   `fs::absolute` bort ur `setOutputFile` (P16), `outcome_` bort ur `run`s intervallprov
+//   (P16), `PrintErrorFile` ur ett språk i framework.langtxt (lang_gate, och P16 på en tom
+//   text).
+//   Skrivarens DC efter en kompilering mäter print_dc_gate; filutskriften på riktigt
+//   mäter print_file_gate.
 //   MÄTER INTE skrivaren, PDF-utdata, del-vyer eller rutnätet (ritas inte), eller
 //   att 300 dpi är lika skarpt som `drawCanvas` på en utskriftssida — de delar väg.
 
@@ -58,6 +74,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -70,6 +87,7 @@
 #include "canvas/camera_math.h"   // intern — localView
 #include "canvas/resources.h"     // intern — pageRenders
 #include "canvas/scene.h"         // intern — PaintContext för sidans ritläge
+#include "print_output.h"         // intern — filreglerna
 
 namespace {
 
@@ -687,6 +705,124 @@ void fallP15()
     glaze::setLanguage(förut);
 }
 
+// P16 FILREGLERNA OCH UTFALLET: de rena reglerna i print_output.h, och det som `PrintJob`
+// svarar utan skrivare.
+void fallP16()
+{
+    namespace po = glaze::printout;
+    using glaze::PrintOutcome;
+
+    // Filen efter skrivarvalet i utskriftsdialogen.
+    check(po::keptOutputFile("a.pdf", false, true) == "a.pdf",
+          "P16 en fil från appen står kvar hos en filskrivare");
+    check(po::keptOutputFile("a.pdf", false, false).empty(),
+          "P16 en fysisk skrivare tömmer filen");
+    check(po::keptOutputFile("a.pdf", true, true).empty(),
+          "P16 en fil vald i vår dialog frågas om på nytt");
+
+    // Filen i ett `run`.
+    check(po::fileForRun("a.pdf", false, true, false) == "a.pdf",
+          "P16 run: appens fil gäller också utan filskrivare");
+    check(po::fileForRun("a.pdf", true, false, true) == "a.pdf",
+          "P16 run: en dialogfil gäller sitt jobb");
+    check(po::fileForRun("a.pdf", true, true, true).empty(),
+          "P16 run: en använd dialogfil gäller inte igen");
+    check(po::fileForRun("a.pdf", true, false, false).empty(),
+          "P16 run: en dialogfil utan filskrivare gäller inte");
+
+    // När filvalet visas.
+    check(po::needsFilePrompt(true, "", true), "P16 filvalet: skrivaren frågar, ingen fil");
+    check(!po::needsFilePrompt(false, "", true), "P16 filvalet: fysisk skrivare");
+    check(!po::needsFilePrompt(true, "a.pdf", true), "P16 filvalet: filen är satt");
+    check(!po::needsFilePrompt(true, "", false), "P16 filvalet: avstängt");
+    check(po::emptyRange(3, 5) && !po::emptyRange(3, 3) && !po::emptyRange(0, 5) &&
+              !po::emptyRange(3, 0),
+          "P16 tomt intervall bara när antalet är känt och början ligger efter slutet");
+
+    // Förslaget.
+    check(po::cleanFileName("Ritning: 12/A?") == "Ritning 12A", "P16 förbjudna tecken bort",
+          po::cleanFileName("Ritning: 12/A?"));
+    check(po::cleanFileName("  x. ") == "x" && po::cleanFileName("...").empty() &&
+              po::cleanFileName("å ä\tö") == "å äö",
+          "P16 blanktecken och punkter i kanterna bort, åäö kvar");
+    check(po::suggestedName("", "", "Fönster", ".pdf") == "Fönster.pdf",
+          "P16 förslaget: ägarens titel med ändelse");
+    check(po::suggestedName("Egen", "Titel", "Ägare", ".pdf") == "Egen.pdf" &&
+              po::suggestedName("", "Titel", "Ägare", "") == "Titel",
+          "P16 förslaget: appens går först, ingen ändelse när den är okänd");
+    check(po::suggestedName("???", "Titel", "Ägare", ".pdf") == "Titel.pdf",
+          "P16 förslaget: ett namn som rensas bort ger vika för nästa");
+    check(po::suggestedName("v1.2", "", "", ".pdf") == "v1.2" &&
+              po::suggestedName("", "", "", ".pdf").empty(),
+          "P16 förslaget: en egen ändelse står kvar, inget namn ger inget");
+    check(po::extensionLabel(".pdf") == "PDF" && po::extensionLabel("").empty(),
+          "P16 filtrets namn ur ändelsen");
+
+    // Jobbresultatet.
+    check(po::outcomeOf(gfx::PrintJobResult::Ok) == PrintOutcome::Ok &&
+              po::outcomeOf(gfx::PrintJobResult::Cancelled) == PrintOutcome::Cancelled &&
+              po::outcomeOf(gfx::PrintJobResult::FileFailed) == PrintOutcome::FileFailed &&
+              po::outcomeOf(gfx::PrintJobResult::Failed) == PrintOutcome::Failed,
+          "P16 jobbresultatet som utfall");
+    check(po::errorTextId(gfx::PrintJobResult::FileFailed) == glaze::str::PrintErrorFile &&
+              po::errorTextId(gfx::PrintJobResult::Failed) == glaze::str::PrintErrorJob &&
+              po::errorTextId(gfx::PrintJobResult::Ok) == 0 &&
+              po::errorTextId(gfx::PrintJobResult::Cancelled) == 0,
+          "P16 felbeskedet per jobbresultat, inget för Ok och avbrott");
+
+    // Egenskaperna.
+    glaze::PrintJob jobb;
+    check(jobb.outcome() == PrintOutcome::None, "P16 inget utfall före första anropet");
+    jobb.setOutputFile("rapport å.pdf");
+    namespace fd = glaze::filedlg;
+    const std::string väntad =
+        fd::utf8FromPath(std::filesystem::absolute(fd::pathFromUtf8("rapport å.pdf")));
+    check(fd::pathFromUtf8(jobb.outputFile()).is_absolute() && jobb.outputFile() == väntad,
+          "P16 setOutputFile: absolut och åäö orörda", jobb.outputFile());
+    jobb.setOutputFile("");
+    check(jobb.outputFile().empty(), "P16 setOutputFile: tom rensar");
+    jobb.setPrinter("Någon skrivare");
+    check(jobb.printerName() == "Någon skrivare" && !jobb.promptsForFile(),
+          "P16 setPrinter: namnet satt, skrivaren okänd tills den öppnats");
+
+    // Utfallet utan skrivare.
+    Värd stängt;
+    check(!jobb.showDialog(stängt) && jobb.outcome() == PrintOutcome::Failed &&
+              !jobb.isCancelled(),
+          "P16 showDialog med ett stängt fönster: Failed");
+    const auto tom = [](int, glaze::Painter&) { return false; };
+    check(!jobb.run(stängt, 1, tom) && jobb.outcome() == PrintOutcome::Failed &&
+              !jobb.isCancelled(),
+          "P16 run med ett stängt fönster: Failed");
+
+    Värd öppet;
+    öppet.setOffscreen(true);
+    öppet.show();
+    if (öppet.isOpen()) {
+        glaze::PrintJob intervall;
+        intervall.setPageRange(5, 6);
+        const bool gick = intervall.run(öppet, 3, tom);
+        const PrintOutcome väntat = glaze::PrintJob::isSupported() ? PrintOutcome::NothingToPrint
+                                                                   : PrintOutcome::Failed;
+        check(!gick && intervall.outcome() == väntat && !intervall.isCancelled() &&
+                  intervall.pagesPrinted() == 0,
+              "P16 run: ett känt tomt intervall är NothingToPrint");
+        check(!glaze::PrintJob::isSupported() || intervall.lastError().empty(),
+              "P16 run: inget att skriva ut är inget fel", intervall.lastError());
+    }
+
+    // Texten för filfelet följer språket.
+    const std::string förut = glaze::language();
+    glaze::setLanguage("sv");
+    const glaze::TrText text = glaze::tr(glaze::str::PrintErrorFile);
+    const std::string   sv   = text.str();
+    glaze::setLanguage("en");
+    const std::string en = text.str();
+    glaze::setLanguage(förut);
+    check(sv == "Filen gick inte att skriva." && en == "The file could not be written.",
+          "P16 id 406 på svenska och engelska", sv + " / " + en);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -705,6 +841,7 @@ int main(int argc, char** argv)
     fallP12();
     fallP13P14();
     fallP15();
+    fallP16();
     if (g_skips > 0 && g_fall == 0) {
         std::printf("=== print_gate: hoppades över (ingen display) ===\n");
         return 77;

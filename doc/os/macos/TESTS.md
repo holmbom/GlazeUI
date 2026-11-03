@@ -249,6 +249,22 @@ fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
   *Gör:* kör `print_gate`, fall P8–P12.
   *Rätt utfall:* grinden grön, och inga Metal-valideringsfel.
 
+- **Utskrift till fil** (blint skrivet): `MetalPrintDocument` och
+  `beginPrintDocument` i `Glaze/gfx/src/backend_metal/metal_print.mm`.
+  *Gör:* `setOutputFile` med en ny fil, en befintlig fil och en katalog utan
+  skrivrätt; panelens eget sparval utan fil; Avbryt i systemets förloppspanel.
+  *Rätt utfall:* filen blir en PDF och inget går till papper; katalogen ger
+  `FileFailed`; panelens sparval fungerar som förut; Avbryt ger `Failed` med
+  felbeskedet (orsaken går inte att läsa där).
+
+- **Den stora ikonen bredvid flyttbara fält** (blint skrivet för högersidan):
+  `DockHost::layoutIn` i `Glaze/widgets/src/widgets/dock_host.cpp` ger luckan
+  `topEnd` när ikonen står till höger.
+  *Gör:* `demo --slate`, menyerna i namnlisten, stor ikon, och fyll bandet med
+  Visa → Verktygsfält → Lägg till fält.
+  *Rätt utfall:* fälten slutar vid ikonen och krymper eller klipps där, och ikonen
+  blir liten när inget fält är dockat överst.
+
 - **Utskriftsdialogens utfall** (blint skrivet): `showPrintDialog` i
   `Glaze/gfx/src/backend_metal/metal_print.mm` svarar `PrintDialogResult`.
   *Gör:* kör `print_gate` fall P15, och Avbryt i dialogen i en app.

@@ -644,6 +644,21 @@ if(WIN32)
     target_link_libraries(print_dc_gate PRIVATE glaze gdi32 winspool)
     add_test(NAME print_dc_gate COMMAND print_dc_gate)
     set_tests_properties(print_dc_gate PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+
+    # print_file_gate  UTSKRIFT TILL FIL (bara Windows): Microsoft Print to PDF på
+    #                  riktigt via `PrintJob` — en ny fil, åäö i sökvägen, en
+    #                  befintlig fil, filfel (katalogen saknas, skrivskyddad, en
+    #                  katalog, låst fil) utan Windows egen ruta, avbrott med
+    #                  filen orörd, vår spara-dialog (namnet ifyllt, Avbryt, OK och
+    #                  frågan på nytt) och det tomma intervallet. En vakttråd
+    #                  stänger varje systemruta. Når `Glaze/widgets/src/` för
+    #                  `FileDialogWindow`. 77 = skrivaren saknas => SKIPPED.
+    add_executable(print_file_gate print_file_gate.cpp)
+    target_link_libraries(print_file_gate PRIVATE glaze gdi32 winspool)
+    target_include_directories(print_file_gate
+                               PRIVATE ${CMAKE_SOURCE_DIR}/Glaze/widgets/src)
+    add_test(NAME print_file_gate COMMAND print_file_gate)
+    set_tests_properties(print_file_gate PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 endif()
 
 # dnd_gate  DRAG-AND-DROPS grind: lasten och effektmasken

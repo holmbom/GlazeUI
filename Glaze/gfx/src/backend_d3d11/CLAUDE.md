@@ -298,6 +298,14 @@ egen fil; backendarnas 3D-del hade inte rymts under 1000 rader).
   `VERTRES` + `EndPage`. DC:n (`PrinterDc`) är `PrintSettings::native`.
   `PD_RESULT_PRINT` utan `hDC` är inget avbrott: loggat med `GetLastError` och
   `CommDlgExtendedError`, svaret `PrintDialogResult::PrinterFailed`.
+  TILL FIL: `PD_HIDEPRINTTOFILE` döljer kryssrutan, och `readPrinterOutput` läser
+  porten (`PORTPROMPT:` = frågar efter fil) och ändelsen ur drivrutinens namn.
+  `outputFile` går till `lpszOutput`, efter en provöppning som inte skriver: en
+  LÅST fil ger annars Windows egen ruta inne i `StartDocW`, som också väntar på
+  användaren. Filen skrivs vid `EndDoc`, och `AbortDoc` lämnar en befintlig fil
+  orörd. `GetLastError` läses bara efter ett MISSLYCKAT anrop (87 ligger kvar efter
+  ett lyckat `EndDoc`); 1223 är ett avbrott utan logg. Samma DC går att återanvända
+  efter ett avbrott, ett fel och ett färdigt jobb.
   `hwndOwner` måste vara giltigt — `D3dWindow::hwnd()` finns för det. Länkar
   `comdlg32` och `winspool`.
 - **`d3d11_touchpad.h/.cpp`** (TODO 53) — STYRPLATTAN per fönster

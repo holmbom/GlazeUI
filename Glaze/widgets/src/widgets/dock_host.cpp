@@ -287,11 +287,51 @@ DockGeometry DockHost::layoutIn(const detail::DockModel& m, const Ctx& c,
                                 const gfx::Rectf& b,
                                 const detail::DockLive& l) const
 {
+    // Den stora programikonen står i hörnet: fälten börjar bredvid den.
+    float ikon = 0.0f;
+    if (const AppWindow* w = appWindow()) {
+        const Bar* rad = w->appIcon.rowBeside();
+        if (rad && rad->parent() == this)
+            ikon = w->appIcon.reservedWidth(c, AppIcon::Row::Menu);
+    }
+    const bool höger = AppIcon::onRightSide();
     return detail::computeLayout(
-        m, b, c, l, [&c](const ToolBar& t, bool stående) {
+        m, b, c, l,
+        [&c](const ToolBar& t, bool stående) {
             return detail::BarExtent{t.sizeFor(c, stående, true),
                                      t.minLength(c, stående, true)};
-        });
+        },
+        höger ? 0.0f : ikon, höger ? ikon : 0.0f);
+}
+
+const ToolBar* DockHost::topBandBar() const
+{
+    const detail::DockModel m = synced();
+    for (const detail::DockBand& band : m.bandsAt(Dock::Top))
+        for (const ToolBar* t : band.bars)
+            if (t->isVisible())
+                return t;
+    return nullptr;
+}
+
+float DockHost::topBandHeight(const Ctx& c) const
+{
+    const detail::DockModel m = synced();
+    for (const detail::DockBand& band : m.bandsAt(Dock::Top)) {
+        float höjd = 0.0f;
+        for (const ToolBar* t : band.bars)
+            if (t->isVisible())
+                höjd = std::max(höjd, t->sizeFor(c, false, true).h);
+        if (höjd > 0.0f)
+            return höjd;
+    }
+    return 0.0f;
+}
+
+void DockHost::iconRowChanged()
+{
+    if (AppWindow* w = appWindow(); w && w->appIcon.isLarge())
+        w->invalidate();
 }
 
 DockGeometry DockHost::geometry(const Ctx& c, const gfx::Rectf& b) const
@@ -371,6 +411,7 @@ void DockHost::childAdded(Widget& child)
             // modellen och behåller platsen.
             model_->addBar(*t);
         }
+        iconRowChanged();
     }
     invalidate();
 }
@@ -386,6 +427,7 @@ void DockHost::childRemoved(Widget& child)
     if (auto* t = dynamic_cast<ToolBar*>(&child)) {
         model_->removeBar(*t);
         forgetBar(t);
+        iconRowChanged();
     }
     invalidate();
 }
@@ -398,6 +440,7 @@ void DockHost::childVisibilityChanged(Widget& child)
 {
     if (dynamic_cast<ToolBar*>(&child)) {
         invalidate();   // ett dolt fält skär inget — banden räknas om
+        iconRowChanged();
         if (!inLayout_)
             guardFocus();   // fokus i ett fält som just doldes
         return;
@@ -863,6 +906,7 @@ void DockHost::barFloatingChanged(ToolBar& t)
         model_->addBar(t);
     }
     invalidate();
+    iconRowChanged();
     guardFocus();
     postFloatSync();
 }
@@ -878,6 +922,7 @@ void DockHost::barFloatingChanged(ToolBar& t)
 void DockHost::barChanged(ToolBar& t)
 {
     invalidate();
+    iconRowChanged();
     if (floatOf(&t))
         postFloatSync();
 }
@@ -1935,6 +1980,7 @@ bool DockHost::applyTool(ToolBar& t, const ToolDrop& d)
     }
     writeBackBars();
     invalidate();   // banden och allt innanför dem flyttar
+    iconRowChanged();
     return true;
 }
 

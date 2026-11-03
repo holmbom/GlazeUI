@@ -974,7 +974,7 @@ bor i `src/backend_*/` — läcker en typ hit är abstraktionen bruten.
   svarar false och gör ingenting, så en `glaze::TrayIcon` som lever längre
   än appen inte kan krascha den. Det som RITAS är inte fasadens: menyn är
   glaze:s egen popup och tooltipen OS:ets.
-- **`print.h`** (REQ8 10) — UTSKRIFTEN, app-global som `tray.h` (TRE implementationer): `PrintSettings` (papper i mm STÅENDE, orientering, kopior, intervall; ut skrivare, dpi, `printableMm` i den orienterade sidan, opakt `native`), `printAvailable`/`showPrintDialog` (SYSTEMETS dialog; `PrintDialogResult` skiljer avbrott från fel)/`openPrinter` (tomt namn = standard)
+- **`print.h`** (REQ8 10) — UTSKRIFTEN, app-global som `tray.h` (TRE implementationer): `PrintSettings` (papper i mm STÅENDE, orientering, kopior, intervall, in `outputFile`; ut skrivare, dpi, `printableMm` i den orienterade sidan, `promptsForFile`, `outputExtension`, opakt `native`), `beginPrintDocument` svarar `PrintStart` och `finish` `PrintJobResult`, som skiljer avbrott, filfel och andra fel, `printAvailable`/`showPrintDialog` (SYSTEMETS dialog; `PrintDialogResult` skiljer avbrott från fel)/`openPrinter` (tomt namn = standard)
   och `PrintDocument` (`addPage(rgba)` över det utskrivbara området, `finish`/`abort`). Windows PrintDlgEx + GDI, macOS NSPrintOperation (BLINT), Linux false.
 
 ## Fabriks-/tvåfasmönstret

@@ -750,7 +750,7 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
 - **`app_icon.cpp`** — PROGRAMIKONEN. `contentSize` (`measureScope()`
   `Root` — den läser namnlistens och menyradens tillstånd) är geometrins enda källa: FRISTÅENDE (registret, previewn) namnlistens
   kvadrat, utan synlig TopBar eller med `noIcon` {0, 0}, annars kvadraten
-  namnlist [+ raden under när `rowBeside()` svarar — stor begärd, menyraden på egen rad eller det översta verktygsfältet] med
+  namnlist [+ raden under när `rowBeside()` svarar — stor begärd, menyraden på egen rad, det översta verktygsfältet eller en `DockHost`s yttersta band vid överkanten (värdens `iconRowChanged` ritar om fönstret när banden ändras)] med
   axelregeln på barernas `height`; `reservedWidth` läser den. `draw` ritar
   PLATTAN (`capsuleHover`/`capsulePress`, `appIconPlateInset`/`appIconRadius`)
   bara när menyn har poster och är öppen eller hovrad, och bilden med
