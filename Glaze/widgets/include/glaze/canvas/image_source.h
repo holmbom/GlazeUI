@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 #include "glaze/assets.h"
 #include "glaze/canvas/bitmap.h"
@@ -38,15 +40,16 @@
 
 namespace glaze {
 
-enum class StockIcon : std::uint16_t;       // glaze/stock_icon.h
-enum class StockIconStyle : std::uint8_t;   // glaze/stock_icon.h
+enum class StockIcon : std::uint16_t;   // glaze/stock_icon.h
+enum class IconStyle : std::uint8_t;    // glaze/stock_icon.h
 
 class ImageSource {
 public:
-    // `Stock` är en STANDARDIKON (glaze/stock_icon.h): en vektor som
-    // rastreras när den ritas, i fönstrets täthet och temats textfärg —
-    // `stockIcon()` är enda vägen dit.
-    enum class Kind : std::uint8_t { None, Asset, Bitmap, Texture, Stock };
+    // `Icon` är en RITAD IKON (glaze/stock_icon.h) — en standardikon
+    // (`stockIcon()`) eller appens egen (`drawnIcon()`, `drawnName()` inte
+    // tom): en vektor som rastreras när den ritas, i fönstrets täthet och
+    // temats färger.
+    enum class Kind : std::uint8_t { None, Asset, Bitmap, Texture, Icon };
 
     ImageSource() = default;
     ImageSource(AssetHandle h);       // NOLINT — implicita med flit
@@ -59,11 +62,17 @@ public:
     const AssetHandle&   asset() const { return asset_; }
     const Bitmap&        bitmap() const { return bitmap_; }
     const RenderTexture& texture() const { return texture_; }
-    StockIcon            stock() const { return stock_; }             // Kind::Stock
-    StockIconStyle       stockStyle() const { return stockStyle_; }   // Kind::Stock
+    StockIcon            stock() const { return stock_; }           // Kind::Icon
+    const std::string&   drawnName() const { return drawn_; }       // Kind::Icon
+    IconStyle            iconStyle() const { return iconStyle_; }   // Kind::Icon
 
-    // Assetens storleksklass i LOGISKA px (`assetSizeClass`), standard-
-    // ikonens klass (`stockIcon`s `sizeClass`), och 0 för en Bitmap, en
+    // Bilden för en kontroll i ett TILLSTÅND: en ikon i `IconStyle::Auto`
+    // blir Color när `enabled` och Mono annars; allt annat svarar med sig
+    // självt. `Draw::stateGlyph` frågar den.
+    ImageSource forState(bool enabled) const;
+
+    // Assetens storleksklass i LOGISKA px (`assetSizeClass`), ikonens klass
+    // (`stockIcon`s och `drawnIcon`s `sizeClass`), och 0 för en Bitmap, en
     // RenderTexture och ingen bild — assets.h:s "0 = ospecificerad, widgeten
     // väljer fallback" (`Style::iconFallback`).
     float sizeClass() const;
@@ -76,17 +85,20 @@ public:
     friend bool operator==(const ImageSource& a, const ImageSource& b);
 
 private:
-    ImageSource(StockIcon icon, int sizeClass, StockIconStyle style);   // stockIcon()
-    friend ImageSource stockIcon(StockIcon icon, int sizeClass, StockIconStyle style);
+    ImageSource(StockIcon icon, std::string drawn, int sizeClass,
+                IconStyle style);   // stockIcon(), drawnIcon()
+    friend ImageSource stockIcon(StockIcon icon, int sizeClass, IconStyle style);
+    friend ImageSource drawnIcon(std::string_view name, int sizeClass, IconStyle style);
 
     Kind          kind_ = Kind::None;
     AssetHandle   asset_{};
     Bitmap        bitmap_;
     RenderTexture texture_;
     std::uint64_t version_ = 0;   // Bitmap/RenderTexture: versionen vid skapandet
-    StockIcon     stock_{};       // Stock: ikonen och dess storleksklass
-    int           stockSize_ = 0;
-    StockIconStyle stockStyle_{};
+    StockIcon     stock_{};       // Icon: standardikonen, eller appens namn,
+    std::string   drawn_;         // och storleksklassen och stilen
+    int           iconSize_ = 0;
+    IconStyle     iconStyle_{};
 };
 
 } // namespace glaze

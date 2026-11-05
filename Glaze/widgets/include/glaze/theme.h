@@ -213,17 +213,20 @@ public:
         // och därför SIST, utanför de positionella literalerna.
         gfx::Color canvasGrid;
 
-        // STANDARDIKONERNAS FÄRGER — accentdelarna i
-        // `StockIconStyle::Color` (glaze/stock_icon.h); konturen är `text`
-        // som i mono. Kulören BETYDER något (statusrollernas skäl: en mapp är
-        // gul, ett fel rött) och följer inte familjens hue — men LJUSHETEN
-        // följer läget, ur paletten. HÄRLEDDA i `deriveStockIcon()` och
-        // därför SIST, utanför de positionella literalerna.
+        // STANDARDIKONERNAS FÄRGER — ytorna och linjerna i
+        // `IconStyle::Color` (glaze/stock_icon.h). Kulören BETYDER något
+        // (statusrollernas skäl: en mapp är gul, ett fel rött) och följer
+        // inte familjens hue, och färgerna är desamma i båda lägena — kanten
+        // mot bakgrunden rättas när ikonen rastreras. HÄRLEDDA i
+        // `deriveStockIcon()` och därför SIST, utanför de positionella
+        // literalerna.
         gfx::Color stockBlue;      // information, spara, navigering, media
         gfx::Color stockGreen;     // klar, lägg till, spela
         gfx::Color stockRed;       // fel, ta bort, stopp
         gfx::Color stockAmber;     // varning, lås, stjärna
         gfx::Color stockYellow;    // mappar — en YTA, aldrig en linje
+        gfx::Color stockPaper;     // papperet — filens sida, diskettens etikett:
+                                   // ljust i båda lägena, dämpat i mörkt
     };
 
     // Allt en widget behöver vid ritning för ETT läge. Egen nivå (inte

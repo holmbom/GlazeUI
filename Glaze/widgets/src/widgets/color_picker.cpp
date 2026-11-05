@@ -353,7 +353,7 @@ void ColorPicker::draw(const Ctx& c)
 
     // FÄRGRUTAN är INNEHÅLL — samma i alla tre familjerna (paletten i
     // ../color_panel.cpp bär skälet). Inaktiv TONAS den med ikonernas mått
-    // (`iconFade`, som `Content::imgOpacity`): färgen finns kvar men läser som
+    // (`iconFade`, som `Draw::stateGlyph`): färgen finns kvar men läser som
     // "inte nu", mot vilken fältyta som helst. Konturen är kontrollkanten, så
     // en vit ruta syns i ett vitt fält. Med ALFAN ritas färgen över
     // ett RUTMÖNSTER i temats två ytor, så genomskinligheten syns.

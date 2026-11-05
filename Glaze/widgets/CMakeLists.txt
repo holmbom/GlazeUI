@@ -163,9 +163,11 @@ add_library(glaze_impl ${_glaze_lib_type}
     # PROGRAMIKONENS RAMAR TILL OS-FÖNSTRET — ur förvalet eller
     # appens bild, en ram per ikonstorlek (intern, se src/window_icon.h).
     src/window_icon.cpp
-    # STANDARDIKONERNA — ritbeskrivningarna och rastreringen bakom
-    # `glaze::stockIcon` (vektorer i koden, inga bildfiler).
+    # STANDARDIKONERNA OCH APPENS — ritbeskrivningarna och rastreringen
+    # bakom `glaze::stockIcon` och `glaze::drawnIcon` (vektorer i koden, inga
+    # bildfiler), och ikonarket `glaze::writeIconSheet`.
     src/stock_icon.cpp
+    src/icon_sheet.cpp
     # SYSTEMFÄLTETS IKON — `TrayIcon`, registret, menyns värdfönster
     # och dispatchen från App; den rena modellen bredvid är header-only
     # (src/tray_model.h) och grindas headless.

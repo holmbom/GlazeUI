@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #include "glaze/canvas/image_source.h"
 
@@ -21,25 +23,36 @@
 // 24 × 24 med EN streckbredd för alla — som RASTRERAS när den ritas, i
 // fönstrets FYSISKA px. Därför följer den
 //   * TÄTHETEN — 1×, 2× och fraktionerad skala ger alla en skarp bild,
-//     rastrerad i exakt den storlek den ritas (aldrig en skalad bitmapp);
+//     rastrerad i exakt den storlek den ritas (aldrig en skalad bitmapp) och
+//     fäst mot pixelrutnätet: strecket är ett helt antal px och det raka
+//     står på hela pixlar, så bara det sneda och det runda kantutjämnas;
 //   * TEMAT — ikonen färgas med temats textfärg (`Theme::Colors::text`) i det
 //     läge fönstret ritar i, och färgvariantens accenter med temats
 //     `stock*`-roller, så ljust och mörkt följer utan att appen gör något;
 //   * STORLEKSKLASSEN — 16, 24, 32 och 48 logiska px (`sizeClass()`, som en
 //     assets storleksklass: widgetarna ger ikonen den sidan).
-// Stilen är ramverkets egna ikoners (`Draw::icon`): en enfärgad kontur, ett
-// streck på en logisk px i 16. En INAKTIV kontroll tonar den som varje annan
-// bild (`Content::imgOpacity` = 1 − `Style::iconFade`).
+// Stilen: en kontur med raka ändar och skarvar, ett streck på en hel fysisk
+// px upp till 31 px och två från 32, och färgade ytor (stilen nedan). En
+// INAKTIV kontroll tonar den som varje annan bild (`Draw::stateGlyph`:
+// opacitet 1 − `Style::iconFade`), och `IconStyle::Auto` byter dessutom till
+// Mono.
 //
 // Rastreringen cachas per (ikon, fysisk storlek, färg) i processen — UI-
 // tråden, som all ritning. En OS-ikon (`AppWindow::appIcon`, `TrayIcon`) av en
 // standardikon rastreras i appens aktuella textfärg när den sätts.
 //
+// APPENS EGNA IKONER ritas med SAMMA motor och SAMMA språk (`registerIcon`,
+// `GLAZE_REGISTER_ICON` och `drawnIcon` längst ned) — lagren, färgerna,
+// tonerna, gradienterna, kontrastkraven, delarna och pixelfästningen. Det är
+// förstahandsvalet för en apps ikoner; en PNG i assets.bin är för det som
+// inte går att rita.
+//
 // Regel 8: `glaze::stockIcon(glaze::StockIcon::Save)`,
-// `glaze::stockIcon(glaze::StockIcon::Save, 24)` och
-// `glaze::stockIcon(glaze::StockIcon::Save, 24, glaze::StockIconStyle::Color)`
-// är bildargument i `.glazeui` precis som `glaze::img(...)`, och previewn
-// ritar dem.
+// `glaze::stockIcon(glaze::StockIcon::Save, 24)`,
+// `glaze::stockIcon(glaze::StockIcon::Save, 24, glaze::IconStyle::Color)` och
+// `glaze::drawnIcon("Spara", 24, glaze::IconStyle::Auto)` är bildargument i
+// `.glazeui` precis som `glaze::img(...)`, och previewn ritar dem (en appikon
+// som previewn inte känner ritas som `StockIcon::Image` och loggas).
 
 namespace glaze {
 
@@ -171,19 +184,23 @@ enum class StockIcon : std::uint16_t {
     ThemeSystem, ThemeLight, ThemeDark,
 };
 
-// STILEN. `Mono` är den enfärgade konturen i temats textfärg. `Color` är
-// SAMMA kontur med ACCENTDELAR i en semantisk färgroll — mappen gul, spara
-// och information blå, fel och ta bort röda, varningen bärnsten, klar och
-// lägg till gröna (`Theme::Colors::stockBlue` … `stockYellow`, härledda ur
-// paletten för ljust och mörkt läge). En ikon utan accent ritas likadant i
-// båda.
-enum class StockIconStyle : std::uint8_t { Mono, Color };
+// STILEN — för standardikonerna och appens ikoner. `Color` är konturen i
+// temats textfärg med YTOR och LINJER i en semantisk färgroll — mappen gul,
+// spara och information blå, fel och ta bort röda, varningen bärnsten, klar
+// och lägg till gröna, filens sida i papperets ton (`Theme::Colors::stockBlue`
+// … `stockYellow` och `stockPaper`, härledda ur paletten för ljust och mörkt
+// läge). `Mono` är SAMMA bild NEDTONAD: ytorna blekta mot papperet, linjerna
+// och konturen i textfärgen. En ikon utan färg ritas likadant i båda.
+// `Auto` är Color när kontrollen är aktiv och Mono när den är inaktiv
+// (`ImageSource::forState`, som `Draw::stateGlyph` frågar); där inget
+// tillstånd finns ritas den som Color.
+enum class IconStyle : std::uint8_t { Mono, Color, Auto };
 
 // Ikonen i storleksklassen `sizeClass` (logiska px — 16, 24, 32 eller 48; en
 // annan positiv sida går också) och stilen `style`. `sizeClass` ≤ 0 loggas
 // och blir 16.
 ImageSource stockIcon(StockIcon icon, int sizeClass = 16,
-                      StockIconStyle style = StockIconStyle::Mono);
+                      IconStyle style = IconStyle::Mono);
 
 // Antalet ikoner — uppräkningens värden är 0 … stockIconCount() − 1 i
 // deklarationsordning (en palett, ett galleri).
@@ -197,4 +214,82 @@ std::string_view stockIconName(StockIcon icon);
 // Namnet tillbaka till posten; inget svar för ett okänt namn.
 std::optional<StockIcon> stockIconByName(std::string_view name);
 
+// ----------------------------------------------------------- appens ikoner
+//
+// En app RITAR sina ikoner med standardikonernas motor: ett namn, KONTUREN
+// och FÄRGEN i samma språk och samma form som ramverkets egna — tabellen i
+// src/stock_icon.cpp är 395 poster av just det slaget. Rutan är 24 × 24 med
+// rad 0 överst:
+//
+//     GLAZE_REGISTER_ICON("Spara",
+//         "@disk | M 9 16 L 15 10",          // konturen, ett lager per `|`
+//         "#disk | all deep red");           // färgen, samma lager
+//
+//     sparaBtn.setImg(glaze::drawnIcon("Spara", 24, glaze::IconStyle::Auto));
+//
+//   former    M L H V Q Z (linjer och kurvor), F (nästa linje fylls), C A E U
+//             (cirkel, båge, ellips, ellipsbåge), R B (rektangel, fylld), D
+//             (skiva), K (utstansad text), @namn (en DEL)
+//   färger    blue green red amber yellow paper — ett ord börjar ett lager i
+//             den färgen; tonerna light dark deep ink, `strong`, `gradient`,
+//             `over`/`under`, `all [ton] <färg>` för konturen, `contrast N`
+//             (lagrets krav mot det under, förval 3:1; en linje 4,5:1) och
+//             #namn (en FÄRGDEL)
+//   lager     upp till FYRA, åtskilda av `|` i båda strängarna. Varje lager
+//             läggs på det under med sitt kontrastkrav: ytterpixlarna flyttas
+//             i ljushet, och räcker det inte växer en ring runt lagret.
+//
+// Delarna är ramverkets (`@fil`, `@mapp`, `@disk`, `#fil`, `#rund` …) och
+// appens egna (`registerIconPart`). Ett fel i en beskrivning loggas EN gång
+// per ikon, med ikonens namn och ordet där felet sitter, och resten av det
+// lagret ritas inte. Ritningen cachas som standardikonernas, per (ikon,
+// fysisk storlek, stil, färger).
+//
+// Registreringen är processens — innan första ritningen, gärna med makrot
+// på namespace-nivå i appens cpp, eller i `main`. Ett namn som registreras
+// igen ERSÄTTER det förra (och tömmer cachen för det). Tomt namn eller tom
+// kontur loggas och registreras inte (svaret false).
+bool registerIcon(std::string_view name, std::string_view shapes,
+                  std::string_view colors = {});
+
+// En DEL som appens ikoner (och bara de) når med `@namn` i konturen och
+// `#namn` i färgen. Ramverkets delar går före en app-del med samma namn.
+bool registerIconPart(std::string_view name, std::string_view shapes,
+                      std::string_view colors = {});
+
+// Appens ikon `name` som bild, i storleksklassen och stilen. Namnet slås upp
+// när ikonen ritas: ett namn som inte är registrerat då loggas en gång och
+// ritas som `StockIcon::Image`.
+ImageSource drawnIcon(std::string_view name, int sizeClass = 16,
+                      IconStyle style = IconStyle::Mono);
+
+// De registrerade namnen, i registreringsordning (arket, en palett).
+std::vector<std::string> drawnIconNames();
+
+// ARKET: ikonerna `names` (appens namn, eller standardikonernas — "Save") i
+// 16, 24, 32 och 48 med namnet under, i fyra rutor: mono till vänster och
+// färg till höger, ljust överst och mörkt under — ritade i ett dolt fönster
+// i skärmens skala, utan förstoring, och skrivna som PNG. Tom lista = alla
+// appens ikoner. Svarar false (och loggar) om ett namn är okänt eller om
+// fönstret eller filen inte gick att skapa. UI-tråden — appen anropar den
+// till exempel bakom en egen flagga i `main`.
+bool writeIconSheet(const std::string& pngPath,
+                    const std::vector<std::string>& names = {});
+
 } // namespace glaze
+
+// Läggs på namespace-nivå i appens cpp:
+//     GLAZE_REGISTER_ICON("Spara", "@disk", "#disk")
+//     GLAZE_REGISTER_ICON_PART("ram", "R 3 3 18 18 2", "all deep blue")
+#define GLAZE_ICON_CAT2(a, b) a##b
+#define GLAZE_ICON_CAT(a, b)  GLAZE_ICON_CAT2(a, b)
+#define GLAZE_REGISTER_ICON(name, shapes, colors)                              \
+    namespace {                                                                \
+    const bool GLAZE_ICON_CAT(glazeIconReg_, __LINE__) =                       \
+        ::glaze::registerIcon(name, shapes, colors);                           \
+    }
+#define GLAZE_REGISTER_ICON_PART(name, shapes, colors)                         \
+    namespace {                                                                \
+    const bool GLAZE_ICON_CAT(glazeIconPartReg_, __LINE__) =                   \
+        ::glaze::registerIconPart(name, shapes, colors);                       \
+    }

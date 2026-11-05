@@ -674,7 +674,7 @@ void Table::drawIcon(const Ctx& c, const gfx::Rectf& box, int row,
 {
     const ImageSource& img = rows_[std::size_t(row)].img;
     if (img.valid())
-        Draw::glyph(c, box, img, isEnabled() ? 1.0f : 1.0f - c.style->iconFade);
+        Draw::stateGlyph(c, box, img, isEnabled());
 }
 
 // ------------------------------------------------------------- beteendet

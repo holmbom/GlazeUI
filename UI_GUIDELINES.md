@@ -182,10 +182,18 @@ färg, inaktiv och ikryssad.
   `stock-icons`). Den är en vektor och klarar allt av sig själv: 16, 24, 32 och
   48 px, varje skärmskala, temats färger i båda lägena, accentfärgen på en ikryssad
   glyfknapp och tonen på en inaktiv kontroll. Färgvarianten är
-  `StockIconStyle::Color`.
-- **En egen bild ritas som den är** (`assets.bin`, `glaze::Bitmap`). Den tonas när
-  kontrollen är inaktiv, men den följer inte temats textfärg, blir inte accentfärgad
-  när knappen är ikryssad och har ingen ljus och mörk variant. Därför:
+  `IconStyle::Color`, och `IconStyle::Auto` är färg när kontrollen är aktiv och
+  mono när den är inaktiv.
+- **Rita en egen ikon med samma motor** (`GLAZE_REGISTER_ICON`, `glaze::drawnIcon`,
+  MANUAL `drawn-icons`). Det är förstahandsvalet för appens ikoner: den får allt
+  standardikonen har — storlekarna, skalan, temat, mono och färg, lagren och
+  kontrasten mot bakgrunden. Bygg den gärna av ramverkets delar (`@fil`, `#rund`,
+  `#disk` …), så den hör ihop med standardikonerna, och granska den på arket
+  (`glaze::writeIconSheet`).
+- **En bild ur pixlar ritas som den är** (`assets.bin`, `glaze::Bitmap`) — för
+  det som inte går att rita, som foton och logotyper. Den tonas när kontrollen är
+  inaktiv, men den följer inte temats textfärg, blir inte accentfärgad när knappen
+  är ikryssad och har ingen ljus och mörk variant. Därför:
   - Välj en bild som syns mot både ljus och mörk yta, eller byt den själv med
     `setImg` där appen byter läge.
   - Lägg den i varje storlek den används i. Storleksklassen bärs av listan i
@@ -198,9 +206,16 @@ färg, inaktiv och ikryssad.
   mycket tyngre än de andra.
 
 En ny standardikon i ramverket är en ritbeskrivning i en ruta på 24 × 24
-(`Glaze/widgets/src/stock_icon.cpp`), med en post i `kDefs` och, om den har en accent,
-i `kFärger`. Programmet `stockicon_sheet` i `tests/` ritar varje ikon i alla storlekar,
-i mono och färg, ljust och mörkt — titta på den innan ikonen är klar.
+(`Glaze/widgets/src/stock_icon.cpp`): en post i `kDefs` med namnet, konturen och
+färgen (ytor, toner, gradient) — samma form som en apps `GLAZE_REGISTER_ICON`. En
+detalj som ska skiljas från det den ligger på — ett tecken på en yta, något framför
+något annat — ritas som ett eget lager (`|` i både konturen och färgen), högst
+fyra. Kontrasten mot bakgrunden och mellan
+lagren sätter ramverket, och `stockicon_gate` grindar den. Programmet `glyph_sheet` i `tests/` ritar varje ikon i alla storlekar,
+i mono och färg, ljust och mörkt, och ramverkets ritade glyfer (`Draw`-formerna och
+`Draw::icon`) — titta på arket innan ikonen är klar. Appens ikoner skrivs i samma
+språk och granskas på appens ark (`glaze::writeIconSheet`, i demon
+`demo --icons-sheet ut.png`).
 
 ## Exempel — en dialog efter riktlinjerna
 

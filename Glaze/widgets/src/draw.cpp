@@ -27,12 +27,132 @@ gfx::Rectf phys(const Ctx& c, const gfx::Rectf& r)
                       r.w * c.scale, r.h * c.scale};
 }
 
-// Bilden i `Content`, med dess OPACITET (inaktivt läge — se
-// `Content::imgOpacity`). Ingenting ritas ovanpå: tonningen är bildens
-// egen alfa, så den stämmer mot vilken yta som helst.
+// Pennans tjocklek i HELA fysiska px, minst en: ett tecken som ska sitta på
+// pixelrutnätet kan inte ha en halv pixel kvar på ena sidan.
+float helaPx(const Ctx& c, const Pen& pen)
+{
+    return std::max(1.0f, std::round(Draw::penWidth(c, pen) * c.scale));
+}
+
+struct Punkt {
+    float x, y;
+};
+
+struct Sträcka {
+    Punkt a, b;
+};
+
+// BOCKENS proportioner: det korta nedslagets och det långa uppslagets längd
+// som andel av rutans sida. Mellanlägets streck har bockens bredd.
+constexpr float kBockKort = 0.20f;
+constexpr float kBockLång = 0.36f;
+
+// En rutas kant på pixelrutnätet och den kant ett `t` px tjockt streck har
+// sin MITT på för att täcka rutan exakt: halva strecket innanför den
+// avrundade kanten — mitt i en pixel för ett udda streck, på pixelkanten för
+// ett jämnt.
+struct Rutnät {
+    float x0, y0, x1, y1;   // strecklinjens ytterlägen
+
+    Rutnät(const gfx::Rectf& p, float t, bool spets)
+        : x0(std::round(p.x) + t / 2.0f),
+          y0(std::round(p.y) + t / 2.0f),
+          x1(std::round(p.x + p.w) - t / 2.0f),
+          y1(std::round(p.y + p.h) - t / 2.0f)
+    {
+        // En SPETS mitt på en sida ska också stå på rutnätet: sidans
+        // längd minus strecket görs jämn.
+        if (spets && std::fmod(x1 - x0, 2.0f) != 0.0f)
+            x1 -= 1.0f;
+        if (spets && std::fmod(y1 - y0, 2.0f) != 0.0f)
+            y1 -= 1.0f;
+    }
+    float cx() const { return (x0 + x1) / 2.0f; }
+    float cy() const { return (y0 + y1) / 2.0f; }
+};
+
+float avståndTillSträcka(float px, float py, Punkt a, Punkt b)
+{
+    const float dx = b.x - a.x, dy = b.y - a.y;
+    const float l2 = dx * dx + dy * dy;
+    const float u  = l2 > 0.0f
+                         ? std::clamp(((px - a.x) * dx + (py - a.y) * dy) / l2,
+                                      0.0f, 1.0f)
+                         : 0.0f;
+    const float ex = a.x + u * dx - px, ey = a.y + u * dy - py;
+    return std::sqrt(ex * ex + ey * ey);
+}
+
+// En LINJETECKNING i absoluta fysiska px — sträckorna, `t` px tjocka med
+// runda ändar och skarvar — ritad pixel för pixel. Täckningen räknas med
+// 4 × 4 prov per pixel mot alla sträckor på en gång (en korsning täcks en
+// gång), och en delvis täckt pixel lyfts till täckning^0,6 så ett smalt
+// streck behåller sin färg och sin tyngd i stället för att bli blekt
+// (standardikonernas regel för linjer). Grannar i en rad med samma täckning
+// blir EN rektangel.
+template <std::size_t N>
+void pixelLinjer(const Ctx& c, const Sträcka (&s)[N], float t, gfx::Color col)
+{
+    constexpr int   kProv = 4;
+    constexpr float kLyft = 0.6f;
+    float           x0 = s[0].a.x, x1 = s[0].a.x, y0 = s[0].a.y, y1 = s[0].a.y;
+    for (const Sträcka& q : s)
+        for (const Punkt& e : {q.a, q.b}) {
+            x0 = std::min(x0, e.x);
+            x1 = std::max(x1, e.x);
+            y0 = std::min(y0, e.y);
+            y1 = std::max(y1, e.y);
+        }
+    const float h   = t / 2.0f;
+    const int   ix0 = static_cast<int>(std::floor(x0 - h));
+    const int   ix1 = static_cast<int>(std::ceil(x1 + h));
+    const int   iy0 = static_cast<int>(std::floor(y0 - h));
+    const int   iy1 = static_cast<int>(std::ceil(y1 + h));
+    for (int y = iy0; y < iy1; ++y) {
+        int          start = ix0;
+        std::uint8_t runA  = 0;
+        for (int x = ix0; x <= ix1; ++x) {
+            std::uint8_t a = 0;
+            if (x < ix1) {
+                int träff = 0;
+                for (int sy = 0; sy < kProv; ++sy)
+                    for (int sx = 0; sx < kProv; ++sx) {
+                        const float px = static_cast<float>(x) +
+                                         (static_cast<float>(sx) + 0.5f) / kProv;
+                        const float py = static_cast<float>(y) +
+                                         (static_cast<float>(sy) + 0.5f) / kProv;
+                        for (const Sträcka& q : s)
+                            if (avståndTillSträcka(px, py, q.a, q.b) <= h) {
+                                ++träff;
+                                break;
+                            }
+                    }
+                if (träff > 0) {
+                    const float täckning =
+                        static_cast<float>(träff) / (kProv * kProv);
+                    a = static_cast<std::uint8_t>(std::lround(
+                        static_cast<float>(col.a) * std::pow(täckning, kLyft)));
+                }
+            }
+            if (a != runA) {
+                if (runA > 0)
+                    c.r->fillRect(gfx::Rectf{static_cast<float>(start),
+                                             static_cast<float>(y),
+                                             static_cast<float>(x - start), 1.0f},
+                                  gfx::Color{col.r, col.g, col.b, runA});
+                start = x;
+                runA  = a;
+            }
+        }
+    }
+}
+
+// Bilden i `Content`, i dess TILLSTÅND (`Content::imgEnabled`,
+// `Draw::stateGlyph`). Ingenting ritas ovanpå: tonningen är bildens egen
+// alfa, så den stämmer mot vilken yta som helst.
 void contentGlyph(const Ctx& c, const gfx::Rectf& r, const Content& ct)
 {
-    Draw::glyph(c, r, ct.img, ct.imgOpacity);
+    Draw::stateGlyph(c, r, ct.img, ct.imgEnabled);
 }
 
 // ELLIPSEN — U+2026. Typografi och inget mått, av samma skäl som bockens
@@ -283,39 +403,68 @@ void Draw::line(const Ctx& c, float x1, float y1, float x2, float y2,
 
 void Draw::check(const Ctx& c, const gfx::Rectf& b, const Pen& pen)
 {
-    // Bocken: kort nedslag följt av långt uppslag, inskriven i rutan.
-    const float x1 = b.x + 0.22f * b.w, y1 = b.y + 0.52f * b.h;
-    const float x2 = b.x + 0.42f * b.w, y2 = b.y + 0.72f * b.h;
-    const float x3 = b.x + 0.78f * b.w, y3 = b.y + 0.28f * b.h;
-    Draw::line(c, x1, y1, x2, y2, pen);
-    Draw::line(c, x2, y2, x3, y3, pen);
+    // Bocken: kort nedslag följt av långt uppslag, BÅDA i 45°, centrerad i
+    // den största kvadraten i rutan. Hörnen ligger på pixelrutnätet — mitt i
+    // en pixel för ett udda streck, på pixelkanten för ett jämnt — så varje
+    // sträcka blir en jämn trappa med samma täckning längs hela sin längd.
+    const gfx::Rectf p = phys(c, b);
+    const float      s = std::round(std::min(p.w, p.h));
+    if (s <= 0.0f)
+        return;
+    const float t    = helaPx(c, pen);
+    const float mitt = std::fmod(t, 2.0f) == 1.0f ? 0.5f : 0.0f;
+    const float ox   = std::round(p.x + (p.w - s) / 2.0f) + mitt;
+    const float oy   = std::round(p.y + (p.h - s) / 2.0f) + mitt;
+    const float kort = std::round(kBockKort * s);
+    const float lång = std::round(kBockLång * s);
+    const float vx   = std::floor((s - kort - lång) / 2.0f) + kort;
+    const float vy   = std::floor((s + lång) / 2.0f);
+    const Punkt   hörn{ox + vx, oy + vy};
+    const Sträcka bock[] = {{{hörn.x - kort, hörn.y - kort}, hörn},
+                            {hörn, {hörn.x + lång, hörn.y - lång}}};
+    pixelLinjer(c, bock, t, pen.color);
+}
+
+void Draw::checkDash(const Ctx& c, const gfx::Rectf& b, const Pen& pen)
+{
+    // Mellanlägets streck: bockens BREDD (samma proportioner som i `check`),
+    // centrerat i rutan på hela pixelrader.
+    const gfx::Rectf p = phys(c, b);
+    const float      s = std::round(std::min(p.w, p.h));
+    if (s <= 0.0f)
+        return;
+    const float t    = helaPx(c, pen);
+    const float bred = std::round(kBockKort * s) + std::round(kBockLång * s) + t;
+    const float x0   = std::round(p.x + (p.w - bred) / 2.0f);
+    const float y0   = std::round(p.y + (p.h - t) / 2.0f);
+    c.r->fillRect(gfx::Rectf{x0, y0, bred, t}, pen.color);
 }
 
 void Draw::chevron(const Ctx& c, const gfx::Rectf& b, Dir dir, const Pen& pen)
 {
     // ∧ ∨ ‹ › — SAMMA tecken vridet: spetsen i den kant `dir` pekar mot,
-    // skänklarna i den motsatta. Två linjer i alla fyra fallen.
-    const float cx = b.x + b.w / 2.0f;
-    const float cy = b.y + b.h / 2.0f;
+    // skänklarna i den motsatta. Två sträckor i alla fyra fallen, med ändarna
+    // och spetsen på pixelrutnätet (`Rutnät`) och ritade pixel för pixel.
+    const float  t = helaPx(c, pen);
+    const Rutnät g(phys(c, b), t, true);
+    Punkt        a{}, spets{}, e{};
     switch (dir) {
     case Dir::Up:
-        Draw::line(c, b.x, b.y + b.h, cx, b.y, pen);
-        Draw::line(c, cx, b.y, b.x + b.w, b.y + b.h, pen);
+        a = {g.x0, g.y1}, spets = {g.cx(), g.y0}, e = {g.x1, g.y1};
         break;
     case Dir::Left:
-        Draw::line(c, b.x + b.w, b.y, b.x, cy, pen);
-        Draw::line(c, b.x, cy, b.x + b.w, b.y + b.h, pen);
+        a = {g.x1, g.y0}, spets = {g.x0, g.cy()}, e = {g.x1, g.y1};
         break;
     case Dir::Right:
-        Draw::line(c, b.x, b.y, b.x + b.w, cy, pen);
-        Draw::line(c, b.x + b.w, cy, b.x, b.y + b.h, pen);
+        a = {g.x0, g.y0}, spets = {g.x1, g.cy()}, e = {g.x0, g.y1};
         break;
     case Dir::Down:
     default:
-        Draw::line(c, b.x, b.y, cx, b.y + b.h, pen);
-        Draw::line(c, cx, b.y + b.h, b.x + b.w, b.y, pen);
+        a = {g.x0, g.y0}, spets = {g.cx(), g.y1}, e = {g.x1, g.y0};
         break;
     }
+    const Sträcka vinkel[] = {{a, spets}, {spets, e}};
+    pixelLinjer(c, vinkel, t, pen.color);
 }
 
 void Draw::grip(const Ctx& c, const gfx::Rectf& b, bool vertical,
@@ -345,31 +494,40 @@ void Draw::grip(const Ctx& c, const gfx::Rectf& b, bool vertical,
 
 void Draw::cross(const Ctx& c, const gfx::Rectf& b, const Pen& pen)
 {
-    Draw::line(c, b.x, b.y, b.x + b.w, b.y + b.h, pen);
-    Draw::line(c, b.x, b.y + b.h, b.x + b.w, b.y, pen);
+    // ✕: diagonalerna hörn till hörn, med ändarna på pixelrutnätet — en
+    // kvadratisk ruta ger två jämna trappor i 45°, ritade utan att
+    // korsningen täcks två gånger.
+    const float  t = helaPx(c, pen);
+    const Rutnät g(phys(c, b), t, false);
+    const Sträcka kryss[] = {{{g.x0, g.y0}, {g.x1, g.y1}},
+                             {{g.x0, g.y1}, {g.x1, g.y0}}};
+    pixelLinjer(c, kryss, t, pen.color);
 }
 
 void Draw::minus(const Ctx& c, const gfx::Rectf& b, const Pen& pen)
 {
-    const float cy = b.y + b.h / 2.0f;
-    // Hårlinje = ett streck; med bredd blir det en STAV (skarpare än
-    // dubblerade linjer i de små caption-glyferna).
-    if (pen.width <= 0.0f)
-        Draw::line(c, b.x, cy, b.x + b.w, cy, pen);
-    else
-        Draw::rect(c, {b.x, cy - pen.width / 2.0f, b.w, pen.width}, 0.0f,
-                   pen.color);
+    // En STAV på hela pixelrader: tjockleken i hela fysiska px och läget
+    // avrundat, så strecket aldrig delas på två halvtäckta rader.
+    const gfx::Rectf p  = phys(c, b);
+    const float      t  = helaPx(c, pen);
+    const float      x0 = std::round(p.x), x1 = std::round(p.x + p.w);
+    const float      y0 = std::round(p.y + (p.h - t) / 2.0f);
+    c.r->fillRect(gfx::Rectf{x0, y0, x1 - x0, t}, pen.color);
 }
 
 void Draw::plus(const Ctx& c, const gfx::Rectf& b, const Pen& pen)
 {
-    const float cx = b.x + b.w / 2.0f, cy = b.y + b.h / 2.0f;
+    // Det liggande strecket är `minus`; det stående står på samma rutnät och
+    // ritas OVANFÖR och UNDER det, så korsningen aldrig täcks två gånger (en
+    // penna med alfa hade fått en mörkare mitt).
     Draw::minus(c, b, pen);
-    if (pen.width <= 0.0f)
-        Draw::line(c, cx, b.y, cx, b.y + b.h, pen);
-    else
-        Draw::rect(c, {cx - pen.width / 2.0f, b.y, pen.width, b.h}, 0.0f,
-                   pen.color);
+    const gfx::Rectf p  = phys(c, b);
+    const float      t  = helaPx(c, pen);
+    const float      x0 = std::round(p.x + (p.w - t) / 2.0f);
+    const float      y0 = std::round(p.y), y1 = std::round(p.y + p.h);
+    const float      my = std::round(p.y + (p.h - t) / 2.0f);
+    c.r->fillRect(gfx::Rectf{x0, y0, t, my - y0}, pen.color);
+    c.r->fillRect(gfx::Rectf{x0, my + t, t, y1 - my - t}, pen.color);
 }
 
 void Draw::badge(const Ctx& c, const gfx::Rectf& box, Sign sign,
@@ -674,17 +832,16 @@ void Draw::glyph(const Ctx& c, const gfx::Rectf& r, const ImageSource& img,
 {
     if (!img.valid() || !c.images)
         return;
-    if (img.kind() == ImageSource::Kind::Stock) {
-        // STANDARDIKONEN rastreras i rectets EXAKTA storlek i
+    if (img.kind() == ImageSource::Kind::Icon) {
+        // Den RITADE IKONEN rastreras i rectets EXAKTA storlek i
         // fysiska px — kvadraten centrerad och fäst på hela pixlar som i
         // `glyphResampled` — så ingen sampling sker vid någon skala.
         const gfx::Rectf p    = phys(c, r);
         const float      sida = std::round(std::min(p.w, p.h));
         if (sida <= 0.0f)
             return;
-        const Bitmap bild = detail::stockBitmap(
-            img.stock(), static_cast<int>(sida), img.stockStyle(),
-            c.theme->colors);
+        const Bitmap bild =
+            detail::iconBitmap(img, static_cast<int>(sida), c.theme->colors);
         if (gfx::Image* im = c.images->get(bild))
             c.r->drawImage(*im,
                            gfx::Rectf{std::round(p.x + (p.w - sida) / 2.0f),
@@ -707,9 +864,9 @@ void Draw::glyphResampled(const Ctx& c, const gfx::Rectf& r,
 {
     if (!img.valid() || !c.images)
         return;
-    // En standardikon rastreras redan 1:1 i `glyph`.
+    // En ritad ikon rastreras redan 1:1 i `glyph`.
     if (img.kind() == ImageSource::Kind::Texture ||
-        img.kind() == ImageSource::Kind::Stock) {
+        img.kind() == ImageSource::Kind::Icon) {
         glyph(c, r, img, opacity);
         return;
     }
@@ -725,6 +882,21 @@ void Draw::glyphResampled(const Ctx& c, const gfx::Rectf& r,
                        opacity * c.theme->imageOpacity);
     else if (img.kind() == ImageSource::Kind::Bitmap && !img.bitmap().pixels())
         glyph(c, r, img, opacity);   // utan pixlar: GPU:ns filter
+}
+
+// TILLSTÅNDET: en inaktiv bild tonas med 1 − `iconFade`, och en ikon i
+// `IconStyle::Auto` byter till Mono. En regel för varje bildbärande widget.
+void Draw::stateGlyph(const Ctx& c, const gfx::Rectf& r, const ImageSource& img,
+                      bool enabled)
+{
+    glyph(c, r, img.forState(enabled), enabled ? 1.0f : 1.0f - c.style->iconFade);
+}
+
+void Draw::stateGlyphResampled(const Ctx& c, const gfx::Rectf& r,
+                               const ImageSource& img, bool enabled)
+{
+    glyphResampled(c, r, img.forState(enabled),
+                   enabled ? 1.0f : 1.0f - c.style->iconFade);
 }
 
 ImageSource Draw::pickIcon(const Ctx& c, const gfx::Rectf& r,
@@ -775,7 +947,7 @@ gfx::Sizef Draw::imageSize(const Ctx& c, const ImageSource& img)
                           static_cast<float>(im->height()) / c.scale};
     }
     // En vektor: klassens sida, oberoende av skalan.
-    case ImageSource::Kind::Stock:
+    case ImageSource::Kind::Icon:
         return gfx::Sizef{img.sizeClass(), img.sizeClass()};
     case ImageSource::Kind::None:
         break;

@@ -121,8 +121,8 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   **`case UI::Minimalistic:`** tar BORT — ingen fyllning i vila, kanten ur
   `buttonBorder` är formen och går mot `accent` vid tryck, och trycket syns i
   FYLLNADEN (1 px är en artondel av en 18 px knapp). `contentSize()` delas av
-  alla tre. **En inaktiv knapps IKON tonas** (`Content::imgOpacity` = 1 −
-  `iconFade`). `img` parsas av `propparse::parseImg`; ikonens sida är en SATT
+  alla tre. **En inaktiv knapps IKON tonas** (`Content::imgEnabled` →
+  `Draw::stateGlyph`: 1 − `iconFade`, och Mono för `IconStyle::Auto`). `img` parsas av `propparse::parseImg`; ikonens sida är en SATT
   **`iconSize`** (`setIconSize`, negativt ⇒ logg + no-op, 0 = AUTO), annars
   `img_.sizeClass()`, och för en bild ur pixlar (0) `iconFallback` — likadant
   i `tool_button.cpp`. Tryck tar bort både skugga och laminering, hela
@@ -141,8 +141,9 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   mörkt läge**), Minimalistic fyller den MARKERADE rutan (ikryssad eller
   mellanläget) med `accentSurface` och ritar märket i `onAccent` — familjens
   enda ställe där "fyllning betyder tillstånd" slår "ingen yta i vila". Märket
-  är `Draw::check` eller mellanlägets `Draw::minus` (privata `drawMark`) i en
-  `boxRect()`; Label ritas MEDVETET likadant i alla tre. Beteende: Space/Enter
+  är `Draw::check` eller mellanlägets `Draw::checkDash` (privata `drawMark`) i en
+  `boxRect()`, båda med pennan `checkStroke` (2 px, hela fysiska px på
+  pixelrutnätet); Label ritas MEDVETET likadant i alla tre. Beteende: Space/Enter
   aktiverar en knapp, Space en kryssruta (Enter går till standardknappen —
   VAL 1, också i radio.cpp, den stängda dropdownen och färgväljaren);
   `Checkbox::clicked()` togglar + `onChange`.

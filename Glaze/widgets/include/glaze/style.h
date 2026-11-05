@@ -142,7 +142,8 @@ struct Style {
     float checkSize;      // rutans sida
     float checkRadius;    // rutans hörnradie
     float checkGap;       // avstånd ruta <-> text
-    float checkStroke;    // bockens tjocklek
+    float checkStroke;    // bockens och mellanlägets tjocklek — avrundad
+                          // till hela fysiska px när den ritas
 
     // ---- fälten (TextInput/Dropdown — samma recept, egna tal)
     float fieldPadX;      // textens indrag i sidled
@@ -350,7 +351,7 @@ struct Style {
     float toolButtonPadY;   //   och över/under innehållet
     float iconFade;         // INAKTIV BILD: hur mycket (0–1) ikonen TONAS
                             // BORT — den ritas med opacitet 1 − iconFade
-                            // (`Content::imgOpacity` i draw.h), mot vilken
+                            // (`Draw::stateGlyph` i draw.h), mot vilken
                             // yta som helst
 
     // ---- GRUPPRAMEN (GroupBox)

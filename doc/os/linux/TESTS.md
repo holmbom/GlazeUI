@@ -1434,3 +1434,14 @@ vWorld.xy)`; `kPointsGlsl*`: `vClipPx` (noperspective) och `vAnchor`),
   `Glaze/gfx/src/backend_linux/linux_print.cpp` svarar `PrintDialogResult`.
   *Gör:* kör `print_gate` fall P15.
   *Rätt utfall:* grinden grön; `lastError()` säger att utskrift inte finns på plattformen.
+
+- **De ritade ikonerna, tecknen och ikonarket** (delad kod, körd bara på
+  Windows): standardikonerna och appens i `Glaze/widgets/src/stock_icon.cpp`,
+  tecknen (`check`, `checkDash`, `cross`, `chevron`, `pixelLinjer`) i
+  `Glaze/widgets/src/draw.cpp` och arket i `Glaze/widgets/src/icon_sheet.cpp`.
+  *Gör:* på Wayland och X11: `demo --icons` i ljust och mörkt, kryssa
+  "Inaktivera knapparna"; `demo --icons-sheet ark.png`; kryssrutorna i
+  `demo --slate`.
+  *Rätt utfall:* glyferna, skylten och bocken ser ut som på Windows, knapparna
+  blir mono och tonade när de inaktiveras, och arket skrivs och är inte
+  spegelvänt.

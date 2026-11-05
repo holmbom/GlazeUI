@@ -29,8 +29,9 @@ namespace glaze::detail {
 // innehållet är färgerna (skalan står redan i nyckeln).
 void mixStockColors(KeyHash& k, const Theme::Colors& p)
 {
-    for (const gfx::Color t : {p.text, p.stockBlue, p.stockGreen, p.stockRed,
-                               p.stockAmber, p.stockYellow})
+    for (const gfx::Color t : {p.text, p.windowBg, p.panel, p.titlebar,
+                               p.stockBlue, p.stockGreen, p.stockRed, p.stockAmber,
+                               p.stockYellow, p.stockPaper})
         k.mix((std::uint64_t{t.r} << 24) | (std::uint64_t{t.g} << 16) |
               (std::uint64_t{t.b} << 8) | std::uint64_t{t.a});
 }
@@ -181,7 +182,7 @@ std::uint64_t contentKey(const PaintContext& f, const SceneData& sc,
                     k.mix(static_cast<std::uint64_t>(
                         bilder->get(rk.image.asset()) != nullptr));
                     break;
-                case ImageSource::Kind::Stock:
+                case ImageSource::Kind::Icon:
                     mixStockColors(k, f.c->theme->colors);
                     k.mix(static_cast<std::uint64_t>(
                         bilder->get(rk.image, *f.c) != nullptr));

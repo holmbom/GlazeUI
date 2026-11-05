@@ -751,10 +751,12 @@ bool argPathList(const std::vector<std::string>& a, std::size_t i,
 }
 
 // En BILD: `glaze::img("lista", "nyckel")`, en STANDARDIKON
-// `glaze::stockIcon(glaze::StockIcon::Save)` med eller utan storleksklass och
-// stil (`glaze::StockIconStyle::Color`) — eller `{}`, som är lika
-// laglig C++ för ett `ImageSource` och
-// betyder INGEN bild. Allt annat ⇒ false.
+// `glaze::stockIcon(glaze::StockIcon::Save)` eller APPENS IKON
+// `glaze::drawnIcon("Spara")`, båda med eller utan storleksklass och stil
+// (`glaze::IconStyle::Color`, `Auto`) — eller `{}`, som är lika laglig C++
+// för ett `ImageSource` och betyder INGEN bild. Allt annat ⇒ false. Appens
+// ikon slås upp när den ritas: en som previewn inte känner ritas som
+// `StockIcon::Image` och loggas.
 // Svaret är bildvärdet (`ImageSource`) och inte
 // ett handtag, och det är EN regel för varje bild i grammatiken — widgetarnas
 // och ritytans (`parseBildKälla` vidarebefordrar hit). En bild ur pixlar
@@ -779,20 +781,28 @@ bool argImg(const std::string& v, glaze::ImageSource& ut)
         return true;
     }
     std::vector<std::string> a;
-    if (anrop(t, "glaze::stockIcon", a)) {
-        static const std::string kTyp = "glaze::StockIcon::";
-        int                   storlek = 16;
-        glaze::StockIconStyle stil    = glaze::StockIconStyle::Mono;
+    const bool standard = anrop(t, "glaze::stockIcon", a);
+    if (standard || anrop(t, "glaze::drawnIcon", a)) {
+        int              storlek = 16;
+        glaze::IconStyle stil    = glaze::IconStyle::Mono;
         if (a.empty() || a.size() > 3 || (a.size() >= 2 && !argInt(a, 1, storlek)) ||
             storlek <= 0 ||
             (a.size() == 3 &&
-             !enumVärde<glaze::StockIconStyle>(
-                 a[2], {"glaze::StockIconStyle::"},
-                 {{"Mono", glaze::StockIconStyle::Mono},
-                  {"Color", glaze::StockIconStyle::Color}},
-                 stil)))
+             !enumVärde<glaze::IconStyle>(a[2], {"glaze::IconStyle::"},
+                                          {{"Mono", glaze::IconStyle::Mono},
+                                           {"Color", glaze::IconStyle::Color},
+                                           {"Auto", glaze::IconStyle::Auto}},
+                                          stil)))
             return false;
-        const std::string namn = trimma(a[0]);
+        if (!standard) {
+            std::string appnamn;
+            if (!argStr(a, 0, appnamn) || appnamn.empty())
+                return false;
+            ut = glaze::drawnIcon(appnamn, storlek, stil);
+            return true;
+        }
+        static const std::string kTyp = "glaze::StockIcon::";
+        const std::string        namn = trimma(a[0]);
         if (namn.compare(0, kTyp.size(), kTyp) != 0)
             return false;
         const std::optional<glaze::StockIcon> ikon =

@@ -139,7 +139,8 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   tryck — hela tryckrörelsen, definierad EN gång så bild och text följs åt).
   Lamineringen är **`Draw::laminate`** (fem widgets delar den). `setProp`:
   text/img/imagepos/dialogResult/iconSize. **INAKTIV IKON dimmas**: `content()` sätter
-  `Content::imgOpacity` = 1 − `Style::iconFade`, bildens OPACITET.
+  `Content::imgEnabled`, och bilden ritas genom `Draw::stateGlyph` (opacitet
+  1 − `Style::iconFade`, Mono för `IconStyle::Auto`).
   **`setIconSize(px)`** (REQ3, logiska px, 0 = AUTO — storleksklassen, annars
   `iconFallback`; samma namn på ToolButton och tabellerna) och **`setColor(
   std::optional<gfx::Color>)`** (bara TEXTEN; `nullopt`/`{}` = temat,

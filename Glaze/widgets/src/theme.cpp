@@ -222,27 +222,32 @@ void deriveCanvasGrid(Theme::Colors& c)
     c.canvasGrid = mix(c.panel, c.text, kCanvasGrid);
 }
 
-// STANDARDIKONERNAS FÄRGER — färgvariantens accentdelar. Kulörerna
-// är familjegeneratorns vinklar (`color::hueDegrees`), gult en bit från
-// amber; mättnaden är EN. Ljusheten följer LÄGET, läst ur paletten (texten
-// ljusare än bakgrunden = mörkt läge): mot en ljus bakgrund en mörkare ton och
-// mot en mörk en ljusare, så en röd linje syns i båda. Gult är en YTA bakom
-// konturen och därför ljusare än de andra.
-constexpr float kStockYellowHue = 48.0f;
+// STANDARDIKONERNAS FÄRGER — ytorna och linjerna i färg. Kulörerna är
+// familjegeneratorns vinklar (`color::hueDegrees`), gult en bit från amber.
+// SAMMA i båda lägena: en ikon är samma bild mot ljus och mörk yta, och det
+// som skiljer är kanten mot bakgrunden, som rastreringen rättar
+// (stock_icon.cpp, `läggPå`). Gult är bara en YTA, aldrig en linje, och
+// därför mättat och ljust, som en mapp är.
+constexpr float kStockYellowHue = 44.0f;
 constexpr float kStockSat       = 0.70f;
-constexpr float kStockLight     = 0.46f;   // ljust läge
-constexpr float kStockDark      = 0.62f;   // mörkt läge
-constexpr float kStockYellowUp  = 0.12f;   // gult ljusare än de andra
+constexpr float kStockL         = 0.46f;
+constexpr float kStockYellowSat = 0.95f;
+constexpr float kStockYellowL   = 0.60f;
+// PAPPERET: ljust i båda lägena — en sida är vit också mot en mörk yta —,
+// något dämpat i mörkt läge så att det inte bländar.
+constexpr float kStockPaperLight = 1.0f;    // ljust läge: ljusheten
+constexpr float kStockPaperDark  = 0.92f;   // mörkt läge: ljusheten
 
 void deriveStockIcon(Theme::Colors& c)
 {
-    const float l = luminance(c.text) > luminance(c.windowBg) ? kStockDark
-                                                              : kStockLight;
+    const bool  mörkt = luminance(c.text) > luminance(c.windowBg);
+    const float l     = kStockL;
     c.stockBlue   = hsl(hueDegrees(Hue::Blue), kStockSat, l);
     c.stockGreen  = hsl(hueDegrees(Hue::Green), kStockSat, l);
     c.stockRed    = hsl(hueDegrees(Hue::Red), kStockSat, l);
     c.stockAmber  = hsl(hueDegrees(Hue::Amber), kStockSat, l);
-    c.stockYellow = hsl(kStockYellowHue, kStockSat, l + kStockYellowUp);
+    c.stockYellow = hsl(kStockYellowHue, kStockYellowSat, kStockYellowL);
+    c.stockPaper  = hsl(0.0f, 0.0f, mörkt ? kStockPaperDark : kStockPaperLight);
 }
 
 // De HÄRLEDDA grupperna i ETT anrop — allt som beräknas ur en färdig

@@ -45,7 +45,8 @@ constexpr Style kSlateRegular{
     /* checkSize      */ 14.0f,
     /* checkRadius    */ 3.0f,
     /* checkGap       */ 8.0f,
-    /* checkStroke    */ 1.0f,
+    /* checkStroke    */ 2.0f,   // två fysiska px vid skala 1: en bock i
+                                 // 45° på en färgad ruta behöver tyngden
 
     /* fieldPadX      */ 8.0f,
     /* fieldPadY      */ 3.0f,   // samma höjd som knappen
@@ -272,7 +273,7 @@ constexpr Style kSlateRegular{
     /* iconStroke       */ 1.0f,   // en logisk px: hårlinjen vid skala 1,
                                    // två fysiska vid 2 — en ikon på 16 px
                                    // ska inte tunnas ut när skärmen blir
-                                   // skarpare (som `checkStroke`)
+                                   // skarpare
     /* fileDlgW         */ 760.0f, // fyra kolumner (namn 220 · storlek 80 ·
     /* fileDlgH         */ 460.0f, // ändrad 128 · typ 120) bredvid
                                    // platslistan, och ett tiotal rader

@@ -134,9 +134,10 @@ bool Button::shownAsDefault() const
 // storleksklass bestämmer ikonsidan; saknas den (en bild ur pixlar har
 // ingen) faller den till stilens.
 //
-// INAKTIV IKON: texten dimmas med sin färg, och ikonen ritas med sänkt
-// OPACITET (`Content::imgOpacity`, 1 − `Style::iconFade`), som tonar den mot
-// plattan i vilken ritning och vilken palett som helst.
+// INAKTIV IKON: texten dimmas med sin färg, och ikonen ritas i inaktivt
+// tillstånd (`Content::imgEnabled`, `Draw::stateGlyph`): sänkt OPACITET, som
+// tonar den mot plattan i vilken ritning och vilken palett som helst, och
+// Mono för en ikon i `IconStyle::Auto`.
 Content Button::content(const Ctx& c) const
 {
     // En SATT ikonstorlek vinner över båda.
@@ -144,8 +145,7 @@ Content Button::content(const Ctx& c) const
 
     Content ct{img_, text(), labelColor(c), imagePos_, c.style->iconGap,
                k > 0.0f ? k : c.style->iconFallback};
-    if (!isEnabled())
-        ct.imgOpacity = 1.0f - c.style->iconFade;
+    ct.imgEnabled = isEnabled();
     return ct;
 }
 

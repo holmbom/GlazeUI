@@ -29,7 +29,7 @@
 //      innerhöjd, i alla tre UI. Det står som en mening vid talen; här är
 //      meningen grindad, så ett ändrat `toolBarH` utan att knappen följer
 //      med fäller bygget.
-//   5. IKONENS OPACITET (`Content::imgOpacity`): en inaktiv
+//   5. IKONENS OPACITET (`Draw::stateGlyph`): en inaktiv
 //      ikonknapp ritar bilden med opacitet 1 − `iconFade` och INGENTING
 //      över den, en aktiv med full opacitet — i alla tre UI, ikryssad som
 //      oikryssad, och likadant för `Button`. Tonningen är ingen
@@ -790,8 +790,8 @@ void fallSlojan()
     if (!ok.valid())
         return;   // raden ovan har redan fällt grinden
 
-    // En INAKTIV ikon ritas med OPACITETEN 1 − iconFade (`Content::
-    // imgOpacity` → `Renderer::drawImage`), och INGENTING läggs över den:
+    // En INAKTIV ikon ritas med OPACITETEN 1 − iconFade (`Draw::stateGlyph`
+    // → `Renderer::drawImage`), och INGENTING läggs över den:
     // tonningen är ingen slöja i remsans färg, som skulle synas som
     // en ruta på varje annan yta (en panel, en gruppram). I alla tre UI.
     for (const glaze::UI ui :
@@ -2218,9 +2218,9 @@ void fallGlyf()
         glaze::Theme::Colors accentTema = col;
         accentTema.text                 = col.accent;
         const glaze::Bitmap accentBild  = glaze::detail::stockBitmap(
-            glaze::StockIcon::MoreHorizontal, 16, ikon.stockStyle(), accentTema);
+            glaze::StockIcon::MoreHorizontal, 16, ikon.iconStyle(), accentTema);
         const glaze::Bitmap textBild = glaze::detail::stockBitmap(
-            glaze::StockIcon::MoreHorizontal, 16, ikon.stockStyle(), col);
+            glaze::StockIcon::MoreHorizontal, 16, ikon.iconStyle(), col);
         const std::size_t byte =
             static_cast<std::size_t>(accentBild.width()) *
             static_cast<std::size_t>(accentBild.height()) * 4u;

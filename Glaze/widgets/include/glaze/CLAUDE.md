@@ -706,7 +706,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   = ikonknappens naturliga höjd + 2 × `toolBarPadY`, så en knapp i remsan och
   en fri knapp blir lika höga; `toolbar_gate` grindar meningen i alla tre UI)
   — och **`iconFade`**, hur mycket en inaktiv ikon TONAS bort, DELAT av Button
-  och ToolButton (opacitet 1 − iconFade, se `Content::imgOpacity` nedan).
+  och ToolButton (opacitet 1 − iconFade, se `Draw::stateGlyph` nedan).
   **Drag-and-drop:** `dragThreshold` (hur långt ett tryck får darra och ändå
   vara ett tryck — euklidiskt, MER än krävs), `dragOffset`/`dragBadgeSize`
   (märket vid pekaren), `dragGhostPadX/Y`/`dragGhostMaxW` (dragbildens platta)
@@ -743,10 +743,12 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   `constexpr` i widget-filen.
 - **`draw.h`** — RITANDET: `struct Draw` (statiska primitiver), `Pen` (kontur;
   width i logiska px, 0 = HÅRLINJE), `Align`, `ImagePos` och `Content` (bild —
-  ett `ImageSource` — + text som EN sak, med **`imgOpacity`**, bildens OPACITET i inaktivt läge,
-  som `Renderer::drawImage` multiplicerar in i bildens alfa, så ikonen tonas
-  mot VILKEN yta som helst; SIST i structen för `Button::content`s
-  positionella init), **`Sign`** (märkets tecken: Plus/Minus/Arrow —
+  ett `ImageSource` — + text som EN sak, med **`imgEnabled`**, bildens
+  tillstånd: inaktiv ritas den genom **`Draw::stateGlyph`** med opacitet
+  1 − `iconFade`, som `Renderer::drawImage` multiplicerar in i bildens alfa, så
+  ikonen tonas mot VILKEN yta som helst, och i Mono för `IconStyle::Auto`;
+  SIST i structen för `Button::content`s positionella init — `stateGlyph`/
+  `stateGlyphResampled` är regeln varje bildbärande widget ritar med), **`Sign`** (märkets tecken: Plus/Minus/Arrow —
   drag-and-drops effektmärke) och **`Icon`** + **`Draw::icon(c, ruta, ikon,
   penna)`** (de RITADE ikonerna Folder/File/Document/Drive/House/Monitor/
   Download/Picture/ArrowUp/Calendar och knappnålen Pinned/Unpinned (DOCKNING
@@ -765,7 +767,10 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   material; andelarna och färgerna är PARAMETRAR, för Draw får aldrig känna
   till en widgets Style-fält), glyf-formerna (`check` / `chevron` (riktningen
   **`Draw::Dir`** — ∧∨‹› är samma tecken vridet) / `cross` / `plus` / `minus`
-  — proportionerna är TECKNETS definition, storleken är rutan man skickar in —
+  — proportionerna är TECKNETS definition, storleken är rutan man skickar in;
+  `check`, `plus` och `minus` står på PIXELRUTNÄTET med pennan i hela fysiska
+  px, och bocken är två sträckor i 45° ritade pixel för pixel med
+  standardikonernas täckningslyft —
   och **`badge`** (post 21: en fylld skiva med ett `Sign` i mittersta halvan,
   strecket en åttondel av diametern; drag-and-drops effektmärke) och
   **`grip`** (DOCKNING E4b: två rader prickar längs rutans långa axel —
@@ -909,7 +914,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
 - **`input_box.h`** — **`glaze::inputBox(...)`** (FAS1_B_WIDGETS, VB
   `InputBox`): meddelanderutans form, en FRI FUNKTION (ägd + ägarlös) →
   `std::optional<std::string>` — `nullopt` = Avbryt, en tom text är ett svar. `InputBoxMode::MultiLine` (REQ8 22): fältet blir ett `TextArea`, Enter en ny rad, OK med knappen.
-- **`stock_icon.h`** — **`glaze::stockIcon(StockIcon, sizeClass)`** (REQ8 12): standardikonerna som `ImageSource` (`Kind::Stock`) — vektorer i `../../src/stock_icon.cpp`, rastrerade i ritningens fysiska px i temats textfärg; `StockIconStyle::Color` lägger accentdelar i temats härledda `stock*`-roller (theme.h); `stockIconName`/`ByName` är `.glazeui`-formens namn.
+- **`stock_icon.h`** — **`glaze::stockIcon(StockIcon, sizeClass, IconStyle)`**: standardikonerna som `ImageSource` (`Kind::Icon`) — vektorer i `../../src/stock_icon.cpp`, rastrerade i ritningens fysiska px, fästa mot pixelrutnätet och med kanten ≥ 3:1 mot bakgrunden; `IconStyle::Color` har ytor och linjer i temats härledda `stock*`-roller (theme.h, med papperet `stockPaper`), `Mono` samma bild nedtonad med konturen i textfärgen, `Auto` färg aktiv och mono inaktiv (`ImageSource::forState`); `stockIconName`/`ByName` är `.glazeui`-formens namn. **APPENS RITADE IKONER** i samma motor och språk: `GLAZE_REGISTER_ICON`/`registerIcon`, delar med `GLAZE_REGISTER_ICON_PART`/`registerIconPart` (efter ramverkets i uppslaget), `drawnIcon(namn, sizeClass, IconStyle)` (namnet slås upp när ikonen ritas, ett okänt ritas som `StockIcon::Image`), `drawnIconNames` och arket `writeIconSheet` (`../../src/icon_sheet.cpp`). Makrona är `GLAZE_ICON_CAT`-unika per rad; registret bor i cpp:n (inget tillstånd i headern).
 - **`tray_icon.h`** — **`glaze::TrayIcon`**, systemfältets ikon (WinForms `NotifyIcon`): Windows meddelandefält,
   macOS menyradens statusposter, Linux `isSupported() == false`. INGEN widget
   av `Menu`s skäl — ikonen sitter i OS:ets fält och är APPENS (ett värdefält
