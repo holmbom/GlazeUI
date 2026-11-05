@@ -814,7 +814,7 @@ struct PainterState {
         case ImageSource::Kind::Bitmap:  return ctx.c->images->get(src.bitmap());
         case ImageSource::Kind::Texture:
             return ctx.c->images->get(src.texture(), *ctx.c);
-        case ImageSource::Kind::Stock:   return ctx.c->images->get(src, *ctx.c);
+        case ImageSource::Kind::Icon:    return ctx.c->images->get(src, *ctx.c);
         case ImageSource::Kind::None:    break;
         }
         return nullptr;

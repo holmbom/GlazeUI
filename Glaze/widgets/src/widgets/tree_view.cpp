@@ -1288,8 +1288,7 @@ void TreeView::draw(const Ctx& c)
         Content          ct{r.n->img,   r.n->text.str(),
                             text,       ImagePos::Left,
                             m.iconGap,  k > 0.0f ? k : m.iconFallback};
-        if (!på)
-            ct.imgOpacity = 1.0f - m.iconFade;
+        ct.imgEnabled = på;
         const float x = contentX(c, i);
         if (hasHeader()) {
             const float      pad = cellPadX(c);

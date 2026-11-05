@@ -399,8 +399,8 @@ void MarkdownView::draw(const Ctx& c)
             const gfx::Rectf r{o.x + d.x, o.y + d.top, d.w, d.h};
             switch (d.kind) {
             case md::Item::Kind::Image:
-                Draw::glyph(c, r, s.images[static_cast<std::size_t>(d.image)],
-                            på ? 1.0f : 1.0f - m.iconFade);
+                Draw::stateGlyph(c, r, s.images[static_cast<std::size_t>(d.image)],
+                                 på);
                 break;
             case md::Item::Kind::Missing:
                 Draw::icon(c, r, Icon::Picture, Pen{col.textDim, m.iconStroke});

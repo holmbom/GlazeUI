@@ -318,7 +318,7 @@ struct FalskBild final : gfx::NullImage {
 // Också textens FÄRG (radens färg) och bilderna
 // med målrect (en Bitmap-ikon laddas upp genom `createImage`).
 // Strecken med FÄRG (tree_gate-mönstret) — kryssrutans bock
-// är två streck, och den får aldrig ritas i radens app-färg.
+// är pixlar, och den får aldrig ritas i radens app-färg.
 struct Inspelning : gfx::NullRenderer {
     // Också KLIPPET texten ritades under (`harKlipp`/`klipp`,
     // `Renderer::clipBounds`) och de fyllda ytorna med färg och klipp: en
@@ -373,28 +373,39 @@ struct Inspelning : gfx::NullRenderer {
         ++linjer;
         streck.push_back({x1, y1, x2, y2, c});
     }
+    // De RITADE TECKNEN (bocken, sorteringspilen) är pixlar: rektanglar vars
+    // alfa är täckningen, så färgen spelas in utan den. `streckI` räknar dem
+    // som streck.
+    std::vector<Streck> pixlar;
+    void fillRect(const gfx::Rectf& r, gfx::Color c) override
+    {
+        pixlar.push_back({r.x, r.y, r.x + r.w, r.y + r.h, gfx::Color{c.r, c.g, c.b, 255}});
+    }
     // Streck HELT inom rutan `r` — i färgen `c`, eller i vilken färg som helst.
     int streckI(gfx::Color c, const gfx::Rectf& r) const
     {
         int n = 0;
-        for (const Streck& l : streck)
-            n += l.färg == c && r.contains(l.x1, l.y1) && r.contains(l.x2, l.y2)
-                     ? 1
-                     : 0;
+        for (const auto* v : {&streck, &pixlar})
+            for (const Streck& l : *v)
+                n += l.färg == c && r.contains(l.x1, l.y1) && r.contains(l.x2, l.y2)
+                         ? 1
+                         : 0;
         return n;
     }
     int streckI(const gfx::Rectf& r) const
     {
         int n = 0;
-        for (const Streck& l : streck)
-            n += r.contains(l.x1, l.y1) && r.contains(l.x2, l.y2) ? 1 : 0;
+        for (const auto* v : {&streck, &pixlar})
+            for (const Streck& l : *v)
+                n += r.contains(l.x1, l.y1) && r.contains(l.x2, l.y2) ? 1 : 0;
         return n;
     }
     int streckI(gfx::Color c) const
     {
         int n = 0;
-        for (const Streck& l : streck)
-            n += l.färg == c ? 1 : 0;
+        for (const auto* v : {&streck, &pixlar})
+            for (const Streck& l : *v)
+                n += l.färg == c ? 1 : 0;
         return n;
     }
     float drawText(gfx::Font&, float x, float y, const std::string& s,
@@ -424,6 +435,7 @@ struct Inspelning : gfx::NullRenderer {
         texter.clear();
         platser.clear();
         streck.clear();
+        pixlar.clear();
         bilder.clear();
         ytor.clear();
         linjer = 0;
@@ -1094,24 +1106,23 @@ void fallJusteringen()
             check(rec.lodratt(skala * x0(1), skala * in, skala * (in + hh)) &&
                       rec.lodratt(skala * x0(4), skala * in, skala * (in + hh)),
                   "J5: avdelarna går över hela det höga huvudet" + n + tag);
-            // PILEN — dess två snedstreck ligger i kolumnens högerkant; mitten
-            // av deras höjd ska stå där en enradsrubrik står.
+            // PILEN — ritad pixel för pixel i kolumnens högerkant; mitten av
+            // dess höjd ska stå där en enradsrubrik står. Pixlarna står på
+            // rutnätet, så mitten får skilja en fysisk px.
             const float px0 = skala * (x0(2) - pad - 2.0f * st.chevronW);
             const float px1 = skala * (x0(2) - pad);
             float       lo = 1e9f, hi = -1e9f;
-            int         snett = 0;
-            for (const Inspelning::Streck& s : rec.streck)
-                if (s.x1 != s.x2 && s.y1 != s.y2 &&
-                    std::min(s.x1, s.x2) >= px0 - 0.01f &&
-                    std::max(s.x1, s.x2) <= px1 + 0.01f) {
-                    ++snett;
-                    lo = std::min({lo, s.y1, s.y2});
-                    hi = std::max({hi, s.y1, s.y2});
+            int         bitar = 0;
+            for (const Inspelning::Streck& s : rec.pixlar)
+                if (s.x1 >= px0 - 1.0f && s.x2 <= px1 + 1.0f) {
+                    ++bitar;
+                    lo = std::min(lo, s.y1);
+                    hi = std::max(hi, s.y2);
                 }
             const float pilFacit = skala * (in + th / 2.0f + fl.pil * lh);
-            check(snett == 2 && nara((lo + hi) / 2.0f, pilFacit),
+            check(bitar > 0 && std::abs((lo + hi) / 2.0f - pilFacit) <= 1.0f,
                   "J6: sorteringspilen står där en enradsrubrik står" + n + tag,
-                  std::to_string(snett) + " streck, mitt " +
+                  std::to_string(bitar) + " pixlar, mitt " +
                       tal((lo + hi) / 2.0f) + " mot " + tal(pilFacit));
         }
     }

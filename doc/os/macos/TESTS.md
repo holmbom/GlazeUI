@@ -269,3 +269,13 @@ fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
   `Glaze/gfx/src/backend_metal/metal_print.mm` svarar `PrintDialogResult`.
   *Gör:* kör `print_gate` fall P15, och Avbryt i dialogen i en app.
   *Rätt utfall:* grinden grön; efter Avbryt `showDialog` false och `lastError()` tom.
+
+- **De ritade ikonerna, tecknen och ikonarket** (delad kod, körd bara på
+  Windows): standardikonerna och appens i `Glaze/widgets/src/stock_icon.cpp`,
+  tecknen (`check`, `checkDash`, `cross`, `chevron`, `pixelLinjer`) i
+  `Glaze/widgets/src/draw.cpp` och arket i `Glaze/widgets/src/icon_sheet.cpp`.
+  *Gör:* `demo --icons` i ljust och mörkt, kryssa "Inaktivera knapparna";
+  `demo.app/Contents/MacOS/demo --icons-sheet ark.png`; kryssrutorna i
+  `demo --slate`.
+  *Rätt utfall:* glyferna, skylten och bocken ser ut som på Windows, knapparna
+  blir mono och tonade när de inaktiveras, och arket skrivs.

@@ -49,7 +49,7 @@ gfx::Image* imageOf(const PaintContext& f, const ImageSource& src)
     case ImageSource::Kind::Asset:   return f.c->images->get(src.asset());
     case ImageSource::Kind::Bitmap:  return f.c->images->get(src.bitmap());
     case ImageSource::Kind::Texture: return f.c->images->get(src.texture(), *f.c);
-    case ImageSource::Kind::Stock:   return f.c->images->get(src, *f.c);
+    case ImageSource::Kind::Icon:    return f.c->images->get(src, *f.c);
     case ImageSource::Kind::None:    break;
     }
     return nullptr;

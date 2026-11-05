@@ -135,8 +135,9 @@ bool ToolButton::hot() const
     return isEnabled() && (hovered() || down());
 }
 
-// Inaktiv ⇒ ikonen med sänkt OPACITET (1 − `iconFade`), tonad mot vad som
-// än ligger under — remsan, en panel, en gruppram (se headern).
+// Inaktiv ⇒ ikonen i inaktivt tillstånd (`Draw::stateGlyph`): sänkt
+// OPACITET, tonad mot vad som än ligger under — remsan, en panel, en
+// gruppram (se headern) — och Mono för en ikon i `IconStyle::Auto`.
 Content ToolButton::content(const Ctx& c, gfx::Color fg) const
 {
     // En SATT ikonstorlek vinner; annars är
@@ -146,8 +147,7 @@ Content ToolButton::content(const Ctx& c, gfx::Color fg) const
     // Glyfläget ritar ingen text — knappen är bara bilden.
     Content ct{img_, glyphOnly_ ? std::string() : text(), fg, imagePos_,
                c.style->iconGap, k > 0.0f ? k : c.style->iconFallback};
-    if (!isEnabled())
-        ct.imgOpacity = 1.0f - c.style->iconFade;
+    ct.imgEnabled = isEnabled();
     return ct;
 }
 

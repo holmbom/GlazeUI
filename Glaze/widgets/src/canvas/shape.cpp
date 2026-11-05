@@ -15,6 +15,7 @@
 #include <gfx/geom3d.h>
 #include <gfx/platform.h>
 
+#include "glaze/stock_icon.h"   // IconStyle — ImageSource::forState
 #include "image_data.h"   // ImageSource: bildens version (snapshotet)
 #include "instances.h"
 #include "mesh_data.h"
@@ -129,18 +130,33 @@ ImageSource::ImageSource(RenderTexture t)
       version_(texture_.d_ ? texture_.d_->version : 0)
 {
 }
-// En standardikon har ingen version: vektorn ändras aldrig, och färgen och
-// tätheten är ritningens (glaze/stock_icon.h).
-ImageSource::ImageSource(StockIcon icon, int sizeClass, StockIconStyle style)
-    : kind_(Kind::Stock), stock_(icon), stockSize_(sizeClass), stockStyle_(style)
+// En ritad ikon har ingen version: vektorn ändras aldrig, och färgen och
+// tätheten är ritningens (glaze/stock_icon.h). En appikon som registreras om
+// ritas om genom sin cache-nyckel, inte genom värdet.
+ImageSource::ImageSource(StockIcon icon, std::string drawn, int sizeClass,
+                         IconStyle style)
+    : kind_(Kind::Icon),
+      stock_(icon),
+      drawn_(std::move(drawn)),
+      iconSize_(sizeClass),
+      iconStyle_(style)
 {
+}
+
+ImageSource ImageSource::forState(bool enabled) const
+{
+    if (kind_ != Kind::Icon || iconStyle_ != IconStyle::Auto)
+        return *this;
+    ImageSource s = *this;
+    s.iconStyle_  = enabled ? IconStyle::Color : IconStyle::Mono;
+    return s;
 }
 
 float ImageSource::sizeClass() const
 {
     switch (kind_) {
     case Kind::Asset: return assetSizeClass(asset_);
-    case Kind::Stock: return static_cast<float>(stockSize_);
+    case Kind::Icon:  return static_cast<float>(iconSize_);
     case Kind::Bitmap:
     case Kind::Texture:
     case Kind::None:  break;
@@ -163,7 +179,7 @@ bool ImageSource::valid() const
     case Kind::Asset:   return asset_.valid();
     case Kind::Bitmap:  return bitmap_.valid();
     case Kind::Texture: return texture_.valid();
-    case Kind::Stock:   return true;
+    case Kind::Icon:    return true;
     case Kind::None:    break;
     }
     return false;
@@ -177,9 +193,9 @@ bool ImageSource::sameImage(const ImageSource& o) const
     case Kind::Asset:   return asset_.id == o.asset_.id;
     case Kind::Bitmap:  return bitmap_.d_ == o.bitmap_.d_;
     case Kind::Texture: return texture_.d_ == o.texture_.d_;
-    case Kind::Stock:
-        return stock_ == o.stock_ && stockSize_ == o.stockSize_ &&
-               stockStyle_ == o.stockStyle_;
+    case Kind::Icon:
+        return stock_ == o.stock_ && drawn_ == o.drawn_ &&
+               iconSize_ == o.iconSize_ && iconStyle_ == o.iconStyle_;
     case Kind::None:    return true;
     }
     return false;

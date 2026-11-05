@@ -35,9 +35,9 @@
 // eller i den sida `setIconSize` ger.
 //
 // INAKTIV: texten dimmas med sin färg, IKONEN med sänkt OPACITET
-// (`Content::imgOpacity` = 1 − `Style::iconFade`) — tonad mot vilken yta
-// som helst, så knappen kan stå på en panel eller i en gruppram lika väl
-// som i remsan.
+// (`Draw::stateGlyph`: 1 − `Style::iconFade`, och Mono för en ikon i
+// `IconStyle::Auto`) — tonad mot vilken yta som helst, så knappen kan stå på
+// en panel eller i en gruppram lika väl som i remsan.
 //
 // TOOLTIPEN ärvs av basen (`setToolTip`) — en knapp med bara en
 // ikon är dess främsta konsument, men den bor på `Widget` och inte här.

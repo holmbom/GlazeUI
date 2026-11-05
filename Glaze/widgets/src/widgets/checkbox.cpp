@@ -66,15 +66,15 @@ gfx::Sizef Checkbox::contentSize(const Ctx& c) const
 
 // MÄRKET — bocken eller mellanlägets streck, i rutan och i pennans färg. Ett
 // ställe för alla tre ritningarna: det som skiljer familjerna är rutan och
-// färgen, inte vad ett läge ser ut som. Strecket är `Draw::minus` med
-// bockens penna — tecknets proportioner är Draws.
+// färgen, inte vad ett läge ser ut som. Strecket är `Draw::checkDash` med
+// bockens penna och bredd — tecknets proportioner är Draws.
 void Checkbox::drawMark(const Ctx& c, const gfx::Rectf& box,
                         gfx::Color col) const
 {
     const Pen penna{col, c.style->checkStroke};
     switch (state_) {
     case CheckState::Checked:       Draw::check(c, box, penna); break;
-    case CheckState::Indeterminate: Draw::minus(c, box, penna); break;
+    case CheckState::Indeterminate: Draw::checkDash(c, box, penna); break;
     case CheckState::Unchecked:     break;
     }
 }

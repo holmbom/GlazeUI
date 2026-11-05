@@ -678,6 +678,13 @@ tre-fils-modellen och de hårda reglerna.
   med fönstrets gradient, ljust blått i övre vänstra hörnet och vitt i de andra,
   i mörkt läge ett dämpat blått mot bakgrunden. En glyfknapp i namnlisten växlar
   läge. Texterna är literaler.
+- **`icon_window.h/.cpp`** — **`demo --icons`**, HANDKODAT: appens EGNA ritade
+  glyfer (`GLAZE_REGISTER_ICON`, en egen del med `GLAZE_REGISTER_ICON_PART`) — en
+  gul skylt med DEMO som programikon och i 48 px, ett verktygsfält och knappar i
+  16 och 32 px i `IconStyle::Auto`, och en kryssruta som inaktiverar knapparna
+  (mono). **`demo --icons-sheet <fil.png>`** skriver ikonarket
+  (`glaze::writeIconSheet`) och avslutar. Recepten är exemplet i MANUAL
+  `drawn-icons`.
 - **`slate_window.h/.cpp`** — **`demo --slate`**, HANDKODAT: arbetsbänken för
   Slates utseende. EN rullande sida med varje komponent, de flesta aktiva och
   inaktiverade, i rader (`Rad`, en ren Bar) vars celler (`Cell`) delar bredden

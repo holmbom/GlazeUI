@@ -57,8 +57,10 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 - 💡 **Linfysik: nedhäng efter temperatur, töjning, vind och is**
   Linor mellan fästpunkter som hänger korrekt (kedjekurva med elasticitet och värmeutvidgning), belastade av simulerad vind och is, med temperaturen som parameter.
   Öppet: en generell förmåga i ramverket eller appens beräkning.
-- 💡 **Appens egna glyfer i alla varianter** — [stock_icon.h](Glaze/widgets/include/glaze/stock_icon.h)
-  En egen bild följer inte temat. Vektor som standardikonerna (alla storlekar, mono, färg, ljust och mörkt) och bildvarianter per storlek och läge i `assets.bin`; sedan skärps `UI_GUIDELINES.md`.
+- 💡 **Bildvarianter per storlek och läge i `assets.bin`** — [assets.h](Glaze/widgets/include/glaze/assets.h)
+  För det som inte är en ritning (foton, logotyper): en bild per storlek och för ljust och mörkt läge, vald när den ritas, som de ritade ikonerna gör av sig själva.
+- 💡 🎨 **Ikonernas recept i två nivåer och lägets ton** — [stock_icon.cpp](Glaze/widgets/src/stock_icon.cpp)
+  Ett recept för de små storlekarna och ett för de stora, och samma bild några procent nedtonad i mörkt läge och uppljusad i ljust, där bara konturen skiljer. Gäller standardikonerna och appens.
 - 🟠 **Windows- och Mac-testet** — [doc/os/](doc/os/)
   Kvar är rader som kräver hårdvara eller handtest: mus, skärmskalning och VS Code på Windows; andra skärm, PC-tangentbord och Intel-Mac på macOS.
   Stängs när `doc/os/windows/TESTS.md` och `doc/os/macos/TESTS.md` är TOMMA.

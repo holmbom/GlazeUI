@@ -101,16 +101,17 @@ struct Content {
     float       gap      = 0.0f;   // avstånd bild <-> text
     float       iconSide = 0.0f;   // bildens sida (kvadratisk)
 
-    // INAKTIV BILD. Texten dimmas med sin FÄRG, men en bild har ingen, så
-    // `imgOpacity` (0–1) är bildens OPACITET — `Renderer::drawImage`
-    // multiplicerar in den i bildens egen alfa, så ikonen tonas mot VILKEN
-    // yta som helst (en slöja i ytans färg stämmer bara mot en enfärgad yta
-    // och syns som en ruta på en panel eller i en gruppram). Bara BILDEN
-    // tonas; texten har sin färg.
+    // INAKTIV BILD. Texten dimmas med sin FÄRG, men en bild har ingen, så en
+    // inaktiv bild ritas genom `Draw::stateGlyph`: med OPACITETEN
+    // 1 − `iconFade` — `Renderer::drawImage` multiplicerar in den i bildens
+    // egen alfa, så ikonen tonas mot VILKEN yta som helst (en slöja i ytans
+    // färg stämmer bara mot en enfärgad yta och syns som en ruta på en panel
+    // eller i en gruppram) — och en ikon i `IconStyle::Auto` i Mono. Bara
+    // BILDEN tonas; texten har sin färg.
     //
     // SIST i structen med flit: `Content` brace-initieras positionellt
     // (`Button::content`), och ett fält till på slutet ändrar inget där.
-    float       imgOpacity = 1.0f;   // 1 = bilden som den är (default)
+    bool        imgEnabled = true;   // false = bilden i inaktivt tillstånd
 };
 
 struct Draw {
@@ -188,8 +189,14 @@ struct Draw {
     // hörnbågen är en del av `rect`, inte ett stilmått. Anroparen ger
     // rutan tecknet ska rymmas i (logiska px) och pennan; storleken är
     // alltså rutans, och stilen bestämmer den. Ligger här och inte i
-    // widgetarna för att en ✕ ska se likadan ut var den än ritas.
+    // widgetarna för att en ✕ ska se likadan ut var den än ritas. Alla står
+    // på PIXELRUTNÄTET med pennan i hela fysiska px (minst en), och de sneda
+    // ritas pixel för pixel med standardikonernas täckningslyft — ett tunt
+    // streck blir varken blekt eller suddigt.
     static void check(const Ctx& c, const gfx::Rectf& box, const Pen& pen);
+    // Kryssrutans MELLANLÄGE: ett vågrätt streck med bockens bredd, mitt i
+    // rutan.
+    static void checkDash(const Ctx& c, const gfx::Rectf& box, const Pen& pen);
     // Vinkelhaken. Spetsen pekar åt `dir`, skänklarna mot motsatt kant —
     // rutan är hela måttet, som för de andra glyferna.
     static void chevron(const Ctx& c, const gfx::Rectf& box, Dir dir,
@@ -322,10 +329,20 @@ struct Draw {
     // Bilden skalas in i r med GPU:ns filter (en Bitmaps `setFilter` —
     // Nearest för pixelgrafik). Saknad/trasig bild ritar ingenting (tyst),
     // och en Bitmap som inte ryms i framens uppladdningsbudget ritas nästa
-    // frame. `opacity` (0–1) tonar bilden mot vad som än ligger under (en
-    // inaktiv ikon — se `Content::imgOpacity`); 1 = som den är.
+    // frame. `opacity` (0–1) tonar bilden mot vad som än ligger under; 1 =
+    // som den är. En ikon i `IconStyle::Auto` ritas här som Color — en
+    // widget med ett tillstånd ritar genom `stateGlyph`.
     static void glyph(const Ctx& c, const gfx::Rectf& r, const ImageSource& img,
                       float opacity = 1.0f);
+
+    // BILDEN I ETT TILLSTÅND — regeln varje bildbärande widget ritar med:
+    // aktiv som den är; inaktiv tonad till 1 − `Style::iconFade`, och en ikon
+    // i `IconStyle::Auto` är Color aktiv och Mono inaktiv
+    // (`ImageSource::forState`). Samma par för `glyphResampled`.
+    static void stateGlyph(const Ctx& c, const gfx::Rectf& r,
+                           const ImageSource& img, bool enabled);
+    static void stateGlyphResampled(const Ctx& c, const gfx::Rectf& r,
+                                    const ImageSource& img, bool enabled);
 
     // SKARP NEDSKALNING: som `glyph`, men bilden
     // räknas om på CPU till rectets EXAKTA storlek i fysiska px (ytans

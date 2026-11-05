@@ -6053,11 +6053,11 @@ glaze-render och GlazeBuilder letar `assets.bin` uppåt från `.h`-katalogen (fy
 **Alias:** stock-icons, standardikoner, stockicon, inbyggda ikoner, builtin icons, ikonuppsättning, icon set
 **Include:** `#include <glaze/glaze.h>` · **CMake:** `glaze` · **Källa:** [stock_icon.h](Glaze/widgets/include/glaze/stock_icon.h), [stock_icon.cpp](Glaze/widgets/src/stock_icon.cpp)
 
-Ramverket har 395 egna ikoner för det varje app behöver — spara, ångra, sök, zooma, spela, lås, användare … — för CAD- och 3D-verktyg (rita, ändra, fästpunkter, vyer, former, visningslägen, booleska operationer), för bild, dockning, kartor, ordning av objekt, hårdvara och tid, och för FILTYPER — 74 format med ändelsen på en etikett (geodata, CAD/BIM, 3D, punktmoln, bilder, dokument, data, arkiv, media) plus tolv kategorier, så appen slipper lägga dem i sin `assets.bin`. De är VEKTORER i koden (en enfärgad kontur i ramverkets egen stil), rastrerade när de ritas i fönstrets fysiska px och färgade med temats textfärg: de följer ljust och mörkt läge och 1×, 2× och fraktionerad skala utan att appen gör något. En inaktiv kontroll tonar dem som varje annan bild. Färgvarianten (`StockIconStyle::Color`) är samma kontur med ACCENTDELAR i en semantisk färg — mappen gul, spara och information blå, fel och ta bort röda, varningen bärnsten, klar och lägg till gröna.
+Ramverket har 395 egna ikoner för det varje app behöver — spara, ångra, sök, zooma, spela, lås, användare … — för CAD- och 3D-verktyg (rita, ändra, fästpunkter, vyer, former, visningslägen, booleska operationer), för bild, dockning, kartor, ordning av objekt, hårdvara och tid, och för FILTYPER — 74 format med ändelsen på en etikett (geodata, CAD/BIM, 3D, punktmoln, bilder, dokument, data, arkiv, media) plus tolv kategorier, så appen slipper lägga dem i sin `assets.bin`. De är VEKTORER i koden, rastrerade när de ritas i fönstrets fysiska px och FÄSTA mot pixelrutnätet — strecket är ett helt antal px och det raka står på hela pixlar, bara det sneda och det runda kantutjämnas —, så de är skarpa i 1×, 2× och fraktionerad skala utan att appen gör något. Varje pixel som gränsar mot bakgrunden når 3:1 mot fönstrets bakgrund, panelen och namnlisten, så det syns var bilden börjar i ljust och mörkt läge. En inaktiv kontroll tonar dem som varje annan bild, och i `IconStyle::Auto` byter de dessutom till Mono. Appens EGNA ikoner ritas med samma motor och språk — avsnittet `drawn-icons`. Färgvarianten (`IconStyle::Color`) har YTOR och LINJER i en semantisk färg — mappen gul, spara och information blå, fel och ta bort röda, varningen bärnsten, klar och lägg till gröna, filens sida vit — med toner, en gradient och en fasad kant för djupet; `Mono` är samma bild NEDTONAD, ytorna blekta och konturen i temats textfärg.
 
 ### API
-- `ImageSource stockIcon(StockIcon icon, int sizeClass = 16, StockIconStyle style = StockIconStyle::Mono);` — klasserna är 16, 24, 32 och 48 logiska px (`sizeClass()` på svaret, så widgetarna ger ikonen den sidan); ≤ 0 loggas och blir 16. Svaret går överallt där ett `ImageSource` tas emot: `Button::setImg`, `ToolButton`, `MenuItem::icon`, raderna i `ListView`/`TreeView`, `Picture`, ritytans `Shape::image`, `appIcon.setIcon` och `TrayIcon`.
-- `enum class StockIconStyle { Mono, Color }` — konturen, eller samma kontur med färgade accentdelar (en ikon utan accent ritas likadant i båda).
+- `ImageSource stockIcon(StockIcon icon, int sizeClass = 16, IconStyle style = IconStyle::Mono);` — klasserna är 16, 24, 32 och 48 logiska px (`sizeClass()` på svaret, så widgetarna ger ikonen den sidan); ≤ 0 loggas och blir 16. Svaret går överallt där ett `ImageSource` tas emot: `Button::setImg`, `ToolButton`, `MenuItem::icon`, raderna i `ListView`/`TreeView`, `Picture`, ritytans `Shape::image`, `appIcon.setIcon` och `TrayIcon`.
+- `enum class IconStyle { Mono, Color, Auto }` — samma bild nedtonad med konturen i textfärgen, i full färg (en ikon utan färg ritas likadant i båda), eller `Auto`: färg när kontrollen är aktiv och mono när den är inaktiv (`ImageSource::forState`, som widgetarna frågar genom `Draw::stateGlyph`; utan ett tillstånd, i `Picture` eller på ritytan, ritas den som Color).
 - `enum class StockIcon` — en post per ikon, namngiven efter vad den BETYDER: `Back`, `Forward`, `Up`, `Down`, `Home`, `First`, `Previous`, `Next`, `Last`, `Refresh`, `Stop`, `GoTo` · `ArrowLeft/Right/Up/Down`, `ChevronLeft/Right/Up/Down`, `ChevronsLeft/Right/Up/Down`, `Flip`, `RotateClockwise`, `RotateCounterClockwise`, `Swap` · `New`, `Open`, `Save`, `SaveAs`, `SaveAll`, `Close`, `Print`, `PrintPreview`, `Import`, `Export`, `Properties`, `File`, `Document`, `Folder`, `FolderOpen`, `NewFolder`, `Recent` · `Drive`, `Network`, `Cloud`, `HomeFolder`, `Desktop`, `Trash`, `Download`, `Upload`, `Sync` · `Undo`, `Redo`, `Cut`, `Copy`, `Paste`, `Delete`, `SelectAll`, `Search`, `Replace`, `Clear`, `Edit`, `Rename`, `Duplicate` · `Add`, `Remove`, `MoveUp`, `MoveDown`, `MoveFirst`, `MoveLast`, `SortAscending`, `SortDescending`, `Filter`, `Group`, `Expand`, `Collapse`, `ExpandAll`, `CollapseAll` · `ListView`, `DetailsView`, `IconView`, `Grid`, `SplitView`, `Sidebar`, `FullScreen`, `ExitFullScreen` · `ZoomIn`, `ZoomOut`, `ZoomToFit`, `ActualSize`, `Show`, `Hide`, `Lock`, `Unlock`, `Pin`, `Unpin` · `Bold`, `Italic`, `Underline`, `AlignLeft`, `AlignCenter`, `AlignRight`, `AlignJustify`, `BulletList`, `NumberedList`, `Font`, `TextColor`, `FillColor` · `Information`, `Warning`, `Error`, `Question`, `Done`, `Cancel`, `Help`, `Tip`, `Loading` · `Menu`, `MoreHorizontal`, `MoreVertical`, `Settings`, `CloseWindow`, `Minimize`, `Maximize`, `Restore`, `NewWindow`, `ExternalLink` · `Pointer`, `Pan`, `Measure`, `Pen`, `Eraser`, `Eyedropper`, `Shape`, `Line`, `Rectangle`, `Ellipse`, `Polygon`, `Text`, `Layers`, `Anchor`, `Magnet` · `Play`, `Pause`, `MediaStop`, `Record`, `PreviousTrack`, `NextTrack`, `Repeat`, `Shuffle`, `SoundOn`, `SoundOff` · `User`, `Users`, `Mail`, `Message`, `Notification`, `Share`, `Link`, `Attach` · `Calendar`, `Clock`, `History`, `Chart`, `Table`, `Database`, `Funnel`, `Tag`, `Bookmark`, `Star`, `Flag` · `SecurityLock`, `Key`, `Shield`, `LogIn`, `LogOut` · CAD: `Point`, `Polyline`, `Arc`, `Circle`, `Spline`, `Hatch`, `Dimension`, `AngleDimension` · `Move`, `Rotate`, `Scale`, `Offset`, `Trim`, `Extend`, `Fillet`, `Chamfer`, `Array` · `SnapEndpoint`, `SnapMidpoint`, `SnapCenter`, `SnapIntersection`, `SnapPerpendicular`, `SnapGrid`, `Ortho`, `Crosshair` · 3D: `ViewTop`, `ViewFront`, `ViewRight`, `ViewIsometric`, `Perspective`, `Orthographic`, `Orbit`, `Camera`, `Light`, `Axes`, `ZoomWindow` · `Box`, `Sphere`, `Cylinder`, `Cone`, `Torus`, `Plane`, `Mesh` · `Wireframe`, `Solid`, `Rendered`, `SelectVertex`, `SelectEdge`, `SelectFace`, `Extrude`, `Union`, `Subtract`, `Intersect` · Bild: `Image`, `Crop`, `Resize`, `Brightness`, `Contrast` · Dockning: `PanelLeft`, `PanelRight`, `PanelBottom`, `Float`, `Tabs`, `SplitHorizontal` · Kod: `Terminal`, `Code`, `Bug`, `Package` · Karta: `MapPin`, `MyLocation`, `Compass`, `Globe`, `Route`, `Terrain` · Ordna: `BringToFront`, `SendToBack`, `BringForward`, `SendBackward`, `Ungroup`, `AlignObjectsLeft`/`Center`/`Right`/`Top`/`Middle`/`Bottom`, `DistributeHorizontal`, `DistributeVertical` · 3D: `ViewBottom`, `ViewLeft`, `ViewBack` (de dolda sidornas kanter streckade), `Walk`, `Section` · CAD: `Explode`, `Block`, `Note`, `RevisionCloud`, `Area` · Text: `Strikethrough`, `Indent`, `Outdent`, `Heading`, `Quote`, `CodeBlock` · Diagram: `LineChart`, `PieChart`, `Sum` · Status: `AddCircle`, `RemoveCircle`, `CheckCircle`, `Blocked`, `Online`, `Offline` · Hårdvara: `Laptop`, `Phone`, `Keyboard`, `Mouse`, `Cpu`, `Battery`, `Power`, `Wifi`, `Usb` · Tid: `Timer` (timglaset), `Stopwatch` · `ArrowUpLeft`, `ArrowUpRight`, `ArrowDownLeft`, `ArrowDownRight` · Filkategorier: `FileImage`, `FileVideo`, `FileAudio`, `FileArchive`, `FileCode`, `FileSpreadsheet`, `FilePresentation`, `FileGeo`, `FileCad`, `FileModel`, `FilePointCloud`, `FileDatabase` · Filformat, `File` + ändelsen: geodata `FileShp`, `FileGeoJson`, `FileKml`, `FileKmz`, `FileGpx`, `FileGpkg`, `FileGml`, `FileGdb`, `FileOsm`, `FileGeoTiff`, `FileMbTiles`, `FileTab`, `FileQgz` · CAD/BIM `FileDwg`, `FileDxf`, `FileDgn`, `FileIfc`, `FileStep`, `FileIges`, `FileRvt` · 3D `FileObj`, `FileFbx`, `FileGltf`, `FileGlb`, `FileStl`, `File3mf`, `FileDae`, `FileSkp`, `FileUsd` · punktmoln `FileLas`, `FileLaz`, `FileE57`, `FilePly`, `FileXyz` · bilder `FilePng`, `FileJpg`, `FileGif`, `FileBmp`, `FileTiff`, `FileWebp`, `FileSvg`, `FileHeic`, `FileIco`, `FilePsd`, `FileRaw` · dokument `FilePdf`, `FileDoc`, `FileDocx`, `FileOdt`, `FileRtf`, `FileTxt`, `FileMd`, `FileXls`, `FileXlsx`, `FileOds`, `FileCsv`, `FilePpt`, `FilePptx`, `FileOdp` · data `FileJson`, `FileYaml`, `FileXml`, `FileHtml`, `FileSql`, `FileSqlite` · arkiv `FileZip`, `File7z`, `FileRar`, `FileTar`, `FileGz` · media `FileMp3`, `FileWav`, `FileMp4`, `FileMov` · Utseendets läge: `ThemeSystem`, `ThemeLight`, `ThemeDark`. Formatikonen är sidan med en liten symbol och ÄNDELSEN UTSTANSAD ur en etikett — läsbar från 24 px, i 16 px bär etikettens färg typen: geodata grön, CAD/BIM och PDF röd, 3D och punktmoln bärnsten, bilder gul, text blå, kalkyl grön, presentation bärnsten, data, arkiv och media neutrala. Spegla är `Flip` och vrid åt ett håll `RotateClockwise`; i färgvarianten är CAD-greppen och resultatet blå, det som tas bort rött, fästpunkternas märken gröna och axlarna X röd, Y grön, Z blå.
 - `int stockIconCount();` · `std::string_view stockIconName(StockIcon);` · `std::optional<StockIcon> stockIconByName(std::string_view);` — för en palett eller ett galleri.
 
@@ -6067,22 +6067,84 @@ void useStockIcons(glaze::Button& save, glaze::ToolButton& zoom)
 {
     save.setImg(glaze::stockIcon(glaze::StockIcon::Save));
     zoom.setImg(glaze::stockIcon(glaze::StockIcon::ZoomIn, 24,
-                                 glaze::StockIconStyle::Color));
+                                 glaze::IconStyle::Auto));
 }
 ```
 
 ### .glazeui
 ```cpp
     saveBtn.setImg(glaze::stockIcon(glaze::StockIcon::Save));
-    zoomBtn.setImg(glaze::stockIcon(glaze::StockIcon::ZoomIn, 24, glaze::StockIconStyle::Color));
+    zoomBtn.setImg(glaze::stockIcon(glaze::StockIcon::ZoomIn, 24, glaze::IconStyle::Auto));
 ```
 Previewn och GlazeBuilder ritar dem — inget `assets.bin` behövs.
 
 ### Fallgropar
-- Färgen är temats TEXTFÄRG (`Theme::Colors::text`), inte radens eller knappens: en ikon i en markerad rad med inverterad text byter inte färg. Färgvariantens accenter är temats `stockBlue`/`stockGreen`/`stockRed`/`stockAmber`/`stockYellow` — härledda ur paletten (ljusare i mörkt läge), och en app får skriva över dem som vilken annan roll som helst.
+- Konturen är temats TEXTFÄRG (`Theme::Colors::text`), inte radens eller knappens: en ikon i en markerad rad med inverterad text byter inte färg, och kanten mäts mot `windowBg`, `panel` och `titlebar` — inte mot en markerad rad. Färgerna är temats `stockBlue`/`stockGreen`/`stockRed`/`stockAmber`/`stockYellow`/`stockPaper` — härledda ur paletten (gult och papperet lika i båda lägena, de andra ljusare i mörkt), och en app får skriva över dem som vilken annan roll som helst.
 - En OS-ikon (`appIcon.setIcon`, `TrayIcon`) av en standardikon rastreras när den sätts, i appens textfärg i OS:ets läge — den följer inte ett senare temabyte.
-- Arket med alla ikoner i alla klasser, ljust och mörkt: `build-test/tests/stockicon_sheet ut.png` (GlazeUI-repot, `GLAZE_TESTS=ON`).
+- Arket med alla ikoner i alla klasser, ljust och mörkt, och ramverkets ritade glyfer: `build-test/tests/glyph_sheet ut.png` (GlazeUI-repot, `GLAZE_TESTS=ON`). Ett ark med utvalda standardikoner i en app: `glaze::writeIconSheet("ut.png", {"Save", "ZoomIn"})`.
 <!-- END:stock-icons -->
+
+<!-- BEGIN:drawn-icons | drawn-icons appikoner egna-ikoner ritade-ikoner custom-icons app-icons registericon glaze_register_icon drawnicon registericonpart glaze_register_icon_part writeiconsheet ikonark icon-sheet glyf glyfer recept recipe vektorikon vector-icon svg auto iconstyle -->
+## Appens ritade ikoner — `glaze::drawnIcon` (`drawn-icons`)
+
+**Alias:** drawn-icons, appikoner, egna ikoner, ritade ikoner, custom icons, registerIcon, drawnIcon, ikonark
+**Include:** `#include <glaze/glaze.h>` · **CMake:** `glaze` · **Källa:** [stock_icon.h](Glaze/widgets/include/glaze/stock_icon.h), [stock_icon.cpp](Glaze/widgets/src/stock_icon.cpp), [icon_sheet.cpp](Glaze/widgets/src/icon_sheet.cpp) · **Exempel:** [icon_window.cpp](apps/demo/src/icon_window.cpp) (`demo --icons`)
+
+En app RITAR sina ikoner i C++ med standardikonernas motor och språk — lagren, färgerna, tonerna, gradienterna, kontrastkraven, delarna och pixelfästningen. Det är FÖRSTAHANDSVALET för en apps ikoner: de blir skarpa i varje storlek och skala, följer temat i ljust och mörkt, har Mono och Color och syns mot bakgrunden. En PNG i `assets.bin` (avsnittet `assets`) är för det som inte går att rita, som foton och logotyper.
+
+### Språket
+En ikon är två strängar i en ruta på 24 × 24 (rad 0 överst, y nedåt): KONTUREN och FÄRGEN, med lagren åtskilda av `|` i båda, i samma ordning.
+- **Former:** `M x y` ny linje · `L x y` linje till · `H x`/`V y` vågrätt/lodrätt · `Q kx ky x y` kurva · `Z` sluter · `F` nästa linje fylls · `C cx cy r` cirkel · `A cx cy r a0 a1` båge (grader medurs från höger) · `E cx cy rx ry` ellips · `U cx cy rx ry a0 a1` ellipsbåge · `R x y b h r` rektangel · `B x y b h r` fylld rektangel · `D cx cy r` fylld skiva · `K x y b h TEXT` texten UTSTANSAD ur lagret (A–Z, 0–9) · `@namn` en DEL. Allt utom `F`/`B`/`D` är streck med ikonens bredd och raka ändar.
+- **Färger:** `blue green red amber yellow paper` börjar ett lager i den färgen med formerna efter ordet; tonerna `light dark deep ink` (ink är mörk i båda lägena), `strong`, `gradient` och `over`/`under` (förvalet: bakom konturen) gäller nästa färgord; `all [ton] <färg>` färgar konturen; `contrast N` sätter lagrets krav mot det under (förval 3:1, ett lager av bara linjer 4,5:1); `#namn` en FÄRGDEL.
+- **Lager:** upp till FYRA. Varje lager ritas fritt och läggs sedan på det under: ytterpixlarna flyttas i ljushet tills de når lagrets krav, och räcker det inte växer en ring runt lagret. En detalj som ska synas mot det den ligger på — ett tecken på en skiva, texten på en skylt — är ett eget lager. Det första lagrets kontur speglas i mörkt läge.
+- **Delar:** ramverkets (`@fil`/`#fil` sidan, `@mapp`/`#mapp`, `@oppen`/`#oppen`, `@disk`/`#disk`, `#rund` den blå skivan, `@lupp`/`#lupp`, `#sidabak`/`#sidafram`, `@kub`/`#kub`, `@kryss`, `@las`, `@nal`, `@hogtalare`, `@rader` och filtypernas små symboler `@ftext`, `@ftabell`, `@fbild` …) och appens egna. En del kan inte innehålla en del.
+
+### API
+- `GLAZE_REGISTER_ICON(name, shapes, colors)` på namespace-nivå i appens cpp, eller `bool registerIcon(std::string_view name, std::string_view shapes, std::string_view colors = {});` — samma namn igen ERSÄTTER receptet; tomt namn eller tom kontur loggas och svarar false.
+- `GLAZE_REGISTER_ICON_PART(name, shapes, colors)` / `bool registerIconPart(...)` — en del som `@namn` och `#namn`. Ramverkets delar går före en app-del med samma namn.
+- `ImageSource drawnIcon(std::string_view name, int sizeClass = 16, IconStyle style = IconStyle::Mono);` — som `stockIcon`, överallt där ett `ImageSource` tas emot. Namnet slås upp när ikonen ritas; ett namn som inte är registrerat loggas en gång och ritas som `StockIcon::Image`.
+- `std::vector<std::string> drawnIconNames();` — i registreringsordning.
+- `bool writeIconSheet(const std::string& pngPath, const std::vector<std::string>& names = {});` — ARKET: ikonerna i 16, 24, 32 och 48 med namnet under, mono och färg, ljust och mörkt, ritade i skärmens skala utan förstoring. Tom lista = alla appens ikoner; standardikonernas namn ("Save") går också. UI-tråden.
+
+### Exempel
+```cpp
+// ikoner.cpp i appen
+GLAZE_REGISTER_ICON("NyRitning",
+    "@fil | C 17 17 5 | M 17 14.5 V 19.5 M 14.5 17 H 19.5",
+    "#fil | all deep green gradient green D 17 17 5 | all paper")
+
+GLAZE_REGISTER_ICON_PART("skylt",
+    "M 8.3 3 H 15.7 L 21 8.3 V 15.7 L 15.7 21 H 8.3 L 3 15.7 V 8.3 Z",
+    "all deep red gradient red F M 8.3 3 H 15.7 L 21 8.3 V 15.7 L 15.7 21 H 8.3 L 3 15.7 V 8.3 Z")
+GLAZE_REGISTER_ICON("Stoppa", "@skylt | B 7 10.5 10 3 0", "#skylt | all paper")
+
+void useDrawnIcons(glaze::Button& ny, glaze::ToolButton& stopp)
+{
+    ny.setImg(glaze::drawnIcon("NyRitning", 16, glaze::IconStyle::Auto));
+    stopp.setImg(glaze::drawnIcon("Stoppa", 24, glaze::IconStyle::Auto));
+}
+
+int main(int argc, char** argv)
+{
+    if (argc > 2 && std::strcmp(argv[1], "--icons-sheet") == 0)
+        return glaze::writeIconSheet(argv[2]) ? 0 : 1;   // granska arket
+    // …
+}
+```
+
+### .glazeui
+```cpp
+    nyBtn.setImg(glaze::drawnIcon("NyRitning", 16, glaze::IconStyle::Auto));
+```
+Previewn utför raden, men den generiska previewn känner inte appens recept (de är appens kod): den ritar `StockIcon::Image` i ikonens ställe och loggar det. En preview byggd i appens projekt, med receptfilen länkad, ritar den riktiga ikonen.
+
+### Fallgropar
+- Registrera före första ritningen. En omregistrering tömmer ikonernas cache, men ett fönster som redan ritat ritar om först när något annat invaliderar det.
+- `K`-texten STANSAS UT och visar det som ligger under: lägg ett eget lager under texten (en mörk platta med `over ink <färg>` för mörk text på en ljus skylt — en fyllning och inte konturens ton, som speglas i mörkt läge) och gör plattan lite högre än texten. Texten läses från 24 px.
+- Mono tonar ned ytorna mot papperet (ljust) eller bakgrunden (mörkt), och det gäller också en sådan platta — en text som ska läsas i Mono behöver en djup ton.
+- Ett fel i en beskrivning loggas EN gång per ikon, med ikonens namn och ordet där felet sitter, och resten av det lagret ritas inte; titta på arket (`writeIconSheet`).
+- Ramverkets 395 standardikoner står i samma form i [stock_icon.cpp](Glaze/widgets/src/stock_icon.cpp) — namn, kontur och färg med `|` mellan lagren — och är exempel på allt språket kan.
+<!-- END:drawn-icons -->
 
 <!-- BEGIN:threads | threads trådar tråd worker bakgrund background backgroundworker async asynkron pool trådpool threadpool result stop_token cancel avbryt uicontext glaze_threads_ui -->
 ## Threads — bakgrundsarbete med svar i UI-tråden (`threads`)

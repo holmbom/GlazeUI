@@ -1038,8 +1038,10 @@ struct FalskBild final : gfx::NullImage {
 };
 
 // Renderer som SPELAR IN texten MED FÄRG, strecken med färg (pilen och
-// bocken är streck) och bilderna med målrect — resten är NullRendererns
-// no-op. `pushClip`/`popClip` är icke-virtuella och klarar sig själva.
+// bocken är streck — ritade pixel för pixel som rektanglar, vars alfa är
+// täckningen, så en rektangel spelas in med färgen utan alfa) och bilderna med
+// målrect — resten är NullRendererns no-op. `pushClip`/`popClip` är
+// icke-virtuella och klarar sig själva.
 struct Inspelning : gfx::NullRenderer {
     struct Text {
         std::string s;
@@ -1066,6 +1068,10 @@ struct Inspelning : gfx::NullRenderer {
     void line(float x1, float y1, float x2, float y2, gfx::Color c) override
     {
         streck.push_back({x1, y1, x2, y2, c});
+    }
+    void fillRect(const gfx::Rectf& r, gfx::Color c) override
+    {
+        streck.push_back({r.x, r.y, r.x + r.w, r.y + r.h, gfx::Color{c.r, c.g, c.b, 255}});
     }
     using gfx::NullRenderer::drawImage;
     void drawImage(gfx::Image&, const gfx::Rectf&, const gfx::Rectf& dst,

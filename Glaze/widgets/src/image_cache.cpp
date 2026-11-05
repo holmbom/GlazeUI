@@ -48,10 +48,10 @@ gfx::Image* ImageCache::get(const ImageSource& s, const Ctx& c)
     case ImageSource::Kind::Asset:   return get(s.asset());
     case ImageSource::Kind::Bitmap:  return get(s.bitmap());
     case ImageSource::Kind::Texture: return get(s.texture(), c);
-    case ImageSource::Kind::Stock:
-        return get(detail::stockBitmap(
-            s.stock(), static_cast<int>(std::lround(s.sizeClass() * c.scale)),
-            s.stockStyle(), c.theme->colors));
+    case ImageSource::Kind::Icon:
+        return get(detail::iconBitmap(
+            s, static_cast<int>(std::lround(s.sizeClass() * c.scale)),
+            c.theme->colors));
     case ImageSource::Kind::None:    break;
     }
     return nullptr;
@@ -105,7 +105,7 @@ bool ImageCache::sourceSize(const ImageSource& src, int& w, int& height)
         return true;
     // En vektor har ingen egen upplösning: klassens sida, som en asset i sin
     // klass vid skala 1.
-    case ImageSource::Kind::Stock:
+    case ImageSource::Kind::Icon:
         w = height = static_cast<int>(src.sizeClass());
         return true;
     case ImageSource::Kind::None:
@@ -120,7 +120,7 @@ gfx::Image* ImageCache::getResampled(const ImageSource& s, int w, int height)
     case ImageSource::Kind::Asset:  return resampledAsset(s.asset(), w, height);
     case ImageSource::Kind::Bitmap: return resampledBitmap(s.bitmap(), w, height);
     case ImageSource::Kind::Texture:   // pixlarna finns bara på GPU:n
-    case ImageSource::Kind::Stock:     // rastreras i målets storlek redan —
+    case ImageSource::Kind::Icon:      // rastreras i målets storlek redan —
                                        // `Draw::glyphResampled` går via `glyph`
     case ImageSource::Kind::None:
         break;

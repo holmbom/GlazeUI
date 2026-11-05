@@ -130,7 +130,9 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
 - **`image_source.h`** (CANVAS_3D etapp 4, utbruten ur shape.h) —
   **`ImageSource`**: en bild ur `AssetHandle`, `Bitmap` eller `RenderTexture`
   (implicita konstruktorer; `sameImage` jämför BILDEN, så kopior av en Bitmap
-  är samma bild). En egen header för att både shape.h (`MarkerStyle::img`)
+  är samma bild), eller en RITAD IKON (`Kind::Icon` — `stockIcon()` eller
+  appens `drawnIcon()`, `drawnName()` inte tom; `iconStyle()`, och
+  `forState(enabled)` som gör `IconStyle::Auto` till Color eller Mono). En egen header för att både shape.h (`MarkerStyle::img`)
   och style3d.h (`MeshStyle::texture`) bär den, och shape.h inkluderar
   style3d.h. Implementationen står kvar i src/canvas/shape.cpp.
   **Sedan TRAD_LISTOR_BILDER RAMVERKETS bildvärde** — varje widget som visar

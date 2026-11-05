@@ -211,8 +211,7 @@ void AppIcon::draw(const Ctx& c)
             Draw::rect(c, Draw::inset(b, m.appIconPlateInset), m.appIconRadius,
                        open_ ? col.capsulePress : col.capsuleHover);
         const gfx::Rectf r = Draw::inset(b, m.appIconInset);
-        Draw::glyphResampled(c, r, Draw::pickIcon(c, r, {stor, liten}),
-                             på ? 1.0f : 1.0f - m.iconFade);
+        Draw::stateGlyphResampled(c, r, Draw::pickIcon(c, r, {stor, liten}), på);
         break;
     }
     }

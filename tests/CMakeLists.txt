@@ -187,6 +187,21 @@ target_compile_definitions(icon_gate
 # D3 kör det RIKTIGA verktyget och jämför med de committade ikonfilerna.
 add_dependencies(icon_gate glazeassets)
 
+# stockicon_gate  STANDARDIKONERNAS grind: kanten mot bakgrunden (varje
+#                 kantpixel ≥ 3:1 mot windowBg, panel och titlebar i varje tema
+#                 och läge), samma yta i ljust och mörkt, pixelfästningen (ett
+#                 vågrätt streck är hela rader), det skurna hörnet, mono som
+#                 nedtonad färg och cache-nyckeln, Draws bock och streck på
+#                 hela pixlar mot en inspelande renderer, och appens ritade
+#                 ikoner (samma bild, Auto, omregistrering, delar, felet
+#                 loggat en gång). Headless; når
+#                 Glaze/widgets/src för detail::stockBitmap.
+add_executable(stockicon_gate stockicon_gate.cpp)
+target_link_libraries(stockicon_gate PRIVATE glaze)
+target_include_directories(stockicon_gate
+                           PRIVATE ${CMAKE_SOURCE_DIR}/Glaze/widgets/src
+                                   ${CMAKE_SOURCE_DIR}/Glaze/gfx/src)
+
 # groupbox_gate  GRUPPRAMENS grind: innerytan mot handräknat förväntat värde
 #                (luften, hela rubrikbandet, tom rubrik flyttar inget), den
 #                KONCENTRISKA klippradien mätt med en egen stil, autostorleken
@@ -327,6 +342,8 @@ add_test(NAME toolbar_gate COMMAND toolbar_gate)
 set_tests_properties(toolbar_gate PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
 add_test(NAME icon_gate COMMAND icon_gate)
 set_tests_properties(icon_gate PROPERTIES TIMEOUT 30)
+add_test(NAME stockicon_gate COMMAND stockicon_gate)
+set_tests_properties(stockicon_gate PROPERTIES TIMEOUT 600)
 add_test(NAME groupbox_gate COMMAND groupbox_gate)
 add_test(NAME spinbox_gate COMMAND spinbox_gate)
 set_tests_properties(spinbox_gate PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
@@ -1175,12 +1192,16 @@ target_link_libraries(terrain_perf PRIVATE perf_harness glaze)
 add_test(NAME terrain_perf COMMAND terrain_perf)
 set_tests_properties(terrain_perf PROPERTIES TIMEOUT 900)
 
-# stockicon_sheet  STANDARDIKONERNAS ARK — INGEN GRIND och inget
-#                  add_test: varje `glaze::StockIcon` i 16/24/32/48, ljust och
-#                  mörkt sida vid sida, som PNG (`stockicon_sheet ut.png`).
-#                  Ögats underlag när stilen bedöms; mäter ingenting.
-add_executable(stockicon_sheet stockicon_sheet.cpp)
-target_link_libraries(stockicon_sheet PRIVATE glaze)
+# glyph_sheet      GLYFERNAS ARK — INGEN GRIND och inget add_test: Draw-
+#                  formerna och `Draw::icon` i flera storlekar och pennor, och
+#                  varje `glaze::StockIcon` i 16/24/32/48 i mono och färg,
+#                  ljust och mörkt sida vid sida, som PNG i skärmens skala
+#                  (`glyph_sheet ut.png`). Ögats underlag när stilen bedöms;
+#                  mäter ingenting. Ikonerna ritas av ramverkets ark
+#                  (`detail::renderIconSheet`, samma som `writeIconSheet`).
+add_executable(glyph_sheet glyph_sheet.cpp)
+target_link_libraries(glyph_sheet PRIVATE glaze)
+target_include_directories(glyph_sheet PRIVATE ${CMAKE_SOURCE_DIR}/Glaze/widgets/src)
 
 # filedialog_gate  FILVÄLJARDIALOGENS grind. Headless: den rena
 #                  std-modellen — filtren, ändelsen, namnfältets citatform,

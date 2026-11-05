@@ -21,6 +21,14 @@ versionen sätts.
 
 ## Nästa
 
+## 0.7.0
+
+- **New** — standardikonerna är omgjorda: fästa mot pixelrutnätet i varje storlek, i färg med ytor, toner, gradient och fasad kant, i upp till fyra lager där varje lager får sin kontrast mot det under, och Mono är samma bild nedtonad. Papperets färg är rollen `Theme::Colors::stockPaper`.
+- **New** — appens egna ritade ikoner med standardikonernas språk, form och motor (de 395 standardikonerna står i samma form, namn, kontur och färg): `GLAZE_REGISTER_ICON`/`registerIcon`, delar med `GLAZE_REGISTER_ICON_PART`/`registerIconPart`, `drawnIcon` (i `.glazeui` `glaze::drawnIcon("Namn", 24)`), `drawnIconNames` och arket `writeIconSheet`. Ett fel i en beskrivning loggas en gång per ikon, med namnet och ordet. `demo --icons` visar dem på knappar.
+- **New** — `IconStyle::Auto`: färg när kontrollen är aktiv och mono när den är inaktiv. Varje bildbärande widget ritar genom `Draw::stateGlyph`, och en inaktiv menyrad tonar nu sin ikon.
+- **Fix** — kryssrutans bock syntes knappt. Bocken, plus, minus, krysset och vinkelhakarna står på pixelrutnätet med 2 px streck (`checkStroke`), och mellanlägets streck (`Draw::checkDash`) har bockens bredd i stället för hela rutans.
+- **Brytande** — `StockIconStyle` heter `IconStyle`, `ImageSource::Kind::Stock` heter `Kind::Icon`, `stockStyle()` heter `iconStyle()` och `Content::imgOpacity` är `Content::imgEnabled`.
+
 ## 0.6.2
 
 - **Fix** — Windows: Avbryt i skrivarens spara-ruta redovisades som ett misslyckande. Det är nu ett avbrott: `run` svarar false, `isCancelled()` är sann och `lastError()` tom.

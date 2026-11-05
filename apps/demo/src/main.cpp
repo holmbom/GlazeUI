@@ -2,6 +2,7 @@
 #include <cstring>
 
 #include "dock_window.h"
+#include "icon_window.h"
 #include "login_window.h"
 #include "slate_window.h"
 #include "splash_window.h"
@@ -23,6 +24,8 @@
 //   demo --dock           dockningen (flikar, staplar, handtag, layoutsträngen)
 //   demo --slate          arbetsbänken för Slate (alla komponenter på en sida)
 //   demo --login          inloggningsrutan med fönstrets gradient
+//   demo --icons          appens egna glyfer på knappar (mono, färg, Auto)
+//   demo --icons-sheet F  appens ikonark som PNG i filen F, och sedan slut
 //   demo --splash …       splashen FÖRST (ramlös, mitt på skärmen, en Timer i
 //                         .glazeui stänger den) — sedan som utan flaggan
 int main(int argc, char** argv)
@@ -38,7 +41,8 @@ int main(int argc, char** argv)
 
     bool galleri = false, systemfalt = false, dold = false;
     bool splash = false, labb = false, dockning = false, slate = false;
-    bool login = false;
+    bool login = false, ikoner = false;
+    const char* ikonark = nullptr;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--gallery") == 0)
             galleri = true;
@@ -56,6 +60,20 @@ int main(int argc, char** argv)
             slate = true;
         else if (std::strcmp(argv[i], "--login") == 0)
             login = true;
+        else if (std::strcmp(argv[i], "--icons") == 0)
+            ikoner = true;
+        else if (std::strcmp(argv[i], "--icons-sheet") == 0 && i + 1 < argc)
+            ikonark = argv[++i];
+    }
+
+    // ARKET: appens egna glyfer (icon_window.cpp) i alla storlekar och
+    // varianter, utan att ett fönster visas.
+    if (ikonark)
+        return glaze::writeIconSheet(ikonark) ? 0 : 1;
+
+    if (ikoner) {
+        IconWindow w;
+        return w.run();
     }
 
     // SPLASHEN går före allt annat och stänger sig själv:

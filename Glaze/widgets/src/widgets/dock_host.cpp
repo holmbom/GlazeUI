@@ -1395,13 +1395,13 @@ void DockHost::draw(const Ctx& c)
     // text) och visar ikonen eller titelns första tecken.
     auto innehåll = [&](const DockPanel& p, const gfx::Rectf& r, float pad,
                         bool stående, gfx::Color färg) {
-        const float ikon     = std::min(m.iconFallback, r.h);
-        const float opacitet = på && p.isEnabled() ? 1.0f : 1.0f - m.iconFade;
+        const float ikon  = std::min(m.iconFallback, r.h);
+        const bool  aktiv = på && p.isEnabled();
         if (stående) {
             if (p.img().valid())
-                Draw::glyph(c, {r.x + (r.w - ikon) / 2.0f,
-                                r.y + (r.h - ikon) / 2.0f, ikon, ikon},
-                            p.img(), opacitet);
+                Draw::stateGlyph(c, {r.x + (r.w - ikon) / 2.0f,
+                                     r.y + (r.h - ikon) / 2.0f, ikon, ikon},
+                                 p.img(), aktiv);
             else
                 Draw::text(c, r, förstaTecknet(p.text()), färg, Align::Center);
             return;
@@ -1411,8 +1411,8 @@ void DockHost::draw(const Ctx& c)
             Draw::textElided(c, t, p.text(), färg, Align::Center);
             return;
         }
-        Draw::glyph(c, {t.x, r.y + (r.h - ikon) / 2.0f, ikon, ikon}, p.img(),
-                    opacitet);
+        Draw::stateGlyph(c, {t.x, r.y + (r.h - ikon) / 2.0f, ikon, ikon}, p.img(),
+                         aktiv);
         t.x += ikon + m.iconGap;
         t.w = std::max(0.0f, t.w - ikon - m.iconGap);
         Draw::textElided(c, t, p.text(), färg, Align::Left);

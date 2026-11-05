@@ -7553,8 +7553,10 @@ void fallCallsDockning()
 // formerna `.glazeui` bär för `appIcon` ska UTFÖRAS — bilderna i båda
 // formerna (`glaze::img(…)` och `{}` = förvalet), de två bools och
 // programmenyn med den TOMMA stigen `{}` som roten. Fem delar:
-//   1. setter-fälten når ikonen (applyProp) — och en oparsbar bild lämnar
-//      den ORÖRD i stället för att gissa
+//   1. setter-fälten når ikonen (applyProp), också med de ritade ikonernas
+//      former (`glaze::drawnIcon`, `IconStyle::Auto`) — och en oparsbar bild
+//      lämnar den ORÖRD i stället för att gissa. SABOTAGET som ska fälla den:
+//      `glaze::drawnIcon`-grenen i `argImg` borttagen.
 //   2. programmenyn byggs på rätt nivå, `{}` är roten och en undermeny
 //      adresseras som på menyraden
 //   3. ATOMICITETEN: trasig stig, oparsbar text och `addMenu` (som ikonen
@@ -7600,6 +7602,22 @@ void fallProgramikon()
     bld::applyProp(*w, {"icon", "minBild"}, o);
     check(ai->icon() == kugge,
           "programikon: en oparsbar bild lämnar ikonen ORÖRD");
+    // De RITADE ikonernas former: appens (namnet slås upp när den ritas, så
+    // previewn behöver inte känna det) och standardikonen, båda i Auto.
+    bld::applyProp(*w, {"icon", "glaze::drawnIcon(\"Spara\", 24, glaze::IconStyle::Auto)"},
+                   o);
+    check(ai->icon() == glaze::drawnIcon("Spara", 24, glaze::IconStyle::Auto),
+          "programikon: setIcon(glaze::drawnIcon(…)) når ikonen");
+    bld::applyProp(*w, {"icon", "glaze::stockIcon(glaze::StockIcon::Save, 32, "
+                                "glaze::IconStyle::Auto)"},
+                   o);
+    check(ai->icon() ==
+              glaze::stockIcon(glaze::StockIcon::Save, 32, glaze::IconStyle::Auto),
+          "programikon: setIcon(glaze::stockIcon(…, IconStyle::Auto)) når ikonen");
+    bld::applyProp(*w, {"icon", "glaze::drawnIcon(Spara)"}, o);
+    check(ai->icon() ==
+              glaze::stockIcon(glaze::StockIcon::Save, 32, glaze::IconStyle::Auto),
+          "programikon: drawnIcon utan en strängliteral lämnar ikonen ORÖRD");
     bld::applyProp(*w, {"icon", "{}"}, o);
     check(!ai->icon().valid(), "programikon: setIcon({}) = förvalet");
     bld::applyProp(*w, {"smallIcon", "{}"}, o);

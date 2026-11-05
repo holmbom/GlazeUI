@@ -15,7 +15,7 @@
 
 #include "glaze/app.h"     // detail::osIconColors — standardikonens färger
 #include "glaze_assets/image.h"
-#include "image_cache.h"   // detail::assetBytes / assetGeneration / stockBitmap
+#include "image_cache.h"   // detail::assetBytes / assetGeneration / iconBitmap
 
 namespace glaze::detail {
 namespace {
@@ -70,12 +70,11 @@ glzassets::Rgba avkoda(const ImageSource& s)
                      "asset");
         return glzassets::Rgba{};
     }
-    case ImageSource::Kind::Stock: {
-        // STANDARDIKONEN rastreras i den STÖRSTA ramen och skalas ned som en
-        // asset, i appens färger i OS:ets läge (`osIconColors`).
+    case ImageSource::Kind::Icon: {
+        // Den RITADE IKONEN rastreras i den STÖRSTA ramen och skalas ned som
+        // en asset, i appens färger i OS:ets läge (`osIconColors`).
         const int    sida = std::end(glzassets::kIconSizes)[-1];
-        const Bitmap b    =
-            stockBitmap(s.stock(), sida, s.stockStyle(), osIconColors());
+        const Bitmap b    = iconBitmap(s, sida, osIconColors());
         if (!b.valid() || !b.pixels())
             return glzassets::Rgba{};
         ut.width  = b.width();

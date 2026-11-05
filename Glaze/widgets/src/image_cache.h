@@ -98,13 +98,27 @@ AssetHandle builtinAsset(const std::string& list, const std::string& key);
 std::uint64_t assetGeneration();
 
 // STANDARDIKONEN (stock_icon.cpp) rastrerad i `px` × `px` FYSISKA
-// px i stilen `style`, färgad ur paletten `colors` (konturen `text`,
-// färgvariantens accenter `stock*`) — EN bild per (ikon, px, stil, färgerna
-// den använder) i processen, så fönstrens texturer (`get(Bitmap)`) delar den.
+// px i stilen `style`, färgad ur paletten `colors` (konturen `text`, ytorna
+// och linjerna `stock*`) — EN bild per (ikon, px, stil, färgerna) i
+// processen, så fönstrens texturer (`get(Bitmap)`) delar den.
 // Rastreringen är stock_icon.cpp:s; `px` ≤ 0 och en ikon utanför uppräkningen
-// ger ingen bild. UI-tråden.
-Bitmap stockBitmap(StockIcon icon, int px, StockIconStyle style,
+// ger ingen bild. `IconStyle::Auto` utan ett tillstånd ritas som Color.
+// UI-tråden.
+Bitmap stockBitmap(StockIcon icon, int px, IconStyle style,
                    const Theme::Colors& colors);
+
+// APPENS IKON `name` (`registerIcon`) på samma sätt — ett namn som inte är
+// registrerat loggas en gång och ritas som `StockIcon::Image`.
+Bitmap drawnBitmap(const std::string& name, int px, IconStyle style,
+                   const Theme::Colors& colors);
+
+// Den RITADE IKONEN i ett `ImageSource` (`Kind::Icon`) — standardikonen eller
+// appens; något annat ger ingen bild.
+Bitmap iconBitmap(const ImageSource& s, int px, const Theme::Colors& colors);
+
+// Namnen på de ikoner vars beskrivning har loggats som felaktig — EN gång per
+// ikon (tills appen registrerar något nytt), i den ordning felen hittades.
+std::vector<std::string> iconErrorNames();
 
 struct BitmapData;
 struct RenderTextureData;

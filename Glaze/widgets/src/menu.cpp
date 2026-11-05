@@ -1330,7 +1330,7 @@ void MenuRows::drawRow(const Ctx& c, int row, gfx::Color fg,
     else if (s.checked)
         Draw::check(c, glyf, Pen{text, m.checkStroke});
     else if (s.icon.valid())
-        Draw::glyph(c, glyf, s.icon);
+        Draw::stateGlyph(c, glyf, s.icon, s.enabled);
 
     const float tx  = textLeft(c);
     const float ac  = arrowCol(c);
