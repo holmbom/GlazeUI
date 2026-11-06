@@ -142,6 +142,10 @@ add_library(glaze_impl ${_glaze_lib_type}
     # FÄRGYTAN — paletten, reglagen och hexfältet, delade av färgväljarens
     # popup och färgdialogen (intern, se src/color_panel.h).
     src/color_panel.cpp
+    # DE TYPADE CELLERNA — kryss, färg, tal, knapp och kategori, delade av
+    # egenskapslistan och datagriden (intern, se src/value_cell.h). Kolumnlägenas
+    # räkning är header-only (src/column_sizing.h).
+    src/value_cell.cpp
     src/app_window.cpp
     src/drag_drop.cpp
     src/tooltip.cpp

@@ -8,7 +8,7 @@
 #include <sstream>
 #include <string>
 
-// Talet som text — det SpinBox och PropertyGrids talrader delar: vilka tecken
+// Talet som text — det SpinBox och de typade cellernas tal delar: vilka tecken
 // som ingår i ett skrivet tal, användarens text → tal, klampning och
 // avrundning, och talet → text. Internt i libglaze (en header, inga
 // statiska tillstånd); allt sker i "C"-lokalen, så en app som anropat
@@ -25,6 +25,17 @@ inline bool isNumberChar(char ch)
 {
     return (ch >= '0' && ch <= '9') || ch == '+' || ch == '-' || ch == ',' ||
            ch == '.';
+}
+
+// Bara taltecknen ur en inmatad text — det ett talfält släpper in vid ett
+// tangenttryck. Tomt svar = inget att skriva.
+inline std::string filterNumberChars(const char* utf8)
+{
+    std::string ok;
+    for (const char* p = utf8; *p; ++p)
+        if (isNumberChar(*p))
+            ok.push_back(*p);
+    return ok;
 }
 
 inline std::string trim(const std::string& s)

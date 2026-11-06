@@ -1145,9 +1145,9 @@ Layoutfälten är RÅA fältrader (allt annat tillstånd är settrar):
 Varje listbärande komponent talar SAMMA tre former, indexbaserat: `addX(…)` lägger till sist, `setX(index, …)` ERSÄTTER en befintlig post helt, `setXs(lista)` fyller om allt. Styckeformen är det designern kan skriva rad för rad i `.glazeui`, massformen det man skriver i kod — och båda ger exakt samma tillstånd. Index utanför ⇒ `gfx::log` och ingenting, aldrig tyst tillväxt.
 
 ### API
-- `ListBox`, `Dropdown`: `void addItem(std::string text);` · `void setItem(int index, std::string text);` · `void setItems(std::vector<std::string> v);` (+ `ListBox::setChecked(int row, bool on)`).
-- `PropertyGrid`: `void addRow(std::string name, std::string value = "", bool readOnly = false, std::string tag = "");` · `void setRow(int index, std::string name, std::string value = "", bool readOnly = false, std::string tag = "");` · `void setRows(std::vector<Row> rows);`
-- `ListView`, `DataGrid` (basen `Table`): `void addColumn(TrText text, float width = 0.0f, Align align = Align::Left, std::optional<Align> headerAlign = std::nullopt);` · `setColumn(int index, …)` · `void setColumns(std::vector<Column> columns);` och `void addRow(std::vector<std::string> cells, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt);` · `void setRow(int index, std::vector<std::string> cells, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt);` · `void setRows(std::vector<Row> rows);` (+ `setRowColor(index, färg)` och `setCellColor(rad, kolumn, bakgrund, text)`)
+- `ListBox`, `Dropdown`: `void addItem(std::string text);` · `void setItem(int index, std::string text);` · `void setItems(std::vector<std::string> v);` (+ `ListBox::setChecked(int row, bool on)`; `Dropdown`s `addItem`/`setItem` tar en valfri ikon sist).
+- `PropertyGrid`: `void addRow(Row row);` · `void setRow(int index, Row row);` · `void setRows(std::vector<Row> rows);` — `{"Bredd", "120"}` är den korta formen av raden.
+- `ListView`, `DataGrid` (basen `Table`): `void addColumn(TrText text, float width = 0.0f, Align align = Align::Left, std::optional<Align> headerAlign = std::nullopt, ColumnSizing sizing = ColumnSizing::Manual);` · `setColumn(int index, …)` · `void setColumns(std::vector<Column> columns);` och `void addRow(std::vector<std::string> cells, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt);` · `void setRow(int index, std::vector<std::string> cells, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt);` · `void setRows(std::vector<Row> rows);` · `void removeRow(int index);` (+ `setRowColor(index, färg)`, `setCellColor(rad, kolumn, bakgrund, text)`, `setCellImage(rad, kolumn, bild)`, `setRowKind(rad, slag)` och `DataGrid::setCellEditor(rad, kolumn, spec)`)
 - `TreeView` — samma tre med en STIG där listan har ett index: `TreePath addNode(const TreePath& parent, TrText text, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt);` · `void setNode(const TreePath& path, TrText text, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt);` · `void setNodes(std::vector<TreeNode> nodes);` (+ `setChecked`/`setSelected`/`setNodeColor(stig, …)`)
 - `FileDialog`, `FilePicker`: `void addFilter(TrText name, std::string patterns);` · `void setFilter(int index, TrText name, std::string patterns);` · `void setFilters(std::vector<FileFilter> filters);`
 - `TabControl` (sidorna): `TabPage& addPage(TrText text = {});` · `void setPage(int index, TrText text);` · `void setPages(std::vector<TrText> texts);` (`widget-tab-control`).
@@ -1169,8 +1169,8 @@ void fillCollections(glaze::ListBox& list, glaze::Dropdown& choice,
     choice.setSelectedIndex(1);                // programmatiskt: inget onChange
 
     grid.setRows({{"Bredd", "120"}, {"Höjd", "80"}});
-    grid.addRow("Djup", "40");
-    grid.setRow(0, "Bredd", "160");            // ERSÄTTER hela raden
+    grid.addRow({"Djup", "40"});
+    grid.setRow(0, {"Bredd", "160"});          // ERSÄTTER hela raden
 
     files.addColumn("Namn", 160);
     files.addColumn("Storlek", 70, glaze::Align::Right);
@@ -1186,13 +1186,14 @@ Styckeformen som satser — previewn utför dem:
     list.addItem("Gamma");
     list.setItem(0, "ALFA");
     grid.setRows({{"Bredd", "120"}, {"Höjd", "80"}});
-    grid.addRow("Djup", "40");
+    grid.addRow({"Djup", "40"});
     files.addColumn("Namn", 160);
     files.addRow({"Rapport.pdf", "12 kB"});
 ```
 
 ### Fallgropar
-- `setX` är TILLDELNING: `grid.setRow(0, "Bredd", "160")` tappar radens gamla `tag`/`readOnly`, och `ListView::setRow` tappar radens sorteringsnycklar.
+- `setX` är TILLDELNING: `grid.setRow(0, {"Bredd", "160"})` tappar radens gamla `tag`/`readOnly`, och `ListView::setRow` tappar radens sorteringsnycklar, cellbilder och cellfärger.
+- `removeRow(i)` är den enda formen som FLYTTAR indexen: raderna efter `i` får ett lägre index, och deras val, kryss och cellinställningar följer med.
 - Indexen är APPENS även när en `ListView` är sorterad — `setRow(3, …)` är samma rad före och efter en sortering.
 - Listornas poster är `std::string`, inte `TrText`: fyll om dem i `onLanguageChanged()` vid språkbyte (`language`).
 - `setSelectedIndex` och de andra programmatiska settrarna fyrar inget `onChange`.
@@ -1914,7 +1915,7 @@ Dokumentet är EN strängliteral med `\n`, `\"` och `\\` (sammanslagna literaler
 
 <!-- END:widget-markdown-view -->
 
-<!-- BEGIN:widget-dropdown | dropdown vallista rullgardin combobox combo select dropdownlist choice wxchoice qcombobox picker items selectedindex popup -->
+<!-- BEGIN:widget-dropdown | dropdown vallista rullgardin combobox combo select dropdownlist choice wxchoice qcombobox picker items selectedindex popup ikon icon itemicon -->
 ## Dropdown — vallistan (`widget-dropdown`)
 
 **Alias:** dropdown, vallista, rullgardin, combobox, combo, select, dropdownlist, choice, wxchoice, qcombobox, picker, items, selectedindex, popup
@@ -1923,8 +1924,8 @@ Dokumentet är EN strängliteral med `\n`, `\"` och `\\` (sammanslagna literaler
 Ett fält som visar det valda och öppnar en lista i ett riktigt popup-fönster (det kan sticka ut utanför ägarfönstret och vänder uppåt vid skärmkanten). Värdet VÄLJS — det går inte att skriva in ett eget (WinForms DropDownList). Raderna är strängar i kollektionsvokabulären. Registreringsnamn `dropdown`.
 
 ### API
-- `void setItems(std::vector<std::string> v)` / `const std::vector<std::string>& items() const`
-- `void addItem(std::string text)` · `void setItem(int index, std::string text)` — index utanför ⇒ logg + no-op.
+- `void setItems(std::vector<std::string> v)` / `const std::vector<std::string>& items() const` — massformen bär bara texterna och nollar posternas ikoner.
+- `void addItem(std::string text, ImageSource icon = {})` · `void setItem(int index, std::string text, ImageSource icon = {})` · `const ImageSource& itemIcon(int index) const` — en valfri IKON per post (asset, `Bitmap` eller `glaze::drawnIcon`) före texten i listan och, för den valda, i fältet; `setItem` är tilldelning och nollar en utelämnad ikon. Index utanför ⇒ logg + no-op.
 - `void setSelectedIndex(int i)` / `int selectedIndex() const` — `-1` = inget valt (förvalet).
 - `std::string selectedText() const` — tom utan val.
 - `void setAlign(Align a)` / `Align align() const` — fältets text.
@@ -1969,6 +1970,8 @@ private:
 format.setItems({"PNG", "JPEG"});
 format.addItem("WebP");
 format.setItem(1, "JPG");
+format.addItem("Vektor", glaze::img("ikoner", "vektor"));
+format.setItem(0, "PNG", glaze::img("ikoner", "bild"));
 format.setSelectedIndex(0);
 format.setTextSize(glaze::mm(3));
 format.width = 160;
@@ -3157,20 +3160,25 @@ topBar.adopt(hjalp);
 - Namnlisten bär programikonen (`appIcon`, ett rotbarn i chrome-trädet och INTE ett barn i `TopBar`): vänster på Windows/Linux, höger på macOS, med en motvikt på andra sidan så titeln förblir centrerad. Den STORA ikonen täcker namnlisten och raden under (menyraden eller det översta verktygsfältet), och namnlistens hårlinje hoppar över den (`app-icon`).
 <!-- END:widget-bars -->
 
-<!-- BEGIN:widget-list-view | listview listvy table tabell kolumner columns details report gridview wxlistctrl qtableview multiselect flerval sortering sort onactivate kryss checkboxes checks oncheck -->
+<!-- BEGIN:widget-list-view | listview listvy table tabell kolumner columns details report gridview wxlistctrl qtableview multiselect flerval sortering sort onactivate kryss checkboxes checks oncheck kategori category grupp rowkind tomrad blank columnsizing autosize automin manual rubrikkryss headercheck removerow cellbild -->
 ## ListView — listvyn, och basen Table (`widget-list-view`)
 
-**Alias:** listview, listvy, table, tabell, kolumner, columns, details, report, gridview, wxlistctrl, qtableview, multiselect, flerval, sortering, sort, onactivate, kryss, checkboxes, checks, oncheck
+**Alias:** listview, listvy, table, tabell, kolumner, columns, details, report, gridview, wxlistctrl, qtableview, multiselect, flerval, sortering, sort, onactivate, kryss, checkboxes, checks, oncheck, kategori, category, grupp, rowkind, tomrad, blank, columnsizing, autosize, automin, manual, rubrikkryss, headercheck, removerow, cellbild, höjd ur raderna
 **Include:** `#include <glaze/glaze.h>` · **CMake:** `glaze` · **Källa:** [list_view.h](Glaze/widgets/include/glaze/widgets/list_view.h), [table.h](Glaze/widgets/include/glaze/widgets/table.h), [CLAUDE.md](Glaze/widgets/include/glaze/widgets/CLAUDE.md)
 
 En rullande tabell med kolumnhuvud: rader av celler, valfri ikon per rad, ETT tabbstopp och tusentals rader i O(synliga). Klick i huvudet sorterar (tabellen sorterar SJÄLV), avdelarna dras för bredd, och valet är enkelt eller — med `setMultiSelect(true)` — Utforskarens flerval. Kolumnerna, raderna och sorteringen ärvs från den oregistrerade basen `glaze::Table`, som `DataGrid` delar. Registreringsnamn `listview`.
 
-**Kryssen** (`setShowChecks(true)`, WinForms `ListView.CheckBoxes`) är en ruta per rad FÖRST i första kolumnen, före ikonen — ListBoxens och trädets ord rakt av. De är OBEROENDE av valet: ett klick i rutan vänder krysset utan att flytta markeringen, Space vänder den aktuella radens (också i enkelval), Ctrl+Space vänder valet som förut, och ett dubbelklick i rutan är två vändningar och ingen aktivering. Krysset hör till RADEN (appens index) och följer den genom sorteringen.
+**Kryssen** (`setShowChecks(true)`, WinForms `ListView.CheckBoxes`) är en ruta per rad FÖRST i första kolumnen, före ikonen — ListBoxens och trädets ord rakt av. De är OBEROENDE av valet: ett klick i rutan vänder krysset utan att flytta markeringen, Space vänder den aktuella radens (också i enkelval), Ctrl+Space vänder valet som förut, och ett dubbelklick i rutan är två vändningar och ingen aktivering. Krysset hör till RADEN (appens index) och följer den genom sorteringen. Med `setColumnHeaderCheck(0, true)` får första kolumnens rubrik ett kryss i tre lägen som slår på eller av alla synliga rader.
+
+**Kategorierna** (`RowKind::Category`) delar tabellen i avsnitt: raden spänner över hela bredden med en pil, raderna under den står indragna (`Style::tableCategoryIndent`) och fälls in och ut med ett klick, Space/Enter eller Vänster/Höger. Sorteringen gäller INOM varje kategori. En **tom rad** (`RowKind::Blank`) är en avståndsrad utan rutnät som aldrig väljs. Utan satt `height` är tabellen sina rader (huvudet + raderna), så flera kan staplas i en rullande `Panel`.
 
 ### API
-- `void addColumn(TrText text, float width = 0.0f, Align align = Align::Left, std::optional<Align> headerAlign = std::nullopt)` — `width` i logiska px: `0` = stilens `columnDefaultW`, `Column::autoWidth` (−1) = EFTER INNEHÅLLET (rubriken och cellerna, med luft; se fallgroparna); `headerAlign` utelämnad = som cellerna.
-- `void setColumn(int index, TrText text, float width = 0.0f, Align align = Align::Left, std::optional<Align> headerAlign = std::nullopt)` · `void setColumns(std::vector<Column> columns)` — `struct Column { static constexpr float autoWidth = -1.0f; TrText text; float width = 0.0f; Align align = Align::Left; std::optional<Align> headerAlign; }`.
-- `void addRow(std::vector<std::string> cells, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt)` · `void setRow(int index, std::vector<std::string> cells, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt)` · `void setRows(std::vector<Row> rows)` — `struct Row { std::vector<std::string> cells; ImageSource img{}; std::optional<gfx::Color> color{}; }`, ikonen (asset eller `Bitmap`) i första kolumnen.
+- `void addColumn(TrText text, float width = 0.0f, Align align = Align::Left, std::optional<Align> headerAlign = std::nullopt, ColumnSizing sizing = ColumnSizing::Manual)` — `width` i logiska px (`0` = stilens `columnDefaultW`); `headerAlign` utelämnad = som cellerna.
+- `void setColumn(int index, TrText text, float width = 0.0f, Align align = Align::Left, std::optional<Align> headerAlign = std::nullopt, ColumnSizing sizing = ColumnSizing::Manual)` · `void setColumns(std::vector<Column> columns)` — `struct Column { TrText text; float width = 0.0f; Align align = Align::Left; std::optional<Align> headerAlign; ColumnSizing sizing = ColumnSizing::Manual; TrText toolTip; bool headerCheck = false; }`.
+- KOLUMNLÄGET `enum class ColumnSizing { Manual, AutoMin, Autosize }` (`glaze::ColumnSizing`): `Manual` = den satta bredden, `AutoMin` = det minsta rubriken och cellerna behöver (med luft), `Autosize` = den satta bredden är golvet och resten av ytan delas LIKA mellan alla Autosize-kolumner. `void setColumnSizing(int index, ColumnSizing s)` / `ColumnSizing columnSizing(int index) const` · `void setColumnToolTip(int index, TrText t)` (över rubriken) · `void setColumnHeaderCheck(int index, bool on)` / `bool columnHeaderCheck(int index) const`.
+- `void addRow(std::vector<std::string> cells, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt)` · `void setRow(int index, std::vector<std::string> cells, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt)` · `void setRows(std::vector<Row> rows)` · `void removeRow(int index)` — `struct Row { std::vector<std::string> cells; ImageSource img{}; std::optional<gfx::Color> color{}; RowKind kind = RowKind::Data; bool expanded = true; }`, ikonen (asset eller `Bitmap`) i första kolumnen. `removeRow` flyttar raderna efter upp ett index, och valet, kryssen, färgerna och cellinställningarna följer sina rader.
+- RADENS SLAG `enum class RowKind { Data, Category, Blank }` (`glaze::Table::RowKind`, också via `ListView`/`DataGrid`): `void setRowKind(int row, RowKind k)` / `RowKind rowKind(int row) const` · `void setExpanded(int row, bool on)` / `bool isExpanded(int row) const` (bara en kategori) · `Handler<RowArgs> onExpand` / `Handler<RowArgs> onCollapse` (ANVÄNDARENS fällning, raden i `e.row`; `setExpanded` fyrar aldrig) · `int positionCount() const` (de synliga platserna).
+- `void setCellImage(int row, int column, ImageSource img)` / `const ImageSource& cellImage(int row, int column) const` — en bild före cellens text; kolumn 0 ÄR radens `img`.
 - `void setRowColor(int row, std::optional<gfx::Color> color)` / `std::optional<gfx::Color> rowColor(int row) const` — radens TEXTFÄRG, appens (en status): syns på omarkerade rader, följer raden genom sorteringen; `setRow` utan färg nollar, `setCell` lämnar den.
 - `void setCellColor(int row, int column, std::optional<gfx::Color> background, std::optional<gfx::Color> text)` / `std::optional<gfx::Color> cellBackground(int row, int column) const` / `std::optional<gfx::Color> cellTextColor(int row, int column) const` — EN cells bakgrund och textfärg, för matriser där varje cell har ett eget tillstånd. Tomt (`std::nullopt`/`{}`) = radens eller stilens färg: en tom text är radens färg (`setRowColor`) och annars temats, en tom bakgrund är ingen. Tilldelning (en utelämnad färg nollas); kolumnen behöver inte finnas än.
 - `void setRowHeaders(bool on)` / `bool rowHeaders() const` — RADRUBRIKER: första kolumnen blir en fast kolumn i rubrikens stil som står kvar när tabellen rullas i sidled; cellerna i kolumn 0 är radernas namn.
@@ -3179,7 +3187,7 @@ En rullande tabell med kolumnhuvud: rader av celler, valfri ikon per rad, ETT ta
 - `void setHeaderLines(int lines)` (0 = AUTO) · `void setHeaderVAlign(VAlign v)` · `void setColumnWidth(int index, float width)`
 - `void setMultiSelect(bool on)` · `void setSelectedIndex(int row)` / `int selectedIndex() const` · `void setSelected(int row, bool on)` · `std::vector<int> selectedRows() const` · `void selectAll()` · `void clearSelection()`
 - `int currentRow() const` · `int displayRow(int row) const` · `int rowAtDisplay(int position) const` · `void ensureVisible(int row)`
-- `void setShowChecks(bool on)` / `bool showsChecks() const` · `void setChecked(int row, bool on)` / `bool isChecked(int row) const` (utanför ⇒ logg + no-op / false; fyrar aldrig) · `std::vector<int> checkedRows() const` (visningsordning) · `int changedRow() const` (kryssets rad i `onCheck`/`onCommit`; −1 efter ett val och efter `setRows`)
+- `void setShowChecks(bool on)` / `bool showsChecks() const` · `void setChecked(int row, bool on)` / `bool isChecked(int row) const` (utanför ⇒ logg + no-op / false; fyrar aldrig) · `std::vector<int> checkedRows() const` (visningsordning) · `int changedRow() const` (kryssets rad i `onCheck`/`onCommit`; −1 efter ett val, efter `setRows` och efter rubrikkrysset) · `const std::vector<int>& changedRows() const` (alla rader som vändes i senaste `onCheck` — rubrikkrysset vänder flera)
 - `Handler<ChangeArgs> onChange` (valet) · `Handler<ChangeArgs> onCheck` (ANVÄNDAREN vände ett kryss) · `Handler<ChangeArgs> onCommit` (samma val eller samma kryss, direkt efter — skilj med `changedRow()`) · `Handler<ActivateArgs> onActivate` (dubbelklick eller Enter — Enter tas bara när `onActivate` är satt och en rad är aktuell, annars når den fönstrets standardknapp).
 
 ### Exempel
@@ -3188,7 +3196,7 @@ class Filer : public glaze::AppWindow {
 public:
     Filer() : glaze::AppWindow("Filer", 520, 320)
     {
-        lista.dock = glaze::Dock::Fill;   // ingen autostorlek
+        lista.dock = glaze::Dock::Fill;   // utan dock: höjden ur raderna
         lista.addColumn("Namn", 200);
         lista.addColumn("Storlek", 80, glaze::Align::Right);
         lista.addColumn("Ändrad", 110);
@@ -3237,13 +3245,22 @@ lista.setRowColor(0, gfx::Color{200, 40, 40});
 lista.setCellColor(1, 1, gfx::Color{255, 224, 224}, gfx::Color{160, 0, 0});
 lista.setCellColor(1, 0, std::nullopt, {});
 lista.setRowHeaders(true);
-lista.setColumnWidth(1, glaze::Table::Column::autoWidth);
+lista.setColumnSizing(1, glaze::ColumnSizing::AutoMin);
+lista.setColumns({{"Namn", 200}, {.text = "Kommentar", .sizing = glaze::ColumnSizing::Autosize}});
+lista.setColumnToolTip(1, "Sorteras på antal byte");
 lista.setShowChecks(true);
 lista.setChecked(1, true);
+lista.setColumnHeaderCheck(0, true);
+lista.setRows({{.cells = {"Bilder"}, .kind = glaze::ListView::RowKind::Category}, {{"a.png", "3 MB"}}});
+lista.setRowKind(2, glaze::ListView::RowKind::Blank);
+lista.setExpanded(0, false);
+lista.setCellImage(1, 1, glaze::img("ikoner", "bild"));
+lista.removeRow(2);
 lista.onActivate = [this](glaze::Widget* s, glaze::ActivateArgs& e) { listaActivated(s, e); };
 lista.onCheck = [this] { listaKryssad(); };
+lista.onExpand = [this](glaze::Widget* s, glaze::RowArgs& e) { listaFalld(s, e); };
 ```
-`setShowChecks` och `setRowHeaders` är setter-fält (modellen bär dem som `showChecks` och `rowHeaders`); `setChecked(rad, på)` och `setCellColor(rad, kolumn, bakgrund, text)` är anropssatser, som ListBoxens `setChecked`. Konstanten för bredden efter innehållet skrivs `glaze::Table::Column::autoWidth` (eller talet `-1`) — i kolumnlistan, i `addColumn`/`setColumn` och i `setColumnWidth`.
+`setShowChecks` och `setRowHeaders` är setter-fält (modellen bär dem som `showChecks` och `rowHeaders`); `setChecked(rad, på)`, `setCellColor(rad, kolumn, bakgrund, text)`, `setColumnSizing`, `setRowKind` och de andra är anropssatser, som ListBoxens `setChecked`. Kolumnläget skrivs `glaze::ColumnSizing::AutoMin` — i kolumnlistan, som femte argument till `addColumn`/`setColumn` och i `setColumnSizing`.
 
 ### Fallgropar
 - INDEXEN ÄR APPENS: sorteringen ändrar bara visningsordningen, så `setRow(3, …)`, valet, krysset, radens färg och `currentRow()` följer raden. Skärmplats ↔ rad med `displayRow`/`rowAtDisplay`.
@@ -3251,51 +3268,88 @@ lista.onCheck = [this] { listaKryssad(); };
 - KRYSSEN och MASSFORMEN: `setRows` nollar kryssen (som valet), `setRow` behåller dem och `addRow` ger en okryssad rad — kryssa med `setChecked` efter `setRows`.
 - Radens färg gäller texten på en omarkerad rad; markeringens färg vinner på en vald, och en inaktiverad tabell dimmar allt. Rutan och bocken följer alltid temat. Kontrasten är appens ansvar.
 - CELLFÄRGERNA (`setCellColor`) följer radfärgens regler: de ligger i RADEN (följer sorteringen), `setRow`/`setRows` nollar dem och `setCell` lämnar dem, MARKERINGEN VINNER (en vald rad visar bara markeringens färger — varken cellens bakgrund eller text) och en inaktiv tabell visar inga appfärger alls. Cellens bakgrund fylls över radens hover och under rutnätet; med radrubriker ritas kolumn 0 utan appfärger.
-- RADRUBRIKER (`setRowHeaders(true)`): kolumn 0 står kvar vid sidledsrullning, ritas som kolumnhuvudet (yta och hårlinjer) och tonas aldrig av valet eller hovern; ett klick på ett namn väljer raden som ett klick på dess data. Den är en vanlig kolumn i övrigt (sorteras på sin rubrik, byter bredd, kan vara `autoWidth`), men får inga cellfärger, och kryssrutan (`setShowChecks`) står kvar i remsan.
-- KOLUMNBREDD EFTER INNEHÅLLET: `Column::autoWidth` följer rubrikens bredaste rad och cellernas bredaste innehåll (med luft, ikon och kryssrutans plats i kolumn 0), plus en hårlinjes andrum (så ingen text får en ellips), aldrig smalare än stilens `columnMinW`, och räknas om när rader, rubriker eller stil ändras. Sorteringspilens plats är alltid reserverad (ett klick i huvudet ändrar aldrig en bredd). Alla rader mäts — en tabell med hundratusentals rader ska ha fasta bredder. En dragen avdelare skriver en vanlig fast bredd, och ett DUBBELKLICK på avdelaren skriver den anpassade bredden SOM en fast bredd ("anpassa nu", inte "följ"); fyllkolumnens avdelare går inte att dra.
-- Cellerna är `std::string` (fyll om vid språkbyte); kolumnrubrikerna är `TrText`.
+- RADRUBRIKER (`setRowHeaders(true)`): kolumn 0 står kvar vid sidledsrullning, ritas som kolumnhuvudet (yta och hårlinjer) och tonas aldrig av valet eller hovern; ett klick på ett namn väljer raden som ett klick på dess data. Den är en vanlig kolumn i övrigt (sorteras på sin rubrik, byter bredd, kan vara `AutoMin`), men får inga cellfärger, och kryssrutan (`setShowChecks`) står kvar i remsan.
+- KOLUMNLÄGENA: `AutoMin` följer rubrikens bredaste rad och cellernas bredaste innehåll (med luft, ikon, cellbild och kryssrutans plats i kolumn 0), plus en hårlinjes andrum (så ingen text får en ellips), aldrig smalare än stilens `columnMinW`. Varje cells bredd cachas, så en ändrad cell (`setCell`) mäts om ensam — också med tusentals rader. Sorteringspilens och rubrikkryssets plats är alltid reserverad (ett klick i huvudet ändrar aldrig en bredd). `Autosize` krymper aldrig under sin satta bredd; får baserna inte plats rullar tabellen i sidled, och dess avdelare går inte att dra. En DRAGEN avdelare skriver `Manual` med den dragna bredden, och ett DUBBELKLICK på avdelaren skriver `Manual` med den anpassade bredden ("anpassa nu", inte "följ" — det senare är `AutoMin`).
+- KATEGORIERNA: en kategori- eller tomrad väljs aldrig och kryssas aldrig; spannet och Ctrl+A tar bara datarader. En ihopfällning som användaren gör väljer bort de rader som döljs (`onChange` efter `onCollapse`). `setRow` behåller radens slag och fällning; bara `setRows`, `setRowKind` och `setExpanded` byter dem. Kategorins text är cell 0.
+- HÖJDEN UR RADERNA: utan satt `height` är tabellen huvudet + de synliga raderna (+ ramen och, när kolumnerna är bredare än ytan, den vågräta listen). En satt höjd vinner; en dockad eller dubbelankrad tabell sträcks som förut.
+- Cellerna är `std::string` (fyll om vid språkbyte); kolumnrubrikerna och tooltipsen är `TrText`.
 - Sorteringen är naturlig ("fil2" före "fil10") men jämför å/ä/ö bytevis — sätt en `setSortKey` när visningen och ordningen skiljer sig.
-- Ingen autostorlek, ingen typeahead, ingen kryssruta i huvudet (markera alla), ingen inbyggd omordning genom drag; kolumnerna kan inte flyttas eller döljas, och den sista sträcks inte. En första kolumn smalare än rutan låter rutan sticka ut i nästa kolumn.
-- `setFillColumn(0)` låter kolumnen ta resten av bredden (den satta bredden är dess minimum, och dess egen avdelare går inte att dra); `setIconSize(48)` ger miniatyrer — varje rad reserverar ikonens plats och raden växer med den. Båda finns på `DataGrid` också.
+- Ingen autobredd, ingen typeahead, ingen inbyggd omordning genom drag; kolumnerna kan inte flyttas eller döljas. En första kolumn smalare än rutan låter rutan sticka ut i nästa kolumn.
+- `setIconSize(48)` ger miniatyrer — varje rad reserverar ikonens plats och raden växer med den. Finns på `DataGrid` också.
 - SNABBMENYN: ett högertryck väljer raden som Utforskaren, och `contextRow()` (appens index, −1 i huvudet och på tom yta) är raden i `onContextMenu`; `rowAt(e.local.x, e.local.y)` är träffvägen.
 
 <!-- END:widget-list-view -->
 
-<!-- BEGIN:widget-data-grid | datagrid datagridview grid rutnät tabell kalkylblad spreadsheet redigerbar editable celler cells wxgrid qtablewidget cellchangeargs columneditor oncommit selectionmode fullrow radval multiselect onselectionchange -->
+<!-- BEGIN:widget-data-grid | datagrid datagridview grid rutnät tabell kalkylblad spreadsheet redigerbar editable celler cells wxgrid qtablewidget cellchangeargs columneditor oncommit selectionmode fullrow radval multiselect onselectionchange typade-celler editorspec setcelleditor kryssrutekolumn check färgcell color tal number knappcell button oncellclick multiedit editonclick lagerlista -->
 ## DataGrid — tabellen med redigerbara celler (`widget-data-grid`)
 
-**Alias:** datagrid, datagridview, grid, rutnät, tabell, kalkylblad, spreadsheet, redigerbar, editable, celler, cells, wxgrid, qtablewidget, cellchangeargs, columneditor, oncommit, selectionmode, fullrow, radval, multiselect, onselectionchange
+**Alias:** datagrid, datagridview, grid, rutnät, tabell, kalkylblad, spreadsheet, redigerbar, editable, celler, cells, wxgrid, qtablewidget, cellchangeargs, columneditor, oncommit, selectionmode, fullrow, radval, multiselect, onselectionchange, typade celler, editorspec, setcelleditor, kryssrutekolumn, check, färgcell, color, tal, number, knappcell, button, oncellclick, multiedit, editonclick, lagerlista
 **Include:** `#include <glaze/glaze.h>` · **CMake:** `glaze` · **Källa:** [data_grid.h](Glaze/widgets/include/glaze/widgets/data_grid.h), [table.h](Glaze/widgets/include/glaze/widgets/table.h), [CLAUDE.md](Glaze/widgets/include/glaze/widgets/CLAUDE.md)
 
-Listvyns tabell (samma bas `glaze::Table`: kolumner, rader, sortering, huvud) där cellerna går att redigera. Varje kolumn är fritext, en vallista eller skrivskyddad. Man börjar med dubbelklick, F2 eller genom att skriva; Enter sparar och går ner, Tab sparar och går åt höger, Escape avbryter. `onChange` säger VILKEN cell användaren sparade, och `onCommit` kommer direkt efter med samma cell. Registreringsnamn `datagrid`.
+Listvyns tabell (samma bas `glaze::Table`: kolumner, rader, kategorier, sortering, huvud) där raderna är objekt och cellerna redigeras på plats — med `PropertyGrid`s typade celler. Varje kolumn har en redigerare, och en cell kan ha en egen:
+
+| `Editor` | Värdet (text) | Redigeringen |
+|---|---|---|
+| `Text` | fritext | dubbelklick, F2, Enter eller skriv (ett klick med `setEditOnClick`) |
+| `Choice` | ett av `choices` (ikon per val i `choiceIcons`) | ett KLICK öppnar listan, ett nytt val sparar direkt |
+| `Check` | `"true"`/`"false"` | ett klick eller Space växlar och sparar |
+| `Color` | `#RRGGBB` (`#RRGGBBAA` med `allowAlpha`), visad som `colorDisplay`: `Swatch` (förval — en ruta fyra kryssrutor bred), `Hex` (bara hextexten) eller `Both` (en liten ruta och hextexten) | ett klick öppnar färgväljarens popup |
+| `Number` | kanonisk form med punkt, visad med språkets decimaltecken mellan `prefix`/`suffix` | som Text; `,` och `.` tas emot, utanför `min`/`max` klampas, `decimals` avrundar, otolkbar text är ett FEL i cellen; med `allowEmpty` är tomt ett värde som visar `emptyText` |
+| `Button` | knappens text (bilden ur `setCellImage`) | ett tryck som släpps över cellen, Enter eller Space fyrar `onCellClick` |
+| `None` | skrivskyddad | — |
+
+Enter sparar och går ner, Tab sparar och går till nästa redigerbara cell, Escape avbryter. `onChange` säger VILKEN cell användaren sparade, och `onCommit` kommer direkt efter med samma cell. Registreringsnamn `datagrid`.
 
 ### API
-- Kolumner, rader, celler, radens färg (`setRowColor`, `Row::color`), cellens färger (`setCellColor`), radrubriker (`setRowHeaders`), bredd efter innehållet (`Column::autoWidth`, dubbelklick på avdelaren) och sortering: som `ListView` (se `widget-list-view`). Den AKTUELLA cellen behåller markeringens färger (i `FullRow`: den valda raden); resten bär appens — cellens, annars radens.
-- `enum class Editor { Text, Choice, None }` · `void setColumnEditor(int column, Editor editor)` / `Editor columnEditor(int column) const`
-- `void setColumnChoices(int column, std::vector<std::string> choices)`
+- Kolumner, rader (`removeRow`), kategorier och tomrader (`setRowKind`, `setExpanded`, `onExpand`/`onCollapse`), celler, cellbilder (`setCellImage`), radens färg (`setRowColor`, `Row::color`), cellens färger (`setCellColor`), radrubriker (`setRowHeaders`), kolumnlägen (`ColumnSizing`, `setColumnSizing`), rubrikens tooltip och kryss (`setColumnToolTip`, `setColumnHeaderCheck`), höjden ur raderna och sortering: som `ListView` (se `widget-list-view`). Den AKTUELLA cellen behåller markeringens färger (i `FullRow`: den valda raden); resten bär appens — cellens, annars radens.
+- `enum class Editor { Text, Choice, Check, Color, Number, Button, None }` · `struct EditorSpec { Editor editor = Editor::Text; std::vector<std::string> choices; std::vector<ImageSource> choiceIcons; double min = -inf; double max = inf; int decimals = -1; std::string prefix; std::string suffix; bool allowAlpha = false; bool allowEmpty = false; std::string emptyText; ColorDisplay colorDisplay = ColorDisplay::Swatch; bool readOnly = false; }` (designerad init i den ordningen; `decimals` −1 = kortaste formen). `enum class ColorDisplay { Swatch, Hex, Both }` (`glaze::ColorDisplay`, också i `PropertyGrid::Row`). `readOnly` LÅSER cellen men ritar den som sitt slag — talet med prefix och suffix, färgrutan, krysset, valet med ikon — på det skrivskyddade fältets yta: den redigeras aldrig, Tab hoppar över den och rubrikkrysset rör den inte. `None` är en skrivskyddad TEXTcell, `setCellEnabled(false)` en cell som är dämpad "inte nu".
+- `void setColumnEditor(int column, EditorSpec spec)` / `const EditorSpec& columnEditor(int column) const` — per kolumnINDEX, överlever `setColumns`.
+- PER CELL: `void setCellEditor(int row, int column, EditorSpec spec)` · `void clearCellEditor(int row, int column)` · `const EditorSpec& cellEditor(int row, int column) const` (den som gäller) · `void setCellEnabled(int row, int column, bool on)` / `bool isCellEnabled(int row, int column) const` (syns men går inte att ändra NU) · `void setCellToolTip(int row, int column, TrText t)` / `TrText cellToolTip(int row, int column) const`.
+- LÄSVÄGARNA per cell: `bool isChecked(int row, int column) const` · `std::optional<gfx::Color> colorValue(int row, int column) const` (opak utan `allowAlpha`) · `std::optional<double> numberValue(int row, int column) const` (klampat och avrundat; tomt eller otolkbart = `nullopt`) · `bool hasError(int row, int column) const`.
+- `void setEditOnClick(bool on)` / `bool editOnClick() const` — ett enkelt klick börjar redigera Text och Number.
+- `void setSelectOnEdit(bool on)` / `bool selectOnEdit() const` — förval true: fältet öppnas med HELA texten markerad (det man skriver ersätter den); false: markören står sist. Gäller Enter, F2, dubbelklick och klick; ett skrivet tecken ersätter alltid texten. Samma val finns på `PropertyGrid`.
+- `void setMultiEdit(bool on)` / `bool isMultiEdit() const` — i `FullRow` med flerval gäller en ändring i en VALD rad samma kolumn i alla valda rader.
 - `void setCurrentCell(int row, int column)` · `int currentColumn() const` · `int currentRow() const`
-- `void beginEdit()` · `void commitEdit()` (fyrar `onChange` och `onCommit` om cellen ändrades) · `void cancelEdit()` · `bool isEditing() const`
-- `Handler<CellChangeArgs> onChange` · `Handler<CellChangeArgs> onCommit` — `struct CellChangeArgs : ChangeArgs { int row = -1; int column = -1; }`; båda för samma sparade cell, `onChange` först.
+- `void beginEdit()` · `void commitEdit()` (fyrar `onChange` och `onCommit` om cellen ändrades; når också en öppen färgväljare, så `AppWindow::commitEdits()` sparar) · `void cancelEdit()` · `bool isEditing() const`
+- `Handler<CellChangeArgs> onChange` · `Handler<CellChangeArgs> onCommit` — `struct CellChangeArgs : ChangeArgs { int row = -1; int column = -1; std::vector<int> rows; }`; båda för samma sparning, `onChange` först. `rows` är ALLA rader som ändrades (visningsordning): `{row}` för en cell, flera med `setMultiEdit`, och rubrikkrysset fyrar ETT event med `row` −1.
+- `Handler<CellClickArgs> onCellClick` — `struct CellClickArgs : ClickArgs { int row = -1; int column = -1; }`: knappcellen som trycktes.
 - RADVALET (WinForms `SelectionMode`/`MultiSelect`): `enum class SelectionMode { Cell, FullRow }` · `void setSelectionMode(SelectionMode m)` / `SelectionMode selectionMode() const` (förval `Cell`) · `void setMultiSelect(bool on)` / `bool isMultiSelect() const` · `void setSelected(int row, bool on)` / `bool isSelected(int row) const` · `std::vector<int> selectedRows() const` (visningsordning) · `void selectAll()` · `void clearSelection()` · `Handler<ChangeArgs> onSelectionChange` — en gång per användarhandling som ändrade valet. I `FullRow` gör ett klick cellen aktuell OCH väljer raden, en flytt flyttar valet, Ctrl/Shift med flerval, Ctrl+A alla.
 
 ### Exempel
 ```cpp
-class Uppgifter : public glaze::AppWindow {
+class Lager : public glaze::AppWindow {
 public:
-    Uppgifter() : glaze::AppWindow("Uppgifter", 520, 320)
+    Lager() : glaze::AppWindow("Lager", 640, 320)
     {
+        using E = glaze::DataGrid::Editor;
+        using S = glaze::ColumnSizing;
         tabell.dock = glaze::Dock::Fill;
-        tabell.setColumns({{"Uppgift", 220}, {"Status", 100},
-                           {"Id", 60, glaze::Align::Right}});
-        tabell.setColumnEditor(1, glaze::DataGrid::Editor::Choice);
-        tabell.setColumnChoices(1, {"Ny", "Pågår", "Klar"});
-        tabell.setColumnEditor(2, glaze::DataGrid::Editor::None);   // skrivskyddad
-        tabell.addRow({"Skriv grinden", "Pågår", "24"});
-        tabell.addRow({"Uppdatera TODO", "Ny", "3"});
-        tabell.onChange = [this](glaze::Widget*, glaze::CellChangeArgs& e) {
-            // VILKEN cell står i args, värdet läses ur widgeten.
-            setTitle("Rad " + std::to_string(e.row) + ": " +
-                     tabell.cell(e.row, e.column));
+        tabell.setColumns({{.text = "Lager", .sizing = S::Autosize},
+                           {.text = "Synlig", .sizing = S::AutoMin, .headerCheck = true},
+                           {.text = "Färg", .sizing = S::AutoMin},
+                           {.text = "Bredd", .align = glaze::Align::Right, .sizing = S::AutoMin},
+                           {.text = "Linjetyp", .width = 100},
+                           {.text = "", .sizing = S::AutoMin}});
+        tabell.setColumnEditor(1, {E::Check});
+        tabell.setColumnEditor(2, {E::Color});
+        tabell.setColumnEditor(3, {.editor = E::Number, .min = 0, .max = 20,
+                                   .decimals = 1, .suffix = " px"});
+        tabell.setColumnEditor(4, {E::Choice, {"Hel", "Streckad"}});
+        tabell.setColumnEditor(5, {E::Button});
+        tabell.setRows({{.cells = {"Bakgrund"}, .kind = glaze::DataGrid::RowKind::Category},
+                        {{"Plattor", "true", "#C8C8C8", "1", "Hel", "Ta bort"}},
+                        {{"Vägar", "true", "#D04030", "2.5", "Streckad", "Ta bort"}}});
+        tabell.setCellEditor(2, 4, {E::None});   // en låst cell
+        tabell.setSelectionMode(glaze::DataGrid::SelectionMode::FullRow);
+        tabell.setMultiSelect(true);
+        tabell.setMultiEdit(true);
+        tabell.onCommit = [this](glaze::Widget*, glaze::CellChangeArgs& e) {
+            // VILKA rader står i args, värdet läses ur widgeten.
+            setTitle(std::to_string(e.rows.size()) + " ändrade: " +
+                     tabell.cell(e.rows.front(), e.column));
+        };
+        tabell.onCellClick = [this](glaze::Widget*, glaze::CellClickArgs& e) {
+            tabell.removeRow(e.row);
         };
 
         root().adopt(tabell);
@@ -3308,26 +3362,36 @@ private:
 
 ### .glazeui
 ```cpp
-tabell.setColumnEditor(1, glaze::DataGrid::Editor::Choice);
-tabell.setColumnChoices(1, {"Ny", "Pågår", "Klar"});
-tabell.setColumns({{"Uppgift", 220}, {"Status", 100}, {"Id", 60, glaze::Align::Right}});
-tabell.setColumnEditor(2, glaze::DataGrid::Editor::None);
-tabell.addRow({"Skriv grinden", "Pågår", "24"});
+tabell.setColumnEditor(1, {glaze::DataGrid::Editor::Check});
+tabell.setColumnEditor(3, {.editor = glaze::DataGrid::Editor::Number, .min = 0, .max = 100, .suffix = "%"});
+tabell.setColumnEditor(4, {glaze::DataGrid::Editor::Choice, {"Hel", "Streckad"}});
+tabell.setColumns({{"Lager", 220}, {.text = "Synlig", .sizing = glaze::ColumnSizing::AutoMin, .headerCheck = true}});
+tabell.addRow({"Plattor", "true", "#C8C8C8", "60", "Hel"});
+tabell.setCellEditor(0, 4, {.editor = glaze::DataGrid::Editor::None});
+tabell.clearCellEditor(0, 4);
+tabell.setCellEnabled(0, 3, false);
+tabell.setCellToolTip(0, 3, "Låst");
+tabell.setEditOnClick(true);
+tabell.setMultiEdit(true);
 tabell.setCurrentCell(0, 1);
 tabell.setSelectionMode(glaze::DataGrid::SelectionMode::FullRow);
 tabell.setMultiSelect(true);
 tabell.setSelected(0, true);
 tabell.onChange = [this](glaze::Widget* s, glaze::CellChangeArgs& e) { tabellChanged(s, e); };
+tabell.onCellClick = [this](glaze::Widget* s, glaze::CellClickArgs& e) { taBort(s, e); };
 tabell.onSelectionChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { tabellValt(s, e); };
 ```
-Kolumntypen hör till INDEXET och överlever `setColumns`, så satsordningen spelar ingen roll.
+Kolumntypen hör till INDEXET och överlever `setColumns`, så satsordningen spelar ingen roll. `editOnClick` och `multiEdit` är setter-fält.
 
 ### Fallgropar
 - En val-kolumn UTAN val går inte att redigera.
-- `setRows`, `setColumns` och `setCurrentCell` AVBRYTER en pågående redigering (spara först med `commitEdit`); `setRow`, `setCell` och `addRow` gör det inte.
+- `setRows`, `setColumns` och `setCurrentCell` AVBRYTER en pågående redigering (spara först med `commitEdit`); `setRow`, `setCell` och `addRow` gör det inte. `removeRow` avbryter bara en redigering på den borttagna raden.
+- CELLINSTÄLLNINGARNA (`setCellEditor`, `setCellEnabled`, `setCellToolTip`) hör till raden: `setRow` och `setRows` nollar dem (tilldelning, som cellfärgerna), `setCell` och `removeRow` lämnar dem.
 - När fokus lämnar editorn sparas cellen direkt, men `onChange` och `onCommit` kommer i pump-svansen — och uteblir om raderna bytts innan.
+- Ett TALFEL (otolkbar text) skriver inget och fyrar inget: cellen visar texten på felets yta med tooltipen "Ogiltigt värde" tills Escape, nästa giltiga sparning eller `setCell`/`setRow` på cellen.
+- Tab hoppar över skrivskyddade, inaktiva och knappceller (knapparna nås med pilarna); finns ingen redigerbar cell kvar lämnar Tab datagriden. Enter i en kryss- eller skrivskyddad cell flyttar ner.
 - I `Cell`-läget (förval) är inga rader valda — `selectedRows()` är tom även efter `setSelected`, som lagras och syns när läget blir `FullRow`. Valets event heter `onSelectionChange`, inte `onChange` (som är cellernas). `setRows` nollar valet, `setRow` behåller det.
-- Ingen områdesmarkering, ingen validering, inga kryssrutekolumner (listvyn har kryss per RAD, `widget-list-view` — i datagriden vore ett kryss ett cellvärde); Delete tömmer inte en cell.
+- Ingen områdesmarkering; Delete tömmer inte en cell.
 - Med `setRowHeaders(true)` är kolumn 0 en rubrik: den går inte att redigera, är aldrig den aktuella cellen (ett klick på ett namn gör raden aktuell och lämnar kolumnen; Left och Home stannar i kolumn 1) och står kvar vid sidledsrullning.
 
 <!-- END:widget-data-grid -->
@@ -3344,13 +3408,13 @@ Noder med text, valfri ikon och egna barn, fällda med pilen eller Vänster/Hög
 
 **Appens godkännande av draget** (med `setAllowDrag` + `setAllowDrop`): trädet FÖRESLÅR en flytt (`Move`) på varje plats där det går, och appen AVGÖR. Regeln per plats står i `onDragOver` — den fyras också direkt efter `onDragEnter`, så den gäller redan på den första platsen — och `e.effect = None` släcker linjen och ger förbudsmärket. Släppet frågar appen FÖRST: `onDrop` ser det OFLYTTADE trädet och kan neka (`e.effect = None`, trädet rörs inte), utföra släppet själv (`moveNodes`/`setNodes` och `e.handled = true`) eller låta trädet flytta till EXAKT den lucka appen såg. Vad som dras läses ur `draggedPaths()` och var det hamnar ur `dropParent()`/`dropIndex()` — luckan hålls vid nodernas id, så en handler som ändrar trädet flyttar aldrig noderna till fel ställe (finns luckan inte längre blir släppet `None`).
 
-**Kolumner** (REQ8 13 — tabelldata i en hierarki): tabellens kolumner ur den delade basen `glaze::ColumnPanel` — samma `Column`-aggregat, `addColumn`/`setColumn(index, …)`/`setColumns(lista)`, `setColumnWidth`, `setFillColumn`, `setHeaderLines`, avdelardraget och sorteringspilen (se `widget-list-view`). KOLUMN 0 är nodens text med indrag, pil, kryss och ikon (kortad med "…" mot kolumnens kant), kolumn 1… nodens CELLER: `TreeNode::cells` (`cells[0]` = kolumn 1), `setCell(stig, kolumn, text)` och `cell(stig, kolumn)` (kolumn 0 = nodens text). `setSortColumn(n)`/`setSortAscending`/`setSortable` och ett klick i huvudet sorterar VARJE syskonlista naturligt ("9" före "12") — STIGARNA förblir appens, sorteringen är bara visning. Utan kolumner har trädet inget huvud och ritar som förut; med kolumner rullar det i sidled som tabellen. BREDD EFTER INNEHÅLLET som tabellens: `Column::autoWidth` (−1) följer rubriken och de SYNLIGA nodernas innehåll — kolumn 0 mäts med indrag, pil, kryss och ikon, kolumn 1… med cellerna; en hopfälld grens noder räknas inte, och en utfällning växer kolumnen — och ett dubbelklick på en avdelare skriver den anpassade bredden som en fast bredd (`widget-list-view`).
+**Kolumner** (REQ8 13 — tabelldata i en hierarki): tabellens kolumner ur den delade basen `glaze::ColumnPanel` — samma `Column`-aggregat, `addColumn`/`setColumn(index, …)`/`setColumns(lista)`, `setColumnWidth`, kolumnlägena (`setColumnSizing`, `ColumnSizing::Manual`/`AutoMin`/`Autosize`), rubrikens tooltip (`setColumnToolTip`), `setHeaderLines`, avdelardraget och sorteringspilen (se `widget-list-view`). KOLUMN 0 är nodens text med indrag, pil, kryss och ikon (kortad med "…" mot kolumnens kant), kolumn 1… nodens CELLER: `TreeNode::cells` (`cells[0]` = kolumn 1), `setCell(stig, kolumn, text)` och `cell(stig, kolumn)` (kolumn 0 = nodens text). `setSortColumn(n)`/`setSortAscending`/`setSortable` och ett klick i huvudet sorterar VARJE syskonlista naturligt ("9" före "12") — STIGARNA förblir appens, sorteringen är bara visning. Utan kolumner har trädet inget huvud och ritar som förut; med kolumner rullar det i sidled som tabellen. BREDD EFTER INNEHÅLLET som tabellens: `ColumnSizing::AutoMin` följer rubriken och de SYNLIGA nodernas innehåll — kolumn 0 mäts med indrag, pil, kryss och ikon, kolumn 1… med cellerna; en hopfälld grens noder räknas inte, och en utfällning växer kolumnen — och ett dubbelklick på en avdelare skriver den anpassade bredden som `Manual` (`widget-list-view`).
 
 ### API
 - `struct TreeNode { TrText text; std::vector<TreeNode> children; ImageSource img{}; bool expanded = false; bool allowDropInto = true; bool checked = false; std::optional<gfx::Color> color{}; std::vector<std::string> cells{}; }`
 - `TreePath addNode(const TreePath& parent, TrText text, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt, std::vector<std::string> cells = {})` — svarar med den nya stigen.
 - `void setNode(const TreePath& path, TrText text, ImageSource img = {}, std::optional<gfx::Color> color = std::nullopt, std::vector<std::string> cells = {})` · `void setNodes(std::vector<TreeNode> nodes)` · `void removeNode(const TreePath& path)`
-- Kolumnerna (ärvda från `ColumnPanel`): `addColumn(TrText, float width = 0, Align = Left, std::optional<Align> headerAlign = {})` (`width`: `Column::autoWidth` = efter innehållet) · `setColumn(int, …)` · `setColumns(std::vector<Column>)` · `setColumnWidth(int, float)` · `setSortColumn(int)` (−1 = ingen) · `setSortAscending(bool)` · `setSortable(bool)` · `setFillColumn(int)` · `setHeaderLines(int)` · `ensureColumnVisible(int)`
+- Kolumnerna (ärvda från `ColumnPanel`): `addColumn(TrText, float width = 0, Align = Left, std::optional<Align> headerAlign = {}, ColumnSizing sizing = ColumnSizing::Manual)` · `setColumn(int, …)` · `setColumns(std::vector<Column>)` · `setColumnWidth(int, float)` · `setColumnSizing(int, ColumnSizing)` · `setColumnToolTip(int, TrText)` · `setSortColumn(int)` (−1 = ingen) · `setSortAscending(bool)` · `setSortable(bool)` · `setHeaderLines(int)` · `ensureColumnVisible(int)`
 - `void setCell(const TreePath& path, int column, std::string text)` (kolumn ≥ 1; kolumnen behöver inte finnas än) · `const std::string& cell(const TreePath& path, int column) const`
 - `bool moveNode(const TreePath& from, const TreePath& toParent, int index)` — index räknat FÖRE flytten.
 - `bool moveNodes(const std::vector<TreePath>& from, const TreePath& toParent, int index)` — flera på en gång, som släppet: FÖRE-flytten-index, en nod inuti en annan i listan följer med sin förfader, insättning i TRÄDORDNING, atomiskt (ett fel ⇒ `false` + logg och ingenting ändrat).
@@ -3449,7 +3513,7 @@ prof.setCell({0, 1}, 2, "2");
 prof.setSortColumn(1);
 prof.setSortAscending(false);
 ```
-`setMultiSelect`/`setShowChecks` och sorteringen (`setSortColumn`/`setSortAscending`/`setSortable`, `setHeaderLines`, `setFillColumn`) är setter-fält. Aggregatet tar sina åtta fält positionellt ELLER designerat, och färgen `gfx::Color{…}`, `std::nullopt` eller `{}`; cellerna är en strängliste-literal. `moveNodes` tar en STIGLISTA — `{{0, 1}, {2}}`; `{0}` som lista kompilerar inte och är opak i previewn.
+`setMultiSelect`/`setShowChecks` och sorteringen (`setSortColumn`/`setSortAscending`/`setSortable`, `setHeaderLines`) är setter-fält; `setColumnSizing` och `setColumnToolTip` är anropssatser. Aggregatet tar sina åtta fält positionellt ELLER designerat, och färgen `gfx::Color{…}`, `std::nullopt` eller `{}`; cellerna är en strängliste-literal. `moveNodes` tar en STIGLISTA — `{{0, 1}, {2}}`; `{0}` som lista kompilerar inte och är opak i previewn.
 
 ### Fallgropar
 - `setNode` ersätter text, bild, färg OCH celler (utelämnad = ingen bild, temats färg, inga celler); barnen, utfällningen, valet och krysset står kvar.
@@ -3464,23 +3528,24 @@ prof.setSortAscending(false);
 
 <!-- END:widget-tree-view -->
 
-<!-- BEGIN:widget-property-grid | propertygrid egenskaper egenskapslista properties propertyeditor inspector wxpropertygrid namn-värde key-value rows changedrow namewidth oncommit commit redigering typade-celler kind check kryssruta färg color tal number min max prefix suffix enhet header rubrikrad fällbar expanded setexpanded setrowenabled inaktiv rad tooltip haserror -->
+<!-- BEGIN:widget-property-grid | propertygrid egenskaper egenskapslista properties propertyeditor inspector wxpropertygrid namn-värde key-value rows changedrow setcolumnwidth columnsizing oncommit commit redigering typade-celler kind check kryssruta färg color tal number min max prefix suffix enhet category kategori fällbar expanded setexpanded onexpand setrowenabled inaktiv rad tooltip haserror allowempty emptytext choiceicons -->
 ## PropertyGrid — egenskapslistan (`widget-property-grid`)
 
-**Alias:** propertygrid, egenskaper, egenskapslista, properties, propertyeditor, inspector, wxpropertygrid, namn-värde, key-value, rows, changedrow, namewidth, oncommit, commit, redigering, typade celler, kind, check, kryssruta, färg, color, tal, number, min, max, prefix, suffix, enhet, header, rubrikrad, fällbar, expanded, setExpanded, setRowEnabled, inaktiv rad, tooltip, hasError
+**Alias:** propertygrid, egenskaper, egenskapslista, properties, propertyeditor, inspector, wxpropertygrid, namn-värde, key-value, rows, changedrow, setcolumnwidth, columnsizing, oncommit, commit, redigering, typade celler, kind, check, kryssruta, färg, color, tal, number, min, max, prefix, suffix, enhet, category, kategori, fällbar, expanded, setExpanded, onexpand, setRowEnabled, inaktiv rad, tooltip, hasError, allowempty, emptytext, choiceicons
 **Include:** `#include <glaze/glaze.h>` · **CMake:** `glaze` · **Källa:** [header](Glaze/widgets/include/glaze/widgets/property_grid.h), [CLAUDE.md](Glaze/widgets/include/glaze/widgets/CLAUDE.md)
 
-Två kolumner à la Visual Studio: namnet och värdet. Raderna är DATA (`Row`), och varje rad har ett SLAG: fritext eller vallista (`Text`), kryssruta (`Check`), färg (`Color`), tal med gränser (`Number`) eller en fällbar rubrikrad (`Header`). En editor per slag flyttas till cellen som redigeras. Redigeringen COMMITTAR, som `DataGrid`s: ett klick på ett värde öppnar editorn; Enter, Tab, ett klick på en annan rad eller att fokus går någon annanstans sparar — radens `value` skrivs och `onChange` + `onCommit` fyras en gång var, bara om värdet ändrades — och Escape ångrar. Registreringsnamn `propertygrid`.
+Två kolumner à la Visual Studio: namnet och värdet. Raderna är DATA (`Row`), och varje rad har ett SLAG: fritext eller vallista (`Text`), kryssruta (`Check`), färg (`Color`), tal med gränser (`Number`) eller en fällbar kategorirad (`Category`). En editor per slag flyttas till cellen som redigeras. Cellerna är samma kod som `DataGrid`s typade celler. Redigeringen COMMITTAR, som `DataGrid`s: ett klick på ett värde öppnar editorn; Enter, Tab, ett klick på en annan rad eller att fokus går någon annanstans sparar — radens `value` skrivs och `onChange` + `onCommit` fyras en gång var, bara om värdet ändrades — och Escape ångrar. Registreringsnamn `propertygrid`.
 
 ### API
-- `enum class Kind { Text, Check, Color, Number, Header }`
+- `enum class Kind { Text, Check, Color, Number, Category }`
 - `struct Row` — fälten i den ordning en designerad initiering skriver dem:
-  `name`, `value` (alltid TEXT), `choices` (Text: tom = fritext, annars vallista), `readOnly` (aldrig redigerbar), `tag` (din opaka nyckel), `kind`, `min`/`max` och `decimals` (Number; −1 = kortaste formen), `prefix`/`suffix` (Number: text före och efter talet, t.ex. `"1:"`, `"mm"`), `allowAlpha` (Color), `toolTip` (radens; tom = gridens), `enabled` (false = syns men går inte att ändra NU), `expanded` (Header).
+  `name`, `value` (alltid TEXT), `choices` (Text: tom = fritext, annars vallista), `readOnly` (aldrig redigerbar), `tag` (din opaka nyckel), `kind`, `min`/`max` och `decimals` (Number; −1 = kortaste formen), `prefix`/`suffix` (Number: text före och efter talet, t.ex. `"1:"`, `"mm"`), `allowAlpha` (Color), `toolTip` (radens; tom = gridens), `enabled` (false = syns men går inte att ändra NU), `expanded` (Category), `allowEmpty`/`emptyText` (Number: tomt är ett giltigt värde som visar texten, t.ex. "Automatisk"), `choiceIcons` (Text med `choices`: en ikon per val, parallell med `choices`), `colorDisplay` (Color: `glaze::ColorDisplay::Swatch` — förval, en bred ruta —, `Hex` eller `Both`).
+- `void setSelectOnEdit(bool on)` / `bool selectOnEdit() const` — förval true: fältet öppnas med hela texten markerad; false: markören står sist.
 - `void setRows(std::vector<Row>)` · `void addRow(Row)` · `void setRow(int index, Row)` — `setRow` ERSÄTTER hela raden · `const std::vector<Row>& rows() const`
-- `void setRowEnabled(int row, bool)` · `void setExpanded(int row, bool)` (bara en rubrikrad) — tillstånd per rad, index utanför ⇒ logg och ingenting.
-- Läsvägarna: `bool isChecked(int row)` · `std::optional<gfx::Color> colorValue(int row)` · `std::optional<double> numberValue(int row)` (klampat och avrundat) · `bool hasError(int row)`.
-- `void setNameWidth(float)` / `nameWidth()` — logiska px, 0 = stilens `gridNameW`.
-- `int changedRow() const` — läs i `onChange`/`onCommit` · `int activeRow() const` · `Handler<ChangeArgs> onChange` · `Handler<ChangeArgs> onCommit`.
+- `void setRowEnabled(int row, bool)` · `void setExpanded(int row, bool)` (bara en kategorirad) — tillstånd per rad, index utanför ⇒ logg och ingenting.
+- Läsvägarna: `bool isChecked(int row)` · `std::optional<gfx::Color> colorValue(int row)` · `std::optional<double> numberValue(int row)` (klampat och avrundat; tomt = `nullopt`) · `bool hasError(int row)`.
+- KOLUMNERNA (0 namnet, 1 värdet) med tabellernas lägen (`widget-list-view`): `void setColumnWidth(int column, float w)` / `float columnWidth(int column) const` (logiska px; 0 = stilens `gridNameW` respektive `columnDefaultW`) · `void setColumnSizing(int column, ColumnSizing s)` / `ColumnSizing columnSizing(int column) const`. Förvalet är namnet `Manual` och värdet `Autosize`; `AutoMin` är det bredaste namnet respektive den bredaste värdecellen.
+- `int changedRow() const` — läs i `onChange`/`onCommit` · `int activeRow() const` · `Handler<ChangeArgs> onChange` · `Handler<ChangeArgs> onCommit` · `Handler<RowArgs> onExpand` / `Handler<RowArgs> onCollapse` (ANVÄNDARENS fällning av en kategorirad, raden i `e.row`; `setExpanded` fyrar aldrig).
 
 **Textformerna i `value`:** Check `"true"`/`"false"`; Color `#RRGGBB`, med `allowAlpha` `#RRGGBBAA`; Number den kanoniska formen med PUNKT (`"12.5"`) — visningen använder språkets decimaltecken och användaren får skriva `,` eller `.`. `.glazeui` skriver därför samma värde på alla språk.
 
@@ -3488,7 +3553,9 @@ Två kolumner à la Visual Studio: namnet och värdet. Raderna är DATA (`Row`),
 - **Check:** ett tryck i värdecellen växlar värdet och fyrar händelserna; Space växlar igen, Enter och Escape avslutar.
 - **Color:** ett tryck öppnar färgväljaren direkt; valet sparas när väljaren committar. Ett tryck i gridden medan väljaren är öppen stänger bara den.
 - **Number:** fältet tar bara taltecken. Ett tal utanför `min`/`max` KLAMPAS och avrundas till `decimals`; ett tal som inte går att tolka är ett FEL: värdet står kvar, inget fyras, cellen visar texten på felets yta och verktygstipset säger "Ogiltigt värde" (`hasError(i)`). Escape, nästa giltiga sparning och `setRow`/`setRows` tar bort felet.
-- **Header:** ett tryck fäller in och ut raderna fram till nästa rubrik; raderna före den första rubriken syns alltid. Ingen händelse — läs `rows()[i].expanded`.
+- **Number med `allowEmpty`:** en tom text är ett giltigt TOMT värde — inget fel, `numberValue` svarar `nullopt`, cellen visar `emptyText` och fältet börjar tomt.
+- **Text med `choiceIcons`:** vallistan visar en ikon före varje val, och cellen det valdas ikon.
+- **Category:** ett tryck fäller in och ut raderna fram till nästa kategori och fyrar `onExpand`/`onCollapse`; raderna före den första kategorin syns alltid.
 
 **Höjden:** utan satt `height` är gridden de SYNLIGA raderna × radhöjden (plus ramens indrag), så flera gridar kan staplas med `dock = Top` i en rullande `Panel` och följa varje fällning. En satt höjd vinner, och raderna rullar.
 
@@ -3502,13 +3569,15 @@ public:
     {
         using K = glaze::PropertyGrid::Kind;
         grid.dock = glaze::Dock::Fill;
-        grid.setNameWidth(120);
-        grid.setRows({{.name = "Layout", .kind = K::Header},
+        grid.setColumnSizing(0, glaze::ColumnSizing::AutoMin);   // efter namnen
+        grid.setRows({{.name = "Layout", .kind = K::Category},
                       {"Namn", "Skylt 4"},
                       {"Justering", "Vänster", {"Vänster", "Mitten", "Höger"}},
                       {.name = "Bredd", .value = "120", .kind = K::Number,
                        .min = 0, .max = 4000, .decimals = 0, .suffix = "mm"},
-                      {.name = "Utseende", .kind = K::Header},
+                      {.name = "Höjd", .value = "", .kind = K::Number, .min = 0,
+                       .suffix = "mm", .allowEmpty = true, .emptyText = "Automatisk"},
+                      {.name = "Utseende", .kind = K::Category},
                       {.name = "Synlig", .value = "true", .kind = K::Check},
                       {.name = "Färg", .value = "#3366FFCC", .kind = K::Color,
                        .allowAlpha = true},
@@ -3535,10 +3604,13 @@ grid.addRow({.name = "Skala", .value = "500", .kind = glaze::PropertyGrid::Kind:
 grid.setRow(0, {"Namn", "Skylt 5"});
 grid.setExpanded(3, false);
 grid.setRowEnabled(1, false);
-grid.setNameWidth(120);
+grid.setColumnWidth(0, 120);
+grid.setColumnSizing(1, glaze::ColumnSizing::Autosize);
+grid.addRow({.name = "Höjd", .value = "", .kind = glaze::PropertyGrid::Kind::Number, .allowEmpty = true, .emptyText = "Automatisk"});
 grid.onCommit = [this] { gridKlar(); };
+grid.onExpand = [this](glaze::Widget* s, glaze::RowArgs& e) { gridFalld(s, e); };
 ```
-Previewn läser raderna positionellt eller designerat (fälten i deklarationsordning, `kind` med hela prefixet `glaze::PropertyGrid::Kind::`, `toolTip` som en sträng eller `glaze::tr(N)`).
+Previewn läser raderna positionellt eller designerat (fälten i deklarationsordning, `kind` med hela prefixet `glaze::PropertyGrid::Kind::`, `toolTip` som en sträng eller `glaze::tr(N)`, `choiceIcons` som en lista av bilder, t.ex. `{glaze::img("linjer", "hel"), glaze::drawnIcon("Streckad", 16)}`).
 
 ### Fallgropar
 - `setRows`, och `setRow` på raden som redigeras, AVBRYTER redigeringen utan att spara — likaså `setRowEnabled(rad, false)` och en `setExpanded` som döljer raden. Det är ofarligt i `onChange`/`onCommit`, där editorn redan är stängd. `addRow` avbryter inte.

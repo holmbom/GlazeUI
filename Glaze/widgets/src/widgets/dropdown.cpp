@@ -25,6 +25,18 @@
 
 namespace glaze {
 
+namespace {
+
+// En posts ikonsida: assetens storleksklass, annars stilens reservsida — som
+// listornas ikoner.
+float iconSide(const Ctx& c, const ImageSource& img)
+{
+    const float k = img.valid() ? img.sizeClass() : 0.0f;
+    return k > 0.0f ? k : c.style->iconFallback;
+}
+
+} // namespace
+
 GLAZE_REGISTER_WIDGET("dropdown", Dropdown)
 
 // ------------------------------------------------------- interna klasser
@@ -136,6 +148,28 @@ protected:
     // widget.
     bool keyDown(gfx::Key, std::uint32_t) override { return false; }
 
+    // RADENS INNEHÅLL med postens ikon före texten. Bär någon post en ikon
+    // står varje rads text efter ikonens plats; annars är raden listans egen.
+    // Popupen visar aldrig kryss.
+    void drawRow(const Ctx& c, int row, gfx::Color fg,
+                 gfx::Color boxPen) const override
+    {
+        if (!d_->hasIcons()) {
+            ListBox::drawRow(c, row, fg, boxPen);
+            return;
+        }
+        const gfx::Rectf   r    = rowRect(c, row);
+        const ImageSource& ikon = d_->itemIcon(row);
+        const float        sida = iconSide(c, ikon);
+        float              tx   = textX(c, row);
+        if (ikon.valid())
+            Draw::stateGlyph(c, {tx, r.y + (r.h - sida) / 2.0f, sida, sida},
+                             ikon, isEnabled());
+        tx += sida + c.style->iconGap;
+        Draw::text(textCtx(c), {tx, r.y, std::max(0.0f, r.x + r.w - tx), r.h},
+                   items()[std::size_t(row)], fg);
+    }
+
 private:
     Dropdown* d_;
 };
@@ -152,7 +186,7 @@ public:
         setPopup(true);
         rows_       = add<DropdownRows>(d);
         rows_->dock = Dock::Fill;
-        onClose     = [&d](Widget*, CloseArgs&) { d.popupClosed(); };
+        onClose     = [&d, this](Widget*, CloseArgs&) { d.popupClosed(this); };
     }
 
     DropdownRows* rows() { return rows_; }
@@ -169,25 +203,45 @@ Dropdown::~Dropdown() = default;
 // STYCKEFORMEN — kontraktet och skälet står i headern.
 // Definierade HÄR och inte inline: `close()` rör `ListWindow`, som är
 // ofullständig i headern.
-void Dropdown::addItem(std::string text)
+// Ikonerna är parallella med posterna men får vara kortare: en post utan ikon
+// sist växer inte vektorn, och en ikon på index k fyller ut med tomma bilder.
+void Dropdown::addItem(std::string text, ImageSource icon)
 {
     items_.push_back(std::move(text));
+    if (icon.valid()) {
+        icons_.resize(items_.size() - 1);
+        icons_.push_back(std::move(icon));
+    }
     close();          // popupen bär en EGEN kopia — se setItems
     invalidate();
 }
 
-void Dropdown::setItem(int index, std::string text)
+void Dropdown::setItem(int index, std::string text, ImageSource icon)
 {
     if (index < 0 || std::size_t(index) >= items_.size()) {
         gfx::log("Dropdown(%s): setItem(%d) utanför intervallet (%zu rader) "
                  "— ignoreras", name.c_str(), index, items_.size());
         return;
     }
-    if (items_[std::size_t(index)] == text)
+    const std::size_t i = std::size_t(index);
+    if (items_[i] == text && itemIcon(index) == icon)
         return;                       // hård regel 1: invalidera vid ÄNDRING
-    items_[std::size_t(index)] = std::move(text);
+    items_[i] = std::move(text);
+    if (icon.valid() || i < icons_.size()) {
+        if (icons_.size() <= i)
+            icons_.resize(i + 1);
+        icons_[i] = std::move(icon);
+    }
     close();
     invalidate();
+}
+
+const ImageSource& Dropdown::itemIcon(int index) const
+{
+    static const ImageSource ingen{};
+    return index >= 0 && std::size_t(index) < icons_.size()
+               ? icons_[std::size_t(index)]
+               : ingen;
 }
 
 // TEXTSTORLEKEN — regeln i `textSizeValue`. En öppen popup har
@@ -251,10 +305,36 @@ bool Dropdown::setProp(const std::string& key, const std::string& value)
 // vänsterjusterad text börjar där den alltid börjat; bredden rör den inte.
 gfx::Rectf Dropdown::textRect(const Ctx& c, const gfx::Rectf& chev) const
 {
-    const gfx::Rectf b  = c.bounds();
-    const float      x0 = b.x + c.style->fieldPadX;
+    const gfx::Rectf b    = c.bounds();
+    const gfx::Rectf ikon = iconRect(c);
+    const float      x0   = ikon.w > 0.0f ? ikon.x + ikon.w + c.style->iconGap
+                                          : b.x + c.style->fieldPadX;
     return gfx::Rectf{x0, b.y,
                       std::max(0.0f, chev.x - c.style->fieldPadX - x0), b.h};
+}
+
+gfx::Rectf Dropdown::iconRect(const Ctx& c) const
+{
+    const ImageSource& ikon = itemIcon(selectedIndex_);
+    if (!ikon.valid())
+        return gfx::Rectf{};
+    const gfx::Rectf b    = c.bounds();
+    const float      sida = iconSide(c, ikon);
+    return gfx::Rectf{b.x + c.style->fieldPadX, b.y + (b.h - sida) / 2.0f, sida,
+                      sida};
+}
+
+void Dropdown::drawSelectedIcon(const Ctx& c) const
+{
+    const gfx::Rectf r = iconRect(c);
+    if (r.w > 0.0f)
+        Draw::stateGlyph(c, r, itemIcon(selectedIndex_), isEnabled());
+}
+
+bool Dropdown::hasIcons() const
+{
+    return std::any_of(icons_.begin(), icons_.end(),
+                       [](const ImageSource& i) { return i.valid(); });
 }
 
 gfx::Sizef Dropdown::contentSize(const Ctx& c) const
@@ -312,6 +392,7 @@ void Dropdown::draw(const Ctx& c)
 
         Draw::clip(c, {b.x + m.fieldPadX, b.y, chev.x - b.x - m.fieldPadX,
                        b.h});
+        drawSelectedIcon(c);
         Draw::text(t, textRect(c, chev), selectedText(), textColor(c),
                    align_);
         Draw::endClip(c);
@@ -351,6 +432,7 @@ void Dropdown::draw(const Ctx& c)
 
         Draw::clip(c, {b.x + m.fieldPadX, b.y, chev.x - b.x - m.fieldPadX,
                        b.h});
+        drawSelectedIcon(c);
         Draw::text(t, textRect(c, chev), selectedText(), textColor(c),
                    align_);
         Draw::endClip(c);
@@ -389,6 +471,7 @@ void Dropdown::draw(const Ctx& c)
         // Vald text, klippt mot fältet (chevron-zonen exkluderad).
         Draw::clip(c, {b.x + m.fieldPadX, b.y, chev.x - b.x - m.fieldPadX,
                        b.h});
+        drawSelectedIcon(c);
         Draw::text(t, textRect(c, chev), selectedText(), textColor(c),
                    align_);
         Draw::endClip(c);
@@ -478,10 +561,20 @@ bool Dropdown::keyDown(gfx::Key k, std::uint32_t)
     }
 }
 
+// En öppen lista vars stängning väntar i pump-svansen (`close()` och en ny
+// öppning i samma varv — en vallista i en tabell som avslutas och öppnas i
+// nästa cell) får stänga i fred: den läggs undan, och en NY popup visas på det
+// nya ankaret med det nya valet. Det gamla fönstrets ankare och provisoriska
+// val gäller inte längre, och ett öppet popupfönster flyttas inte.
 void Dropdown::open()
 {
-    if (open_ || items_.empty() || !appWindow())
+    if ((open_ && !closing_) || items_.empty() || !appWindow())
         return;
+    if (open_) {
+        closingList_ = std::move(list_);
+        open_        = false;
+        closing_     = false;
+    }
     openAt(behaviorCtx());
 }
 
@@ -524,7 +617,7 @@ void Dropdown::openAt(const Ctx& c)
     // aldrig popupClosed) och dropdownen är permanent död. Städa direkt.
     if (!list_->isOpen()) {
         gfx::log("Dropdown: popup-fönstret kom aldrig upp — stänger av");
-        popupClosed();
+        popupClosed(list_.get());
         return;
     }
     list_->rows()->ensureVisible(selectedIndex_);
@@ -540,8 +633,10 @@ void Dropdown::openAt(const Ctx& c)
 
 void Dropdown::close()
 {
-    if (open_ && list_)
+    if (open_ && list_) {
         list_->close();   // uppskjuten (pump-svansen) → onClose → popupClosed
+        closing_ = true;
+    }
 }
 
 void Dropdown::commit(int row)
@@ -577,9 +672,14 @@ void Dropdown::setProvisional(int row)
     r->ensureVisible(row);
 }
 
-void Dropdown::popupClosed()
+// Bara den AKTUELLA popupens stängning stänger listan — en undanlagd popup
+// (`open`) stänger utan att röra den som visas nu.
+void Dropdown::popupClosed(ListWindow* list)
 {
-    open_ = false;
+    if (list != list_.get())
+        return;
+    open_    = false;
+    closing_ = false;
     invalidate();   // chevron/tillstånd ritas om i ägarfönstret
 }
 

@@ -657,8 +657,8 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   `deriveRoles()` så innehållet under syns; ramen runt den är `accent`) och
   **`canvasGrid`** (ritytans rutnät: en femtedel från `panel` mot `text`,
   HÄRLEDD; tål att halveras av en hårlinje och tonas av en inaktiverad yta) och
-  **`panelHeader`** (dockningspanelens, det flytande fältets och PropertyGrids
-  rubrikrad: `panel` mot `text`, HÄRLEDD, ≥ 1,3:1 mot panelen och med text,
+  **`panelHeader`** (dockningspanelens och det flytande fältets rubrikrad och
+  kategoriraden i PropertyGrid och tabellerna: `panel` mot `text`, HÄRLEDD, ≥ 1,3:1 mot panelen och med text,
   `textDim` och `accent` läsbara på den — contrast_gate).
   En ny färg i en widget = en ny roll HÄR + värden i BÅDA varianterna.
   **`standardPalette()`** är INTE en roll: färgväljarens förvalda färger

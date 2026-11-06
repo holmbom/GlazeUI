@@ -6,6 +6,8 @@
 
 #include <gfx/color.h>
 
+#include "glaze/widgets/color_picker.h"   // ColorDisplay
+#include "glaze/widgets/column_panel.h"   // ColumnSizing
 #include "glaze/widgets/panel.h"
 
 // PropertyGrid — tvåkolumners egenskapslista (Visual Studios grid): namn
@@ -20,11 +22,25 @@
 //   Check   en kryssruta. Ett tryck i värdecellen VÄXLER värdet direkt (och
 //           fyrar `onChange` + `onCommit`); cellen får därefter en fokuserbar
 //           redigerare där Space växlar igen och Enter/Escape stänger den.
-//   Color   en färgruta (med rutmönster under när `allowAlpha`) och färgens
-//           hextext. Ett tryck öppnar färgväljarens popup direkt.
+//   Color   en färg, visad som `colorDisplay` säger: `Swatch` (förvalet) en
+//           ruta ensam, `Style::colorCellSwatchW` bred, `Hex` hextexten ensam
+//           och `Both` en ruta i kryssrutans storlek och hextexten efter den
+//           (rutan med rutmönster under när `allowAlpha`). Ett tryck öppnar
+//           färgväljarens popup direkt.
 //   Number  ett tal med gränser (`min`/`max`), decimaler och text före och
-//           efter (`prefix`/`suffix`). Fältet släpper bara in taltecken.
-//   Header  en rubrikrad som fäller in och ut raderna fram till nästa rubrik.
+//           efter (`prefix`/`suffix`). Fältet släpper bara in taltecken. Med
+//           `allowEmpty` är en tom text ett giltigt TOMT värde (inget fel,
+//           `numberValue` nullopt) som visar `emptyText`.
+//   Category en kategorirad som fäller in och ut raderna fram till nästa
+//           kategori; ANVÄNDARENS fällning fyrar `onExpand`/`onCollapse`.
+// En vallista kan ha en ikon per val (`choiceIcons`, parallell med `choices`),
+// och cellen visar det valdas ikon.
+//
+// KOLUMNERNA är två — 0 namnet, 1 värdet — med tabellernas lägen
+// (`ColumnSizing`, column_panel.h): förvalet är namnet `Manual` (0 =
+// stilens `gridNameW`) och värdet `Autosize`. `AutoMin` är det bredaste
+// namnet respektive den bredaste värdecellen. Gridden rullar inte i sidled:
+// får kolumnerna inte plats klipps de (skriven gräns).
 // `value` är den ENDA lagringen och alltid TEXT: Check "true"/"false", Color
 // `#RRGGBB` (`#RRGGBBAA` med `allowAlpha`), Number den kanoniska formen med
 // punkt. Läsvägarna `isChecked`/`colorValue`/`numberValue` ger det typade
@@ -41,7 +57,9 @@
 // stängt editorn efter första tecknet, och det hade inte gått att skriva ett värde.
 // Alltså:
 //   börja    ett klick på en redigerbar värdecell. Fältet öppnas med HELA
-//            texten MARKERAD, så det man skriver ersätter den.
+//            texten MARKERAD, så det man skriver ersätter den — med
+//            `setSelectOnEdit(false)` i stället med markören sist och
+//            ingenting markerat.
 //   spara    Enter, Tab eller att fokus lämnar editorn på annat sätt, och ett
 //            klick någon annanstans i gridden — på en ANNAN rad sparas den
 //            gamla först och öppnas den nya sedan. `rows()[i].value` skrivs,
@@ -61,13 +79,16 @@
 // standard- och avbrytknapp aldrig klickas mitt i en cell (datagridens
 // `ChoiceEditor`-form); kryssrutans och färgens redigerare konsumerar de två
 // tangenterna på samma sätt. FÄRGEN committar när färgväljaren fyrar
-// `onCommit` (paletten, släppta reglage, hexfältet). Läs vilken rad ur SENDER
+// `onCommit` (paletten, släppta reglage, hexfältet), och redigeringen slutar
+// när popupen stängs. Läs vilken rad ur SENDER
 // (regel 6): `grid->changedRow()`/`rows()`.
 //
-// En RUBRIKRAD fäller in och ut vid ett tryck var som helst på raden (efter att
-// en pågående redigering sparats). Raderna efter en rubrik fram till nästa
-// rubrik hör till den; raderna före den första rubriken syns alltid. Fällningen
-// fyrar ingen händelse — appen läser `rows()[i].expanded`.
+// En KATEGORIRAD (`Kind::Category`) fäller in och ut vid ett tryck var som
+// helst på raden (efter att en pågående redigering sparats). Raderna efter en
+// kategori fram till nästa kategori hör till den; raderna före den första
+// kategorin syns alltid. ANVÄNDARENS fällning fyrar `onExpand`/`onCollapse`
+// med raden i `e.row`, efter att fällningen gjorts; `setExpanded` fyrar aldrig.
+// Läget läses ur `rows()[i].expanded`.
 //
 // En INAKTIV rad (`enabled` false) visas dämpad: ingen editor och ingen
 // växling, men verktygstipset syns ändå. `readOnly` är en annan sak — värdet
@@ -76,7 +97,7 @@
 // En INAKTIV GRID (`disable()`) syns vara inaktiv, som ett inaktivt fält:
 // all text och alla tecken dämpade (`textDim`, rutornas kant `border`,
 // färgrutorna tonade med `iconFade`) och värdekolumnen på `fieldReadOnly`.
-// Den visas INFÄLLD — bara rubrikerna (och raderna före den första) — utan
+// Den visas INFÄLLD — bara kategoriraderna (och raderna före den första) — utan
 // att radernas `expanded` ändras, så den öppnas som förut när den aktiveras.
 // En pågående redigering stängs utan att spara.
 //
@@ -117,13 +138,13 @@ namespace glaze {
 
 class PropertyGrid : public Panel {
 public:
-    enum class Kind { Text, Check, Color, Number, Header };
+    enum class Kind { Text, Check, Color, Number, Category };
 
     // ORDNINGEN ÄR DEN DESIGNERADE INIT-ORDNINGEN: `.glazeui` skriver
     // `{.name = "Bredd", .value = "120", .kind = Kind::Number}` och C++20 kräver
     // fälten i deklarationsordning.
     struct Row {
-        std::string              name;           // kolumn 1; rubrikradens text
+        std::string              name;           // kolumn 0; kategoriradens text
         std::string              value;          // värdet i TEXTFORM
         std::vector<std::string> choices;        // Text: tom = fritext, annars lista
         bool                     readOnly = false;   // visas men ändras ALDRIG
@@ -137,7 +158,12 @@ public:
         bool        allowAlpha = false;   // Color: `#RRGGBBAA`
         TrText      toolTip;      // radens egen; tom = gridens
         bool        enabled  = true;      // false = syns men går inte att ändra NU
-        bool        expanded = true;      // Header: utfälld
+        bool        expanded = true;      // Category: utfälld
+        bool        allowEmpty = false;   // Number: tom text är ett värde
+        std::string emptyText;            // Number: det som visas när tomt
+        std::vector<ImageSource> choiceIcons;   // Text med choices: parallell
+        ColorDisplay colorDisplay = ColorDisplay::Swatch;   // Color: rutan,
+                                          // hextexten eller båda
     };
 
     PropertyGrid();
@@ -185,7 +211,7 @@ public:
     // TILLSTÅND PER RAD — samma form som radens övriga ändringar: index
     // utanför ⇒ logg + no-op. `setRowEnabled(rad, false)` stänger en redigering
     // av raden UTAN att spara och slopar en köad sparning av den;
-    // `setExpanded` gäller bara en rubrikrad (en annan rad ⇒ logg + no-op),
+    // `setExpanded` gäller bara en kategorirad (en annan rad ⇒ logg + no-op),
     // stänger en redigering vars rad döljs utan att spara och fyrar ingenting.
     void setRowEnabled(int row, bool on);
     void setExpanded(int row, bool on);
@@ -202,7 +228,13 @@ public:
     std::optional<double>     numberValue(int row) const;
     bool                      hasError(int row) const;
 
-    // setProp-egenskaper: nameWidth (`grid.setNameWidth(120);`).
+    // TEXTEN MARKERAD när en fritext- eller talrad börjar redigeras (förvalet
+    // true): hela texten, så det man skriver ersätter den; med false står
+    // markören sist och ingenting är markerat. Gäller nästa redigering.
+    void setSelectOnEdit(bool on);
+    bool selectOnEdit() const { return selectOnEdit_; }
+
+    // setProp-egenskaper: selectOnEdit — och Panel och Widget.
     bool setProp(const std::string& key, const std::string& value) override;
 
     int activeRow() const { return active_; }    // rad med öppen editor
@@ -223,22 +255,25 @@ public:
     // height/right/bottom/dock/anchors/tabIndex/name) är fortsatt RÅA —
     // se kontraktet i widget.h.
 
-    // Namnkolumnens bredd i LOGISKA px; 0 = griddens default. Absolut,
-    // inte andel — stabil när overlay-listen tar plats.
-    void setNameWidth(float w)
-    {
-        if (nameWidth_ == w)
-            return;
-        nameWidth_ = w;
-        invalidate();
-    }
-    float nameWidth() const { return nameWidth_; }
+    // KOLUMNERNA (filhuvudet): 0 namnet, 1 värdet. Bredden i LOGISKA px
+    // (0 = förvalet: `gridNameW` för namnet, `columnDefaultW` för värdet) —
+    // Manual: bredden, Autosize: golvet, AutoMin: läses inte. Absolut, inte
+    // andel — stabil när overlay-listen tar plats. Kolumn utanför 0–1 eller
+    // negativ bredd ⇒ logg + no-op. Invaliderar bara vid ändring.
+    void         setColumnWidth(int column, float width);
+    float        columnWidth(int column) const;
+    void         setColumnSizing(int column, ColumnSizing sizing);
+    ColumnSizing columnSizing(int column) const;
 
     // ANVÄNDAREN sparade ett nytt värde i raden `changedRow()` — och är klar
     // med det: `onCommit` fyras direkt efter `onChange`, för samma sparning
     // (en sparad cell är en avslutad handling, `DataGrid`s form).
     Handler<ChangeArgs> onChange;
     Handler<ChangeArgs> onCommit;
+    // ANVÄNDAREN fällde en kategorirad ut respektive ihop — `e.row`.
+    // `setExpanded` fyrar aldrig.
+    Handler<RowArgs>    onExpand;
+    Handler<RowArgs>    onCollapse;
 
     // Enter utan tangenten (widget.h): en öppen fritexteditor sparas och
     // stängs NU, och det skrivna i en öppen färgpopups hexfält committas —
@@ -248,7 +283,7 @@ public:
 
     // TOOLTIPEN PER RAD: felets text vinner ("Ogiltigt värde"), sedan radens
     // egen, sedan gridens (`setToolTip`). Gäller också en inaktiv rad och en
-    // rubrikrad.
+    // kategorirad.
     TrText toolTipAt(const Ctx& c, float x, float y) const override;
 
     // STRUKTURELLA BARN. Editorerna skapas med `add<>` i konstruktorn och
@@ -280,33 +315,53 @@ private:
     // Cellgeometrin i widget-lokala LOGISKA px, SCROLL-förskjuten (samma
     // rymd som ritningen). Cellträffen och editor-placeringen PROJICERAR
     // dem till fysiska px — aldrig två uppsättningar mått. Privata: bara
-    // den här widgeten använder dem. En dold rad (en infälld rubriks) har
+    // den här widgeten använder dem. En dold rad (en infälld kategoris) har
     // ingen plats och en tom rekt.
-    float      nameW(const Ctx& c) const;                    // kolumnbredd
+    //
+    // KOLUMNERNAS EFFEKTIVA BREDD ur lägena (`columnsizing`) och
+    // innehållsbredden — innerytan minus overlay-listens remsa. `nameW` är
+    // kolumn 0:s.
+    float      columnW(const Ctx& c, int column) const;
+    float      nameW(const Ctx& c) const { return columnW(c, 0); }
+    // AutoMin-bredden: det bredaste namnet respektive den bredaste
+    // värdecellen bland ALLA rader utom kategorierna (en fällning ändrar inte
+    // bredderna), med cellens luft och minst `columnMinW`. Cachad mot
+    // `damageStamp()` och miljön — varje ändring av raderna invaliderar.
+    float      fittedW(const Ctx& c, int column) const;
+    // Värdecellens innehållsbredd utan luft (de typade cellernas mått).
+    float      valueContentW(const Ctx& c, int row) const;
     // Scrollen klampad mot de synliga raderna (innehållsytan `in`) — samma
     // värde som Panels klampning av barnens yta, så raderna och editorerna
     // aldrig glider isär efter en fällning.
     float      scrollOffset(const Ctx& c, const gfx::Rectf& in) const;
     gfx::Rectf rowBounds(const Ctx& c, int row) const;
     gfx::Rectf valueBounds(const Ctx& c, int row) const;
-    // Kryssrutans ruta i en värdecell (`cell` i samma rymd) — ritningen och
-    // kryssrutans redigerare delar den.
-    static gfx::Rectf checkBoxRect(const Ctx& c, const gfx::Rectf& cell);
+    // Värdecellens INNEHÅLL — cellen minus `gridPadX` på båda sidor, den yta
+    // de typade cellerna ritas och placeras i (`cell` i samma rymd).
+    static gfx::Rectf cellContent(const Ctx& c, const gfx::Rectf& cell);
+    // Det valda valets ikon i en vallista — en tom bild utan.
+    const ImageSource& choiceIcon(int row) const;
     // Raden under en punkt (FYSISKA px) bland de synliga, annars −1.
     int rowAt(const Ctx& c, float mx, float my) const;
 
-    // De SYNLIGA raderna: en rad efter en infälld rubrik är dold. `pos_[i]` är
+    // De SYNLIGA raderna: en rad efter en infälld kategori är dold. `pos_[i]` är
     // radens plats bland de synliga, eller −1. Byggs om vid varje ändring av
     // rader eller fällning, och `contentSize` läser antalet — varje sådan
     // ändring anropar därför `invalidate()`.
     void rebuildVisible();
 
-    // Ritningen: en rad (rubrik eller namn + värde) och värdecellens innehåll.
+    // Ritningen: en rad (kategori eller namn + värde) och värdecellens innehåll.
     void drawRow(const Ctx& c, int row, const gfx::Rectf& r) const;
     void drawCell(const Ctx& c, int row, const gfx::Rectf& r) const;
     // Talets visningstext: användarens ogiltiga text, annars det klampade och
-    // avrundade värdet med språkets decimaltecken, annars appens råtext.
+    // avrundade värdet med språkets decimaltecken, annars den tomma texten
+    // (`emptyText`) för ett tillåtet tomt värde, annars appens råtext.
     std::string numberDisplay(int row) const;
+    // Fältets starttext: samma, utom att ett tomt värde ger en tom text.
+    std::string numberEditText(int row) const;
+    // ANVÄNDAREN fällde kategoriraden: fällningen och sedan `onExpand`/
+    // `onCollapse`. Svarar som `fireEvent`.
+    bool toggleCategoryFromUser(int row);
 
     bool valid(int row) const { return row >= 0 && std::size_t(row) < rows_.size(); }
 
@@ -326,7 +381,10 @@ private:
     void commitColor();         // färgväljarens `onCommit` → raden
     bool fireChange(int row);   // changed_ = row; onChange, därefter onCommit
 
-    float            nameWidth_ = 0.0f;
+    // FRÅN HÄR NED är lagringen property_grid.cpp:s egen och ändras med
+    // implementationen.
+    float            colWidth_[2]  = {0.0f, 0.0f};
+    ColumnSizing     colSizing_[2] = {ColumnSizing::Manual, ColumnSizing::Autosize};
     std::vector<Row> rows_;
     std::vector<int> pos_;               // parallell med rows_
     int              visibleCount_ = 0;
@@ -336,6 +394,7 @@ private:
     ColorEditor*  colorEd_  = nullptr;
     int         active_  = -1;
     int         changed_ = -1;
+    bool        selectOnEdit_ = true;
     // RADGENERATIONERNA — ett postat event beskriver EN rad i EN radlista.
     // `rowsGen_` räknas upp av `setRows` (hela listan är ny, DataGrids) och
     // `rowGen_[i]` av `setRow(i)` och `setRowEnabled(i, false)` (just den raden
@@ -355,6 +414,14 @@ private:
     unsigned colorRowsGen_ = 0;
     unsigned colorRowGen_  = 0;
     TrText   sep_;   // decimaltecknet — löser upp sig själv
+    // AutoMin-breddernas cache (`fittedW`): giltig för stämpeln, stilen,
+    // fonten och skalan den räknades i.
+    mutable float               fitW_[2]   = {0.0f, 0.0f};
+    mutable bool                fitValid_  = false;
+    mutable std::uint64_t       fitStamp_  = 0;
+    mutable const Style*        fitStyle_  = nullptr;
+    mutable const gfx::Font*    fitFont_   = nullptr;
+    mutable float               fitScale_  = 0.0f;
 };
 
 } // namespace glaze

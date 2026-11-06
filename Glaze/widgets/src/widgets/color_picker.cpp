@@ -263,6 +263,7 @@ void ColorPicker::popupClosed()
     if (popup_)
         popup_->panel().closing();
     invalidate();   // pilen och kanten ritas om i ägarfönstret
+    popupDismissed();
 }
 
 // ------------------------------------------------------------- beteendet

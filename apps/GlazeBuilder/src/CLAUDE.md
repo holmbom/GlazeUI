@@ -96,7 +96,7 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   Labels `setColor(gfx::Color{…})` förblir en Call, och knapparnas
   `setColor(std::optional)` likaså (REQ3). **REQ3:s setter-fält:** Labels
   `elide`/`vAlign`/`buddy`, `iconSize` på Button, ToolButton, ListView och
-  DataGrid, tabellernas `fillColumn` och `rowHeaders` (REQ8 7), FilePickers `dialogTitle`, TextAreas
+  DataGrid, tabellernas `rowHeaders`, DataGrids `editOnClick`/`multiEdit`, `selectOnEdit` (DataGrid och PropertyGrid), FilePickers `dialogTitle`, TextAreas
   `acceptsTab` och ritytans `memoryBudget`; REQ7_LAYOUT: Labels `widthGroup`
   (ett gruppnamn, inget nodnamn — `renameNode` rör det inte); REQ7_MARKDOWN:
   `glaze::MarkdownView` ärver Panel i `kTypeParents` (clip/border) och har
@@ -331,10 +331,13 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   systemfältsikonen och verktygsknappen genom EN mall, `applyMenuItemState` —
   `{}`-roten bara där den ÄR roten, atomisk, en okänd stig bärarens logg.
   **KOLLEKTIONSVOKABULÄREN**: PropertyGrids `setRows`/`addRow`/`setRow` tar
-  RADAGGREGATET (`kRadFält`, 15 fält, positionellt eller designerat genom
-  `parseAggregatLista`; `kind` med enum-prefixet, `toolTip` med `argText`; ett
-  fel ger en atomisk opak rad), och `setRowEnabled`/`setExpanded(int, bool)`,
-  `addItem`/`setItem` (ListBox OCH Dropdown — en gren, två typer),
+  RADAGGREGATET (`kRadFält`, 19 fält — `colorDisplay` via `argColorDisplay` —, positionellt eller designerat genom
+  `parseAggregatLista`; `kind` med enum-prefixet (`Kind::Category`), `toolTip` med `argText`,
+  `choiceIcons` med `parseBildKällor` (varje `argImg`s form); ett
+  fel ger en atomisk opak rad), och `setRowEnabled`/`setExpanded(int, bool)` och kolumnerna
+  `setColumnWidth(kolumn, mått)`/`setColumnSizing(kolumn, glaze::ColumnSizing::X)`,
+  `addItem`/`setItem` (ListBox OCH Dropdown — en gren, två typer; Dropdownens post tar en valfri ikon
+  sist via `argImg`),
   `setChecked(int,bool)` (ListBox) och `setColor(gfx::Color{…})` (Label);
   knapparnas `setColor(std::optional<gfx::Color>)` (Button/Checkbox/Radio, REQ3)
   tar EXAKT ett argument i `argValfriFärg`s tre former — en bar `{200, 0, 0}` är opak.
@@ -356,7 +359,7 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   utan typnamnet). Listformen `{T{…}, {…}, …}` är **`parseAggregatLista`**, delad med
   tabellraderna och statusfälten (atomisk: `ut` fylls först när HELA literalen
   gått igenom). `selectedPath`/`multiSelect`/`showChecks` och listvyns
-  sorterings-, huvud- och fyllkolumnsfält (ColumnPanels) är SETTER-fält.
+  sorterings- och huvudfält (ColumnPanels) är SETTER-fält.
   **DOCKNINGEN (DOCKNING E1)** — värdens `dockPanel` med 2 eller 3 argument:
   panelerna är IDENTIFIERARE slagna mot värdens barn på `name` (`argBarn<T>` — samma uppslag för ritytans
   `setChildAnchor(barn, punkt, ankare)`/`clearChildAnchor(barn)`, REQ8 14),
@@ -368,37 +371,34 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   `band` (E4b), `text`/`floating`/`floatable` (DOCKNING_DRAG) och `overflow` (REQ8 9) ToolBars,
   med ToolBars `setFloatingPosition` (två `argMått`, atomiskt) och `setAllowedEdges` (en lista med `argKant`, aldrig Fill/None, atomiskt; REQ3) som anrop.
   Satserna gäller barn — de står efter trädbygget.
-  **KOLUMNERNA OCH TABELLEN (post 17/24, REQ8 13)** — kolumnerna i EN gren
-  för tabellerna OCH trädet (`dynamic_cast` till `glaze::ColumnPanel`):
-  `addColumn`/`setColumn`/`setColumns`/`setColumnWidth`; raderna i grenen för
-  `glaze::Table`: `addRow`/`setRow`/`setRows`/`setCell`/`setSortKey`/
-  `setRowColor` (index + färg), `setCellColor` (index, kolumn, två valfria färger; REQ8 6), ATOMISK som de andra. Rubriken via `argText` (literal eller tr-token),
-  bredden via `argKolumnBredd` (`argMått`s tal eller `Column::autoWidth`, REQ8 8), justeringen via `argJustering`
-  (EXAKT prefixet `glaze::Align::` — `parseEnumTail` ensam hade tagit en
-  `glaze::Dock::Right` som inte kompilerar), cellerna via
-  `parseStringList`, bilden via `argImg`, radens färg via `argValfriFärg`
-  (sist i `addRow`/`setRow`), nyckeln via `argDecimal` (ett
-  `double`, för bytes och tidsstämplar; ett f-suffix tolkas med
-  float-precision som i C++, `nan`/`inf` slipper aldrig in), och
-  massformerna via `parseColumnsLiteral` (1–4 fält i `ColumnPanel::Column`s
-  ordning) och `parseTableRowsLiteral` (0–3 fält i `Table::Row`s ordning —
-  celler, bild, färg — positionellt eller designerat, `{}` = tom rad). **RUBRIKENS JUSTERING** (post 52) är kolumnens fjärde
-  fält och styckeformens fjärde argument (`addColumn`/`setColumn` tar 1–4
-  respektive 2–5), avkodad av `argRubrikJustering`: `glaze::Align::X` med
-  exakt prefix, eller C++:s två tomma former för en `std::optional` —
-  `std::nullopt` och `{}` — som betyder "som cellerna". Alla tre
-  kompilerar (tests/fixtures/calls bevisar det), så alla tre utförs; en
-  strängare parser hade gjort lagliga rader opaka. `\n` i rubriken är
-  `parseCppString`s escape. Listvyns val och kryss har en egen gren efteråt:
-  `setSelected(rad, på)`, `setChecked(rad, på)` (REQ2_TRAD_LISTOR, ListBoxens
-  form) och de argumentlösa `selectAll()`/`clearSelection()`. SETTER-fält:
-  `selectedIndex`/`multiSelect`/`showChecks` (listvyns), och sorteringens tre
-  och HUVUDETS två (`headerLines`, 0 = AUTO, och `headerVAlign`) på BÅDA.
-  DATAGRIDDEN (post 24) har sin gren efter listvyns: `setColumnEditor(
-  kolumn, glaze::DataGrid::Editor::X)` (EXAKT prefixet, via `argEditor` —
-  samma skäl som justeringens), `setColumnChoices(kolumn, {…})`
-  (`parseStringList`) och `setCurrentCell(rad, kolumn)`, atomiska som
-  tabellgrenen.
+  **KOLUMNERNA OCH TABELLEN** — kolumnerna i EN gren för tabellerna OCH trädet (`dynamic_cast` till
+  `glaze::ColumnPanel`): `addColumn`/`setColumn` (1–5 respektive 2–6 argument; läget sist), `setColumns`,
+  `setColumnWidth`, `setColumnSizing` (läget via `argSizing`, EXAKT `glaze::ColumnSizing::`), `setColumnToolTip`
+  och `setColumnHeaderCheck`; raderna i grenen för `glaze::Table`: `addRow`/`setRow`/`setRows`/`setCell`/
+  `setSortKey`/`setRowColor` (index + färg), `setCellColor` (index, kolumn, två valfria färger), `setRowKind`
+  (slaget via `argRowKind` — `glaze::Table::RowKind::` eller en ättlings prefix), `setExpanded`, `setCellImage`
+  och `removeRow`, ATOMISK som de andra. Rubriken via `argText` (literal eller tr-token), bredden via `argMått`,
+  justeringen via `argJustering` (EXAKT prefixet `glaze::Align::` — `parseEnumTail` ensam hade tagit en
+  `glaze::Dock::Right` som inte kompilerar), cellerna via `parseStringList`, bilden via `argImg`, radens färg via
+  `argValfriFärg` (sist i `addRow`/`setRow`), nyckeln via `argDecimal` (ett `double`, för bytes och tidsstämplar;
+  ett f-suffix tolkas med float-precision som i C++, `nan`/`inf` slipper aldrig in), och massformerna via
+  `parseColumnsLiteral` (1–7 fält i `ColumnPanel::Column`s ordning — rubrik, bredd, justering, rubrikjustering,
+  läge, tooltip, rubrikkryss) och `parseTableRowsLiteral` (0–5 fält i `Table::Row`s ordning — celler, bild,
+  färg, slag, fällning), båda positionellt eller designerat genom `parseAggregatLista`, `{}` = tom rad.
+  **RUBRIKENS JUSTERING** är kolumnens fjärde fält och styckeformens fjärde argument, avkodad av
+  `argRubrikJustering`: `glaze::Align::X` med exakt prefix, eller C++:s två tomma former för en `std::optional`
+  — `std::nullopt` och `{}` — som betyder "som cellerna". Alla tre kompilerar (tests/fixtures/calls bevisar
+  det), så alla tre utförs; en strängare parser hade gjort lagliga rader opaka. `\n` i rubriken är
+  `parseCppString`s escape. Listvyns val och kryss har en egen gren efteråt: `setSelected(rad, på)`,
+  `setChecked(rad, på)` (ListBoxens form) och de argumentlösa `selectAll()`/`clearSelection()`. SETTER-fält:
+  `selectedIndex`/`multiSelect`/`showChecks` (listvyns), och sorteringens tre och HUVUDETS två (`headerLines`,
+  0 = AUTO, och `headerVAlign`) på BÅDA. DATAGRIDDEN har sin gren efter listvyns: `setColumnEditor(kolumn,
+  spec)` och `setCellEditor(rad, kolumn, spec)` med aggregatet `glaze::DataGrid::EditorSpec` genom
+  **`parseEditorSpec`** (typnamnet eller bara `{…}`, positionellt eller designerat med de tretton fälten i
+  deklarationsordning, `colorDisplay` via `argColorDisplay` (`glaze::ColorDisplay::`); redigeraren via `argEditor`, EXAKT `glaze::DataGrid::Editor::` — samma skäl som
+  justeringens; `{}` = fritext), `clearCellEditor(rad, kolumn)`, `setCellEnabled(rad, kolumn, på)`,
+  `setCellToolTip(rad, kolumn, text)` och `setCurrentCell(rad, kolumn)`, atomiska som tabellgrenen;
+  `onCellClick` är en känd koppling i readern.
   **FILVÄLJARFÄLTET (post 25)** har sin gren efter datagridens:
   `addFilter(namn, mönster)` · `setFilter(index, namn, mönster)` ·
   `setFilters({{namn, mönster}, …})` — namnet via `argText` (literal eller
@@ -713,7 +713,7 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   samma grind som `anchors`, av samma skäl: `.glazeui` får aldrig bära text
   som inte kompilerar. REQ3:s rader: Labels `elide` (Bool)/`vAlign` (Enum,
   `glaze::VAlign::`)/`buddy` (Text), `iconSize` (Number) på Button, ToolButton,
-  ListView och DataGrid, `fillColumn` (Integer), `dialogTitle` (Text),
+  ListView och DataGrid, DataGrids `editOnClick`/`multiEdit` och `selectOnEdit` på DataGrid och PropertyGrid (Bool), `dialogTitle` (Text),
   `acceptsTab` (Bool) och `memoryBudget` (Number), och REQ7_LAYOUT:s `widthGroup`
   (Text); live-commit → `node.set` → `rebuildPreview` — raderna byggs ALDRIG om
   under redigering, setRows dödar editorn), canvas i mitten.

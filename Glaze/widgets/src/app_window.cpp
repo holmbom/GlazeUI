@@ -1200,6 +1200,14 @@ void AppWindow::trackClientSize()
         return;
     initW_ = static_cast<int>(a.w / s + 0.5f);
     initH_ = static_cast<int>((a.h + win_->titlebarHeight()) / s + 0.5f);
+    // EN BEGÄRD INNEHÅLLSSTORLEK följer det OS-fönstret faktiskt fick: ett
+    // drag i kanten är det senaste beskedet om innehållsytan, och en senare
+    // chromeändring (ett barn som visas eller döljs, statusraden) räknas mot
+    // den ytan — mot den gamla begäran hade fönstret återställts till den.
+    if (contentW_ > 0 && contentH_ > 0) {
+        contentW_ = initW_;
+        contentH_ = initH_ - chromeInsetPx();
+    }
 }
 
 gfx::Sizef AppWindow::clientSize() const

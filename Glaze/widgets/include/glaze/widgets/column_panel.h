@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "glaze/widgets/checkbox.h"
 #include "glaze/widgets/panel.h"
 
 // ColumnPanel — KOLUMNHUVUDET som delad maskin:
@@ -48,29 +49,41 @@
 //     huvud står den vid varje rubriks sista rad. Pilens kolumn smalnar,
 //     och alla dess rader bryts till vänster om pilen.
 //
-// KOLUMNBREDD EFTER INNEHÅLLET. En bredd som är `Column::autoWidth`
-// (varje negativ) FÖLJER innehållet: rubrikens bredaste rad och cellernas
-// bredaste innehåll, det bredaste av dem med cellens luft på båda sidor och
-// en kants tjocklek (en hårlinje) som andrum — ritningen kortar med ett strikt
-// `<=` och flyttalen ger inte alltid måttet tillbaka —, aldrig smalare än
-// stilens `columnMinW`. Måttet räknas om när rader,
-// rubriker, font eller stil ändras (en cache i samma anda som huvudets
-// AUTO-höjd) — mätningen går över ALLA rader, så en tabell med hundratusentals
-// rader ska ha fasta bredder. Är huvudet sorterbart (eller kolumnen den
-// sorterade) reserveras sorteringspilens plats alltid, så ett klick i huvudet
-// aldrig ändrar en bredd. Fyllkolumnen kan också vara auto: den anpassade
-// bredden är då dess minsta. En dragen avdelare skriver en vanlig FAST bredd
-// (`setColumnWidth`), och ett DUBBELKLICK på avdelaren skriver den anpassade
-// bredden som en fast bredd — Win32:s och Qt:s form, "anpassa nu" och inte
-// "följ" (det senare är `autoWidth`). Cellernas del av måttet är subklassens
-// (`cellContentW` — basen känner inga rader).
+// KOLUMNENS LÄGE (`ColumnSizing`) bestämmer bredden:
+//   Manual    den satta bredden (`width`; 0 = stilens `columnDefaultW`).
+//   AutoMin   bredden FÖLJER innehållet: rubrikens bredaste rad och cellernas
+//             bredaste innehåll, det bredaste av dem med cellens luft på båda
+//             sidor och en hårlinjes andrum — ritningen kortar med ett strikt
+//             `<=` och flyttalen ger inte alltid måttet tillbaka —, aldrig
+//             smalare än `columnMinW`. `width` läses inte. Är huvudet sorterbart
+//             (eller kolumnen den sorterade) reserveras sorteringspilens plats
+//             alltid, och ett rubrikkryss sin zon, så ett klick i huvudet aldrig
+//             ändrar en bredd. Måttet är CACHAT per cell hos subklassen och per
+//             kolumn här, så en ändrad cell mäts om ensam (`contentChanged(kolumn)`).
+//   Autosize  kolumnen TAR UTRYMMET SOM FINNS: dess bas är den satta bredden
+//             (0 = `columnDefaultW`), och det som blir över av innehållsbredden
+//             när alla kolumners baser dragits av delas LIKA mellan alla
+//             Autosize-kolumner. Smalare än baserna rullar listan i sidled.
+//             Dess avdelare går inte att greppa.
+// En DRAGEN avdelare skriver `Manual` med den dragna bredden, och ett
+// DUBBELKLICK på avdelaren skriver `Manual` med den anpassade bredden —
+// Win32:s och Qt:s form, "anpassa nu" och inte "följ" (det senare är
+// `AutoMin`). Cellernas del av måttet är subklassens (`cellContentW`).
+//
+// RUBRIKENS TOOLTIP (`Column::toolTip`) visas över kolumnens rubrik, och
+// RUBRIKKRYSSET (`Column::headerCheck`) är en kryssruta i tre lägen först i
+// rubriken: subklassen säger läget (`headerCheckState` — `nullopt` = inget
+// kryss i den kolumnen) och vad en vändning gör (`headerCheckToggled`). Ett
+// tryck i kryssets zon sorterar aldrig.
 //
 // SKRIVNA BEGRÄNSNINGAR (beslut, läs innan du "fixar" dem):
-//   * Kolumnerna kan inte FLYTTAS och inte döljas, och ingen sträcks ut
-//     till kanten av sig själv — det gör EN fyllkolumn som appen väljer
-//     (`setFillColumn`).
+//   * Kolumnerna kan inte FLYTTAS och inte döljas.
 
 namespace glaze {
+
+// KOLUMNENS LÄGE — EN stavning för tabellerna, trädet och egenskapslistan
+// (filhuvudet).
+enum class ColumnSizing { Manual, AutoMin, Autosize };
 
 class ColumnPanel : public Panel {
 public:
@@ -78,17 +91,15 @@ public:
     // rad är både handkod och `.glazeui`:
     //     lista.setColumns({{"Namn", 160}, {"Storlek", 70, glaze::Align::Right},
     //                       {"Längd\n(m)", 70, glaze::Align::Right,
-    //                        glaze::Align::Center}});
-    // Typen nås också som `glaze::Table::Column` (arvet).
+    //                        glaze::Align::Center},
+    //                       {.text = "Kommentar", .sizing = glaze::ColumnSizing::Autosize}});
+    // Typen nås också som `glaze::Table::Column` (arvet). Fälten växer SIST.
     struct Column {
-        // Bredden som FÖLJER innehållet — se filhuvudet.
-        static constexpr float autoWidth = -1.0f;
-
         TrText text;                  // rubriken — literal eller glaze::tr(id);
                                       // `\n` bryter raden
-        float  width = 0.0f;          // LOGISKA px; 0 = stilens
-                                      // `columnDefaultW`, < 0 (`autoWidth`) =
-                                      // efter innehållet
+        float  width = 0.0f;          // LOGISKA px; 0 (eller negativt) = stilens
+                                      // `columnDefaultW`. Manual: bredden,
+                                      // Autosize: golvet, AutoMin: läses inte
         Align  align = Align::Left;   // CELLERNAS justering — och rubrikens
                                       // när `headerAlign` saknas
         // RUBRIKENS justering i sidled. `std::optional` så att en
@@ -96,6 +107,9 @@ public:
         // vänster: en högerjusterad talkolumn har en högerjusterad rubrik
         // tills appen säger något annat.
         std::optional<Align> headerAlign;
+        ColumnSizing sizing = ColumnSizing::Manual;   // filhuvudet
+        TrText       toolTip;          // över rubriken; tom = listans egen
+        bool         headerCheck = false;   // rubrikkrysset (filhuvudet)
     };
 
     // TILLSTÅNDET är PRIVAT och byts via SETTRAR — settern
@@ -106,23 +120,38 @@ public:
     // `addX` · `setX(index, …)` · `setXs(lista)` (regel 8) —
     // samma form som ListBox/Dropdown/PropertyGrid. `setColumn` ERSÄTTER hela
     // kolumnen (tilldelning: en utelämnad bredd blir standardbredden, en
-    // utelämnad rubrikjustering "som cellerna"). Index utanför ⇒ `gfx::log` +
-    // no-op, aldrig fail-safe och aldrig tyst tillväxt.
+    // utelämnad rubrikjustering "som cellerna", läget `Manual`, och tooltip
+    // och rubrikkryss nollas). Index utanför ⇒ `gfx::log` + no-op, aldrig
+    // fail-safe och aldrig tyst tillväxt.
     void addColumn(TrText text, float width = 0.0f, Align align = Align::Left,
-                   std::optional<Align> headerAlign = std::nullopt);
+                   std::optional<Align> headerAlign = std::nullopt,
+                   ColumnSizing sizing = ColumnSizing::Manual);
     void setColumn(int index, TrText text, float width = 0.0f,
                    Align align = Align::Left,
-                   std::optional<Align> headerAlign = std::nullopt);
+                   std::optional<Align> headerAlign = std::nullopt,
+                   ColumnSizing sizing = ColumnSizing::Manual);
     void setColumns(std::vector<Column> columns);
     const std::vector<Column>& columns() const { return columns_; }
     int  columnCount() const { return int(columns_.size()); }
 
-    // BREDDEN ENSAM — dragningens programmatiska tvilling (en dragen
-    // avdelare skriver hit). Klampas inte uppåt; 0 = standardbredden,
-    // `Column::autoWidth` = efter innehållet.
+    // BREDDEN ENSAM — dragningens programmatiska tvilling. Klampas inte
+    // uppåt; 0 = standardbredden, negativt ⇒ logg + no-op. Läget rörs inte
+    // (Autosize: bredden är golvet; AutoMin: den läses inte).
     void  setColumnWidth(int index, float width);
-    float columnWidth(int index) const;   // det SATTA värdet (0 = standard,
-                                          // `autoWidth` = efter innehållet)
+    float columnWidth(int index) const;   // det SATTA värdet (0 = standard)
+
+    // KOLUMNENS LÄGE, TOOLTIP OCH RUBRIKKRYSS ensamma (filhuvudet). Index
+    // utanför ⇒ logg + no-op; getterna svarar förvalet utanför. Invaliderar
+    // bara vid ändring.
+    void         setColumnSizing(int index, ColumnSizing sizing);
+    ColumnSizing columnSizing(int index) const;
+    void         setColumnToolTip(int index, TrText toolTip);
+    void         setColumnHeaderCheck(int index, bool on);
+    bool         columnHeaderCheck(int index) const;
+
+    // Rubrikens tooltip över huvudet, annars widgetens (`Widget::toolTipAt`).
+    // Subklasser som har egna tooltips frågar den här SIST före widgetens.
+    TrText toolTipAt(const Ctx& c, float x, float y) const override;
 
     // -------------------------------------------------------- SORTERINGEN
     // `sortColumn` −1 = ingen sortering: raderna står i appens ordning.
@@ -147,24 +176,12 @@ public:
     void   setHeaderVAlign(VAlign v);
     VAlign headerVAlign() const { return headerVAlign_; }
 
-    // ---------------------------------------------------- FYLLKOLUMNEN
-    // (Qt:s Stretch) Kolumnen som TAR UPP resten av
-    // bredden: dess effektiva bredd är max(egen bredd, innehållets bredd −
-    // de andra kolumnernas), så den satta bredden (eller `columnDefaultW`) är
-    // dess MINSTA bredd — smalare än så rullar listan i sidled.
-    // Dess egen avdelare går inte att greppa; drar man en annan tar
-    // fyllkolumnen upp skillnaden. −1 = ingen (standard). Värdet lagras som
-    // det är och läses giltigt (bortom kolumnerna = ingen), så att
-    // satsordningen i `.glazeui` inte avgör; < −1 ⇒ logg + no-op.
-    void setFillColumn(int column);
-    int  fillColumn() const { return fillColumn_; }
-
     // Rulla kolumnen i synfältet i sidled. Kräver ett öppet fönster (annars
     // no-op, som `ListBox::ensureVisible`).
     void ensureColumnVisible(int column);
 
-    // setProp-egenskaper: sortColumn, sortAscending, sortable, headerLines
-    // och fillColumn (heltal — ett ogiltigt loggas, och nyckeln räknas som
+    // setProp-egenskaper: sortColumn, sortAscending, sortable och
+    // headerLines (heltal — ett ogiltigt loggas, och nyckeln räknas som
     // känd) och headerVAlign (top/center/bottom); resten tar Panel
     // (border/clip) och Widget.
     bool setProp(const std::string& key, const std::string& value) override;
@@ -193,15 +210,29 @@ protected:
 
     // KOLUMNENS CELLER — den bredd cellernas innehåll behöver i
     // LOGISKA px, UTAN cellens luft (basen lägger på `cellPadX` på båda
-    // sidor): bredaste texten och det som står före den. 0 = inga celler
-    // (standard — basen känner inga rader). Läses bara för en kolumn med
-    // `autoWidth` och av dubbelklicket på avdelaren.
+    // sidor): bredaste innehållet och det som står före det. 0 = inga celler
+    // (standard — basen känner inga rader). Läses bara för en `AutoMin`-kolumn
+    // och av dubbelklicket på avdelaren.
     virtual float cellContentW(const Ctx&, int /*column*/) const { return 0.0f; }
 
     // INNEHÅLLET ÄNDRADES — subklassen säger till när en cell, en
     // ikon eller något annat som `cellContentW` läser har ändrats, så den
-    // anpassade bredden räknas om. Rubriker och kolumner säger basen själv.
-    void contentChanged() { ++fitGen_; }
+    // anpassade bredden räknas om: `contentChanged()` för ALLA kolumner,
+    // `contentChanged(kolumn)` för EN (en enda cell som ändrats). Rubriker och
+    // kolumner säger basen själv.
+    void contentChanged();
+    void contentChanged(int column);
+
+    // RUBRIKKRYSSETS krokar (filhuvudet). `headerCheckState` frågas bara för en
+    // kolumn med `headerCheck`; `nullopt` = inget kryss (och ingen zon) i den.
+    // `headerCheckToggled` körs när ANVÄNDAREN tryckt i zonen — subklassen
+    // ändrar raderna och fyrar sina events. Svarar som `fireEvent`: false = en
+    // handler rev eller flyttade listan, och basen rör den inte mer.
+    virtual std::optional<CheckState> headerCheckState(int /*column*/) const
+    {
+        return std::nullopt;
+    }
+    virtual bool headerCheckToggled(int /*column*/) { return true; }
 
     // ------------------------------------------------- GEOMETRIN, EN sanning
     // Widget-lokala LOGISKA px, scroll-förskjutna — ritningen läser dem rakt
@@ -211,12 +242,12 @@ protected:
     // till per rad därutöver; `headerLineCount` är det EFFEKTIVA radantalet
     // — det satta, eller AUTO:s uträknade (cachat, se `HeaderCache`).
     //
-    // INNEHÅLLSBREDDEN `cw` (LOGISKA px) är den fyllkolumnen räknas mot.
-    // Formerna utan den räknar `innerBounds(c).w` — men bara när en
-    // fyllkolumn finns — och kräver därför LISTANS Ctx. Datagridens
+    // INNEHÅLLSBREDDEN `cw` (LOGISKA px) är den Autosize-kolumnerna räknas
+    // mot. Formerna utan den räknar `innerBounds(c).w` — men bara när en
+    // Autosize-kolumn finns — och kräver därför LISTANS Ctx. Datagridens
     // `placeChild` har BARNETS Ctx och skickar bredden uttryckligen (där
     // får ingenting anropa `resolve()`). `contentW` är bredden ur listans
-    // EGEN Ctx — 0 utan fyllkolumn, för då läses den aldrig.
+    // EGEN Ctx — 0 utan Autosize-kolumn, för då läses den aldrig.
     float      contentW(const Ctx& c) const;
     int        headerLineCount(const Ctx& c) const;     // ≥ 1
     int        headerLineCount(const Ctx& c, float cw) const;
@@ -227,7 +258,7 @@ protected:
     float      columnW(const Ctx& c, int column) const;  // den EFFEKTIVA
     float      columnW(const Ctx& c, int column, float cw) const;
     // DEN ANPASSADE BREDDEN: rubriken och cellerna med cellens luft,
-    // minst `columnMinW` — för en `autoWidth`-kolumn är den kolumnens bas, och
+    // minst `columnMinW` — för en `AutoMin`-kolumn är den kolumnens bredd, och
     // dubbelklicket skriver den. Cachad (se `FitCache`).
     float      fittedW(const Ctx& c, int column) const;
     float      columnX(const Ctx& c, int column) const;  // oscrollad
@@ -305,10 +336,24 @@ private:
     // Rubrikernas text eller bredd ändrades — AUTO-höjden räknas om.
     void headerChanged() { ++headerGen_; }
 
-    // FYLLKOLUMNEN: finns en giltig? `columnBaseW` är kolumnens satta
-    // bredd eller `columnDefaultW`, fyllkolumnens minimum.
-    bool  hasFill() const { return fillColumn_ >= 0 && fillColumn_ < columnCount(); }
+    // KOLUMNLÄGENA: finns en Autosize-kolumn (då beror bredderna på `cw`)?
+    // `columnBaseW` är kolumnens bas (`columnsizing::baseWidth`) och
+    // `autosizeShare` det varje Autosize-kolumn får utöver sin bas.
+    bool  hasAutosize() const;
     float columnBaseW(const Ctx& c, int column) const;
+    float autosizeShare(const Ctx& c, float cw) const;
+    // ANVÄNDAREN gav kolumnen en bredd (draget, dubbelklicket): `Manual` med
+    // bredden, EN invalidering.
+    void  setManualWidth(int index, float width);
+
+    // RUBRIKKRYSSET: finns det i kolumnen (`headerCheck` och subklassens
+    // läge)? Zonen är rutan + `checkGap` cellens luft in, huvudets hela höjd;
+    // rutan står v-centrerad där en enradsrubrik står. LOGISKA px,
+    // scroll-förskjutna som `headerCellRect`.
+    bool       hasHeaderCheck(int column) const;
+    float      headerCheckW(const Ctx& c, int column) const;   // 0 = inget
+    gfx::Rectf headerCheckZone(const Ctx& c, int column) const;
+    int        headerCheckAt(const Ctx& c, float mx, float my) const;   // −1
 
     std::vector<Column> columns_;
 
@@ -318,26 +363,26 @@ private:
 
     int    headerLines_  = 1;               // 0 = AUTO
     VAlign headerVAlign_ = VAlign::Center;  // ett enradshuvuds läge
-    int    fillColumn_   = -1;              // −1 = ingen
 
     // AUTO-HÖJDENS CACHE. Huvudets höjd frågas för VARJE cell som ritas
     // (`cellInContent`) och vid varje musrörelse, och AUTO kräver en
     // radbrytning av varje rubrik — så svaret sparas mot allt det beror på:
     // fonten (pekaren OCH radhöjden — en omladdad font kan hamna på samma
     // adress; TextAreas prejudikat), skalan, cellens luft, stilens
-    // standardbredd och `headerGen_`, som stegas när en rubrik eller en
-    // bredd ändras, när fyllkolumnen byts och vid ett språkbyte — och
-    // fyllkolumnens effektiva bredd (`fillW`, −1 utan), som följer listans
-    // bredd. Sorteringen ingår INTE: AUTO räknar utan pilen
-    // (filhuvudet).
+    // standardbredd, `headerGen_` (en rubrik, en bredd, ett läge, ett
+    // rubrikkryss, ett språkbyte), `contentGen_` (innehållet — en AutoMin-
+    // kolumns bredd och rubrikkryssets zon följer det) och innehållsbredden
+    // `cw` när en Autosize-kolumn finns (−1 utan). Sorteringen ingår INTE:
+    // AUTO räknar utan pilen (filhuvudet).
     struct HeaderCache {
         const gfx::Font* font     = nullptr;
         float            scale    = 0.0f;
         float            lineH    = 0.0f;
         float            padX     = 0.0f;
         float            defaultW = 0.0f;
-        float            fillW    = -1.0f;
+        float            cw       = -1.0f;
         unsigned         gen      = 0;
+        unsigned         content  = 0;
         int              lines    = 1;
         bool             valid    = false;
     };
@@ -349,19 +394,29 @@ private:
     // rader, så svaret sparas mot allt det beror på: fonten, skalan, stilen
     // (pekaren — cellens luft, ikonens och pilens mått), sorteringspilens
     // reservation och `fitGen_`, som stegas när en rubrik, en kolumn eller
-    // innehållet ändras (`contentChanged`). EN post per kolumn; 0 = ej räknad.
+    // allt innehåll ändras (`contentChanged()`). EN post per kolumn med sin
+    // EGEN generation (`colGen_`), som `contentChanged(kolumn)` stegar — en
+    // ändrad cell räknar bara om sin kolumn.
     struct FitCache {
-        const gfx::Font*    font     = nullptr;
-        const Style*        style    = nullptr;
-        float               scale    = 0.0f;
-        bool                sortable = false;
-        int                 sortCol  = -1;
-        unsigned            gen      = 0;
-        std::vector<float>  w;           // per kolumn; < 0 = ej räknad
-        bool                valid    = false;
+        const gfx::Font*      font     = nullptr;
+        const Style*          style    = nullptr;
+        float                 scale    = 0.0f;
+        bool                  sortable = false;
+        int                   sortCol  = -1;
+        unsigned              gen      = 0;
+        std::vector<float>    w;         // per kolumn; < 0 = ej räknad
+        std::vector<unsigned> colGen;    // per kolumn: generationen `w` räknades i
+        bool                  valid    = false;
     };
-    mutable FitCache fitCache_;
-    unsigned         fitGen_ = 0;
+    mutable FitCache      fitCache_;
+    unsigned              fitGen_     = 0;
+    unsigned              contentGen_ = 0;   // stegas av båda `contentChanged`
+    std::vector<unsigned> colGen_;           // per kolumn (tom = 0)
+    unsigned colGenOf(int column) const
+    {
+        return std::size_t(column) < colGen_.size() ? colGen_[std::size_t(column)]
+                                                    : 0u;
+    }
 
     // Huvudets mus (ritkosmetik + avdelardraget). `hotDivider_`/`hotHeader_`
     // invalideras bara vid ändring (regel 1).

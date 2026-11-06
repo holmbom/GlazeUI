@@ -132,11 +132,11 @@ void DockWindow::initializeComponent()
     egenskapsPanel.dock = glaze::Dock::Fill;
 
     egenskapsLista.name = "egenskapsLista";
-    egenskapsLista.setRows({{.name = "Dokument", .kind = glaze::PropertyGrid::Kind::Header}, {"name", "dokument"}, {"dock", "Fill"}, {"width", "AUTO"}, {.name = "locked", .value = "false", .kind = glaze::PropertyGrid::Kind::Check}});
+    egenskapsLista.setRows({{.name = "Dokument", .kind = glaze::PropertyGrid::Kind::Category}, {"name", "dokument"}, {"dock", "Fill"}, {"width", "AUTO"}, {.name = "locked", .value = "false", .kind = glaze::PropertyGrid::Kind::Check}});
     egenskapsLista.dock = glaze::Dock::Top;
 
     utseendeLista.name = "utseendeLista";
-    utseendeLista.setRows({{.name = "Utseende", .kind = glaze::PropertyGrid::Kind::Header}, {.name = "background", .value = "#3366FF80", .kind = glaze::PropertyGrid::Kind::Color, .allowAlpha = true}, {.name = "opacity", .value = "80", .kind = glaze::PropertyGrid::Kind::Number, .min = 0, .max = 100, .decimals = 0, .suffix = "%"}, {.name = "scale", .value = "50", .kind = glaze::PropertyGrid::Kind::Number, .min = 1, .max = 500, .decimals = 0, .prefix = "1:"}});
+    utseendeLista.setRows({{.name = "Utseende", .kind = glaze::PropertyGrid::Kind::Category}, {.name = "background", .value = "#3366FF80", .kind = glaze::PropertyGrid::Kind::Color, .allowAlpha = true}, {.name = "opacity", .value = "80", .kind = glaze::PropertyGrid::Kind::Number, .min = 0, .max = 100, .decimals = 0, .suffix = "%"}, {.name = "scale", .value = "50", .kind = glaze::PropertyGrid::Kind::Number, .min = 1, .max = 500, .decimals = 0, .prefix = "1:"}});
     utseendeLista.dock = glaze::Dock::Top;
 
     utdata.name = "utdata";

@@ -7,6 +7,7 @@
 #include "slate_window.h"
 #include "splash_window.h"
 #include "start_window.h"
+#include "tables_window.h"
 #include "tray_window.h"
 #include "widget_gallery.h"
 #include "window_lab.h"
@@ -26,6 +27,8 @@
 //   demo --login          inloggningsrutan med fönstrets gradient
 //   demo --icons          appens egna glyfer på knappar (mono, färg, Auto)
 //   demo --icons-sheet F  appens ikonark som PNG i filen F, och sedan slut
+//   demo --tables         tabellernas provbänk (DataGrid, ListView, PropertyGrid,
+//                         ett reglage per egenskap och en händelselogg)
 //   demo --splash …       splashen FÖRST (ramlös, mitt på skärmen, en Timer i
 //                         .glazeui stänger den) — sedan som utan flaggan
 int main(int argc, char** argv)
@@ -41,7 +44,7 @@ int main(int argc, char** argv)
 
     bool galleri = false, systemfalt = false, dold = false;
     bool splash = false, labb = false, dockning = false, slate = false;
-    bool login = false, ikoner = false;
+    bool login = false, ikoner = false, tabeller = false;
     const char* ikonark = nullptr;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--gallery") == 0)
@@ -64,6 +67,8 @@ int main(int argc, char** argv)
             ikoner = true;
         else if (std::strcmp(argv[i], "--icons-sheet") == 0 && i + 1 < argc)
             ikonark = argv[++i];
+        else if (std::strcmp(argv[i], "--tables") == 0)
+            tabeller = true;
     }
 
     // ARKET: appens egna glyfer (icon_window.cpp) i alla storlekar och
@@ -74,6 +79,11 @@ int main(int argc, char** argv)
     if (ikoner) {
         IconWindow w;
         return w.run();
+    }
+
+    if (tabeller) {
+        TablesWindow t;
+        return t.run();
     }
 
     // SPLASHEN går före allt annat och stänger sig själv:

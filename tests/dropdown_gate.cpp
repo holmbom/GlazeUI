@@ -17,12 +17,20 @@
 //              det STÄNGDA lägets tangentbord och JUSTERINGEN —
 //              fältets text Left/Center/Right i alla tre familjerna, mätt
 //              som textens x-läge i en inspelande renderer mot förväntade värden ur
-//              stilens mått (sabotaget "align_ ignoreras" fäller den).
+//              stilens mått (sabotaget "align_ ignoreras" fäller den) —
+//              och IKONERNA: `addItem`/`setItem`/`itemIcon`, att
+//              `setItems` nollar dem och att fältets text flyttas förbi
+//              det valdas ikon (sabotaget "textRect ignorerar ikonen").
 //   MED FÖNSTER  ett DOLT ägarfönster (`setOffscreen(true)` —
 //              som i window_gate) räcker för att faktiskt ÖPPNA
 //              popupen: öppna/stäng, `dropMaxRows`-kapningen, det ÖPPNA
 //              lägets tangentbord, Escape utan ändring, commit exakt en
-//              gång och `setItems` under öppen popup. Saknas display
+//              gång och `setItems` under öppen popup — och att popupens
+//              rader och fältet RITAR ikonen, räknat i fönstrets bild
+//              (sabotaget "drawRow utan ikon" respektive "drawSelectedIcon
+//              borttagen ur en UI-gren"), och att popupens kant ritas i
+//              kontrollkanten `buttonBorder` (sabotaget "Slate-grenen med
+//              hårlinjen `border`"). Saknas display
 //              hoppas de fallen över med en SKRIVEN rad i stället för att
 //              fälla grinden.
 //
@@ -35,10 +43,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include <gfx/null_renderer.h>
 
@@ -256,6 +266,73 @@ void fallJusteringen()
     }
 }
 
+// IKONERNA — kollektionsvokabulären: `addItem`/`setItem` bär en valfri ikon,
+// `setItem` är tilldelning (en utelämnad ikon nollas), `setItems` nollar alla,
+// och `itemIcon` svarar en tom bild utanför och för en post utan.
+void fallIkoner()
+{
+    const glaze::ImageSource spara = glaze::stockIcon(glaze::StockIcon::Save);
+    const glaze::ImageSource öppna = glaze::stockIcon(glaze::StockIcon::Open);
+    glaze::Dropdown d;
+    d.addItem("a");
+    d.addItem("b", spara);
+    d.addItem("c");
+    check(d.items().size() == 3 && !d.itemIcon(0).valid() &&
+              d.itemIcon(1) == spara && !d.itemIcon(2).valid(),
+          "ikoner: addItem med och utan ikon — itemIcon per post");
+    check(!d.itemIcon(-1).valid() && !d.itemIcon(3).valid(),
+          "ikoner: itemIcon utanför intervallet är en tom bild");
+    d.setItem(2, "c2", öppna);
+    check(d.items()[2] == "c2" && d.itemIcon(2) == öppna,
+          "ikoner: setItem sätter text och ikon");
+    d.setItem(1, "b2");
+    check(d.items()[1] == "b2" && !d.itemIcon(1).valid() &&
+              d.itemIcon(2) == öppna,
+          "ikoner: setItem utan ikon nollar postens ikon (tilldelning), de "
+          "andra orörda");
+    d.setItem(7, "x", spara);
+    check(d.items().size() == 3 && !d.itemIcon(7).valid(),
+          "ikoner: setItem utanför intervallet ⇒ no-op");
+    d.setItems({"x", "y", "z"});
+    check(!d.itemIcon(0).valid() && !d.itemIcon(1).valid() &&
+              !d.itemIcon(2).valid(),
+          "ikoner: setItems nollar ikonerna");
+    d.addItem("w", spara);
+    check(d.itemIcon(3) == spara && !d.itemIcon(0).valid(),
+          "ikoner: en ikon sist efter poster utan ikon");
+
+    // FÄLTET: det valdas ikon står före texten, och texten flyttas förbi den.
+    StegFont       f;
+    TextInspelning rec;
+    Ritbar         r;
+    r.width  = 160;
+    r.height = 26;
+    r.addItem("abc", spara);
+    r.addItem("def");
+    const glaze::Style& st = glaze::defaultStyle(glaze::UI::Slate);
+    glaze::Ctx          c{};
+    c.r     = &rec;
+    c.font  = &f;
+    c.scale = 1.0f;
+    c.ui    = glaze::UI::Slate;
+    c.style = &st;
+    c.theme = &glaze::defaultTheme(glaze::UI::Slate).light;
+    c.area  = {0, 0, 400, 100};
+    c.box   = r.resolve(c);
+    r.setSelectedIndex(0);
+    r.draw(c);
+    const float medIkon = st.fieldPadX + spara.sizeClass() + st.iconGap;
+    check(rec.s == "abc" && std::abs(rec.x - medIkon) < 0.01f,
+          "ikoner: fältets text står efter det valdas ikon",
+          std::to_string(rec.x) + " mot " + std::to_string(medIkon));
+    r.setSelectedIndex(1);
+    rec.x = -1.0f;
+    r.draw(c);
+    check(rec.s == "def" && std::abs(rec.x - st.fieldPadX) < 0.01f,
+          "ikoner: ett val utan ikon står vid fältets luft",
+          std::to_string(rec.x));
+}
+
 // `open()` är NO-OP utan ägarfönster och utan items — och `close()` på en
 // stängd dropdown är no-op. Fail-safen som håller `open_` sann utan popup
 // får aldrig triggas här.
@@ -309,6 +386,38 @@ glaze::AppWindow* popupen(const glaze::AppWindow& agare)
         if (w != &agare)
             return w;
     return nullptr;
+}
+
+// Fönstrets bild, ritad nu. Tom vid ett fel.
+struct Bild {
+    std::vector<std::uint8_t> px;
+    int                       w = 0, h = 0;
+    std::uint32_t at(int x, int y) const
+    {
+        if (x < 0 || y < 0 || x >= w || y >= h)
+            return 0;
+        const std::size_t i = (std::size_t(y) * std::size_t(w) + std::size_t(x)) * 4;
+        return std::uint32_t(px[i]) | std::uint32_t(px[i + 1]) << 8 |
+               std::uint32_t(px[i + 2]) << 16;
+    }
+};
+Bild bildAv(glaze::AppWindow& w)
+{
+    Bild b;
+    w.invalidate();
+    w.window().renderFrame();
+    if (!w.window().captureFrame(b.px, b.w, b.h))
+        b = Bild{};
+    return b;
+}
+// Pixlarna i rutan (fysiska px) som skiljer sig från referenspixeln — ytan.
+int tecknade(const Bild& b, float x0, float y0, float sida, std::uint32_t yta)
+{
+    int n = 0;
+    for (int y = int(y0); y < int(y0 + sida); ++y)
+        for (int x = int(x0); x < int(x0 + sida); ++x)
+            n += b.at(x, y) != yta ? 1 : 0;
+    return n;
 }
 
 void fallMedFonster()
@@ -436,8 +545,83 @@ void fallMedFonster()
             break;
         case 5:
             check(!w.dd.isOpen(), "setItems under öppen popup STÄNGER den");
+            // IKONERNA i popupen: tomma texter, så att rutan bara kan bära
+            // ikonen — rad 0 och 1 med, rad 2 utan.
+            w.dd.setItems({});
+            w.dd.addItem("", glaze::stockIcon(glaze::StockIcon::Save));
+            w.dd.addItem("", glaze::stockIcon(glaze::StockIcon::Open));
+            w.dd.addItem("");
+            w.dd.setSelectedIndex(-1);
+            w.dd.open();
+            if (!w.dd.isOpen()) {
+                check(false, "ikoner: popupen öppnades inte");
+                w.close();
+                return;
+            }
+            break;
+        case 6: {
+            glaze::AppWindow* p = popupen(w);
+            const Bild        b = p ? bildAv(*p) : Bild{};
+            if (b.px.empty()) {
+                std::printf("  --   ikonfallen hoppas över: popupens bild gick "
+                            "inte att läsa\n");
+                ++g_skips;
+                w.close();
+                return;
+            }
+            const auto& m    = w.style();
+            const float s    = p->window().uiScale();
+            // POPUPENS KANT är kontrollkanten `buttonBorder` i alla UI — ett
+            // eget fönster utan skugga syns annars inte mot en yta i samma
+            // färg bakom det. Mitt på vänsterkanten, en kanal i taget med
+            // marginal för avrundning.
+            {
+                const gfx::Color bb =
+                    p->theme().resolve(p->themeMode()).colors.buttonBorder;
+                const std::uint32_t k  = b.at(0, b.h / 2);
+                const auto nära = [](int a, int x) { return (a > x ? a - x : x - a) <= 8; };
+                check(nära(int(k & 0xFF), bb.r) && nära(int((k >> 8) & 0xFF), bb.g) &&
+                          nära(int((k >> 16) & 0xFF), bb.b),
+                      "popupens kant ritas i buttonBorder (syns mot ytan bakom)");
+            }
+            const float sida = 16.0f;   // stockIcon:s förvalda storleksklass
+            auto        rad  = [&](int i) {
+                const float y = (float(i) * m.listRowH + (m.listRowH - sida) / 2.0f) * s;
+                const std::uint32_t yta =
+                    b.at(int(100.0f * s), int((float(i) + 0.5f) * m.listRowH * s));
+                return tecknade(b, m.listPadX * s, y, sida * s, yta);
+            };
+            check(rad(0) > 0 && rad(1) > 0,
+                  "ikoner: popupens rader ritar postens ikon före texten",
+                  std::to_string(rad(0)) + "/" + std::to_string(rad(1)));
+            check(rad(2) == 0, "ikoner: en post utan ikon ritar ingen",
+                  std::to_string(rad(2)));
+            w.dd.close();
+            break;
+        }
+        case 7: {
+            // FÄLTET ritar det valdas ikon — och ingen för ett val utan.
+            const auto&      m = w.style();
+            const float      s = w.window().uiScale();
+            const gfx::Rectf r = w.dd.resolve(w.dd.behaviorCtx());
+            const float      sida = 16.0f;
+            const float      y    = r.y + r.h / 2.0f - sida * s / 2.0f;
+            auto             ikon = [&] {
+                const Bild b = bildAv(w);
+                const std::uint32_t yta = b.at(
+                    int(r.x + (m.fieldPadX + sida + 30.0f) * s), int(r.y + r.h / 2.0f));
+                return tecknade(b, r.x + m.fieldPadX * s, y, sida * s, yta);
+            };
+            w.dd.setSelectedIndex(0);
+            const int med = ikon();
+            w.dd.setSelectedIndex(2);
+            const int utan = ikon();
+            check(med > 0 && utan == 0,
+                  "ikoner: fältet ritar det valdas ikon, och ingen utan",
+                  std::to_string(med) + "/" + std::to_string(utan));
             w.close();
             return;   // ingen ny post — run() returnerar
+        }
         default:
             w.close();
             return;
@@ -470,6 +654,7 @@ int main(int argc, char** argv)
     fallSelectedText();
     fallStangdaTangenter();
     fallJusteringen();
+    fallIkoner();
     fallOppnaUtanFonster();
     fallMedFonster();
 

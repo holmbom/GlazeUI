@@ -103,6 +103,11 @@
 #   2010–2019  widget_gallery: inmatningen — grupp 27:s
 #              lägesval (2010–2014), vändningarnas kryssrutor (2015–2017)
 #              och listans tooltip om dess vända hjul (2018)
+#   2020–2039  widget_gallery: de typade cellerna — grupp 18:s
+#              lagerlista (kolumnerna, linjetyperna, kategorierna, den tomma
+#              linjebreddens "Auto" och den låsta knappens tooltip, 2020–2033)
+#              och grupp 14:s rubriktooltip (2034); lagrens namn 1483–1486
+#              och "Ta bort" återanvänds, enheterna "px" och "%" står inte här
 #
 # ÅTERANVÄNDNING är regeln, inte undantaget: "Stäng" har ETT id och
 # används i fyra fönster. Och ramverkets egna roller (OK · Avbryt · Ja ·
@@ -229,6 +234,10 @@
 #   nb/fi 2010–2018 inmatningen: "Modus"/"Tila" för läget,
 #        "snu"/"käännä" för att vända och "styreplate"/"kosketuslevy" för
 #        styrplattan — skrivna utan modersmålstalare
+#   nb/fi 2020–2034 de typade cellerna: "Lag"/"Taso" för lagret,
+#        "Opas."/"Peitt." för opacitetens förkortning och
+#        "Heltrukket/Stiplet/Prikket" / "Yhtenäinen/Katkoviiva/Pisteviiva" för
+#        linjetyperna — skrivna utan modersmålstalare
 
 default sv
 
@@ -779,6 +788,23 @@ id 2016 InmVandPlatta "Vänd styrplattan"
 id 2017 InmVandZoom "Vänd zoomen"
 id 2018 InmListaVand "Hjulet rullar åt andra hållet i den här listan"
 
+# ---- widget_gallery: de typade cellerna (grupp 18 och 14)
+id 2020 CellLager "Lager"
+id 2021 CellSynlig "Synlig"
+id 2022 CellFarg "Färg"
+id 2023 CellBredd "Bredd"
+id 2024 CellOpac "Opac."
+id 2025 CellOpacTips "Opacitet i procent"
+id 2026 CellLinjetyp "Linjetyp"
+id 2027 CellHel "Hel"
+id 2028 CellStreckad "Streckad"
+id 2029 CellPrickad "Prickad"
+id 2030 CellBakgrund "Bakgrund"
+id 2031 CellForgrund "Förgrund"
+id 2032 CellAuto "Auto"
+id 2033 CellLast "Vägarna är låsta"
+id 2034 ListaStorlekTips "Sorteras på antal byte"
+
 # ============================================================== ENGELSKA
 lang en English
 
@@ -1322,6 +1348,22 @@ id 2015 "Invert the wheel"
 id 2016 "Invert the touchpad"
 id 2017 "Invert zoom"
 id 2018 "The wheel scrolls the other way in this list"
+
+id 2020 "Layer"
+id 2021 "Visible"
+id 2022 "Color"
+id 2023 "Width"
+id 2024 "Opac."
+id 2025 "Opacity in percent"
+id 2026 "Line type"
+id 2027 "Solid"
+id 2028 "Dashed"
+id 2029 "Dotted"
+id 2030 "Background"
+id 2031 "Foreground"
+id 2032 "Auto"
+id 2033 "The roads are locked"
+id 2034 "Sorted by number of bytes"
 
 # ====================================================== NORSKA (bokmål)
 lang nb Norsk bokmål
@@ -1867,6 +1909,22 @@ id 2016 "Snu styreplaten"
 id 2017 "Snu zoomen"
 id 2018 "Hjulet ruller den andre veien i denne listen"
 
+id 2020 "Lag"
+id 2021 "Synlig"
+id 2022 "Farge"
+id 2023 "Bredde"
+id 2024 "Opas."
+id 2025 "Opasitet i prosent"
+id 2026 "Linjetype"
+id 2027 "Heltrukket"
+id 2028 "Stiplet"
+id 2029 "Prikket"
+id 2030 "Bakgrunn"
+id 2031 "Forgrunn"
+id 2032 "Auto"
+id 2033 "Veiene er låst"
+id 2034 "Sorteres på antall byte"
+
 # =============================================================== FINSKA
 lang fi Suomi
 
@@ -2410,3 +2468,19 @@ id 2015 "Käännä rulla"
 id 2016 "Käännä kosketuslevy"
 id 2017 "Käännä zoomaus"
 id 2018 "Rulla vierittää tätä luetteloa toiseen suuntaan"
+
+id 2020 "Taso"
+id 2021 "Näkyvä"
+id 2022 "Väri"
+id 2023 "Leveys"
+id 2024 "Peitt."
+id 2025 "Peittävyys prosentteina"
+id 2026 "Viivatyyppi"
+id 2027 "Yhtenäinen"
+id 2028 "Katkoviiva"
+id 2029 "Pisteviiva"
+id 2030 "Tausta"
+id 2031 "Edusta"
+id 2032 "Auto"
+id 2033 "Tiet on lukittu"
+id 2034 "Lajitellaan tavumäärän mukaan"

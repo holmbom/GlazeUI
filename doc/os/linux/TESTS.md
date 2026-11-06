@@ -1483,3 +1483,13 @@ vWorld.xy)`; `kPointsGlsl*`: `vClipPx` (noperspective) och `vAnchor`),
   *Rätt utfall:* listorna syns vid rullning och pekarrörelse och är borta en
   sekund efter, utan att appen ritar mellan; rullningen fungerar också när de är
   dolda.
+
+- **Tabellernas typade celler, kategorier och kolumnlägen** (delad kod, körd bara
+  på Windows): `DataGrid`, `ListView` och `PropertyGrid` i `demo --tables`.
+  *Gör:* på Wayland och X11: prova reglagen i fönstret — kryss, färg
+  (Swatch/Hex/Both), tal med enhet, vallista med ikoner, knappcellen,
+  kategorierna, kolumnlägena, Enter och Tab; dra i fönsterkanten och klicka sedan
+  i en cell (X11 svarar asynkront på storleken); öppna en vallista och en
+  färgpopup.
+  *Rätt utfall:* som på Windows; fönstret står kvar i den dragna storleken efter
+  klicket (`AppWindow::trackClientSize`), och popupernas kant syns mot ytan bakom.

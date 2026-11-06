@@ -55,11 +55,14 @@ public:
     // height/right/bottom/dock/anchors/tabIndex/name) är fortsatt RÅA —
     // se kontraktet i widget.h.
 
+    // MASSFORMEN bär bara texterna: posternas ikoner nollas (`addItem`/
+    // `setItem` sätter dem).
     void setItems(std::vector<std::string> v)
     {
-        if (items_ == v)
+        if (items_ == v && icons_.empty())
             return;
         items_ = std::move(v);
+        icons_.clear();
         // STÄNG en öppen popup: listan har en EGEN kopia av raderna
         // (den är en `ListBox`), och en popup som visar den
         // GAMLA listan medan fältet visar den nya är värre än en stängd.
@@ -81,8 +84,14 @@ public:
     // popup-listan har en EGEN kopia av raderna, och en popup som visar
     // den GAMLA listan medan fältet visar den nya är värre än en stängd.
     // `setItem` utanför intervallet ⇒ logg + no-op, aldrig tyst tillväxt.
-    void addItem(std::string text);
-    void setItem(int index, std::string text);
+    //
+    // POSTENS IKON (valfri — asset eller pixlar) står före texten i popupens
+    // rad och, för den valda posten, i fältet. `setItem` är TILLDELNING: en
+    // utelämnad ikon nollas. `itemIcon` svarar en tom bild utanför och för en
+    // post utan ikon.
+    void addItem(std::string text, ImageSource icon = {});
+    void setItem(int index, std::string text, ImageSource icon = {});
+    const ImageSource& itemIcon(int index) const;
 
     // Programmatisk sättning avfyrar ALDRIG onChange.
     void setSelectedIndex(int i)
@@ -136,7 +145,10 @@ public:
     bool setProp(const std::string& key, const std::string& value) override;
 
     bool isOpen() const { return open_; }
-    void open();                        // no-op utan items/ägarfönster
+    // no-op utan items/ägarfönster och när listan redan är öppen — utom när
+    // dess stängning är begärd: då öppnas den på nytt med valet och platsen
+    // som gäller nu.
+    void open();
     void close();
 
     // Det PROVISORISKA valet i en ÖPPEN lista — markören användaren flyttar
@@ -167,19 +179,35 @@ private:
     void openAt(const Ctx& c);
     void commit(int row);               // sätt + onChange + close
     void setProvisional(int row);       // markören i popupen + ensureVisible
-    void popupClosed();                 // ur popupens onClose
+    void popupClosed(ListWindow* list); // ur popupens onClose
 
-    // Fältets textyta: luften till vänster, och lika mycket luft till
-    // vänster om pilen — det en justerad text ställer sig inom.
+    // Fältets textyta: luften till vänster (och förbi det valdas ikon), och
+    // lika mycket luft till vänster om pilen — det en justerad text ställer
+    // sig inom.
     gfx::Rectf textRect(const Ctx& c, const gfx::Rectf& chev) const;
+    // Det valdas ikon i fältet: efter vänsterluften, v-centrerad — en tom rekt
+    // utan ikon. `drawSelectedIcon` ritar den i fältets läge.
+    gfx::Rectf iconRect(const Ctx& c) const;
+    void       drawSelectedIcon(const Ctx& c) const;
+    // Bär någon post en ikon? Då reserverar popupens rader ikonens plats också
+    // för en post utan, så att texterna står i linje.
+    bool       hasIcons() const;
     // Ctx:t för fältets TEXT i dess storlek — bara för texten.
     Ctx textCtx(const Ctx& c) const;
 
     std::unique_ptr<ListWindow> list_;  // lat — skapas vid första open
+    // En popup vars stängning väntar i pump-svansen när listan öppnas igen i
+    // samma varv: den får stänga i fred, och en NY popup visas på det nya
+    // ankaret med det nya valet. Behålls tills nästa sådan öppning.
+    std::unique_ptr<ListWindow> closingList_;
     std::vector<std::string> items_;
+    // Posternas ikoner, parallella med `items_` — kort eller tom när de sista
+    // posterna inte bär någon.
+    std::vector<ImageSource> icons_;
     int    selectedIndex_ = -1;         // -1 = inget valt
-    bool   open_  = false;
-    Align  align_ = Align::Left;
+    bool   open_    = false;
+    bool   closing_ = false;            // `close()` begärd, väntar i svansen
+    Align  align_   = Align::Left;
     Length textSize_;                   // 0 = stilens
 };
 

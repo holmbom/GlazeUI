@@ -242,12 +242,12 @@ inline constexpr std::uint32_t PrintErrorFile        = 406;  // "Filen gick inte
 inline constexpr std::uint32_t ToolBarMore    = 420;  // "Visa mer"
 inline constexpr std::uint32_t ToolBarControl = 421;  // "Kontroll"
 
-// ------------------------- EGENSKAPSLISTAN
-// Blocket 430–439 är `PropertyGrid`s.
+// ------------------------- DE TYPADE CELLERNA
+// Blocket 430–439 är de typade cellernas (`PropertyGrid`, `DataGrid`).
 //
-// RADENS VERKTYGSTIPS när värdet i den inte går att tolka (ett tal eller en
-// färg) — det går före radens eget.
-inline constexpr std::uint32_t PropertyGridInvalid = 430;  // "Ogiltigt värde"
+// CELLENS VERKTYGSTIPS när värdet i den inte går att tolka (ett tal eller en
+// färg) — det går före cellens eget.
+inline constexpr std::uint32_t InvalidValue = 430;  // "Ogiltigt värde"
 
 // NÄSTA LEDIGA ID ÄR 84 (blocket 160–199 är dockningens; 167 nästa där —
 // 255–269 färgväljarens och färgdialogens, 257 nästa där — 400–409 utskriftens, 407 nästa

@@ -64,7 +64,7 @@
 // drawHeaderSurface`, hårlinjerna) som står kvar när tabellen rullas i sidled.
 // Det är cellerna i kolumn 0 som är radernas namn. I övrigt är den en vanlig
 // kolumn — den sorteras på sin rubrik, byter bredd med sin avdelare och kan
-// vara `autoWidth` — men den bär aldrig valet, hovern eller appens
+// vara `AutoMin` — men den bär aldrig valet, hovern eller appens
 // cellfärger: de ritas i kolumnerna till höger, och ett klick på ett namn
 // väljer raden som ett klick på dess data. Listvyns kryssruta (`leadW`) står
 // kvar i radrubriken, i rubrikens färger. Skriven gräns: en datagrids första
@@ -76,7 +76,9 @@
 // alltså samma rad före och efter att användaren klickat i huvudet, och ett
 // val, en aktuell rad eller en redigerad cell följer RADEN och inte platsen
 // (Qt:s modell/vy-delning, i liten skala). Kostnaden är en permutation som
-// räknas om när raderna eller sorteringen ändras.
+// räknas om när raderna eller sorteringen ändras. Bara `removeRow` flyttar
+// indexen — raderna efter den borttagna ett steg upp, och allt som hör till
+// dem följer med.
 //
 // KOLUMNHUVUDET (rubriker på flera rader, justeringen och
 // sorteringspilens plats) står i column_panel.h.
@@ -93,9 +95,32 @@
 // tidsstämplar som nycklar. Ingen användarkod körs under en sortering —
 // därför kan den göras LAT, när ordningen först behövs.
 //
+// RADENS SLAG (`RowKind`): en DATArad är celler; en KATEGORIrad är en
+// rubrik som spänner över HELA bredden (texten är cell 0, med radens bild
+// före den och en pil som visar fällningen) och delar tabellen i avsnitt —
+// raderna efter den, fram till nästa kategori, hör till den, står indragna
+// `Style::tableCategoryIndent` i första kolumnen och döljs när den fälls
+// ihop; en TOM rad är en avståndsrad utan celler och utan rutnät, som aldrig
+// väljs, redigeras eller får tangentbordet. Rader före den första kategorin
+// hör inte till någon och syns alltid. SORTERINGEN gäller INOM varje
+// avsnitt (kategori- och tomraderna är gränser och står kvar), och
+// visningsordningen bär bara de SYNLIGA raderna: en rad i en ihopfälld
+// kategori har ingen plats (`displayRow` −1, och `positionCount()` räknar
+// den inte). En fällning som ANVÄNDAREN gör fyrar `onExpand`/`onCollapse`
+// med raden i `RowArgs::row`; `setExpanded` fyrar aldrig. `setRow` behåller
+// radens slag och fällning (de är radens plats i strukturen); bara
+// `setRows` och `setRowKind`/`setExpanded` byter dem.
+//
+// HÖJDEN UR RADERNA: utan satt `height` (≤ 0) är tabellen huvudet + de
+// synliga platserna × radhöjden (+ ramens indrag och, när kolumnerna är
+// bredare än ytan, den vågräta listens tjocklek) — PropertyGrids form, så
+// tabeller kan staplas i en rullande yta. En satt höjd vinner, och raderna
+// rullar. Beror huvudet på bredden (AUTO-rader, Autosize) går höjden genom
+// `heightForWidth`.
+//
 // SKRIVNA BEGRÄNSNINGAR (beslut, läs innan du "fixar" dem):
-//   * INGEN AUTOSTORLEK. ListBox-prejudikatet: en tabell är en yta APPEN
-//     dimensionerar. `width`/`height` 0 ⇒ 0.
+//   * INGEN AUTOBREDD. ListBox-prejudikatet: bredden är en yta APPEN
+//     dimensionerar. `width` 0 ⇒ 0.
 //   * INGEN SPRÅKMEDVETEN SORTERING. UTF-8 över ASCII jämförs bytevis, så
 //     svenskans å ä ö hamnar efter z men i ordningen ä å ö. En kollation per
 //     språk är språkpaketets sak; till dess bär en nyckel rätt ordning.
@@ -105,9 +130,13 @@ namespace glaze {
 
 class Table : public ColumnPanel {
 public:
+    // RADENS SLAG (filhuvudet).
+    enum class RowKind { Data, Category, Blank };
+
     // EN RAD — massformens element (`setRows`), samma ordning som `addRow`.
     //     lista.setRows({{{"a.txt", "12 kB"}}, {{"b.png", "3 MB"}, glaze::img("fil", "bild")},
-    //                    {{"fel.log"}, {}, gfx::Color{200, 40, 40}}});
+    //                    {{"fel.log"}, {}, gfx::Color{200, 40, 40}},
+    //                    {.cells = {"Bilder"}, .kind = glaze::Table::RowKind::Category}});
     // Fälten växer SIST, så varje äldre literal betyder det den betydde.
     // `.glazeui` tar aggregatet positionellt eller DESIGNERAT
     // (`{.cells = {"a"}, .color = gfx::Color{0, 140, 0}}`).
@@ -116,28 +145,65 @@ public:
         ImageSource               img{};     // ikonen i FÖRSTA kolumnen (valfri —
                                              // asset eller pixlar)
         std::optional<gfx::Color> color{};   // radens textfärg (tom = temats)
+        RowKind                   kind = RowKind::Data;
+        bool                      expanded = true;   // Category: utfälld
     };
 
     // TILLSTÅNDET är PRIVAT och byts via SETTRAR — settern
     // är den som INVALIDERAR. Programmatisk sättning fyrar ALDRIG ett event.
-    // Kolumnerna, sorteringens tillstånd, huvudets rader och fyllkolumnen
+    // Kolumnerna, sorteringens tillstånd, huvudets rader och kolumnlägena
     // är basens (`ColumnPanel`).
 
     // ------------------------------------------ RADERNA (kollektionsvokabulären)
     //
     // `setRow` ERSÄTTER radens data — celler, ikon OCH färg, och raden tappar
-    // sina sorteringsnycklar (de beskrev den gamla texten). Den raden
-    // behåller däremot sin plats i valet och som aktuell rad: det är vyns
+    // sina sorteringsnycklar, sina cellbilder och sina cellfärger (de beskrev
+    // den gamla raden). Den raden behåller däremot sin plats i valet och som
+    // aktuell rad, sitt slag och sin fällning: det är vyns och strukturens
     // tillstånd och inte radens data (`ListBox::setItem`-prejudikatet).
     // `setRows` byter allt och nollar därför valet och den aktuella raden.
+    // `addRow` lägger till en DATArad.
     void addRow(std::vector<std::string> cells, ImageSource img = {},
                 std::optional<gfx::Color> color = std::nullopt);
     void setRow(int index, std::vector<std::string> cells,
                 ImageSource img = {},
                 std::optional<gfx::Color> color = std::nullopt);
     void setRows(std::vector<Row> rows);
+    // `removeRow` TAR BORT raden, och raderna efter den flyttar upp ett
+    // index: det är den ENDA sättaren som ändrar appens index. Allt som hör
+    // till raderna följer sina rader — sorteringsnycklarna, cellfärgerna,
+    // cellbilderna, slaget och fällningen, och i subklasserna valet, kryssen,
+    // ankaret och datagridens cellinställningar. Den AKTUELLA raden följer sin
+    // rad; var det den borttagna flyttar den till raden som nu står på samma
+    // PLATS (en tomrad hoppas över), annars den före, och −1 i en tom tabell.
+    // En redigering på raden avbryts utan events, en på en annan rad följer
+    // sin rad, och ett postat event som beskriver en rad slopas.
+    // Programmatiskt: inget event. Index utanför ⇒ `gfx::log` + no-op.
+    void removeRow(int index);
     const std::vector<Row>& rows() const { return rows_; }
     int  rowCount() const { return int(rows_.size()); }
+
+    // RADENS SLAG OCH FÄLLNING (filhuvudet). Programmatiskt: inget event.
+    // Rad utanför ⇒ logg + no-op; `setExpanded` på en rad som inte är en
+    // kategori ⇒ logg + no-op. Getterna svarar `Data` respektive false
+    // utanför. Ett nytt slag släpper radens val och en pågående redigering på
+    // den när den inte längre är en datarad, och en ihopfällning släpper
+    // valet på de rader som döljs (utan event).
+    void    setRowKind(int row, RowKind kind);
+    RowKind rowKind(int row) const;
+    void    setExpanded(int row, bool on);
+    bool    isExpanded(int row) const;
+
+    // CELLENS BILD — före texten i cellen, i radens storleksklass och samma
+    // regel som radens ikon. Kolumn 0 ÄR radens `img` (samma lagring). Rad
+    // eller kolumn utanför ⇒ logg + no-op; kolumnen behöver INTE finnas än.
+    // `cellImage` svarar en tom bild utanför.
+    void               setCellImage(int row, int column, ImageSource img);
+    const ImageSource& cellImage(int row, int column) const;
+
+    // ANVÄNDAREN fällde en kategorirad ut respektive ihop — `e.row`.
+    Handler<RowArgs> onExpand;
+    Handler<RowArgs> onCollapse;
 
     // RADENS TEXTFÄRG ENSAM (se filhuvudet) — `setColumnWidth`s form:
     // `std::nullopt` eller `{}` nollar (temats färg). Index utanför ⇒
@@ -180,9 +246,12 @@ public:
     // `setSortable`); tabellen sorterar sina RADER.
     //
     // VISNINGSORDNINGEN — radens plats på skärmen (0 = överst) och raden på
-    // en plats. −1 utanför. Sorteringen ändrar BARA det här paret.
+    // en plats. −1 utanför och för en dold rad (i en ihopfälld kategori).
+    // Sorteringen och fällningen ändrar BARA det här paret. `positionCount`
+    // är antalet SYNLIGA platser (kategori- och tomrader räknas, dolda inte).
     int displayRow(int row) const;
     int rowAtDisplay(int position) const;
+    int positionCount() const;
 
     // ---------------------------------------------------- IKONSTORLEKEN
     // Ikonens sida i LOGISKA px, 0 = AUTO (assetens storleksklass,
@@ -213,9 +282,12 @@ public:
     bool focusable() const override { return true; }
 
     // setProp-egenskaper: iconSize (ett tal), rowHeaders (en bool);
-    // sorteringen, huvudet och fyllkolumnen tar ColumnPanel, resten Panel
+    // sorteringen och huvudet tar ColumnPanel, resten Panel
     // (border/clip) och Widget.
     bool setProp(const std::string& key, const std::string& value) override;
+
+    // HÖJDEN UR RADERNA när den beror på bredden (filhuvudet).
+    std::optional<float> heightForWidth(const Ctx& c, float width) const override;
 
 protected:
     Table();
@@ -265,12 +337,48 @@ protected:
     gfx::Rectf    leadZone(const Ctx& c, int position) const;
 
     // ColumnPanels krokar: den fasta kolumnen är första kolumnen
-    // när `rowHeaders` är på, och en `autoWidth`-kolumns innehåll är
-    // cellernas bredaste text — i kolumn 0 med zonen och ikonen före den.
-    // Alla ändringar av det `cellContentW` läser (celler, ikoner, zonen)
-    // anropar `contentChanged()`.
+    // när `rowHeaders` är på, och en `AutoMin`-kolumns innehåll är
+    // DATAradernas bredaste cell (`cellContentWidth`, också de dolda radernas,
+    // så en fällning aldrig ändrar en bredd). Bredden CACHAS PER CELL: en
+    // ändrad cell mäts om ensam, och resten läses ur cachen.
     float frozenW(const Ctx& c) const override;
     float cellContentW(const Ctx& c, int column) const override;
+
+    // EN CELLS INNEHÅLLSBREDD i logiska px UTAN cellens luft: standard är
+    // indraget, zonen och ikonen i kolumn 0, cellens bild och texten.
+    // DataGrid överrider för sina celler (kryssrutan, färgrutan, talet med
+    // enheten, knappen) och lägger till basens del för kolumn 0. Anropas bara
+    // för en inaktuell cell i cachen.
+    virtual float cellContentWidth(const Ctx& c, int row, int column) const;
+    // CACHEN INAKTUELL — en subklass vars cellinnehåll ändrats utan att
+    // texten ändrats (en ny redigerare för cellen eller kolumnen) säger till
+    // här. `column` −1 = alla kolumner; `invalidateCellWidth` en enda cell.
+    void invalidateCellWidth(int row, int column);
+    void invalidateColumnWidths(int column);
+    // ORDNINGEN INAKTUELL — en subklass vars sorteringsvärde (`cellSortValue`)
+    // ändrats utan att texten ändrats (en ny redigerare i sorteringskolumnen)
+    // säger till här; sorteringen räknas om när den nästa gång behövs.
+    void invalidateOrder();
+
+    // SORTERINGSVÄRDET för en cell utan explicit nyckel (`setSortKey`):
+    // `nullopt` = jämför texten naturligt (standard). DataGrid svarar talet
+    // för en talcell, 0/1 för ett kryss och RGBA packat för en färg.
+    // Frågas EN gång per cell och sortering; ingen användarkod körs.
+    virtual std::optional<double> cellSortValue(int /*row*/, int /*column*/) const
+    {
+        return std::nullopt;
+    }
+
+    // KATEGORINS INDRAG för en cell: `tableCategoryIndent` i kolumn 0 för en
+    // datarad som hör till en kategori, annars 0 (logiska px). Zonen, ikonen,
+    // texten och datagridens editor flyttas förbi det.
+    float contentIndent(const Ctx& c, int row, int column) const;
+
+    // ANVÄNDAREN fäller en kategorirad: vänder `expanded`, släpper valet på de
+    // rader som döljs (subklassens krok `rowsHidden`) och fyrar
+    // `onExpand`/`onCollapse`. Svarar som `fireEvent`: false = en handler rev
+    // eller flyttade tabellen. No-op (true) för en rad som inte är en kategori.
+    bool toggleCategoryFromUser(int row);
 
     // ------------------------------------------------- GEOMETRIN, EN sanning
     // Widget-lokala LOGISKA px, scroll-förskjutna — ritningen läser dem rakt
@@ -285,6 +393,19 @@ protected:
                              float cw) const;
     gfx::Rectf rowRect(const Ctx& c, int position) const;     // synliga bandet
     gfx::Rectf cellRect(const Ctx& c, int position, int column) const;
+    // CELLENS DELAR i `cell`s egen rymd — EN sanning för var bilden och värdet
+    // står: `content` är cellen minus luften, kategorins indrag och, i kolumn
+    // 0, zonen och radens ikon, i de andra kolumnerna cellens bild (bredden kan
+    // vara ≤ 0 i en smal cell). `image` är bildens kvadrat, v-centrerad före
+    // värdet — bredd 0 när ingen bild står där (också när
+    // `cellDrawsOwnImage`). `drawCell` ger den `cellRect`, och datagridens
+    // `placeChild` `cellInContent`, så editorn står där värdet ritas.
+    struct CellParts {
+        gfx::Rectf image;
+        gfx::Rectf content;
+    };
+    CellParts cellContent(const Ctx& c, const gfx::Rectf& cell, int row,
+                          int column) const;
     int        firstVisiblePosition(const Ctx& c) const;
     int        pageRows(const Ctx& c) const;   // hela rader i synfältet, ≥ 1
 
@@ -309,10 +430,33 @@ protected:
     // radens eller temats färg (`appTextColor`). Utan `appColors` är `fg` den
     // färdiga färgen (markeringens, eller `textDim` i en inaktiv tabell) och
     // ingen appfärg ritas: anroparen säger `på && !markerad`.
+    //
+    // `drawCells` ritar bara en DATArad; kategori- och tomraderna ritas av
+    // `drawSpanRows` över hela bredden (kategorin: radens yta i
+    // `panelHeader`, pilen och texten; tomraden: ingenting — inget rutnät).
+    // Subklassens `draw()` anropar den efter raderna och radrubrikerna och
+    // FÖRE `drawHeader`, och hoppar själv över kategori- och tomraderna i sina
+    // egna rutnätslinjer.
+    //
+    // CELLENS VÄRDE ritas av `drawCellValue` i `content` (cellen minus luft,
+    // indrag, zon, ikon och cellens bild): standard är texten kortad med
+    // ellips i kolumnens justering. DataGrid överrider för sina celler.
     void drawCells(const Ctx& c, int position, int row, gfx::Color fg,
                    bool appColors) const;
     void drawCell(const Ctx& c, int position, int row, int column,
                   gfx::Color fg, bool appColors) const;
+    void drawSpanRows(const Ctx& c) const;
+    virtual void drawCellValue(const Ctx& c, const gfx::Rectf& cell,
+                               const gfx::Rectf& content, int row, int column,
+                               gfx::Color fg) const;
+    // CELLENS BILD I VÄRDET: true när `drawCellValue` ritar cellens bild själv
+    // (datagridens knappcell bär den i knappen) — `drawCell` och
+    // `cellContentWidth` lämnar då bilden, i kolumn 0 radens ikon, åt
+    // subklassen. Standard false.
+    virtual bool cellDrawsOwnImage(int /*row*/, int /*column*/) const
+    {
+        return false;
+    }
 
     // RADRUBRIKERNAS REMSA: den fasta första kolumnen i rubrikens
     // stil — ytan, namnen på de synliga raderna med radernas hårlinjer och
@@ -346,26 +490,84 @@ protected:
 
     // NAVIGERINGEN delad: målplatsen för en tangent från platsen `from`
     // (Upp/Ned/Home/End/PageUp/PageDown), eller −1 när tangenten inte är
-    // en navigering. Klampad till tabellen.
+    // en navigering. Klampad till de synliga platserna, och en TOM rad är
+    // aldrig ett mål (den hoppas över i tangentens riktning).
     int navigationTarget(const Ctx& c, gfx::Key k, int from) const;
 
     // Raderna ÄNDRADES strukturellt — subklassen synkar sitt eget
     // radtillstånd (valet). `rowsReplaced` efter `setRows`, `rowAppended`
     // efter `addRow` och `rowReplaced` efter `setRow` (raden har ny data men
     // samma plats i valet — listvyn släpper ett väntande soloval på den).
-    // Ingen användarkod körs här.
+    // `rowKindChanged` efter `setRowKind`, och `rowsHidden` med de rader som
+    // just DOLDES av en fällning (programmatisk eller användarens) —
+    // subklassen släpper valet och en redigering på dem. `rowRemoved` efter
+    // `removeRow`, när tabellens egna parallella vektorer redan tagit bort
+    // raden: subklassen tar bort sin post och räknar om sina radindex. Under
+    // kroken är den aktuella raden −1 om det var den som togs bort — den
+    // landar först efteråt, när ordningen kan räknas med subklassens nya
+    // tillstånd. En borttagning som döljer rader (en kategori som försvann)
+    // säger dessutom `rowsHidden` efteråt, med de nya indexen. Ingen
+    // användarkod körs här.
     virtual void rowsReplaced() {}
     virtual void rowAppended() {}
     virtual void rowReplaced(int /*row*/) {}
+    virtual void rowRemoved(int /*row*/) {}
+    virtual void rowKindChanged(int /*row*/) {}
+    virtual void rowsHidden(const std::vector<int>& /*rows*/) {}
+    // EN CELL SATTES (`setCell`) — också med samma text: subklassen släpper
+    // cellens väntande tillstånd (datagridens otolkbara text). Ingen
+    // användarkod körs här.
+    virtual void cellSet(int /*row*/, int /*column*/) {}
 
 private:
     // Ordningen — en CACHE (den räknas LATT när den behövs, och ingen
-    // användarkod körs under den; se filhuvudet).
+    // användarkod körs under den; se filhuvudet). I två steg: SORTERINGEN
+    // (`sorted_`, alla rader, stabilt inom varje avsnitt — inaktuell när
+    // raderna, sorteringen eller ett radslag ändras) och SYNLIGHETEN
+    // (`order_`/`pos_`/`categoryOf_` — inaktuell också när en kategori fälls).
     void ensureOrder() const;
-    void orderChanged() override;   // markera + invalidera (basens krok)
-    int  compareRows(int a, int b, int column) const;
+    void orderChanged() override;   // båda stegen + invalidera (basens krok)
+    void visibilityChanged();       // bara synligheten + invalidera
+
+    // EN CELLS SORTERINGSNYCKEL, räknad EN gång per sortering: den explicita
+    // nyckeln, annars `cellSortValue`, annars texten (naturligt).
+    struct SortKey {
+        std::optional<double> number;
+        const std::string*    text = nullptr;
+    };
+    SortKey    sortKey(int row, int column) const;
+    static int compareKeys(const SortKey& a, const SortKey& b);
+
+    // FÄLLNINGEN utan event: sätter `expanded` och säger `rowsHidden` med de
+    // rader som just doldes (den aktuella raden flyttar då till kategorin).
+    // `reportHidden` jämför synligheten med en ögonblicksbild av `pos_`.
+    void             applyExpanded(int row, bool on);
+    std::vector<int> visibleSnapshot() const;
+    void             reportHidden(const std::vector<int>& before, int category);
+
+    bool  isData(int row) const;
+    // Bildens sida i cellen: en satt ikonstorlek, annars assetens
+    // storleksklass, annars `iconFallback` (radens ikons regel).
+    float imageSide(const Ctx& c, const ImageSource& img) const;
+    // Cellbreddens cache: läser, och mäter en inaktuell cell.
+    float cachedCellW(const Ctx& c, int row, int column) const;
 
     std::vector<Row>    rows_;
+    // Cellernas bilder i kolumn 1…n, parallella med `rows_` (kort eller tom
+    // när raden inte bär några — kolumn 0 är radens `img`).
+    std::vector<std::vector<ImageSource>> cellImages_;
+
+    // CELLBREDDENS CACHE (`cellContentWidth`, logiska px; < 0 = inaktuell),
+    // parallell med `rows_`, mot miljön den mättes i.
+    struct CellWidthEnv {
+        const gfx::Font* font     = nullptr;
+        const Style*     style    = nullptr;
+        float            scale    = 0.0f;
+        float            lineH    = 0.0f;
+        float            iconSize = 0.0f;
+    };
+    mutable std::vector<std::vector<float>> cellW_;
+    mutable CellWidthEnv                    cellWEnv_;
     // Sorteringsnycklarna, parallella med `rows_` (en vektor per rad, kort
     // eller tom när raden inte bär några).
     std::vector<std::vector<std::optional<double>>> keys_;
@@ -383,8 +585,11 @@ private:
     float  iconSize_     = 0.0f;            // 0 = AUTO
     bool   rowHeaders_   = false;           // första kolumnen fast
 
-    mutable std::vector<int> order_;   // plats → rad
-    mutable std::vector<int> pos_;     // rad → plats
+    mutable std::vector<int> sorted_;      // sorterad plats → rad (alla rader)
+    mutable std::vector<int> order_;       // synlig plats → rad
+    mutable std::vector<int> pos_;         // rad → synlig plats (−1 = dold)
+    mutable std::vector<int> categoryOf_;  // rad → dess kategorirad (−1 = ingen)
+    mutable bool             sortDirty_  = true;
     mutable bool             orderDirty_ = true;
 };
 

@@ -2255,14 +2255,13 @@ const Vantad kVantadMatris[] = {
     {"glaze::TreeView",      "selectedPath",  false},
     {"glaze::TreeView",      "multiSelect",   false},
     {"glaze::TreeView",      "showChecks",    false},
-    // TRÄDETS KOLUMNER: ColumnPanels sortering, huvud och
-    // fyllkolumn — exakta som listvyns, för basen registreras inte.
+    // TRÄDETS KOLUMNER: ColumnPanels sortering och huvud — exakta
+    // som listvyns, för basen registreras inte.
     {"glaze::TreeView",      "sortColumn",    false},
     {"glaze::TreeView",      "sortAscending", false},
     {"glaze::TreeView",      "sortable",      false},
     {"glaze::TreeView",      "headerLines",   false},
     {"glaze::TreeView",      "headerVAlign",  false},
-    {"glaze::TreeView",      "fillColumn",    false},
     {"glaze::Slider",        "min",           false},
     {"glaze::Scrollbar",     "min",           false},
     {"glaze::Progress",      "min",           false},
@@ -2291,7 +2290,6 @@ const Vantad kVantadMatris[] = {
     {"glaze::CaptionButton", "kind",          false},
     {"glaze::CaptionButton", "shape",         false},
     {"glaze::CaptionButton", "restoreGlyph",  false},
-    {"glaze::PropertyGrid",  "nameWidth",     false},
     // LISTVYN: valet, flervalet och sorteringen — exakta, för
     // basen `Table` registreras inte och står inte i paletten. Kryssens
     // synlighet likaså.
@@ -2315,6 +2313,12 @@ const Vantad kVantadMatris[] = {
     // DATAGRIDDENS RADVAL — läget och flervalet, exakta.
     {"glaze::DataGrid",      "selectionMode", false},
     {"glaze::DataGrid",      "multiSelect",   false},
+    // DATAGRIDDENS ENKLA KLICK OCH FLERA RADER — två bools, exakta.
+    {"glaze::DataGrid",      "editOnClick",   false},
+    {"glaze::DataGrid",      "multiEdit",     false},
+    // TEXTEN MARKERAD VID REDIGERING — en bool på båda gridarna, exakta.
+    {"glaze::DataGrid",      "selectOnEdit",  false},
+    {"glaze::PropertyGrid",  "selectOnEdit",  false},
     // DELAREN: fem egna fält, alla exakta — delaren är ingen Panel.
     {"glaze::Splitter",      "vertical",      false},
     {"glaze::Splitter",      "fixedPane",     false},
@@ -2436,8 +2440,6 @@ const Vantad kVantadMatris[] = {
     {"glaze::Label",         "elide",         false},
     {"glaze::Label",         "vAlign",        false},
     {"glaze::Label",         "buddy",         false},
-    {"glaze::ListView",      "fillColumn",    false},
-    {"glaze::DataGrid",      "fillColumn",    false},
     {"glaze::ListView",      "iconSize",      false},
     {"glaze::DataGrid",      "iconSize",      false},
     {"glaze::Button",        "iconSize",      false},
@@ -3352,7 +3354,9 @@ bool radLika(const glaze::PropertyGrid::Row& a, const glaze::PropertyGrid::Row& 
            a.min == b.min && a.max == b.max && a.decimals == b.decimals &&
            a.prefix == b.prefix && a.suffix == b.suffix &&
            a.allowAlpha == b.allowAlpha && a.toolTip == b.toolTip &&
-           a.enabled == b.enabled && a.expanded == b.expanded;
+           a.enabled == b.enabled && a.expanded == b.expanded &&
+           a.allowEmpty == b.allowEmpty && a.emptyText == b.emptyText &&
+           a.choiceIcons == b.choiceIcons && a.colorDisplay == b.colorDisplay;
 }
 
 bool radlistaLika(const std::vector<glaze::PropertyGrid::Row>& a,
@@ -3375,13 +3379,21 @@ void fallPropertyGridTypade()
         return;
     auto* g = gridAv(w);
 
-    // ALLA FEMTON fält, designerade i deklarationsordning, via setRows.
+    // ALLA NITTON fält, designerade i deklarationsordning, via setRows — det
+    // valfria talet (`allowEmpty`, `emptyText`), valens ikoner
+    // (`choiceIcons`, varje `argImg`s form) och färgens visning
+    // (`colorDisplay`) sist. SABOTAGE: `colorDisplay`s gren i `radFält`
+    // borttagen (namnet okänt ⇒ hela raden opak), ett namn borttaget ur
+    // `argColorDisplay`, eller värdet skrivet till ett annat fält.
     const R allt{.name = "Skala", .value = "1.5", .choices = {"a", "b"},
                  .readOnly = true, .tag = "t", .kind = K::Number, .min = -5,
                  .max = 10.5, .decimals = 2, .prefix = "1:", .suffix = "%",
                  .allowAlpha = true,
                  .toolTip = glaze::tr(glaze::str::DecimalSeparator),
-                 .enabled = false, .expanded = false};
+                 .enabled = false, .expanded = false, .allowEmpty = true,
+                 .emptyText = "Auto",
+                 .choiceIcons = {glaze::stockIcon(glaze::StockIcon::Line), {}},
+                 .colorDisplay = glaze::ColorDisplay::Both};
     check(bld::applyCall(
               *w,
               {"setRows",
@@ -3390,16 +3402,53 @@ void fallPropertyGridTypade()
                "glaze::PropertyGrid::Kind::Number, .min = -5, .max = 10.5, "
                ".decimals = 2, .prefix = \"1:\", .suffix = \"%\", .allowAlpha "
                "= true, .toolTip = glaze::tr(24), .enabled = false, "
-               ".expanded = false}}"},
+               ".expanded = false, .allowEmpty = true, .emptyText = \"Auto\", "
+               ".choiceIcons = {glaze::stockIcon(glaze::StockIcon::Line), {}}, "
+               ".colorDisplay = glaze::ColorDisplay::Both}}"},
               "preview_gate") &&
               g->rows().size() == 1 && radLika(g->rows()[0], allt),
-          "typade rader: alla femton fält designerade ⇒ samma rad som koden",
+          "typade rader: alla nitton fält designerade ⇒ samma rad som koden",
+          std::to_string(g->rows().size()));
+    check(g->rows().size() == 1 &&
+              g->rows()[0].colorDisplay == glaze::ColorDisplay::Both,
+          "typade rader: colorDisplay når raden", "");
+    // En OTOLKBAR ikon i listan gör hela raden opak, och gridden står kvar.
+    check(!bld::applyCall(*w,
+                          {"setRows", "{{.name = \"X\", .choiceIcons = "
+                                      "{glaze::img(\"a\")}}}"},
+                          "preview_gate") &&
+              g->rows().size() == 1 && g->rows()[0].name == "Skala",
+          "typade rader: en otolkbar ikon i choiceIcons ⇒ opak, gridden orörd",
           std::to_string(g->rows().size()));
 
     // Verktygstipset bevarar TOKENET (id), inte den upplösta texten.
     check(g->rows().size() == 1 &&
               g->rows()[0].toolTip.id() == glaze::str::DecimalSeparator,
           "typade rader: glaze::tr(N) bevaras som token i toolTip", "");
+
+    check(bld::applyCall(*w,
+                         {"setRows", "{{.name = \"F\", .kind = "
+                                     "glaze::PropertyGrid::Kind::Color, "
+                                     ".colorDisplay = glaze::ColorDisplay::Hex}}"},
+                         "preview_gate") &&
+              g->rows().size() == 1 &&
+              g->rows()[0].colorDisplay == glaze::ColorDisplay::Hex &&
+              !bld::applyCall(*w,
+                              {"setRows", "{{.name = \"F\", .colorDisplay = "
+                                          "glaze::ColorDisplay::Kanske}}"},
+                              "preview_gate") &&
+              g->rows()[0].colorDisplay == glaze::ColorDisplay::Hex,
+          "typade rader: ColorDisplay::Hex utförs, ett okänt namn ⇒ opak", "");
+
+    // TEXTEN MARKERAD VID REDIGERING — ett setter-fält som når gridden.
+    // SABOTAGE: raden för PropertyGrid `selectOnEdit` borttagen ur
+    // `kSetterFields`, eller `setProp`s gren borttagen (förvalet true står kvar).
+    bld::applyProp(*w, {"selectOnEdit", "false"}, "preview_gate");
+    check(!g->selectOnEdit() &&
+              bld::isSetterField("glaze::PropertyGrid", "selectOnEdit"),
+          "typade rader: selectOnEdit är ett setter-fält som når gridden", "");
+    bld::applyProp(*w, {"selectOnEdit", "true"}, "preview_gate");
+    check(g->selectOnEdit(), "typade rader: selectOnEdit = true tänder läget", "");
 
     // FEM fält positionellt, och slaget som det sjätte.
     bld::applyCall(*w,
@@ -3431,7 +3480,7 @@ void fallPropertyGridTypade()
     bld::applyCall(*w, {"setRows", "{}"}, "preview_gate");
     check(bld::applyCall(*w,
                          {"addRow", "{.name = \"Grupp\", .kind = "
-                                    "glaze::PropertyGrid::Kind::Header}"},
+                                    "glaze::PropertyGrid::Kind::Category}"},
                          "preview_gate") &&
               bld::applyCall(*w,
                              {"addRow", "{.name = \"Synlig\", .value = "
@@ -3460,7 +3509,7 @@ void fallPropertyGridTypade()
               !g->rows()[2].enabled,
           "typade rader: setExpanded och setRowEnabled utförs", "");
     const std::vector<R> kod{
-        R{.name = "Grupp", .kind = K::Header, .expanded = false},
+        R{.name = "Grupp", .kind = K::Category, .expanded = false},
         R{.name = "Synlig", .value = "false", .kind = K::Check,
           .toolTip = "Visa"},
         R{"Bredd", "120", {}, false, "", K::Number, 0, 500, 1, "1:", "mm",
@@ -3677,15 +3726,44 @@ void fallListBoxChecked()
           "setChecked: kryssen oförändrade efter argumentfelen", "");
 }
 
-// nameWidth — widget-änden av rörledningen.
-void fallNameWidth()
+// EGENSKAPSLISTANS KOLUMNER — `setColumnWidth(kolumn, mått)` och
+// `setColumnSizing(kolumn, glaze::ColumnSizing::X)` UTFÖRS, mätta på
+// widgetens tillstånd, och ett fel i formen är OPAKT med gridden orörd.
+// SABOTAGEN: grenen för kolumnerna borttagen i PropertyGrid-delen av
+// `applyCall` (båda raderna opaka, bredden står på 0), `argSizing` som läser
+// fel namn (AutoMin blir Manual).
+void fallPropertyGridKolumner()
 {
-    auto w = build("glaze::PropertyGrid", {{"nameWidth", "120"}});
+    const char* o = "preview_gate";
+    auto        w = build("glaze::PropertyGrid", {});
     if (!w)
         return;
-    check(gridAv(w)->nameWidth() == 120.0f,
-          "nameWidth: applyProp når setNameWidth",
-          std::to_string(gridAv(w)->nameWidth()));
+    glaze::PropertyGrid* g = gridAv(w);
+    check(bld::applyCall(*w, {"setColumnWidth", "0, 120"}, o) &&
+              g->columnWidth(0) == 120.0f &&
+              bld::applyCall(*w, {"setColumnSizing",
+                                  "1, glaze::ColumnSizing::AutoMin"}, o) &&
+              g->columnSizing(1) == glaze::ColumnSizing::AutoMin &&
+              bld::applyCall(*w, {"setColumnSizing",
+                                  "0, glaze::ColumnSizing::Autosize"}, o) &&
+              g->columnSizing(0) == glaze::ColumnSizing::Autosize,
+          "egenskapslistan: setColumnWidth och setColumnSizing utförs",
+          std::to_string(g->columnWidth(0)));
+    for (const char* a : {"0", "0, bred", "x, 10", "0, 10, 2"})
+        check(!bld::applyCall(*w, {"setColumnWidth", a}, o),
+              std::string("egenskapslistan: setColumnWidth('") + a +
+                  "') avvisas", a);
+    for (const char* a : {"1, glaze::ColumnSizing::Fyll", "1, AutoMin",
+                          "1, glaze::Align::Left"})
+        check(!bld::applyCall(*w, {"setColumnSizing", a}, o),
+              std::string("egenskapslistan: setColumnSizing('") + a +
+                  "') avvisas", a);
+    check(g->columnWidth(0) == 120.0f &&
+              g->columnSizing(1) == glaze::ColumnSizing::AutoMin,
+          "egenskapslistan: kolumnerna orörda efter de opaka raderna");
+    check(!bld::isSetterField("glaze::PropertyGrid", "nameWidth") &&
+              !bld::isSetterField("glaze::PropertyGrid", "columnWidth"),
+          "egenskapslistan: kolumnbredden är ett anrop, inget setter-fält");
 }
 
 // restoreGlyph — fältet står i
@@ -4733,8 +4811,12 @@ void fallTrad()
     bld::applyProp(*w, {"sortAscending", "false"}, "preview_gate");
     check(tv->sortColumn() == 1 && !tv->isSortAscending() &&
               bld::isSetterField("glaze::TreeView", "sortColumn") &&
-              bld::isSetterField("glaze::TreeView", "fillColumn"),
+              !bld::isSetterField("glaze::TreeView", "fillColumn"),
           "träd: sorteringens setter-fält når trädet");
+    // KOLUMNENS LÄGE når trädet genom basens gren (ColumnPanel).
+    check(anrop("setColumnSizing", "1, glaze::ColumnSizing::AutoMin") &&
+              tv->columnSizing(1) == glaze::ColumnSizing::AutoMin,
+          "träd: setColumnSizing utförs genom kolumnernas gren");
     bld::applyProp(*w, {"sortColumn", "-1"}, "preview_gate");
     // Trädet tillbaka som de följande fallen väntar sig det: fyra toppnoder.
     check(anrop("setColumns", "{}") && tv->columnCount() == 0 &&
@@ -4971,48 +5053,167 @@ void fallListvy()
     bld::applyProp(*w, {"rowHeaders", "false"}, "preview_gate");
     check(!lv->rowHeaders(), "listvy: rowHeaders = false släcker radrubrikerna");
 
-    // ---- BREDD EFTER INNEHÅLLET: konstanten skriven med någon av
-    //      typerna som ärver kolumnen, och talet −1, i alla tre
-    //      kolumnformerna — och ett okänt namn är opakt.
+    // ---- KOLUMNLÄGENA, RUBRIKENS TOOLTIP OCH RUBRIKKRYSSET: kolumnaggregatet
+    //      med alla sju fälten (positionellt, designerat och med typnamnet
+    //      genom ättlingarna), `addColumn`/`setColumn` med läget som femte
+    //      argument och de tre ensamma sättarna — mätta på widgeten, och ett
+    //      fel i formen är opakt med kolumnerna orörda. SABOTAGEN: ett fält
+    //      borttaget ur `parseColumnsLiteral`s tabell (de designerade
+    //      kolumnerna opaka), `argSizing` utan `Autosize` (läget opakt),
+    //      grenen för `setColumnHeaderCheck` borttagen (krysset står på false).
     {
         auto w2 = build("glaze::ListView", {});
         auto* l2 = dynamic_cast<glaze::ListView*>(w2.get());
-        check(l2 != nullptr, "listvy: en andra listvy för bredderna");
+        check(l2 != nullptr, "listvy: en andra listvy för kolumnlägena");
         if (l2) {
-            const float a = glaze::ColumnPanel::Column::autoWidth;
+            using S     = glaze::ColumnSizing;
             auto anrop2 = [&](const char* metod, const char* args) {
                 return bld::applyCall(*w2, {metod, args}, "preview_gate");
             };
             check(anrop2("setColumns",
-                         "{{\"A\", glaze::Table::Column::autoWidth}, "
-                         "{\"B\", -1}, {\"C\", 40}}") &&
-                      l2->columnWidth(0) == a && l2->columnWidth(1) == a &&
-                      l2->columnWidth(2) == 40.0f,
-                  "listvy: setColumns — autoWidth som konstant och som −1");
-            check(anrop2("setColumnWidth", "2, glaze::ListView::Column::autoWidth") &&
-                      l2->columnWidth(2) == a &&
-                      anrop2("setColumnWidth", "2, 55") &&
-                      l2->columnWidth(2) == 55.0f &&
-                      anrop2("setColumnWidth",
-                             "0, glaze::DataGrid::Column::autoWidth") &&
-                      anrop2("setColumnWidth",
-                             "0, glaze::ColumnPanel::Column::autoWidth") &&
-                      anrop2("setColumnWidth",
-                             "0, glaze::TreeView::Column::autoWidth"),
-                  "listvy: setColumnWidth tar konstanten genom varje typ som "
-                  "ärver kolumnen");
-            check(anrop2("addColumn", "\"D\", glaze::Table::Column::autoWidth") &&
+                         "{{\"A\", 60, glaze::Align::Left, {}, "
+                         "glaze::ColumnSizing::AutoMin, \"Tips A\", true}, "
+                         "{.text = \"B\", .sizing = glaze::ColumnSizing::Autosize}, "
+                         "glaze::DataGrid::Column{.text = \"C\", .width = 40, "
+                         ".toolTip = glaze::tr(2)}, "
+                         "glaze::TreeView::Column{\"D\"}}") &&
+                      l2->columnCount() == 4 &&
+                      l2->columnSizing(0) == S::AutoMin &&
+                      l2->columns()[0].toolTip.str() == "Tips A" &&
+                      l2->columnHeaderCheck(0) &&
+                      l2->columnSizing(1) == S::Autosize &&
+                      !l2->columnHeaderCheck(1) &&
+                      l2->columnWidth(2) == 40.0f &&
+                      l2->columns()[2].toolTip.id() == 2 &&
+                      l2->columnSizing(3) == S::Manual,
+                  "listvy: setColumns med läge, tooltip och rubrikkryss — "
+                  "positionellt, designerat och typat");
+            check(anrop2("addColumn",
+                         "\"E\", 30, glaze::Align::Right, std::nullopt, "
+                         "glaze::ColumnSizing::Autosize") &&
+                      l2->columnCount() == 5 &&
+                      l2->columnSizing(4) == S::Autosize &&
                       anrop2("setColumn",
-                             "3, \"E\", glaze::Table::Column::autoWidth, "
-                             "glaze::Align::Right") &&
-                      l2->columnCount() == 4 && l2->columnWidth(3) == a,
-                  "listvy: addColumn och setColumn tar konstanten");
-            check(!anrop2("setColumnWidth", "0, glaze::Table::Column::bredd") &&
+                             "4, \"F\", 0, glaze::Align::Left, {}, "
+                             "glaze::ColumnSizing::AutoMin") &&
+                      l2->columnSizing(4) == S::AutoMin &&
+                      l2->columns()[4].text.str() == "F",
+                  "listvy: addColumn och setColumn tar läget som femte argument");
+            check(anrop2("setColumnSizing", "3, glaze::ColumnSizing::Autosize") &&
+                      l2->columnSizing(3) == S::Autosize &&
+                      anrop2("setColumnToolTip", "3, \"Tips D\"") &&
+                      l2->columns()[3].toolTip.str() == "Tips D" &&
+                      anrop2("setColumnToolTip", "1, glaze::tr(3)") &&
+                      l2->columns()[1].toolTip.id() == 3 &&
+                      anrop2("setColumnHeaderCheck", "3, true") &&
+                      l2->columnHeaderCheck(3) &&
+                      anrop2("setColumnWidth", "3, 55") &&
+                      l2->columnWidth(3) == 55.0f &&
+                      l2->columnSizing(3) == S::Autosize,
+                  "listvy: setColumnSizing/setColumnToolTip/"
+                  "setColumnHeaderCheck/setColumnWidth utförs");
+            check(!anrop2("setColumnSizing", "0, glaze::ColumnSizing::Fyll") &&
+                      !anrop2("setColumnSizing", "0, Autosize") &&
+                      !anrop2("setColumnSizing", "0") &&
+                      !anrop2("setColumnToolTip", "0, tips") &&
+                      !anrop2("setColumnHeaderCheck", "0, kanske") &&
                       !anrop2("setColumnWidth",
-                              "0, glaze::Dock::Column::autoWidth") &&
-                      !anrop2("setColumnWidth",
-                              "0, Column::autoWidth"),
-                  "listvy: ett annat namn än konstanten på en känd typ ⇒ opak");
+                              "0, glaze::Table::Column::autoWidth") &&
+                      !anrop2("addColumn",
+                              "\"G\", 10, glaze::Align::Left, {}, "
+                              "glaze::Align::Left") &&
+                      !anrop2("setColumns",
+                              "{{.sizing = glaze::ColumnSizing::Autosize, "
+                              ".text = \"X\"}}") &&
+                      l2->columnCount() == 5 &&
+                      l2->columnSizing(0) == S::AutoMin &&
+                      l2->columnHeaderCheck(0) &&
+                      l2->columns()[0].toolTip.str() == "Tips A",
+                  "listvy: fel läge, fel ordning i aggregatet och den borttagna "
+                  "konstanten ⇒ opak, kolumnerna orörda");
+            check(!bld::isSetterField("glaze::ListView", "fillColumn") &&
+                      !bld::isSetterField("glaze::DataGrid", "fillColumn") &&
+                      !bld::isSetterField("glaze::ListView", "columnSizing"),
+                  "listvy: kolumnens läge är ett anrop, fyllkolumnen finns inte");
+        }
+    }
+
+    // ---- RADSLAGEN, FÄLLNINGEN OCH CELLBILDEN: radaggregatets fjärde och
+    //      femte fält (`kind`, `expanded`), slaget genom tre typnamn och de
+    //      tre ensamma sättarna — mätta på widgeten. SABOTAGEN: `kind`
+    //      borttaget ur `parseTableRowsLiteral`s tabell (de designerade raderna
+    //      opaka), `argRowKind` utan `glaze::ListView::RowKind::` (raden
+    //      opak), grenen för `setCellImage` borttagen (bilden står tom).
+    {
+        auto  w3 = build("glaze::ListView", {});
+        auto* l3 = dynamic_cast<glaze::ListView*>(w3.get());
+        check(l3 != nullptr, "listvy: en tredje listvy för radslagen");
+        if (l3) {
+            using K     = glaze::Table::RowKind;
+            auto anrop3 = [&](const char* metod, const char* args) {
+                return bld::applyCall(*w3, {metod, args}, "preview_gate");
+            };
+            check(anrop3("setColumns", "{{\"A\", 60}, {\"B\", 60}}") &&
+                      anrop3("setRows",
+                             "{{{}, {}, std::nullopt, "
+                             "glaze::Table::RowKind::Blank}, "
+                             "{.cells = {\"Grupp\"}, .kind = "
+                             "glaze::ListView::RowKind::Category, .expanded = "
+                             "false}, {{\"a\", \"1\"}}, "
+                             "glaze::DataGrid::Row{.cells = {\"G2\"}, .kind = "
+                             "glaze::DataGrid::RowKind::Category}, "
+                             "{{\"b\", \"2\"}}}") &&
+                      l3->rowCount() == 5 && l3->rowKind(0) == K::Blank &&
+                      l3->rowKind(1) == K::Category && !l3->isExpanded(1) &&
+                      l3->rowKind(2) == K::Data &&
+                      l3->rowKind(3) == K::Category && l3->isExpanded(3) &&
+                      l3->displayRow(2) == -1 && l3->positionCount() == 4,
+                  "listvy: setRows med radslag och fällning — designerat, "
+                  "positionellt och typat; raden i den ihopfällda kategorin "
+                  "har ingen plats", std::to_string(l3->positionCount()));
+            check(anrop3("setExpanded", "1, true") && l3->isExpanded(1) &&
+                      l3->displayRow(2) >= 0 && l3->positionCount() == 5 &&
+                      anrop3("setRowKind", "4, glaze::ListView::RowKind::Blank") &&
+                      l3->rowKind(4) == K::Blank &&
+                      anrop3("setRowKind", "4, glaze::Table::RowKind::Data") &&
+                      l3->rowKind(4) == K::Data,
+                  "listvy: setExpanded och setRowKind utförs");
+            check(anrop3("setCellImage", "2, 1, glaze::img(\"toolbar\", \"ok\")") &&
+                      anrop3("setCellImage",
+                             "4, 1, glaze::stockIcon(glaze::StockIcon::Line)") &&
+                      l3->cellImage(4, 1) ==
+                          glaze::stockIcon(glaze::StockIcon::Line) &&
+                      anrop3("setCellImage", "4, 1, {}") &&
+                      !l3->cellImage(4, 1),
+                  "listvy: setCellImage sätter och nollar cellens bild");
+            check(!anrop3("setRowKind", "2, glaze::Table::RowKind::Rubrik") &&
+                      !anrop3("setRowKind", "2, Category") &&
+                      !anrop3("setRowKind", "2, glaze::Align::Left") &&
+                      !anrop3("setExpanded", "1, kanske") &&
+                      !anrop3("setExpanded", "1") &&
+                      !anrop3("setCellImage", "2, 1") &&
+                      !anrop3("setCellImage", "2, 1, glaze::img(\"x\")") &&
+                      !anrop3("setRows", "{{.kind = glaze::Table::RowKind::"
+                                         "Category, .cells = {\"x\"}}}") &&
+                      l3->rowCount() == 5 && l3->rowKind(2) == K::Data &&
+                      l3->isExpanded(1),
+                  "listvy: fel slag, fel flagga, fel argumentantal och fel "
+                  "ordning ⇒ opak, tabellen orörd");
+            // BORTTAGNINGEN: `removeRow(0)` tar bort tomraden, och raderna
+            // efter den flyttar upp; ett index utanför är widgetens logg +
+            // no-op (raden KÄND), fel argument en opak rad och tabellen orörd.
+            check(anrop3("removeRow", "0") && l3->rowCount() == 4 &&
+                      l3->rowKind(0) == K::Category && l3->cell(0, 0) == "Grupp" &&
+                      l3->cell(1, 0) == "a" && l3->rowKind(2) == K::Category &&
+                      l3->cell(3, 0) == "b" && anrop3("removeRow", "9") &&
+                      !anrop3("removeRow", "") && !anrop3("removeRow", "0, 1") &&
+                      !anrop3("removeRow", "x") && l3->rowCount() == 4,
+                  "listvy: removeRow utförs — raderna efter flyttar upp; fel "
+                  "argument ⇒ opak", std::to_string(l3->rowCount()));
+            check(!bld::isSetterField("glaze::ListView", "rowKind") &&
+                      !bld::isSetterField("glaze::DataGrid", "expanded") &&
+                      !bld::isSetterField("glaze::ListView", "cellImage"),
+                  "listvy: radslag, fällning och cellbild är Call-satser");
         }
     }
 
@@ -5154,27 +5355,185 @@ void fallDatagrid()
         doldaBarn = doldaBarn && !b->isVisible();
     check(doldaBarn, "datagrid: editorerna finns och är dolda i vila");
 
-    // ---- KOLUMNTYPEN FÖRE kolumnerna — satsordningen ska inte avgöra.
-    check(anrop("setColumnEditor", "1, glaze::DataGrid::Editor::Choice") &&
-              anrop("setColumnChoices", "1, {\"Ny\", \"Pågår\", \"Klar\"}") &&
-              anrop("setColumnEditor", "2, glaze::DataGrid::Editor::None"),
-          "datagrid: setColumnEditor/setColumnChoices utförs före kolumnerna");
+    using E = glaze::DataGrid::Editor;
+    // ---- REDIGERAREN FÖRE kolumnerna — satsordningen ska inte avgöra.
+    //      Aggregatet `EditorSpec` positionellt (redigeraren och valen) och
+    //      designerat.
+    check(anrop("setColumnEditor",
+                "1, {glaze::DataGrid::Editor::Choice, {\"Ny\", \"Pågår\", "
+                "\"Klar\"}}") &&
+              anrop("setColumnEditor", "2, {.editor = glaze::DataGrid::Editor::None}"),
+          "datagrid: setColumnEditor med valen utförs före kolumnerna");
     check(anrop("setColumns", "{{\"Uppgift\", 140}, {\"Status\", 90}, "
                               "{\"Id\", 40, glaze::Align::Right}}") &&
               anrop("addRow", "{\"Skriv grind\", \"Pågår\", \"7\"}") &&
               anrop("addRow", "{\"Rita\", \"Ny\", \"3\"}"),
           "datagrid: tabellens vokabulär utförs på datagriden");
-    check(dg->columnEditor(0) == glaze::DataGrid::Editor::Text &&
-              dg->columnEditor(1) == glaze::DataGrid::Editor::Choice &&
-              dg->columnEditor(2) == glaze::DataGrid::Editor::None &&
-              dg->columnChoices(1) ==
+    check(dg->columnEditor(0).editor == E::Text &&
+              dg->columnEditor(1).editor == E::Choice &&
+              dg->columnEditor(2).editor == E::None &&
+              dg->columnEditor(1).choices ==
                   std::vector<std::string>{"Ny", "Pågår", "Klar"},
-          "datagrid: kolumntypen och valen ÖVERLEVDE setColumns (indexets)");
-    check(anrop("setColumnEditor", "1, glaze::DataGrid::Editor::Text") &&
-              dg->columnEditor(1) == glaze::DataGrid::Editor::Text &&
-              anrop("setColumnEditor", "1, glaze::DataGrid::Editor::Choice") &&
-              dg->columnEditor(1) == glaze::DataGrid::Editor::Choice,
-          "datagrid: kolumntypen går att byta fram och tillbaka");
+          "datagrid: redigeraren och valen ÖVERLEVDE setColumns (indexets)");
+    check(anrop("setColumnEditor", "1, {}") &&
+              dg->columnEditor(1).editor == E::Text &&
+              dg->columnEditor(1).choices.empty() &&
+              anrop("setColumnEditor",
+                    "1, glaze::DataGrid::EditorSpec{E::Choice}") == false &&
+              anrop("setColumnEditor",
+                    "1, glaze::DataGrid::EditorSpec{glaze::DataGrid::Editor::"
+                    "Choice, {\"Ny\", \"Klar\"}, {glaze::stockIcon(glaze::"
+                    "StockIcon::Add), {}}}") &&
+              dg->columnEditor(1).editor == E::Choice &&
+              dg->columnEditor(1).choices.size() == 2 &&
+              dg->columnEditor(1).choiceIcons.size() == 2 &&
+              dg->columnEditor(1).choiceIcons[0] ==
+                  glaze::stockIcon(glaze::StockIcon::Add),
+          "datagrid: redigeraren går att byta, `{}` är fritextens förval och "
+          "typnamnet med ikonerna utförs");
+
+    // ---- DE TYPADE REDIGERARNA: varje namn i enumet och alla tretton fält
+    //      designerade i deklarationsordning — mätta fält för fält på
+    //      kolumnens spec. SABOTAGEN: ett namn borttaget ur `argEditor`
+    //      (raden opak), ett fält borttaget ur `parseEditorSpec`s tabell (de
+    //      designerade raderna opaka), en kastad fältordning (fel fält får
+    //      värdet).
+    {
+        auto  w2 = build("glaze::DataGrid", {});
+        auto* d2 = dynamic_cast<glaze::DataGrid*>(w2.get());
+        check(d2 != nullptr, "datagrid: en andra datagrid för redigerarna");
+        if (d2) {
+            auto anrop2 = [&](const char* metod, const char* args) {
+                return bld::applyCall(*w2, {metod, args}, "preview_gate");
+            };
+            struct Namn {
+                const char* text;
+                E           editor;
+            };
+            int kol = 0;
+            for (const Namn& n : {Namn{"Text", E::Text}, Namn{"Choice", E::Choice},
+                                  Namn{"Check", E::Check}, Namn{"Color", E::Color},
+                                  Namn{"Number", E::Number},
+                                  Namn{"Button", E::Button}, Namn{"None", E::None}}) {
+                const std::string a = std::to_string(kol) +
+                                      ", {.editor = glaze::DataGrid::Editor::" +
+                                      n.text + "}";
+                check(anrop2("setColumnEditor", a.c_str()) &&
+                          d2->columnEditor(kol).editor == n.editor,
+                      std::string("datagrid: Editor::") + n.text + " utförs", a);
+                ++kol;
+            }
+            check(anrop2("setColumnEditor",
+                         "7, {.editor = glaze::DataGrid::Editor::Number, "
+                         ".choices = {\"a\"}, .choiceIcons = {{}}, .min = -5, "
+                         ".max = 100.5, .decimals = 2, .prefix = \"1:\", "
+                         ".suffix = \"%\", .allowAlpha = true, .allowEmpty = "
+                         "true, .emptyText = \"Automatisk\", .colorDisplay = "
+                         "glaze::ColorDisplay::Hex, .readOnly = true}"),
+                  "datagrid: alla tretton fält designerade utförs");
+            // SABOTAGE: grenen för `colorDisplay` eller `readOnly` i
+            // `parseEditorSpec` borttagen (namnet okänt ⇒ hela specen opak),
+            // eller `readOnly` skriven till `allowEmpty`.
+            const glaze::DataGrid::EditorSpec& s = d2->columnEditor(7);
+            check(s.editor == E::Number && s.choices == std::vector<std::string>{"a"} &&
+                      s.choiceIcons.size() == 1 && !s.choiceIcons[0] &&
+                      s.min == -5.0 && s.max == 100.5 && s.decimals == 2 &&
+                      s.prefix == "1:" && s.suffix == "%" && s.allowAlpha &&
+                      s.allowEmpty && s.emptyText == "Automatisk" &&
+                      s.colorDisplay == glaze::ColorDisplay::Hex && s.readOnly,
+                  "datagrid: varje fält i specen når kolumnen");
+            check(anrop2("setColumnEditor",
+                         "6, {.editor = glaze::DataGrid::Editor::Color, "
+                         ".allowAlpha = true}") &&
+                      d2->columnEditor(6).colorDisplay ==
+                          glaze::ColorDisplay::Swatch &&
+                      !d2->columnEditor(6).readOnly,
+                  "datagrid: utelämnade colorDisplay och readOnly tar förvalen "
+                  "Swatch och false");
+            check(anrop2("setColumnEditor",
+                         "6, {.editor = glaze::DataGrid::Editor::Color, "
+                         ".colorDisplay = glaze::ColorDisplay::Both}") &&
+                      d2->columnEditor(6).colorDisplay == glaze::ColorDisplay::Both,
+                  "datagrid: ColorDisplay::Both utförs");
+            check(!anrop2("setColumnEditor", "7, {.min = 0, .editor = "
+                                             "glaze::DataGrid::Editor::Text}") &&
+                      !anrop2("setColumnEditor",
+                              "7, {.editor = glaze::DataGrid::Editor::Kanske}") &&
+                      !anrop2("setColumnEditor", "7, {.decimals = 1.5}") &&
+                      !anrop2("setColumnEditor", "7, {.okänt = 1}") &&
+                      !anrop2("setColumnEditor", "7, glaze::DataGrid::Editor::Number") &&
+                      d2->columnEditor(7).editor == E::Number &&
+                      d2->columnEditor(7).emptyText == "Automatisk",
+                  "datagrid: fel ordning, okänt namn, fel typ och den "
+                  "borttagna enum-formen ⇒ opak, kolumnen orörd");
+        }
+    }
+
+    // ---- CELLERNA: en egen redigerare per cell, tillbaka till kolumnens,
+    //      inaktiv cell och cellens tooltip — och de två lägena som setter-fält.
+    //      SABOTAGEN: grenen för `setCellEditor` borttagen (cellen följer
+    //      kolumnen), `clearCellEditor` som anropar `setCellEditor` med
+    //      förvalet (cellen blir Text i stället för kolumnens Choice), raderna
+    //      för `editOnClick`/`multiEdit` borttagna ur `kSetterFields`.
+    check(anrop("setCellEditor", "0, 1, {.editor = glaze::DataGrid::Editor::None}") &&
+              dg->cellEditor(0, 1).editor == E::None &&
+              dg->cellEditor(1, 1).editor == E::Choice,
+          "datagrid: setCellEditor ger EN cell en egen redigerare");
+    check(anrop("setCellEditor",
+                "1, 1, glaze::DataGrid::EditorSpec{.editor = "
+                "glaze::DataGrid::Editor::Number, .max = 10, .suffix = \"mm\"}") &&
+              dg->cellEditor(1, 1).editor == E::Number &&
+              dg->cellEditor(1, 1).max == 10.0 &&
+              dg->cellEditor(1, 1).suffix == "mm",
+          "datagrid: setCellEditor med typnamnet och gränser per cell");
+    check(anrop("clearCellEditor", "0, 1") &&
+              dg->cellEditor(0, 1).editor == E::Choice &&
+              dg->cellEditor(0, 1).choices.size() == 2,
+          "datagrid: clearCellEditor lämnar tillbaka cellen till kolumnens");
+    check(anrop("setCellEnabled", "1, 0, false") && !dg->isCellEnabled(1, 0) &&
+              dg->isCellEnabled(0, 0) && anrop("setCellEnabled", "1, 0, true") &&
+              dg->isCellEnabled(1, 0) && anrop("setCellEnabled", "1, 0, false"),
+          "datagrid: setCellEnabled släcker och tänder just cellen");
+    check(anrop("setCellToolTip", "1, 0, \"Låst\"") &&
+              anrop("setCellToolTip", "1, 0, glaze::tr(2)"),
+          "datagrid: setCellToolTip tar en literal och glaze::tr(N)");
+    check(!anrop("setCellEditor", "0, 1") &&
+              !anrop("setCellEditor", "0, x, {}") &&
+              !anrop("setCellEditor", "0, 1, glaze::DataGrid::Editor::None") &&
+              !anrop("clearCellEditor", "0") &&
+              !anrop("setCellEnabled", "1, 0, kanske") &&
+              !anrop("setCellEnabled", "1, 0") &&
+              !anrop("setCellToolTip", "1, 0, tips") &&
+              dg->cellEditor(1, 1).editor == E::Number && !dg->isCellEnabled(1, 0),
+          "datagrid: fel argumentantal eller fel form i cellernas satser ⇒ "
+          "opak, cellerna orörda");
+    bld::applyProp(*w, {"editOnClick", "true"}, "preview_gate");
+    bld::applyProp(*w, {"multiEdit", "true"}, "preview_gate");
+    check(dg->editOnClick() && dg->isMultiEdit() &&
+              bld::isSetterField("glaze::DataGrid", "editOnClick") &&
+              bld::isSetterField("glaze::DataGrid", "multiEdit") &&
+              !bld::isSetterField("glaze::ListView", "multiEdit"),
+          "datagrid: editOnClick och multiEdit är setter-fält som når datagriden");
+    bld::applyProp(*w, {"editOnClick", "false"}, "preview_gate");
+    bld::applyProp(*w, {"multiEdit", "false"}, "preview_gate");
+    check(!dg->editOnClick() && !dg->isMultiEdit(),
+          "datagrid: editOnClick/multiEdit = false släcker lägena");
+    // TEXTEN MARKERAD VID REDIGERING. SABOTAGE: raden för DataGrid
+    // `selectOnEdit` borttagen ur `kSetterFields`, eller `setProp`s gren
+    // borttagen (förvalet true står kvar).
+    check(dg->selectOnEdit(), "datagrid: selectOnEdit är true som förval");
+    bld::applyProp(*w, {"selectOnEdit", "false"}, "preview_gate");
+    check(!dg->selectOnEdit() &&
+              bld::isSetterField("glaze::DataGrid", "selectOnEdit"),
+          "datagrid: selectOnEdit är ett setter-fält som når datagriden");
+    bld::applyProp(*w, {"selectOnEdit", "true"}, "preview_gate");
+    check(dg->selectOnEdit(), "datagrid: selectOnEdit = true tänder läget");
+    // Cellerna tillbaka till kolumnens för fallen nedan.
+    check(anrop("clearCellEditor", "1, 1") && anrop("setCellEnabled", "1, 0, true") &&
+              anrop("setColumnEditor",
+                    "1, {glaze::DataGrid::Editor::Choice, {\"Ny\", \"Pågår\", "
+                    "\"Klar\"}}"),
+          "datagrid: cellerna och kolumnen återställda");
 
     // ---- DEN AKTUELLA CELLEN — två heltal; (−1, −1) = ingen.
     check(anrop("setCurrentCell", "1, 2") && dg->currentRow() == 1 &&
@@ -5202,21 +5561,26 @@ void fallDatagrid()
                              "glaze::Align::Center") &&
               dg->columnCount() == 3 &&
               dg->columns()[2].headerAlign == glaze::Align::Center &&
-              dg->columnEditor(2) == glaze::DataGrid::Editor::None,
-          "datagrid: setColumn med rubrikens justering — kolumntypen står");
+              dg->columnEditor(2).editor == E::None,
+          "datagrid: setColumn med rubrikens justering — redigeraren står");
 
     // ---- ATOMICITETEN: trasiga rader ⇒ false och en ORÖRD datagrid.
-    check(!anrop("setColumnEditor", "0, glaze::Align::Left"),
+    check(!anrop("setColumnEditor", "0, {glaze::Align::Left}"),
           "datagrid: FEL enum (Align för Editor) ⇒ opak");
-    check(!anrop("setColumnEditor", "0, glaze::DataGrid::Editor::Kanske"),
+    check(!anrop("setColumnEditor", "0, {glaze::DataGrid::Editor::Kanske}"),
           "datagrid: okänd editor ⇒ opak");
-    check(!anrop("setColumnEditor", "0"), "datagrid: setColumnEditor utan typ ⇒ opak");
-    check(!anrop("setColumnChoices", "1, \"inte en lista\""),
+    check(!anrop("setColumnEditor", "0"), "datagrid: setColumnEditor utan spec ⇒ opak");
+    check(!anrop("setColumnEditor", "1, {glaze::DataGrid::Editor::Choice, "
+                                    "\"inte en lista\"}"),
           "datagrid: val utan lista ⇒ opak");
+    check(!anrop("setColumnChoices", "1, {\"a\"}") &&
+              !anrop("setColumnEditor", "1, glaze::DataGrid::Editor::Choice"),
+          "datagrid: de borttagna formerna (setColumnChoices, redigeraren utan "
+          "aggregat) ⇒ opak");
     check(!anrop("setCurrentCell", "1"), "datagrid: setCurrentCell med ett tal ⇒ opak");
     check(!anrop("setCurrentCell", "1, x"), "datagrid: oparsbar kolumn ⇒ opak");
-    check(dg->columnEditor(0) == glaze::DataGrid::Editor::Text &&
-              dg->columnChoices(1).size() == 3 && dg->currentRow() == -1,
+    check(dg->columnEditor(0).editor == E::Text &&
+              dg->columnEditor(1).choices.size() == 3 && dg->currentRow() == -1,
           "datagrid: …och datagriden är ORÖRD efter alla trasiga rader");
 
     // ---- KLASSNINGEN: sorteringen är Prop, kolumntypen och cellen Call.
@@ -5226,6 +5590,9 @@ void fallDatagrid()
           "datagrid: sorteringen är setter-fält");
     check(!bld::isSetterField("glaze::DataGrid", "columnEditor") &&
               !bld::isSetterField("glaze::DataGrid", "columnChoices") &&
+              !bld::isSetterField("glaze::DataGrid", "cellEditor") &&
+              !bld::isSetterField("glaze::DataGrid", "cellEnabled") &&
+              !bld::isSetterField("glaze::DataGrid", "cellToolTip") &&
               !bld::isSetterField("glaze::DataGrid", "currentCell") &&
               !bld::isSetterField("glaze::DataGrid", "selectedIndex"),
           "datagrid: kolumntypen och cellen är Call-satser, inget listval");
@@ -7506,6 +7873,76 @@ void fallBindningar()
           "bindningar: en felskriven enhet är opak");
 }
 
+// EGENSKAPSLISTAN OCH VALLISTAN UR FIXTUREN — `fallCallsTradTabell`s
+// mönster: varje `grid`- och `dd`-sats i tests/fixtures/calls.* körs mot en
+// RIKTIG widget i källordning, utom den OKÄNDA `setScroll` (regel 4: den
+// bevaras opakt och previewn utför den inte). Varje annan anropssats ska
+// UTFÖRAS och sluttillståndet vara det C++ ger: kolumnerna, kategoriraden,
+// det valfria talet, valens ikoner och vallistans ikoner. SABOTAGEN:
+// `allowEmpty`/`emptyText`/`choiceIcons` borttagna ur `kRadFält` (de
+// designerade raderna opaka), ikonargumentet borttaget i Dropdown-grenen
+// (`addItem`/`setItem` med ikonen opaka), `Kind::Category` borttagen ur
+// `argRadSlag` (kategoriraden opak).
+void fallCallsGridDd()
+{
+    const char*     o = "preview_gate";
+    bld::ReadResult r = bld::readWindow(std::string(GLAZE_TEST_ROOT) +
+                                        "/tests/fixtures/calls.h");
+    check(r.ok, "calls-grid/dd: fixturen läses (" + r.error + ")");
+    if (!r.ok)
+        return;
+    auto wg = build("glaze::PropertyGrid", {});
+    auto wd = build("glaze::Dropdown", {});
+    if (!wg || !wd)
+        return;
+    std::string fel;
+    for (const bld::Stmt& s : r.model.stmts) {
+        glaze::Widget* mål = s.target == "grid" ? wg.get()
+                             : s.target == "dd" ? wd.get()
+                                                : nullptr;
+        if (!mål)
+            continue;
+        if (s.kind == bld::Stmt::Kind::Prop)
+            bld::applyProp(*mål, {s.name, s.value}, o);
+        else if (s.kind == bld::Stmt::Kind::Call && s.name != "setScroll" &&
+                 !bld::applyCall(*mål, {s.name, s.value}, o))
+            fel += " " + s.target + "." + s.name + "(" + s.value.substr(0, 48) + ")";
+    }
+    check(fel.empty(), "calls-grid/dd: varje grid- och dd-anrop UTFÖRS", fel);
+    auto* g = gridAv(wg);
+    auto* d = dynamic_cast<glaze::Dropdown*>(wd.get());
+    using K = glaze::PropertyGrid::Kind;
+    check(g->rows().size() == 10 && g->rows()[4].kind == K::Category &&
+              !g->rows()[4].expanded && !g->rows()[5].enabled &&
+              g->rows()[8].kind == K::Number && g->rows()[8].allowEmpty &&
+              g->rows()[8].emptyText == "Automatisk" &&
+              g->rows()[9].choices.size() == 2 &&
+              g->rows()[9].choiceIcons.size() == 2 && !g->rows()[9].choiceIcons[1],
+          "calls-grid: kategorin, det valfria talet och valens ikoner",
+          std::to_string(g->rows().size()));
+    check(g->columnWidth(0) == 140.0f &&
+              g->columnSizing(1) == glaze::ColumnSizing::AutoMin && g->isBorder(),
+          "calls-grid: kolumnernas bredd och läge och ramen",
+          std::to_string(g->columnWidth(0)));
+    check(d && d->items() == std::vector<std::string>{"Ett", "TVÅ", "Tre", "Fyra"} &&
+              d->itemIcon(0) == glaze::stockIcon(glaze::StockIcon::Line) &&
+              !d->itemIcon(1) && !d->itemIcon(2) && d->selectedIndex() == 2,
+          "calls-dd: addItem/setItem med ikonen sist ger posterna och ikonerna");
+    // Ikonen är Dropdownens: ListBoxens post har ingen, och en otolkbar ikon
+    // eller ett argument för mycket är opakt.
+    auto wl = build("glaze::ListBox", {});
+    if (!wl || !d)
+        return;
+    check(!bld::applyCall(*wl, {"addItem", "\"A\", glaze::img(\"toolbar\", \"ok\")"}, o) &&
+              !bld::applyCall(*wd, {"addItem", "\"X\", glaze::img(\"x\")"}, o) &&
+              !bld::applyCall(*wd, {"setItem", "0, \"X\", {}, {}"}, o) &&
+              d->items().size() == 4 && d->items()[0] == "Ett",
+          "calls-dd: en ikon på ListBoxen, en otolkbar ikon och ett argument "
+          "för mycket ⇒ opak, listorna orörda");
+    check(bld::applyCall(*wd, {"setItem", "0, \"Ett\""}, o) && !d->itemIcon(0),
+          "calls-dd: setItem utan ikon nollar postens ikon (tilldelning)");
+}
+
 // TRÄDET OCH TABELLEN UR FIXTUREN — `fallCallsRityta`s
 // mönster: varje `trad`- och `tabell`-sats i tests/fixtures/calls.* körs mot
 // en RIKTIG widget i källordning. Varje anropssats ska UTFÖRAS (`applyCall`
@@ -7540,7 +7977,7 @@ void fallCallsTradTabell()
         int         golv;   // fixturens egna satser — ingen tom lista
     };
     for (const Mål& m : {Mål{"trad", "glaze::TreeView", 20},
-                         Mål{"tabell", "glaze::ListView", 9}}) {
+                         Mål{"tabell", "glaze::ListView", 10}}) {
         auto w = build(m.typ, {});
         if (!w)
             return;
@@ -7577,13 +8014,16 @@ void fallCallsTradTabell()
                   "designerat och typat");
         }
         if (auto* lv = dynamic_cast<glaze::ListView*>(w.get())) {
-            check(lv->rowCount() == 4 &&
+            // `removeRow(3)` SIST tog bort "d": fem rader, kategorin och
+            // tomraden ett index upp.
+            check(lv->rowCount() == 5 &&
                       lv->rowColor(1) == gfx::Color{200, 0, 0} &&
                       !lv->rowColor(0) &&
                       lv->rowColor(2) == gfx::Color{0, 140, 0} &&
-                      !lv->rowColor(3) && lv->cell(3, 0) == "d",
+                      lv->cell(2, 0) == "c" && lv->cell(3, 0) == "Bilder",
                   "calls-tabell: sluttillståndet — radfärgerna ur setRows och "
-                  "setRowColor");
+                  "setRowColor, och removeRow(3) utförd",
+                  std::to_string(lv->rowCount()));
             // KRYSSEN — satta EFTER `setRows`, som
             // nollar dem: rutorna syns och rad 1, bara den, är kryssad.
             check(lv->showsChecks() && lv->isChecked(1) && !lv->isChecked(0) &&
@@ -7591,15 +8031,28 @@ void fallCallsTradTabell()
                   "calls-tabell: sluttillståndet — setShowChecks och "
                   "setChecked(1, true)");
             // Cellfärgerna (efter `setRows`, som nollar dem),
-            // radrubrikerna och bredden efter innehållet.
+            // radrubrikerna och kolumnlägena.
             check(lv->cellBackground(0, 1) == gfx::Color{255, 224, 224} &&
                       lv->cellTextColor(0, 1) == gfx::Color{160, 0, 0} &&
                       !lv->cellBackground(1, 0) && !lv->cellTextColor(1, 0) &&
-                      lv->rowHeaders() &&
-                      lv->columnWidth(1) ==
-                          glaze::ColumnPanel::Column::autoWidth,
+                      lv->rowHeaders() && lv->columnWidth(1) == 0.0f &&
+                      lv->columnSizing(0) == glaze::ColumnSizing::Autosize &&
+                      lv->columnSizing(1) == glaze::ColumnSizing::AutoMin,
                   "calls-tabell: sluttillståndet — setCellColor, setRowHeaders "
-                  "och setColumnWidth(…, autoWidth)");
+                  "och kolumnlägena");
+            // Tooltipen, rubrikkrysset, den femte kolumnen, radslagen,
+            // fällningen och cellbilden.
+            check(lv->columns().size() == 6 &&
+                      lv->columns()[1].toolTip.str() == "Storlek i byte" &&
+                      lv->columns()[2].toolTip.id() == 2 &&
+                      lv->columnHeaderCheck(0) &&
+                      lv->columnSizing(5) == glaze::ColumnSizing::Autosize &&
+                      lv->rowKind(3) == glaze::Table::RowKind::Category &&
+                      !lv->isExpanded(3) &&
+                      lv->rowKind(4) == glaze::Table::RowKind::Blank,
+                  "calls-tabell: sluttillståndet — tooltips, rubrikkryss, "
+                  "addColumn med läget och radslagen",
+                  std::to_string(lv->columns().size()));
         }
     }
 }
@@ -8356,6 +8809,36 @@ void fallCallsFas1B()
               rutnat->isMultiSelect() &&
               rutnat->selectedRows() == std::vector<int>{0, 2},
           "calls-fas1b: rutnat har raderna 0 och 2 valda i radläget");
+    {
+        using E = glaze::DataGrid::Editor;
+        using K = glaze::Table::RowKind;
+        check(rutnat->rowCount() == 5 && rutnat->rowKind(3) == K::Category &&
+                  !rutnat->isExpanded(3) && rutnat->rowKind(4) == K::Blank &&
+                  rutnat->columnSizing(1) == glaze::ColumnSizing::Autosize,
+              "calls-fas1b: rutnat bär radslagen ur setRows och kolumnens läge",
+              std::to_string(rutnat->rowCount()));
+        const glaze::DataGrid::EditorSpec& tal = rutnat->columnEditor(1);
+        const glaze::DataGrid::EditorSpec& val = rutnat->columnEditor(0);
+        check(tal.editor == E::Number && tal.min == 0.0 && tal.max == 100.0 &&
+                  tal.suffix == "%" && val.editor == E::Choice &&
+                  val.choices.size() == 3 && val.choiceIcons.size() == 3 &&
+                  val.choiceIcons[2] == glaze::stockIcon(glaze::StockIcon::Line) &&
+                  rutnat->columnEditor(2).editor == E::Color &&
+                  rutnat->columnEditor(2).allowAlpha &&
+                  rutnat->columnEditor(3).editor == E::Button,
+              "calls-fas1b: rutnat har kolumnernas redigerare med sina val");
+        check(rutnat->cellEditor(1, 1).editor == E::None &&
+                  rutnat->cellEditor(2, 1).editor == E::Number &&
+                  rutnat->cellEditor(2, 1).allowEmpty &&
+                  rutnat->cellEditor(2, 1).emptyText == "Automatisk" &&
+                  rutnat->cellEditor(2, 1).prefix == "1:" &&
+                  rutnat->cellEditor(0, 1).editor == E::Number &&
+                  rutnat->cellEditor(0, 1).suffix == "%" &&
+                  !rutnat->isCellEnabled(1, 1) && rutnat->isCellEnabled(2, 1) &&
+                  rutnat->editOnClick() && rutnat->isMultiEdit(),
+              "calls-fas1b: rutnat har cellernas redigerare (clearCellEditor "
+              "tillbaka till kolumnens), den inaktiva cellen och lägena");
+    }
     check(alfa->allowAlpha() &&
               alfa->color() == gfx::Color{0x33, 0x66, 0xFF, 0x80},
           "calls-fas1b: alfa bär alfan 0x80 (setColor före setAllowAlpha)",
@@ -8388,10 +8871,10 @@ void fallReq3()
     const char* o = "preview_gate";
 
     for (const char* typ : {"glaze::ListView", "glaze::DataGrid"}) {
-        auto  w = build(typ, {{"fillColumn", "1"}, {"iconSize", "48"}});
+        auto  w = build(typ, {{"iconSize", "48"}});
         auto* t = dynamic_cast<glaze::Table*>(w.get());
-        check(t && t->fillColumn() == 1 && t->iconSize() == 48.0f,
-              std::string("preview: ") + typ + ".setFillColumn/setIconSize utförs");
+        check(t && t->iconSize() == 48.0f,
+              std::string("preview: ") + typ + ".setIconSize utförs");
     }
     {
         auto  w = build("glaze::Label", {{"elide", "true"},
@@ -8946,6 +9429,7 @@ int main(int argc, char** argv)
     fallCallsRityta();
     fallBindningar();
     fallCallsTradTabell();
+    fallCallsGridDd();
     fallCallsDockning();
     fallFlerradigt();
     fallDragDrop();
@@ -8958,7 +9442,7 @@ int main(int argc, char** argv)
     fallSetRowsParser();
     fallListStyckeform();
     fallListBoxChecked();
-    fallNameWidth();
+    fallPropertyGridKolumner();
     fallRestoreGlyph();
     fallLabelSetColor();
     fallPreviewVandring();

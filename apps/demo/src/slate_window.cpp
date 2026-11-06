@@ -956,17 +956,20 @@ void SlateWindow::radListor()
         v->setChecked(1, true);
         v->setSortColumn(0);
         v->setSelectedIndex(0);
-        v->setFillColumn(0);
+        v->setColumnSizing(0, glaze::ColumnSizing::Autosize);
+        v->setColumnHeaderCheck(0, true);
 
         auto* av = s.fyll<glaze::ListView>(8);
-        av->setColumns({{"Namn", 130},
+        av->setColumns({{.text = "Namn", .width = 130,
+                         .sizing = glaze::ColumnSizing::Autosize},
                         {"Storlek", 60, glaze::Align::Right},
                         {"Ändrad", 86}});
-        av->setRows({{{"Rapport.pdf", "12 kB", "2026-10-07"},
+        av->setRows({{.cells = {"Dokument"}, .kind = glaze::ListView::RowKind::Category},
+                     {{"Rapport.pdf", "12 kB", "2026-10-07"},
                       ikon(glaze::StockIcon::Document)},
                      {{"Anteckningar.txt", "900 B", "2026-08-19"}}});
-        av->setSelectedIndex(0);
-        av->setFillColumn(0);
+        constexpr int kRapportRad = 1;   // filen under kategorin
+        av->setSelectedIndex(kRapportRad);
         av->disable();
     }
     {
@@ -1003,39 +1006,124 @@ void SlateWindow::radListor()
         Stapel s = cell(*r, "data", "DataGrid", 1.2f);
         auto*  d = s.bred<glaze::DataGrid>(10);
         d->height = 230;
-        d->addColumn("Värd", 96);
-        d->addColumn("Port", 52, glaze::Align::Right);
-        d->addColumn("Protokoll", 84);
-        d->addColumn("Id", 48, glaze::Align::Right);
-        d->setColumnEditor(2, glaze::DataGrid::Editor::Choice);
-        d->setColumnChoices(2, {"HTTP", "HTTPS", "FTP", "SSH"});
-        d->setColumnEditor(3, glaze::DataGrid::Editor::None);
-        const char* const värdar[] = {"alpha", "beta",  "gamma", "delta", "epsilon",
-                                      "zeta",  "eta",   "theta", "iota",  "kappa"};
-        int id = 1;
-        for (const char* v : värdar) {
-            d->addRow({v, std::to_string(8000 + id), id % 2 ? "HTTP" : "HTTPS",
-                       std::to_string(id)});
-            ++id;
-        }
-        d->setRowColor(2, kFel);
-        d->setCurrentCell(0, 0);
-        d->setFillColumn(0);
+        // EN LAGERLISTA med de typade cellerna: kryss (med rubrikkryss),
+        // färg, tal med enhet, en vallista med ikoner, en skrivskyddad kolumn
+        // och en knapp — i två kategorier med en tom rad emellan.
+        using E = glaze::DataGrid::Editor;
+        using S = glaze::ColumnSizing;
+        using K = glaze::DataGrid::RowKind;
+        // Kolumnerna i den ordning de står, och listans mått och gränser.
+        enum Kolumn : int {
+            kNamn, kSynlig, kFarg, kBredd, kOpacitet, kLinje, kId, kTaBort,
+        };
+        constexpr float  kNamnW          = 72.0f;   // namnets golv (Autosize)
+        constexpr float  kLinjeW         = 96.0f;
+        constexpr double kBreddMax       = 20.0;    // linjebredd i px
+        constexpr int    kBreddDecimaler = 1;
+        constexpr double kProcentMax     = 100.0;
+        // Raderna: kategorin Bakgrund är rad 0 och Förgrund rad 5, efter
+        // den tomma raden.
+        constexpr int kRadPlattor   = 1;
+        constexpr int kRadYtor      = 2;
+        constexpr int kRadVatten    = 3;
+        constexpr int kRadVagar     = 6;
+        constexpr int kRadEtiketter = 7;
+        d->setColumns({{.text = "Lager", .width = kNamnW, .sizing = S::Autosize},
+                       {.text = "Synlig", .sizing = S::AutoMin, .headerCheck = true},
+                       {.text = "Färg", .sizing = S::AutoMin},
+                       {.text = "Bredd", .align = glaze::Align::Right,
+                        .sizing = S::AutoMin},
+                       {.text = "Opac.", .align = glaze::Align::Right,
+                        .sizing = S::AutoMin, .toolTip = "Opacitet i procent"},
+                       {.text = "Linje", .width = kLinjeW},
+                       {.text = "Id", .align = glaze::Align::Right,
+                        .sizing = S::AutoMin},
+                       {.text = "", .sizing = S::AutoMin}});
+        d->setColumnEditor(kSynlig, {.editor = E::Check});
+        d->setColumnEditor(kFarg, {.editor = E::Color, .allowAlpha = true});
+        d->setColumnEditor(kBredd, {.editor = E::Number, .min = 0, .max = kBreddMax,
+                                    .decimals = kBreddDecimaler, .suffix = " px"});
+        d->setColumnEditor(kOpacitet, {.editor = E::Number, .min = 0,
+                                       .max = kProcentMax, .decimals = 0,
+                                       .suffix = "%"});
+        d->setColumnEditor(kLinje, {.editor      = E::Choice,
+                               .choices     = {"Hel", "Polylinje", "Kurva"},
+                               .choiceIcons = {ikon(glaze::StockIcon::Line),
+                                               ikon(glaze::StockIcon::Polyline),
+                                               ikon(glaze::StockIcon::Spline)}});
+        d->setColumnEditor(kId, {.editor = E::None});
+        d->setColumnEditor(kTaBort, {.editor = E::Button});
+        struct Lager {
+            const char* namn;
+            const char* synlig;
+            const char* färg;
+            const char* bredd;
+            const char* opacitet;
+            const char* linje;
+        };
+        const Lager bakgrund[] = {
+            {"Plattor", "true", "#C8C8C8FF", "1", "100", "Hel"},
+            {"Ytor", "true", "#7FB77E99", "0.5", "60", "Hel"},
+            {"Vatten", "false", "#3C78D8FF", "0", "80", "Kurva"},
+        };
+        const Lager förgrund[] = {
+            {"Vägar", "true", "#D04030FF", "2.5", "100", "Polylinje"},
+            {"Etiketter", "true", "#202020FF", "", "90", "Hel"},
+            {"Stolpar", "false", "#8040C0FF", "3", "100", "Polylinje"},
+        };
+        int  id   = 1;
+        auto lägg = [&](const Lager& l) {
+            d->addRow({l.namn, l.synlig, l.färg, l.bredd, l.opacitet, l.linje,
+                       std::to_string(id++), "Ta bort"});
+        };
+        auto rubrik = [&](const char* namn) {
+            d->addRow({namn});
+            d->setRowKind(d->rowCount() - 1, K::Category);
+        };
+        rubrik("Bakgrund");
+        for (const Lager& l : bakgrund)
+            lägg(l);
+        d->addRow({});
+        d->setRowKind(d->rowCount() - 1, K::Blank);
+        rubrik("Förgrund");
+        for (const Lager& l : förgrund)
+            lägg(l);
+        // Per CELL: etiketternas bredd får vara tom, ytornas linje är låst
+        // och vägarna går inte att ta bort.
+        d->setCellEditor(kRadEtiketter, kBredd,
+                         {.editor = E::Number, .min = 0, .max = kBreddMax,
+                          .decimals = kBreddDecimaler, .suffix = " px",
+                          .allowEmpty = true, .emptyText = "Auto"});
+        glaze::DataGrid::EditorSpec last = d->columnEditor(kLinje);
+        last.readOnly                    = true;   // ikonen och texten syns
+        d->setCellEditor(kRadYtor, kLinje, std::move(last));
+        d->setCellEnabled(kRadVagar, kTaBort, false);
+        d->setCellToolTip(kRadVagar, kTaBort, "Vägarna är låsta");
+        d->setRowColor(kRadVatten, kFel);
+        d->setSelectionMode(glaze::DataGrid::SelectionMode::FullRow);
+        d->setMultiSelect(true);
+        d->setMultiEdit(true);
+        d->setCurrentCell(kRadPlattor, kNamn);
 
         auto* av = s.fyll<glaze::DataGrid>(8);
-        av->setColumns({{"Värd", 96},
+        av->setColumns({{.text = "Värd", .width = 96, .sizing = S::Autosize},
                         {"Port", 52, glaze::Align::Right},
-                        {"Protokoll", 84}});
-        av->setRows({{{"alpha", "8080", "HTTP"}}, {{"beta", "443", "HTTPS"}}});
+                        {"Synlig", 0, glaze::Align::Left, std::nullopt, S::AutoMin}});
+        constexpr int    kAvPort    = 1;   // den inaktiverades kolumner
+        constexpr int    kAvSynlig  = 2;
+        constexpr double kPortMax   = 65535.0;
+        av->setColumnEditor(kAvPort, {.editor = E::Number, .min = 0,
+                                      .max = kPortMax, .decimals = 0});
+        av->setColumnEditor(kAvSynlig, {.editor = E::Check});
+        av->setRows({{{"alpha", "8080", "true"}}, {{"beta", "443", "false"}}});
         av->setCurrentCell(1, 2);
-        av->setFillColumn(0);
         av->disable();
     }
     {
         Stapel s = cell(*r, "egensk", "PropertyGrid", 0.8f);
         using Slag = glaze::PropertyGrid::Kind;
         std::vector<glaze::PropertyGrid::Row> rader;
-        rader.push_back({.name = "Layout", .kind = Slag::Header});
+        rader.push_back({.name = "Layout", .kind = Slag::Category});
         rader.push_back({"name", "okBtn", {}, true, ""});
         rader.push_back({"text", "Tryck här", {}, false, ""});
         rader.push_back({"dock", "None",
@@ -1043,9 +1131,10 @@ void SlateWindow::radListor()
                          false, ""});
         rader.push_back({.name = "width", .value = "120", .kind = Slag::Number,
                          .min = 0, .max = 4000, .decimals = 0, .suffix = "px"});
-        rader.push_back({.name = "height", .value = "30", .kind = Slag::Number,
-                         .min = 0, .max = 4000, .decimals = 0, .suffix = "px"});
-        rader.push_back({.name = "Utseende", .kind = Slag::Header});
+        rader.push_back({.name = "height", .value = "", .kind = Slag::Number,
+                         .min = 0, .max = 4000, .decimals = 0, .suffix = "px",
+                         .allowEmpty = true, .emptyText = "Automatisk"});
+        rader.push_back({.name = "Utseende", .kind = Slag::Category});
         rader.push_back({.name = "visible", .value = "true", .kind = Slag::Check});
         rader.push_back({.name = "färg", .value = "#3366FFCC", .kind = Slag::Color,
                          .allowAlpha = true});
@@ -1058,8 +1147,11 @@ void SlateWindow::radListor()
                          .enabled = false});
         auto* g   = s.bred<glaze::PropertyGrid>(10);
         g->height = 230;
+        g->setColumnSizing(0, glaze::ColumnSizing::AutoMin);
         g->setRows(rader);
         auto* av = s.fyll<glaze::PropertyGrid>(8);
+        constexpr float kAvNamnW = 72.0f;   // den inaktiverades fasta namnkolumn
+        av->setColumnWidth(0, kAvNamnW);
         av->setRows(rader);
         av->disable();
     }

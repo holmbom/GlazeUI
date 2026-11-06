@@ -9,15 +9,20 @@
 //
 //   HEADLESS     läsvägarna (PG1), höjden ur raderna i skala 1 och 2 (PG2) och
 //                för en inaktiv grid (PG10, infälld),
-//                tooltipen per rad (PG4) och sättarna (PG5) — mot ett Ctx utan
-//                renderer, som measure_gate, och en falsk font.
+//                tooltipen per rad (PG4), sättarna (PG5) och det tomma talet
+//                med kolumnernas sättare (PG11) — mot ett Ctx utan
+//                renderer, som measure_gate, och en falsk font — och
+//                färgcellens tre lägen (PG15) mot en inspelande renderer.
 //   MED FÖNSTER  ett DOLT fönster (`setOffscreen`), händelserna genom fönstrets
 //                RIKTIGA ingång (`AppWindow::handleEvent`) och stegen som en
 //                KEDJA AV POSTADE STEG (commit_gate-prejudikatet: fokusförlustens
 //                event och popupens stängning verkställs i pump-svansen):
 //                staplade gridar i en Panel (PG3), kryssrutan (PG6), talet
-//                (PG7), färgen (PG8) och fällning/inaktivering under en
-//                redigering (PG9).
+//                (PG7), färgen (PG8), fällning/inaktivering under en
+//                redigering (PG9) med användarens fällningshändelser (PG11),
+//                kolumnlägena (PG12), det tomma talet i fältet (PG13),
+//                vallistans ikoner (PG14), färgcellens AutoMin i de tre
+//                lägena (PG16) och `selectOnEdit` (PG17).
 //
 // SABOTAGEN den fäller (en konkret kodändring per fall):
 //   * PG1  `isChecked` som läser `value == "true"` i stället för
@@ -56,6 +61,25 @@
 //          inte) · `setExpanded` som inte stänger en dold rads editor ·
 //          `setRowEnabled(false)` som inte stänger editorn eller inte stegar
 //          `rowGen_` (den köade sparningen fyras ändå)
+//   * PG11 `toggleCategoryFromUser` som fyrar fel händelse eller ingen ·
+//          `setExpanded` som fyrar `onExpand`/`onCollapse` · `isEmpty` som
+//          ignorerar `allowEmpty` (en tom text i en rad utan blir inget fel,
+//          eller ett tomt värde ett fel) · `setColumnWidth`/`setColumnSizing`
+//          utan intervallkontroll
+//   * PG12 `fittedW` som räknar kategoriraderna · `columnW` som läser
+//          `colWidth_` för AutoMin · `valueBounds` som inte klipper kolumn 1
+//          mot gridden (den rullar inte i sidled)
+//   * PG13 `displayNumber` som visar appens råtext i stället för `emptyText`
+//          · `editNumberText` som börjar med `emptyText` · `sameNumber` som
+//          ser två tomma värden som olika (Enter fyrar)
+//   * PG14 `openEditor` som fyller vallistan med `setItems` (ikonerna nollas)
+//          · som behåller förra radens ikoner
+//   * PG15 `drawColor` som ritar hextexten i Swatch · rutan i `checkSize` i
+//          Swatch · rutan också i Hex
+//   * PG16 `valueContentW` som inte skickar `colorDisplay` · `colorW` som
+//          svarar samma bredd i två lägen
+//   * PG17 `openEditor` som alltid markerar allt eller aldrig gör det ·
+//          `setProp` utan `selectOnEdit`
 //
 // VAD DEN INTE MÄTER: utseendet — att varje slag RITAS i varje UI × tema mäter
 // `pixel_gate` (galleri-fixturen) — och färgpopupens utseende (colorpicker_gate).
@@ -117,7 +141,9 @@ bool radLika(const Row& a, const Row& b)
            a.min == b.min && a.max == b.max && a.decimals == b.decimals &&
            a.prefix == b.prefix && a.suffix == b.suffix &&
            a.allowAlpha == b.allowAlpha && a.toolTip == b.toolTip &&
-           a.enabled == b.enabled && a.expanded == b.expanded;
+           a.enabled == b.enabled && a.expanded == b.expanded &&
+           a.allowEmpty == b.allowEmpty && a.emptyText == b.emptyText &&
+           a.choiceIcons == b.choiceIcons && a.colorDisplay == b.colorDisplay;
 }
 
 bool listaLika(const std::vector<Row>& a, const std::vector<Row>& b)
@@ -285,7 +311,7 @@ void fallHojd()
         // Rader före den första rubriken räknas alltid; raderna under en
         // infälld rubrik inte; rubrikraden själv alltid.
         g.setRows({{"A", "1"},
-                   {.name = "H", .kind = K::Header, .expanded = false},
+                   {.name = "H", .kind = K::Category, .expanded = false},
                    {"B", "2"},
                    {"C", "3"}});
         m = Meter::measure(g, c);
@@ -305,9 +331,9 @@ void fallHojd()
               std::to_string(m.h));
 
         // En andra rubrik börjar en ny grupp.
-        g.setRows({{.name = "H1", .kind = K::Header, .expanded = false},
+        g.setRows({{.name = "H1", .kind = K::Category, .expanded = false},
                    {"A", "1"},
-                   {.name = "H2", .kind = K::Header},
+                   {.name = "H2", .kind = K::Category},
                    {"B", "2"}});
         m = Meter::measure(g, c);
         check(nära(m.h, 3.0f * rad),
@@ -323,9 +349,9 @@ void fallHojd()
         // och rubrikerna, inget under dem — och radernas `expanded` står kvar,
         // så den öppnas som förut när den aktiveras.
         g.setRows({{"A", "1"},
-                   {.name = "H1", .kind = K::Header},
+                   {.name = "H1", .kind = K::Category},
                    {"B", "2"},
-                   {.name = "H2", .kind = K::Header},
+                   {.name = "H2", .kind = K::Category},
                    {"C", "3"}});
         m = Meter::measure(g, c);
         check(nära(m.h, 5.0f * rad), "PG10: aktiv — alla fem rader (" + s + ")",
@@ -358,7 +384,7 @@ void fallToolTip()
         {.name = "A", .value = "1", .toolTip = "Radens"},                    // 0
         {.name = "B", .value = "2"},                                         // 1
         {.name = "C", .value = "x", .kind = K::Number, .toolTip = "Radens"}, // 2
-        {.name = "H", .kind = K::Header, .toolTip = "Rubrikens"},            // 3
+        {.name = "H", .kind = K::Category, .toolTip = "Rubrikens"},            // 3
         {.name = "D", .value = "skräp", .kind = K::Color},                   // 4
     });
     const float rad = st.gridRowH;
@@ -373,13 +399,13 @@ void fallToolTip()
     check(t1.str() == "Gridens",
           "PG4: en rad utan tooltip faller tillbaka på gridens", t1.str());
     const glaze::TrText t2 = vid(2);
-    check(t2.id() == glaze::str::PropertyGridInvalid,
+    check(t2.id() == glaze::str::InvalidValue,
           "PG4: felet (token 430) vinner över radens egen tooltip",
           std::to_string(t2.id()));
     const glaze::TrText t3 = vid(3);
     check(t3.str() == "Rubrikens", "PG4: rubrikradens tooltip", t3.str());
     const glaze::TrText t4 = vid(4);
-    check(t4.id() == glaze::str::PropertyGridInvalid,
+    check(t4.id() == glaze::str::InvalidValue,
           "PG4: en färgrad med otolkbart värde bär felets tooltip också utan "
           "egen text", std::to_string(t4.id()));
     const glaze::TrText t5 = g.toolTipAt(c, 40.0f, 5.0f * rad + 3.0f);
@@ -387,7 +413,7 @@ void fallToolTip()
           "PG4: utanför raderna svarar gridens egen", t5.str());
 
     // En dold rad (under en infälld rubrik) har ingen plats att peka på.
-    g.setRows({{.name = "H", .kind = K::Header, .expanded = false},
+    g.setRows({{.name = "H", .kind = K::Category, .expanded = false},
                {.name = "Dold", .value = "1", .toolTip = "Dolda"}});
     const glaze::TrText t6 = g.toolTipAt(c, 40.0f, 1.5f * rad);
     check(t6.str() == "Gridens",
@@ -400,7 +426,7 @@ void fallSattare()
 {
     Grid g;
     g.setRows({{"A", "1"},
-               {.name = "H", .kind = K::Header},
+               {.name = "H", .kind = K::Category},
                {.name = "K", .value = "true", .kind = K::Check}});
     const std::vector<Row> före = g.rows();
 
@@ -426,7 +452,7 @@ void fallSattare()
 
     // addRow och setRow ger EXAKT samma rader som setRows.
     const std::vector<Row> mål{
-        {.name = "Grupp", .kind = K::Header, .expanded = false},
+        {.name = "Grupp", .kind = K::Category, .expanded = false},
         {.name = "Synlig", .value = "false", .kind = K::Check,
          .toolTip = "Visa"},
         {.name = "Bredd", .value = "12.5", .kind = K::Number, .min = 0,
@@ -438,7 +464,7 @@ void fallSattare()
     Grid a;
     a.setRows(mål);
     Grid b;
-    b.addRow({.name = "Grupp", .kind = K::Header});
+    b.addRow({.name = "Grupp", .kind = K::Category});
     b.addRow({.name = "Synlig", .value = "true", .kind = K::Check});
     b.addRow({"Bredd", "12.5", {}, false, "", K::Number, 0, 100, 1, "1:", "mm"});
     b.addRow({.name = "Färg", .value = "#3366FF80", .kind = K::Color,
@@ -458,12 +484,158 @@ void fallSattare()
           "PG5: setRow är tilldelning — slag, gränser och suffix nollas");
 }
 
+// PG11. DET TOMMA TALET och KOLUMNERNAS sättare.
+void fallTomtOchKolumner()
+{
+    const glaze::Style& st = glaze::defaultStyle(glaze::UI::Slate);
+    FalskFont           f(7.0f, st.uiFontSize);
+    const glaze::Ctx    c = ctxFör(st, f, 1.0f);
+
+    Grid g;
+    g.width  = 300.0f;
+    g.height = 200.0f;
+    g.setRows({
+        {.name = "Tom", .value = "", .kind = K::Number, .allowEmpty = true,
+         .emptyText = "Auto"},                                               // 0
+        {.name = "Blank", .value = "  ", .kind = K::Number,
+         .allowEmpty = true},                                                // 1
+        {.name = "Krav", .value = "", .kind = K::Number},                    // 2
+        {.name = "Tal", .value = "3", .kind = K::Number, .allowEmpty = true}, // 3
+    });
+    check(!g.numberValue(0) && !g.hasError(0) && !g.numberValue(1) &&
+              !g.hasError(1),
+          "PG11: allowEmpty — en tom eller blank text är ett värde: "
+          "numberValue nullopt och inget fel");
+    check(g.hasError(2), "PG11: utan allowEmpty är en tom text ett fel");
+    check(g.numberValue(3) == 3.0 && !g.hasError(3),
+          "PG11: allowEmpty rör inte ett tal");
+    const glaze::TrText t =
+        g.toolTipAt(c, 40.0f, 0.5f * st.gridRowH);
+    check(t.id() != glaze::str::InvalidValue,
+          "PG11: ett tomt värde bär inte felets tooltip", std::to_string(t.id()));
+
+    check(g.columnSizing(0) == glaze::ColumnSizing::Manual &&
+              g.columnSizing(1) == glaze::ColumnSizing::Autosize &&
+              g.columnWidth(0) == 0.0f && g.columnWidth(1) == 0.0f,
+          "PG12: förvalen — namnet Manual, värdet Autosize, bredderna 0");
+    g.setColumnWidth(0, 120.0f);
+    g.setColumnSizing(1, glaze::ColumnSizing::AutoMin);
+    g.setColumnWidth(2, 50.0f);
+    g.setColumnWidth(0, -5.0f);
+    g.setColumnSizing(-1, glaze::ColumnSizing::Autosize);
+    g.setColumnSizing(2, glaze::ColumnSizing::Autosize);
+    check(g.columnWidth(0) == 120.0f &&
+              g.columnSizing(1) == glaze::ColumnSizing::AutoMin &&
+              g.columnSizing(0) == glaze::ColumnSizing::Manual &&
+              g.columnWidth(2) == 0.0f,
+          "PG12: sättarna — kolumn utanför 0–1 och negativ bredd ⇒ no-op");
+}
+
+// Renderer som SPELAR IN fyllningarna och texterna — resten är
+// NullRendererns no-op.
+struct Inspelning : gfx::NullRenderer {
+    struct Fyll {
+        gfx::Rectf r;
+        gfx::Color c;
+    };
+    std::vector<Fyll>        fyll;
+    std::vector<std::string> texter;
+
+    void fillRect(const gfx::Rectf& r, gfx::Color c) override
+    {
+        fyll.push_back({r, c});
+    }
+    void fillRoundedRect(const gfx::Rectf& r, float, gfx::Color c) override
+    {
+        fyll.push_back({r, c});
+    }
+    float drawText(gfx::Font&, float, float, const std::string& s,
+                   gfx::Color) override
+    {
+        texter.push_back(s);
+        return 0.0f;
+    }
+    // Den första fyllningen i färgen `c` (nullptr = ingen).
+    const Fyll* fyllning(gfx::Color c) const
+    {
+        for (const Fyll& f : fyll)
+            if (f.c.r == c.r && f.c.g == c.g && f.c.b == c.b && f.c.a == c.a)
+                return &f;
+        return nullptr;
+    }
+    bool ritade(const std::string& s) const
+    {
+        return std::find(texter.begin(), texter.end(), s) != texter.end();
+    }
+};
+
+struct Ritbar : Grid {
+    using Grid::draw;
+};
+
+// PG15. FÄRGCELLENS TRE LÄGEN, ritade mot en inspelande renderer: Swatch
+// (förvalet) en ruta `colorCellSwatchW` bred och `checkSize` hög utan
+// hextext, Hex hextexten utan ruta, Both en ruta i `checkSize` och
+// hextexten. SABOTAGE: `drawColor` som ritar hextexten i Swatch, rutan i
+// `checkSize` i Swatch, eller rutan också i Hex.
+void fallFargcell()
+{
+    const glaze::Style& st = glaze::defaultStyle(glaze::UI::Slate);
+    FalskFont           f(7.0f, st.uiFontSize);
+    const gfx::Color    blå{0x33, 0x66, 0xFF, 0xFF};
+
+    struct Läge {
+        glaze::ColorDisplay d;
+        const char*         namn;
+    };
+    for (const Läge l : {Läge{glaze::ColorDisplay::Swatch, "Swatch"},
+                         Läge{glaze::ColorDisplay::Hex, "Hex"},
+                         Läge{glaze::ColorDisplay::Both, "Both"}}) {
+        Inspelning rec;
+        glaze::Ctx c = ctxFör(st, f, 1.0f);
+        c.r          = &rec;
+        Ritbar g;
+        g.width  = 300.0f;
+        g.height = 100.0f;
+        g.setRows({{.name = "Färg", .value = "#3366FF", .kind = K::Color,
+                    .colorDisplay = l.d}});
+        c.box = g.resolve(c);
+        g.draw(c);
+        const Inspelning::Fyll* ruta = rec.fyllning(blå);
+        const bool text = rec.ritade("#3366FF");
+        const std::string vad = std::string(l.namn) + ": " +
+                                (ruta ? std::to_string(ruta->r.w) + " × " +
+                                            std::to_string(ruta->r.h)
+                                      : std::string("ingen ruta")) +
+                                (text ? ", hextext" : ", ingen hextext");
+        switch (l.d) {
+        case glaze::ColorDisplay::Swatch:
+            check(ruta && nära(ruta->r.w, st.colorCellSwatchW) &&
+                      nära(ruta->r.h, st.checkSize) && !text,
+                  "PG15: Swatch — rutan colorCellSwatchW × checkSize, ingen "
+                  "hextext", vad);
+            break;
+        case glaze::ColorDisplay::Hex:
+            check(!ruta && text, "PG15: Hex — hextexten, ingen ruta", vad);
+            break;
+        case glaze::ColorDisplay::Both:
+            check(ruta && nära(ruta->r.w, st.checkSize) &&
+                      nära(ruta->r.h, st.checkSize) && text,
+                  "PG15: Both — rutan checkSize × checkSize och hextexten", vad);
+            break;
+        }
+    }
+}
+
 // ================================================================ MED FÖNSTER
 
 struct Vard : glaze::AppWindow {
     glaze::Panel stapel;
     Grid         gridA, gridB;   // PG3
     Grid         grid;           // PG6–PG9
+    Grid         kol;            // PG12–PG14
+    Lista        fäll;           // gridens onExpand/onCollapse
+    Lista        kolLogg;        // kol:s onChange/onCommit
     glaze::Button    ok{"OK"};
     glaze::Button    avbryt{"Avbryt"};
     glaze::Button    flytt{"Flytt"};
@@ -489,17 +661,18 @@ struct Vard : glaze::AppWindow {
         ställ(falt, "falt", 280, 10, 120);
         ställ(stapel, "stapel", 450, 10, 300, 300);
         ställ(grid, "grid", 10, 60, 300, 260);
+        ställ(kol, "kol", 450, 330, 300, 200);
 
         gridA.dock = glaze::Dock::Top;
         gridB.dock = glaze::Dock::Top;
         gridA.name = "gridA";
         gridB.name = "gridB";
-        gridA.setRows({{.name = "H", .kind = K::Header}, {"A1", "1"}, {"A2", "2"}});
+        gridA.setRows({{.name = "H", .kind = K::Category}, {"A1", "1"}, {"A2", "2"}});
         gridB.setRows({{"B1", "1"}, {"B2", "2"}, {"B3", "3"}});
 
-        grid.setNameWidth(80);
+        grid.setColumnWidth(0, 80);
         grid.setRows({
-            {.name = "Grupp", .kind = K::Header},                              // 0
+            {.name = "Grupp", .kind = K::Category},                              // 0
             {.name = "Synlig", .value = "true", .kind = K::Check},             // 1
             {.name = "Skala", .value = "10", .kind = K::Number, .min = 0,
              .max = 100},                                                      // 2
@@ -520,6 +693,18 @@ struct Vard : glaze::AppWindow {
         grid.onCommit = [this] {
             logg.push_back("commit " + std::to_string(grid.changedRow()));
         };
+        grid.onExpand = [this](glaze::Widget*, glaze::RowArgs& e) {
+            fäll.push_back("expand " + std::to_string(e.row));
+        };
+        grid.onCollapse = [this](glaze::Widget*, glaze::RowArgs& e) {
+            fäll.push_back("collapse " + std::to_string(e.row));
+        };
+        kol.onChange = [this] {
+            kolLogg.push_back("change " + std::to_string(kol.changedRow()));
+        };
+        kol.onCommit = [this] {
+            kolLogg.push_back("commit " + std::to_string(kol.changedRow()));
+        };
         ok.onClick     = [this] { ++okKlick; };
         avbryt.onClick = [this] { ++avbrytKlick; };
 
@@ -531,6 +716,7 @@ struct Vard : glaze::AppWindow {
         stapel.adopt(gridA);
         stapel.adopt(gridB);
         root().adopt(grid);
+        root().adopt(kol);
         setAcceptButton(ok);
         setCancelButton(avbryt);
     }
@@ -578,7 +764,7 @@ struct Vard : glaze::AppWindow {
 
     // Raden på PLATSEN `pos` bland de synliga: värdecellen och namncellen —
     // ur KONTRAKTET (ingen ram, `gridRowH` hög, värdekolumnen från
-    // `nameWidth` = 80), aldrig ur widgetens egna rect-funktioner.
+    // namnkolumnens satta bredd 80), aldrig ur widgetens egna rect-funktioner.
     gfx::Pointf värde(Grid& g, int pos)
     {
         const gfx::Rectf r = g.resolve(g.behaviorCtx());
@@ -596,12 +782,22 @@ struct Vard : glaze::AppWindow {
     float radHöjd() { return style().gridRowH * window().uiScale(); }
 
     // Den SYNLIGA editorn i gridden (hög ett barn åt gången), och dess fält.
-    glaze::Widget* editor()
+    glaze::Widget* editor(Grid& g)
     {
-        for (glaze::Widget* b : grid.children())
+        for (glaze::Widget* b : g.children())
             if (b->isVisible())
                 return b;
         return nullptr;
+    }
+    glaze::Widget* editor() { return editor(grid); }
+    // Ett tryck i `kol`s första rad, `lx` logiska px in — och editorn som öppnades.
+    glaze::Widget* tryckKol(float lx, int pos = 0)
+    {
+        const gfx::Rectf r = kol.resolve(kol.behaviorCtx());
+        const float      s = window().uiScale();
+        klick(gfx::Pointf{r.x + lx * s,
+                          r.y + (float(pos) + 0.5f) * style().gridRowH * s});
+        return editor(kol);
     }
     int synliga()
     {
@@ -839,7 +1035,7 @@ void fallMedFonster()
                 const gfx::Pointf p = w.värde(w.grid, 2);
                 const glaze::TrText t =
                     w.grid.toolTipAt(w.grid.behaviorCtx(), p.x, p.y);
-                check(t.id() == glaze::str::PropertyGridInvalid,
+                check(t.id() == glaze::str::InvalidValue,
                       "PG7: felets verktygstips (token 430)",
                       std::to_string(t.id()));
             }
@@ -914,8 +1110,11 @@ void fallMedFonster()
                 steg = 6;   // vidare till PG9
                 break;
             }
-            glaze::ColorPicker* cp = w.färg();
-            check(cp && !cp->isOpen(), "PG8: valet stängde popupen");
+            // Popupens stängning avslutar redigeringen: väljaren är gömd.
+            check(w.färg() == nullptr && w.grid.activeRow() == -1,
+                  "PG8: valet stängde popupen och avslutade redigeringen",
+                  std::to_string(w.grid.activeRow()));
+            glaze::ColorPicker* cp = nullptr;
             // Alfa-raden: alfan bevaras vid ett val, texten är åtta siffror.
             märke = w.logg.size();
             w.klick(w.värde(w.grid, 5));
@@ -979,7 +1178,11 @@ void fallMedFonster()
             check(w.fält() && w.grid.activeRow() == 6,
                   "PG9: textraden öppnad", std::to_string(w.grid.activeRow()));
             w.skriv("z");
+            w.fäll.clear();
             w.klick(w.namn(w.grid, 0));
+            check(w.fäll == Lista{"collapse 0"},
+                  "PG11: användarens ihopfällning fyrar onCollapse en gång, med "
+                  "raden i e.row", text(w.fäll));
             check(w.grid.rows()[6].value == "z" && !w.grid.rows()[0].expanded &&
                       w.grid.activeRow() == -1 &&
                       Lista(w.logg.begin() + long(märke), w.logg.end()) ==
@@ -997,7 +1200,10 @@ void fallMedFonster()
             // Ut igen: ett tryck på rubriken, ingen händelse.
             w.klick(w.namn(w.grid, 0));
             check(w.grid.rows()[0].expanded && w.logg.size() == märke,
-                  "PG9: ett tryck på rubriken fäller ut igen, utan event");
+                  "PG9: ett tryck på rubriken fäller ut igen, utan onChange");
+            check(w.fäll == Lista{"collapse 0", "expand 0"},
+                  "PG11: användarens utfällning fyrar onExpand en gång",
+                  text(w.fäll));
 
             // setExpanded(false) under redigering: stängs UTAN att spara.
             w.klick(w.värde(w.grid, 6));
@@ -1008,6 +1214,9 @@ void fallMedFonster()
                   "PG9: setExpanded(false) stänger den dolda radens editor utan "
                   "att spara", w.grid.rows()[6].value);
             w.grid.setExpanded(0, true);
+            check(w.fäll == Lista{"collapse 0", "expand 0"},
+                  "PG11: setExpanded fyrar varken onExpand eller onCollapse",
+                  text(w.fäll));
 
             // setRowEnabled(false) under redigering.
             w.klick(w.värde(w.grid, 6));
@@ -1039,9 +1248,260 @@ void fallMedFonster()
                   "PG9: setRowEnabled(false) slopade den köade sparningen — "
                   "inga events i pump-svansen",
                   text(Lista(w.logg.begin() + long(märke), w.logg.end())));
+            w.flytt.focus();   // gridens dolda editor släpper fokus
+            break;
+        }
+        case 8: {
+            // ---- PG12. KOLUMNLÄGENA — editorns plats och bredd i `kol` (ingen
+            //            ram, 300 bred) är kolumnernas, i logiska px.
+            const auto&       m   = w.style();
+            const glaze::Ctx  c   = w.kol.behaviorCtx();
+            const std::string lång = "Ett mycket längre namn";
+            const std::string bred = "bbbbbbbbbbbbbbbb";
+            w.kol.setRows({
+                {"Kort", "a"},
+                {lång, bred},
+                {.name = "En ännu mycket mycket längre kategorirad",
+                 .kind = K::Category},
+            });
+            const float cw = 300.0f - m.scrollThick;   // innehållsbredden
+            auto        plats = [&](float lx) {
+                glaze::Widget* e = w.tryckKol(lx);
+                const std::pair<float, float> p =
+                    e ? std::pair<float, float>{e->x, e->width}
+                      : std::pair<float, float>{-1.0f, -1.0f};
+                w.tangent(gfx::Key::Escape);
+                return p;
+            };
+            const auto txt = [](std::pair<float, float> p) {
+                return std::to_string(p.first) + " / " + std::to_string(p.second);
+            };
+
+            auto p = plats(m.gridNameW + 5.0f);
+            check(nära(p.first, m.gridNameW) && nära(p.second, cw - m.gridNameW),
+                  "PG12: förvalet — namnet gridNameW, värdet Autosize tar resten",
+                  txt(p));
+
+            const float namnFit = std::max(
+                m.columnMinW, glaze::Draw::measure(c, lång).w + 2.0f * m.gridPadX);
+            w.kol.setColumnSizing(0, glaze::ColumnSizing::AutoMin);
+            p = plats(namnFit + 5.0f);
+            check(nära(p.first, namnFit) && nära(p.second, cw - namnFit),
+                  "PG12: AutoMin för namnet — det bredaste namnet med luft, "
+                  "kategoriraden räknas inte", txt(p) + " mot " +
+                                                   std::to_string(namnFit));
+
+            w.kol.setColumnSizing(0, glaze::ColumnSizing::Manual);
+            w.kol.setColumnWidth(0, 50.0f);
+            p = plats(55.0f);
+            check(nära(p.first, 50.0f) && nära(p.second, cw - 50.0f),
+                  "PG12: Manual — den satta bredden", txt(p));
+
+            const float värdeFit = std::max(
+                m.columnMinW, glaze::Draw::measure(c, bred).w + 2.0f * m.gridPadX);
+            w.kol.setColumnSizing(1, glaze::ColumnSizing::AutoMin);
+            p = plats(55.0f);
+            check(nära(p.first, 50.0f) && nära(p.second, värdeFit),
+                  "PG12: AutoMin för värdet — den bredaste värdecellen med luft",
+                  txt(p) + " mot " + std::to_string(värdeFit));
+
+            w.kol.setColumnSizing(1, glaze::ColumnSizing::Manual);
+            w.kol.setColumnWidth(1, 90.0f);
+            p = plats(55.0f);
+            check(nära(p.first, 50.0f) && nära(p.second, 90.0f),
+                  "PG12: Manual för värdet — den satta bredden", txt(p));
+
+            w.kol.setColumnSizing(1, glaze::ColumnSizing::Autosize);
+            w.kol.setColumnWidth(1, 400.0f);
+            p = plats(55.0f);
+            check(nära(p.first, 50.0f) && nära(p.second, cw - 50.0f),
+                  "PG12: Autosize med ett golv bredare än gridden klipps — "
+                  "gridden rullar inte i sidled", txt(p));
+            w.kol.setColumnWidth(1, 0.0f);
+            break;
+        }
+        case 9: {
+            // ---- PG13. DET TOMMA TALET i fältet: börjar tomt, sparas tomt, och
+            //            `emptyText` är det som visas (AutoMin-bredden är dess).
+            const auto&       m   = w.style();
+            const glaze::Ctx  c   = w.kol.behaviorCtx();
+            const std::string tom = "Automatiskt värde";
+            w.kol.setRows({{.name = "Tal", .value = "", .kind = K::Number,
+                            .allowEmpty = true, .emptyText = tom}});
+            w.kol.setColumnSizing(1, glaze::ColumnSizing::AutoMin);
+            glaze::Widget* e = w.tryckKol(55.0f);
+            const float    visad = std::max(
+                m.columnMinW, glaze::Draw::measure(c, tom).w + 2.0f * m.gridPadX);
+            // Fältet når cellens högerkant med sin egen luft i stället för
+            // cellens (numberFieldRect utan suffix).
+            check(e && nära(e->x + e->width,
+                            50.0f + visad - m.gridPadX + m.fieldPadX),
+                  "PG13: det tomma värdet visas som emptyText (värdecellens "
+                  "bredd är dess)",
+                  e ? std::to_string(e->x + e->width) : "ingen editor");
+            w.kol.setColumnSizing(1, glaze::ColumnSizing::Autosize);
+            glaze::TextInput* f = dynamic_cast<glaze::TextInput*>(e);
+            check(f && f->text().empty(),
+                  "PG13: fältet börjar tomt, inte med emptyText",
+                  f ? f->text() : "ingen editor");
+            märke = w.kolLogg.size();
+            w.tangent(gfx::Key::Return);
+            check(w.kol.rows()[0].value.empty() && !w.kol.hasError(0) &&
+                      w.kolLogg.size() == märke,
+                  "PG13: tomt + Enter ⇒ inget fel och inga events (samma tomma "
+                  "värde)", w.kol.rows()[0].value);
+            w.tryckKol(55.0f);
+            w.skriv("5");
+            w.tangent(gfx::Key::Return);
+            check(w.kol.rows()[0].value == "5" && w.kol.numberValue(0) == 5.0,
+                  "PG13: ett tal sparas som vanligt", w.kol.rows()[0].value);
+            märke = w.kolLogg.size();
+            w.tryckKol(55.0f);
+            w.tangent(gfx::Key::Backspace);   // den markerade texten bort
+            w.tangent(gfx::Key::Return);
+            check(w.kol.rows()[0].value.empty() && !w.kol.hasError(0) &&
+                      !w.kol.numberValue(0) &&
+                      Lista(w.kolLogg.begin() + long(märke), w.kolLogg.end()) ==
+                          Lista{"change 0", "commit 0"},
+                  "PG13: talet tömt + Enter ⇒ det tomma värdet sparas, ett par, "
+                  "inget fel", w.kol.rows()[0].value);
+            break;
+        }
+        case 10: {
+            // ---- PG14. VALLISTANS IKONER når listan.
+            const glaze::ImageSource hel =
+                glaze::stockIcon(glaze::StockIcon::Save);
+            const glaze::ImageSource streck =
+                glaze::stockIcon(glaze::StockIcon::Open);
+            w.kol.setRows({{.name = "Linje", .value = "Streckad",
+                            .choices = {"Heldragen", "Streckad"},
+                            .choiceIcons = {hel, streck}}});
+            glaze::Dropdown* dd = dynamic_cast<glaze::Dropdown*>(w.tryckKol(55.0f));
+            check(dd && dd->items() == Lista{"Heldragen", "Streckad"} &&
+                      dd->itemIcon(0) == hel && dd->itemIcon(1) == streck &&
+                      dd->selectedIndex() == 1,
+                  "PG14: choiceIcons når vallistan, post för post");
+            w.tangent(gfx::Key::Escape);
+            w.kol.setRows({{.name = "Linje", .value = "Heldragen",
+                            .choices = {"Heldragen", "Streckad"}}});
+            dd = dynamic_cast<glaze::Dropdown*>(w.tryckKol(55.0f));
+            check(dd && !dd->itemIcon(0).valid() && !dd->itemIcon(1).valid(),
+                  "PG14: en vallista utan ikoner har inga kvar från förra raden");
+            w.tangent(gfx::Key::Escape);
+            break;
+        }
+        case 11: {
+            // ---- PG16. FÄRGCELLENS AutoMin i de tre lägena. Editorn
+            //            (färgväljaren) är värdekolumnens bredd, och raderna
+            //            står i tre gridar efter varandra: Swatch (förvalet) är
+            //            rutan `colorCellSwatchW`, Hex hextexten och Both rutan
+            //            i `checkSize`, luften och hextexten — med cellens
+            //            luft. SABOTAGE: `valueContentW` som inte skickar
+            //            `colorDisplay`, eller `colorW` som svarar samma bredd i
+            //            två lägen.
+            const auto& m = w.style();
+            w.kol.setColumnSizing(1, glaze::ColumnSizing::AutoMin);
+            w.kol.setRows({{.name = "Färg", .value = "#3366FF", .kind = K::Color}});
+            glaze::Widget* e    = w.tryckKol(55.0f);
+            const float    ruta = std::max(m.columnMinW,
+                                           m.colorCellSwatchW + 2.0f * m.gridPadX);
+            check(e && nära(e->width, ruta),
+                  "PG16: AutoMin för en färgrad i Swatch (förvalet) är rutan "
+                  "colorCellSwatchW med luft",
+                  (e ? std::to_string(e->width) : std::string("ingen editor")) +
+                      " mot " + std::to_string(ruta));
+            w.kol.setRows({{.name = "Färg", .value = "#3366FF", .kind = K::Color,
+                            .colorDisplay = glaze::ColorDisplay::Hex}});
+            break;
+        }
+        case 12: {
+            const auto&      m = w.style();
+            const glaze::Ctx c = w.kol.behaviorCtx();
+            glaze::Widget*   e = w.tryckKol(55.0f);
+            const float      hex = std::max(
+                m.columnMinW,
+                glaze::Draw::measure(c, "#3366FF").w + 2.0f * m.gridPadX);
+            check(e && nära(e->width, hex),
+                  "PG16: AutoMin för en färgrad i Hex är hextexten med luft",
+                  (e ? std::to_string(e->width) : std::string("ingen editor")) +
+                      " mot " + std::to_string(hex));
+            w.kol.setRows({{.name = "Färg", .value = "#3366FF", .kind = K::Color,
+                            .colorDisplay = glaze::ColorDisplay::Both}});
+            break;
+        }
+        case 13: {
+            const auto&      m = w.style();
+            const glaze::Ctx c = w.kol.behaviorCtx();
+            glaze::Widget*   e = w.tryckKol(55.0f);
+            const float      båda = std::max(
+                m.columnMinW, m.checkSize + m.checkGap +
+                                  glaze::Draw::measure(c, "#3366FF").w +
+                                  2.0f * m.gridPadX);
+            check(e && nära(e->width, båda),
+                  "PG16: AutoMin för en färgrad i Both är rutan, luften och "
+                  "hextexten",
+                  (e ? std::to_string(e->width) : std::string("ingen editor")) +
+                      " mot " + std::to_string(båda));
+            w.kol.setColumnSizing(1, glaze::ColumnSizing::Autosize);
+            w.kol.setRows({{"Namn", "abc"},
+                           {.name = "Tal", .value = "12", .kind = K::Number}});
+            break;
+        }
+        case 14: {
+            // ---- PG17. TEXTEN MARKERAD VID REDIGERING. Förvalet (true): ett
+            //            klick öppnar fritext- och talfältet med HELA texten
+            //            markerad. Med false: markören sist och ingenting
+            //            markerat, och det man skriver hamnar efter texten.
+            //            (Gridden börjar en redigering bara med ett klick — den
+            //            är inget tabbstopp.) SABOTAGE: `openEditor` som alltid
+            //            markerar allt (inte frågar `selectOnEdit_`), eller som
+            //            aldrig gör det.
+            const auto helaMarkerad = [&](glaze::Widget* e, const std::string& v) {
+                const glaze::TextInput* f = dynamic_cast<glaze::TextInput*>(e);
+                return f && f->text() == v && f->hasSelection() &&
+                       f->selBegin() == 0 && f->selEnd() == v.size();
+            };
+            const auto sistUtan = [&](glaze::Widget* e, const std::string& v) {
+                const glaze::TextInput* f = dynamic_cast<glaze::TextInput*>(e);
+                return f && f->text() == v && !f->hasSelection() &&
+                       f->caret() == v.size();
+            };
+            check(w.kol.selectOnEdit(), "PG17: selectOnEdit är true som förval");
+            check(helaMarkerad(w.tryckKol(55.0f, 0), "abc"),
+                  "PG17: selectOnEdit — klicket öppnar fritexten med hela texten "
+                  "markerad");
+            w.tangent(gfx::Key::Escape);
+            check(helaMarkerad(w.tryckKol(55.0f, 1), "12"),
+                  "PG17: selectOnEdit — klicket öppnar talet med hela texten "
+                  "markerad");
+            w.tangent(gfx::Key::Escape);
+
+            w.kol.setSelectOnEdit(false);
+            check(sistUtan(w.tryckKol(55.0f, 0), "abc"),
+                  "PG17: utan selectOnEdit — fritexten med markören sist och "
+                  "inget markerat");
+            w.skriv("d");
+            {
+                const glaze::TextInput* f =
+                    dynamic_cast<glaze::TextInput*>(w.editor(w.kol));
+                check(f && f->text() == "abcd",
+                      "PG17: utan selectOnEdit hamnar det skrivna efter texten",
+                      f ? f->text() : "ingen editor");
+            }
+            w.tangent(gfx::Key::Escape);
+            check(sistUtan(w.tryckKol(55.0f, 1), "12"),
+                  "PG17: utan selectOnEdit — talet med markören sist och inget "
+                  "markerat");
+            w.tangent(gfx::Key::Escape);
+            w.kol.setSelectOnEdit(true);
+            check(w.kol.setProp("selectOnEdit", "false") && !w.kol.selectOnEdit() &&
+                      w.kol.setProp("selectOnEdit", "true") && w.kol.selectOnEdit(),
+                  "PG17: setProp selectOnEdit når gridden");
+            break;
+        }
+        case 15:
             w.close();
             return;
-        }
         default:
             w.close();
             return;
@@ -1072,6 +1532,8 @@ int main(int argc, char** argv)
     fallHojd();
     fallToolTip();
     fallSattare();
+    fallTomtOchKolumner();
+    fallFargcell();
     fallMedFonster();
 
     if (g_skips)

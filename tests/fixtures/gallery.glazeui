@@ -383,7 +383,7 @@ void WidgetGallery::initializeComponent()
     grid1.width = 140;
     grid1.height = 92;
     grid1.setBorder(true);
-    grid1.setRows({{.name = "Grupp", .kind = glaze::PropertyGrid::Kind::Header}, {.name = "Synlig", .value = "true", .kind = glaze::PropertyGrid::Kind::Check}, {.name = "Färg", .value = "#3366FF80", .kind = glaze::PropertyGrid::Kind::Color, .allowAlpha = true}, {.name = "Skala", .value = "1.5", .kind = glaze::PropertyGrid::Kind::Number, .min = 0, .max = 10, .decimals = 1, .prefix = "1:", .suffix = "%"}});
+    grid1.setRows({{.name = "Grupp", .kind = glaze::PropertyGrid::Kind::Category}, {.name = "Synlig", .value = "true", .kind = glaze::PropertyGrid::Kind::Check}, {.name = "Färg", .value = "#3366FF80", .kind = glaze::PropertyGrid::Kind::Color, .allowAlpha = true}, {.name = "Skala", .value = "1.5", .kind = glaze::PropertyGrid::Kind::Number, .min = 0, .max = 10, .decimals = 1, .prefix = "1:", .suffix = "%"}});
 
     grid2.x = 156;
     grid2.y = 28;
@@ -816,7 +816,7 @@ void WidgetGallery::initializeComponent()
     listaN.setRowColor(3, gfx::Color{0, 140, 0});
     listaN.setShowChecks(true);
     listaN.setChecked(1, true);
-    listaN.setFillColumn(0);
+    listaN.setColumnSizing(0, glaze::ColumnSizing::Autosize);
 
     listaD.x = 8;
     listaD.y = 178;
@@ -850,12 +850,11 @@ void WidgetGallery::initializeComponent()
     dataN.y = 30;
     dataN.width = 288;
     dataN.height = 128;
-    dataN.setColumnEditor(1, glaze::DataGrid::Editor::Choice);
-    dataN.setColumnChoices(1, {"Ny", "Pågår", "Klar"});
+    dataN.setColumnEditor(1, {glaze::DataGrid::Editor::Choice, {"Ny", "Pågår", "Klar"}});
     dataN.addColumn("Uppgift", 132);
     dataN.addColumn("Status", 84);
     dataN.addColumn("Id", 52, glaze::Align::Right);
-    dataN.setColumnEditor(2, glaze::DataGrid::Editor::None);
+    dataN.setColumnEditor(2, {.editor = glaze::DataGrid::Editor::None});
     dataN.addRow({"Skriv grinden", "Pågår", "24"});
     dataN.addRow({"Rita recepten", "Klar", "17"});
     dataN.addRow({"Uppdatera TODO", "Ny", "3"});
@@ -868,7 +867,7 @@ void WidgetGallery::initializeComponent()
     dataD.height = 82;
     dataD.setColumns({{"Uppgift", 132}, {"Status", 84}, {"Id", 52, glaze::Align::Right}});
     dataD.setRows({{{"Skriv grinden", "Pågår", "24"}}, {{"Rita recepten", "Klar", "17"}}});
-    dataD.setColumnEditor(2, glaze::DataGrid::Editor::None);
+    dataD.setColumnEditor(2, {.editor = glaze::DataGrid::Editor::None});
     dataD.setSortColumn(2);
     dataD.setCurrentCell(1, 0);
     dataD.disable();

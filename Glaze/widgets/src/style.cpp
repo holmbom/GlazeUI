@@ -456,6 +456,16 @@ constexpr Style kSlateRegular{
                                     // eller pekarens rörelse; pekaren på
                                     // remsan håller den kvar. Glaze och
                                     // Minimalistic ärver det
+
+    // ---- Tabellens kategorier och cellknappar. SIST i tabellen, som fälten.
+    /* tableCategoryIndent */ 16.0f, // = `treeIndent`: en kategoris rader
+                                     // står in som ett träds barn
+    /* cellButtonInset     */ 2.0f,  // knappen fyller cellen utom en
+                                     // hårlinjes luft och kanten
+
+    // ---- Färgcellens ruta. SIST i tabellen, som fältet.
+    /* colorCellSwatchW */ 56.0f,    // 4 × `checkSize` (14): lika hög som
+                                     // rutan med hextext, fyra gånger så bred
 };
 
 // De fyra `*DefaultLen` är AVSIKTLIGT samma tal (200 logiska px). En remsa
@@ -489,6 +499,7 @@ constexpr Style kGlazeRegular = [] {
     // Kontrollernas och statusradens höjder är familjens egna, inte Slates.
     m.fieldPadY      = 6.0f;
     m.checkSize      = 18.0f;
+    m.colorCellSwatchW = 72.0f;   // 4 × familjens `checkSize`
     m.radioSize      = 18.0f;
     m.radioDot       = 8.0f;
     m.statusBarH     = 24.0f;
@@ -603,6 +614,7 @@ constexpr Style kMinimalisticRegular = [] {
     // Kontrollernas och statusradens höjder är familjens egna, inte Slates.
     m.fieldPadY      = 6.0f;
     m.checkSize      = 18.0f;
+    m.colorCellSwatchW = 72.0f;   // 4 × familjens `checkSize`
     m.radioSize      = 18.0f;
     m.radioDot       = 8.0f;
     m.statusBarH     = 24.0f;
@@ -667,6 +679,7 @@ constexpr Style kMinimalisticRegular = [] {
     // `listRowH` (Minimalistics måttabell är utseendepassets).
     m.treeIndent    = 12.0f;
     m.treeExpanderW = 12.0f;
+    m.tableCategoryIndent = 12.0f;   // = `treeIndent`, som i Slate
 
     // ---- Tabellen — huvudet följer RADERNA, och de ärver
     // Slates `listRowH`/`gridRowH` (Minimalistics måttabell är

@@ -234,6 +234,11 @@ struct ClickArgs  : EventArgs {};
 struct HoverArgs  : EventArgs { bool entered = false; };  // in (true) / ut
 struct ChangeArgs : EventArgs {};
 
+// EN RAD ändrades i struktur — tabellens och egenskapslistans
+// `onExpand`/`onCollapse`: `row` är APPENS radindex. Ärver `ChangeArgs`, så en
+// handler skriven för `ChangeArgs&` tar emot den också.
+struct RowArgs : ChangeArgs { int row = -1; };
+
 // AKTIVERINGEN — användaren "öppnade" den aktuella
 // posten: dubbelklick på den eller Enter (WinForms `ItemActivate`, wx
 // `EVT_LIST_ITEM_ACTIVATED`, Qt `activated`). Skild från `onChange` med

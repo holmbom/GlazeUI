@@ -344,7 +344,9 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   stängd) och går aldrig genom ListBoxens ANVÄNDARväg — ingen dubbelfyrning.
   `setItems`/`addItem`/`setItem`/`setTextSize` STÄNGER en öppen popup (listan har en kopia; storleken gäller raderna).
   **KOLLEKTIONSVOKABULÄREN**: `addItem`/`setItem`/`setItems` — IDENTISK med
-  `ListBox`s (nedan); en form att lära sig, inte tre.
+  `ListBox`s (nedan); en form att lära sig, inte tre. **POSTENS IKON**: `addItem(text, ikon)`/
+  `setItem(index, text, ikon)` (tilldelning — utelämnad ikon nollas), `itemIcon(index)`; ikonen står i
+  popupens rad och för det valda i fältet, och `setItems` bär bara texterna och nollar ikonerna.
 - **`listbox.h`** — `ListBox : Panel`: rullande lista med enkelval — eller
   FLERVAL (FAS1_B_WIDGETS) med LISTVYNS ord och regler (`setMultiSelect`,
   `setSelected`/`isSelected`, `selectedRows()`, `selectAll`/`clearSelection`,
@@ -410,36 +412,24 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   TEXTEN på en omarkerad rad — markeringens färg vinner, inaktivt `textDim`,
   pilen och bocken följer temat. **AKTIVERINGEN** är listvyns `onActivate` på
   den AKTUELLA noden (en nod med barn fälls också, PILEN aktiverar aldrig;
-  Enter bara med `onActivate` satt, som listvyns). **SNABBMENYN** (REQ3):
+  Enter bara med `onActivate` satt, som listvyns). **SNABBMENYN**:
   `pathAt(localX, localY)` (`{}` utanför raderna) och `contextPath()` (noden under
-  det senaste högertrycket, hållen vid ID — `{}` inaktiverat eller borta);
-  högertrycket väljer som ListBoxens. Autoskrollen under ett drag är basens.
-  **DRAG-AND-DROP är opt-in** (`allowDrag`/`allowDrop`): från en VALD nod HELA
-  valet, beskuret till sina översta noder, annars den tryckta — aldrig från
-  pilen, rutan eller remsan (`canDragFrom`); lasten är stigarna med `;` i
-  `kNodeFormat` och texterna i `text/plain`. Platsen räknas ur `treeDropEdge`
-  (före/efter/in i; under en utfälld nod först bland barnen), och trädet ritar
-  sin linje (`ownsDropIndicator`). **APPENS GODKÄNNANDE** (REQ2_TRAD_LISTOR):
-  trädet FÖRESLÅR `Move`, `onDragOver` (också vid inträdet) kan neka, och
-  `onDrop` körs FÖRE flytten — `None` nekar, `handled` = appen flyttade själv —
-  annars flyttar privata `moveIds` (allt validerat FÖRE mutation) till LUCKAN
-  appen såg: `DropSpot` håller förälderns och grannarnas ID, löst vid varje
-  `dropParent()`/`dropIndex()`; en lucka eller dragen nod som försvunnit ger
-  `None`. `draggedPaths()` gäller från `onDragStart` (`isDragSource`). En
-  `Move` till ett ANNAT mål tar bort alla. **SLÄPPREGELN PER NOD** (post 49,
-  `setAllowDropInto`, femte fältet): ett LÖV för släppet — före/efter går, "in
-  i" aldrig, och `dropParent()` pekar aldrig på en nod som säger nej.
-  **KOLUMNERNA** (REQ8 13) är basens (inget huvud utan kolumner); kolumn 0
-  är nodens text, 1… `TreeNode::cells`/`setCell(stig, kolumn, text)`, och
-  syskonen SORTERAS när `rows()` byggs — stigarna är appens. **BREDD EFTER
-  INNEHÅLLET** (REQ8 8): `cellContentW` mäter de SYNLIGA raderna (kolumn 0 =
-  indrag + pil + ruta + ikon + text, 1… cellerna); `rowsChanged`, `setNode`,
-  `setCell` och `setShowChecks` anropar `contentChanged()`, och
-  `mouseDoubleClick` frågar `headerDoubleClick` FÖRST.
+  det senaste högertrycket, hållen vid ID); högertrycket väljer som ListBoxens.
+  **DRAG-AND-DROP är opt-in** (`allowDrag`/`allowDrop`, lasten i `kNodeFormat`)
+  med appens godkännande (`onDragOver` kan neka, `onDrop` körs FÖRE flytten,
+  `handled` = appen flyttade själv) och släppregeln per nod (`setAllowDropInto`)
+  — reglerna står i filhuvudet; flytten går till LUCKAN appen såg (`DropSpot`,
+  hållen vid ID:n), allt validerat FÖRE mutation. **KOLUMNERNA** är basens (inget
+  huvud utan kolumner); kolumn 0 är nodens text, 1… `TreeNode::cells`/
+  `setCell(stig, kolumn, text)`, och syskonen SORTERAS när `rows()` byggs —
+  stigarna är appens. `cellContentW` mäter de SYNLIGA raderna (kolumn 0 = indrag
+  + pil + ruta + ikon + text); `rowsChanged`, `setNode`, `setCell` och
+  `setShowChecks` anropar `contentChanged()`, och `mouseDoubleClick` frågar
+  `headerDoubleClick` FÖRST.
 - **`column_panel.h`** — `ColumnPanel : Panel`, KOLUMNHUVUDET som delad bas
   (REQ8 13) för `Table` och `TreeView`; registreras INTE, konstruktorn är
   skyddad. Den äger KOLUMNERNA (aggregatet `Column` {text som `TrText`, bredd
-  i logiska px, justering, rubrikjustering} — `Table::Column` är samma typ,
+  i logiska px, justering, rubrikjustering, läge, tooltip, rubrikkryss} — `Table::Column` är samma typ,
   `addColumn`/`setColumn`/`setColumns`/`setColumnWidth`), sorteringens
   TILLSTÅND (`setSortColumn`/`setSortAscending`/`setSortable`), huvudets
   geometri och ritning (`headerRect`, `scrollViewport`, `columnX`/`columnW`,
@@ -452,29 +442,28 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   fältet; utelämnad = cellernas `align`), `setHeaderLines(n)` (`tableHeaderH`
   + (n − 1) radhöjder; 0 = AUTO, cachat mot font, skala, luft och en
   generation) och `setHeaderVAlign` — rubriken bryts av `Draw::elideLines`,
-  och AUTO räknar utan sorteringspilen. **FYLLKOLUMNEN** (`setFillColumn`,
-  REQ3, −1 = ingen) tar resten av bredden; dess avdelare går inte att greppa.
-  **KOLUMNBREDD EFTER INNEHÅLLET** (REQ8 8): `Column::autoWidth` (−1, varje
-  negativ bredd) gör kolumnens bas till `fittedW` — rubrikens bredaste rad
-  (pilens plats alltid reserverad när huvudet är sorterbart) och kroken
-  `cellContentW` (subklassens, utan luft), med `cellPadX` på båda sidor och
-  minst `columnMinW` — cachat per kolumn i `FitCache` mot font, stil, skala,
-  sorteringstillstånd och `fitGen_` (`contentChanged()`: subklassen anropar
-  den när det den mäter ändras). `headerDoubleClick` (anropas FÖRST i
-  subklassens `mouseDoubleClick`) skriver `fittedW` som en FAST bredd på en
-  avdelare och avslutar det drag det andra trycket började. **FASTA FÖRSTA
+  och AUTO räknar utan sorteringspilen. **KOLUMNLÄGET** (`ColumnSizing`
+  Manual/AutoMin/Autosize, `Column::sizing`/`setColumnSizing` — EN stavning för tabellerna, trädet och
+  PropertyGrid; räkningen i `../../src/column_sizing.h`): Manual är `width`; AutoMin är `fittedW` —
+  rubrikens bredaste rad (pilens plats alltid reserverad när huvudet är sorterbart, och rubrikkryssets
+  zon) och kroken `cellContentW` (subklassens, utan luft), med `cellPadX` på båda sidor och minst
+  `columnMinW`; Autosize får sin bas plus en LIKA del av det som blir över (avdelaren går inte att
+  greppa). `fittedW` cachas per kolumn i `FitCache` mot font, stil, skala, sorteringstillstånd, `fitGen_`
+  och kolumnens egen generation — `contentChanged()` för alla, `contentChanged(kolumn)` för en. Ett drag
+  och `headerDoubleClick` (anropas FÖRST i subklassens `mouseDoubleClick`, avslutar det drag det andra
+  trycket började) skriver `Manual` med bredden. **RUBRIKENS TOOLTIP OCH KRYSS**: `setColumnToolTip`
+  (`toolTipAt` över rubriken) och `setColumnHeaderCheck` — läget och vändningen är subklassens krokar
+  `headerCheckState`/`headerCheckToggled`, och ett tryck i zonen sorterar aldrig. **FASTA FÖRSTA
   KOLUMNEN** (REQ8 7): kroken `frozenW` (0 i basen — trädet) — `scrollViewport`
   börjar till höger om den, `headerCellRect` rullar den inte, `dividerAt` hoppar
   över kanter under den och `drawHeader` klipper de rullande rubrikerna mot
   ytan till höger och ritar den fasta sist; `drawHeaderSurface` och
   `headerLineColor` delas med `Table::drawRowHeaders`.
-- **`table.h`** — `Table : ColumnPanel`, den DELADE maskinen bakom ListView
-  och DataGrid (post 17/24; oregistrerad, skyddad konstruktor): RADERNA som
-  data (`Table::Row` {celler som `std::string`, bild i första kolumnen,
-  textfärg}), deras sortering och radgeometrin; subklasserna äger sina event
-  och hur raderna ritas runt valet (VARFÖR en
-  bas och inte `DataGrid : ListView` — två `onChange` med var sitt prejudikat
-  — står i headern). **RADENS TEXTFÄRG** (`setRowColor`/`rowColor`) är appens
+- **`table.h`** — `Table : ColumnPanel`, den DELADE maskinen bakom ListView och DataGrid (oregistrerad,
+  skyddad konstruktor): RADERNA som data (`Table::Row` {celler som `std::string`, bild i första kolumnen,
+  textfärg, slag, utfälld}), deras sortering och radgeometrin; subklasserna äger sina event och hur
+  raderna ritas runt valet (VARFÖR en bas och inte `DataGrid : ListView` står i headern).
+  **RADENS TEXTFÄRG** (`setRowColor`/`rowColor`) är appens
   och ligger i RADEN, så den följer sorteringen; `setRow` nollar en
   utelämnad, `setCell` lämnar den. **CELLENS FÄRGER** (REQ8 6,
   `setCellColor(rad, kolumn, bakgrund, text)` + getterna `cellBackground`/
@@ -493,25 +482,28 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   `drawHeader`) ritar remsan med huvudets yta och hårlinjer, namnen genom
   `drawCell(…, false)` och subklassens märken i `drawRowHeaderMarks`
   (listvyns kryssruta, Minimalistics valstreck). Remsan tonas aldrig av val,
-  hover eller appfärger. **BREDD EFTER INNEHÅLLET** (REQ8 8): `cellContentW`
-  mäter ALLA radernas text (+ zonen och ikonen i kolumn 0); `addRow`/`setRow`/
-  `setRows`/`setCell`/`setIconSize` anropar `contentChanged()`.
-  **KOLLEKTIONSVOKABULÄREN:** `addColumn`/`setColumn`/`setColumns` och
-  `addRow`/`setRow`/`setRows` (tilldelning — `setColumn` utan bredd ger
-  standardbredden, `setRow` släpper radens nycklar men behåller valet), plus
-  `setCell(rad, kolumn, text)` (fyller ut en kort rad; kolumnen behöver inte
-  finnas än — satsordningen i en `.glazeui` ska inte avgöra),
-  `setColumnWidth(index, bredd)` (dragets programmatiska tvilling) och
-  `setSortKey(rad, kolumn, double)`. Utanför ⇒ `gfx::log` + no-op.
-  **INDEXEN ÄR APPENS:** sorteringen ändrar BARA visningsordningen
-  (`displayRow`/`rowAtDisplay`, en lat cache), så `setRow(3, …)`, valet och
-  den aktuella raden följer RADEN och inte platsen. **TABELLEN SORTERAR
-  SJÄLV** (beslutet mot WinForms `ColumnClick` i headern; `setSortColumn`/
-  `setSortAscending`/`setSortable` är setter-fält). Jämförelsen är
-  NATURLIG (siffror som tal, ASCII-versaler vikta, stabil i båda
-  riktningarna), och en cell med SORTERINGSNYCKEL jämförs numeriskt —
-  vägen för "12 kB" mot "1,2 MB" och datum i språkets form; ingen
-  användarkod körs under en sortering, därför får den vara lat. Radernas
+  hover eller appfärger. **BREDD EFTER INNEHÅLLET**: `cellContentW` är DATAradernas bredaste cell
+  (också dolda, så en fällning aldrig ändrar en bredd) ur en cache PER CELL (`cellW_` mot font, stil,
+  skala och ikonstorlek) — kroken `cellContentWidth` mäter en inaktuell cell (indrag, zon och ikon i
+  kolumn 0, cellens bild, texten; DataGrid sina typade celler), och `invalidateCellWidth`/
+  `invalidateColumnWidths` är subklassens väg när innehållet ändrats utan texten. **RADENS SLAG**
+  (`RowKind` Data/Category/Blank, `setRowKind`/`setExpanded`/`isExpanded`): en kategori spänner över hela
+  bredden och delar tabellen i avsnitt (raderna under den indragna `tableCategoryIndent` i kolumn 0 —
+  `contentIndent` —, dolda när den fälls ihop), en tomrad är luft utan rutnät som aldrig väljs eller blir
+  aktuell. Sorteringen gäller INOM avsnitten, och ordningen är två steg i cachen: `sorted_` (alla rader)
+  och synligheten (`order_`/`pos_`/`categoryOf_`; `displayRow` −1 för en dold rad, `positionCount()` de
+  synliga). `toggleCategoryFromUser` fyrar `onExpand`/`onCollapse` (`RowArgs`, widget.h); `setExpanded`
+  aldrig. `drawSpanRows` ritar kategori- och tomraderna efter raderna, FÖRE `drawHeader`. **CELLENS BILD**
+  (`setCellImage`/`cellImage`; kolumn 0 ÄR radens `img`). **`removeRow`** är den enda sättaren som flyttar
+  appens index — allt parallellt följer sin rad, den aktuella landar på samma plats. **HÖJDEN UR RADERNA**
+  utan satt `height`: huvudet + de synliga platserna × radhöjden (`contentSize`, `heightForWidth` när
+  huvudet beror på bredden). KROKARNA för subklasserna: `cellSortValue` (sorteringsvärdet utan nyckel),
+  `drawCellValue`/`cellDrawsOwnImage` (cellens värde i innehållsytan), `cellSet` (efter `setCell`),
+  `rowKindChanged`, `rowsHidden` (raderna en fällning dolde) och `rowRemoved`.
+  **KOLLEKTIONSVOKABULÄREN** (tilldelning; `setCell` och `setSortKey` vid sidan, kolumnen behöver inte
+  finnas än; utanför ⇒ `gfx::log` + no-op), **INDEXEN ÄR APPENS** (sorteringen och fällningen ändrar bara
+  visningsordningen) och **TABELLEN SORTERAR SJÄLV** (naturlig jämförelse, sorteringsnyckeln, ingen
+  användarkod under en sortering — därför lat) står i headern; sorteringens tre är setter-fält. Radernas
   geometri är EN sanning i skyddade metoder (`rowRect`, `cellRect`, träffarna
   `positionAt`/`columnAt`) och ritdelen `drawCells` delas; huvudet är basens.
   Radens mått är krokar (`baseRowH`/`cellPadX` — listradens som
@@ -525,7 +517,7 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   AUTO): varje rad reserverar ikonkolumnen och blir minst ikonen + stilens luft.
   **`rowAt(localX, localY)`** (appens index, −1 i huvudet och remsorna) delar
   `hitPosition` med listvyns högertryck. SKRIVNA BEGRÄNSNINGAR: ingen
-  autostorlek, ingen språkmedveten kollation (å/ä/ö jämförs bytevis — en nyckel
+  autobredd, ingen språkmedveten kollation (å/ä/ö jämförs bytevis — en nyckel
   bär rätt ordning), kolumnerna kan inte flyttas/döljas.
 - **`list_view.h`** — `ListView : Table`, LISTVYN (wxListCtrl i report-läge,
   WinForms ListView Details) — filväljarens lista. **VALET:** enkelval som
@@ -557,45 +549,54 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   remsan: `drawRowHeaderMarks` ritar den i rubrikens färger (remsan tonas
   aldrig av valet), `onCheckZone` räknar radernas yta från innehållsytans
   vänsterkant, och `setShowChecks` anropar `contentChanged()` (zonen är
-  kolumn 0:s innehåll för `autoWidth`). `mouseDoubleClick` frågar
-  `headerDoubleClick` FÖRST (en avdelare anpassar sin kolumn). INTE HÄR:
-  typeahead, kryss i huvudet, gummibandsmarkering.
-- **`data_grid.h`** — `DataGrid : Table`, DATAGRIDDEN (post 24, 2026-10-07;
-  wxGrid, WinForms DataGridView): listvyns tabell med REDIGERBARA celler
-  (varför den inte ärver `ListView` står vid `table.h`). Den AKTUELLA cellen
-  behåller markeringens färger, resten bär appens — cellens, annars radens
-  (`drawCell(…, appColors)`, table.h). Med **radrubriker** (REQ8 7) är kolumn
-  0 en rubrik: `editable(0)` är false, `firstColumn()` håller den aktuella
-  cellen borta från den (klick på ett namn behåller kolumnen), och
-  `drawRowHeaderMarks` ritar Minimalistics radvalsstreck i remsan.
-  **EDITORERNA ÄR RIKTIGA BARN, exakt två**: privata nästlade `TextEditor : TextInput` och
-  `ChoiceEditor : Dropdown` (talfältets `Field`-prejudikat — en tangent går bara till den
-  FOKUSERADE widgeten), ägda, dolda i vila och oåtkomliga för `unadopt` (`canReleaseChild`).
-  PLACERINGEN är datagridens (`placesChildren`/`placeChild`): editorn läggs på cellen ur
-  `Table::cellInContent`, samma formel som ritningen, vid varje `resolve()` — den följer scroll,
-  sortering, en dragen kolumnbredd och ett högt huvud, och står i KOLUMNENS justering
-  (`Column::align` → editorns `setAlign`, läst när redigeringen börjar). ETT tabbstopp
-  (`focusesChildren`). **KOLUMNTYPEN HÖR TILL INDEXET**: `setColumnEditor(kolumn,
-  Editor::Text|Choice|None)` + `setColumnChoices(kolumn, lista)` överlever `setColumn`/
-  `setColumns` som `sortColumn` gör. `None` och en val-kolumn UTAN val går inte att redigera och
-  ritas som ett skrivskyddat fält. **REDIGERINGEN**: börja med dubbelklick på den aktuella
-  cellen, F2 eller att man BÖRJAR SKRIVA (tecknet ersätter texten — bara fritext); spara med
-  Enter (+ ner en rad, Shift upp), Tab (+ en cell), Upp/Ned i fältet (+ en rad) eller
-  fokusförlust; Escape avbryter i ETT steg, även med vallistan öppen. En val-cell öppnar listan
-  direkt, och ett NYTT val sparar och avslutar. **NAVIGERINGEN** utan redigering: pilarna, Tab
-  cell för cell med radbyte (och UT ur datagriden i första respektive sista cellen), Home/End
-  (radens), Ctrl+Home/End (tabellens), PageUp/PageDown och Enter/Shift+Enter; Ctrl+Tab tackar
-  den nej till. **EVENTET** är `onChange` med `CellChangeArgs { row, column }` (ärver
-  `ChangeArgs`), EN gång när ANVÄNDAREN sparat en cell vars text ändrades; raden är appens index
-  och värdet läses ur sender (`cell(e.row, e.column)`); **`onCommit`** med SAMMA args direkt
-  efter. En sparning för att fokus LÄMNADE editorn postas (`Widget::postEvent`) och slopas om
-  datagriden dött eller raderna bytts. **PROGRAMMATISKT**: `setCurrentCell`/`currentColumn` och
-  `beginEdit`/`commitEdit`/`cancelEdit` (`commitEdit` fyrar); `setRows`/`setColumns`/
-  `setCurrentCell` AVBRYTER en redigering, `setRow`/`setCell`/`addRow` gör det INTE —
-  redigeringen följer RADEN, en medveten avvikelse från PropertyGrid. Radens mått är GRIDRADENS
+  kolumn 0:s innehåll för `AutoMin`). `mouseDoubleClick` frågar
+  `headerDoubleClick` FÖRST (en avdelare anpassar sin kolumn). **RUBRIKKRYSSET**
+  (`setColumnHeaderCheck(0, true)` med rutorna på): tre lägen över de SYNLIGA dataraderna, en vändning
+  sätter alla och fyrar `onCheck` EN gång med raderna i `changedRows()` (`changedRow()` −1), läget cachat
+  mot kryssens generation. **KATEGORIERNA**: en kategori- eller tomrad väljs, kryssas och hovras aldrig;
+  klick, Space eller Enter på en kategori fäller den, Vänster/Höger ihop/ut, spannet och Ctrl+A tar bara
+  dataraderna, och en ihopfällning väljer bort de dolda och fyrar `onChange` efter `onCollapse` (trädets
+  regel). INTE HÄR: typeahead, gummibandsmarkering.
+- **`data_grid.h`** — `DataGrid : Table`, DATAGRIDDEN (wxGrid, WinForms DataGridView): listvyns tabell
+  med REDIGERBARA celler. Den AKTUELLA cellen behåller markeringens färger, resten bär appens
+  (`drawCell(…, appColors)`). Med **radrubriker** är kolumn 0 en rubrik: `editable(0)` är false,
+  `firstColumn()` håller den aktuella cellen borta från den, och `drawRowHeaderMarks` ritar
+  Minimalistics radvalsstreck i remsan.
+  **EDITORERNA ÄR RIKTIGA BARN, exakt tre**: privata nästlade `TextEditor : TextInput` (fritext och
+  tal), `ChoiceEditor : Dropdown` och `ColorEditor : ColorPicker` (talfältets `Field`-prejudikat — en
+  tangent går bara till den FOKUSERADE widgeten), ägda, dolda i vila och oåtkomliga för `unadopt`
+  (`canReleaseChild`); kryss- och knappcellen har ingen editor. PLACERINGEN är datagridens
+  (`placesChildren`/`placeChild`): editorn läggs på cellen ur `Table::cellInContent` (förbi kategorins
+  indrag; talets fält mellan prefix och suffix ur `valuecell::numberFieldRect`), samma formel som
+  ritningen, vid varje `resolve()` — den följer scroll, sortering, en dragen kolumnbredd och ett högt
+  huvud, och står i KOLUMNENS justering. ETT tabbstopp (`focusesChildren`). **DE TYPADE CELLERNA**:
+  `Editor` Text/Choice/Check/Color/Number/Button/None med valen i aggregatet `EditorSpec` (choices,
+  choiceIcons, min/max/decimals/prefix/suffix, allowAlpha, allowEmpty/emptyText, colorDisplay (`ColorDisplay`
+  ur color_picker.h), readOnly — fälten växer SIST; en LÅST cell ritas som sitt slag på `fieldReadOnly`);
+  `setColumnEditor(kolumn, EditorSpec)` HÖR TILL INDEXET och överlever `setColumn`/`setColumns`, och en
+  CELL kan ha en egen (`setCellEditor`/`clearCellEditor`/`cellEditor` = den som gäller), plus
+  `setCellEnabled` och `setCellToolTip`/`cellToolTip` — glest i `cells_` (`CellSetting`, med användarens
+  väntande otolkbara taltext). Läsvägarna `isChecked`/`colorValue`/`numberValue`/`hasError` per cell,
+  PropertyGrids regler; ritningen och tolkningen delas med den genom den interna `../../src/value_cell.h`
+  (Tables krokar `cellContentWidth`/`drawCellValue`/`cellSortValue`/`cellDrawsOwnImage`/`cellSet`).
+  **REDIGERINGEN och NAVIGERINGEN** står i headern: Check/Color/Choice/Button tar ett ENKELT klick (knappen
+  fyrar `onCellClick` vid ett släpp över samma cell), Text/Number dubbelklick, F2, Enter eller skrivandet
+  (och klicket med `setEditOnClick`); Tab går till nästa REDIGERBARA aktiva cell och UT när ingen finns
+  kvar; Escape avbryter i ETT steg. **EVENTET** är `onChange` med `CellChangeArgs { row, column, rows }`
+  (ärver `ChangeArgs`), EN gång när ANVÄNDAREN sparat en cell vars text ändrades, och **`onCommit`** med
+  SAMMA args direkt efter; värdet läses ur sender. **FLERA RADER** (`setMultiEdit`, i `FullRow` med
+  flerval): en sparning i en vald rad skriver samma kolumn i alla valda med samma sorts redigerare
+  (`editTargets`), ETT event med de ändrade i `rows`; **RUBRIKKRYSSET** på en Check-kolumn likaså (`row`
+  −1). En sparning för att fokus LÄMNADE editorn postas (`Widget::postEvent`) och slopas om datagriden
+  dött eller raderna bytts (`rowsGen_`, också `removeRow`). **PROGRAMMATISKT**: `setCurrentCell`/
+  `currentColumn` och `beginEdit`/`commitEdit`/`cancelEdit` (`commitEdit` fyrar); `setRows`/`setColumns`/
+  `setCurrentCell` och en ny redigerare eller inaktivering av cellen AVBRYTER en redigering,
+  `setRow`/`setCell`/`addRow` gör det INTE — redigeringen följer RADEN, en medveten avvikelse från
+  PropertyGrid. TOOLTIPEN: felet, cellens, kolumnrubrikens, datagridens. Radens mått är GRIDRADENS
   (`gridRowH`/`gridPadX` via `baseRowH`). **RADVALET**: `SelectionMode::Cell`/`FullRow` +
   `setMultiSelect`, listvyns ord per RAD och ett EGET event, `onSelectionChange` (`onChange` är
-  cellernas). `setProp`: selectionMode, multiSelect + Tables. SKRIVNA BEGRÄNSNINGAR i headern.
+  cellernas). `setSelectOnEdit` (förval true: texten markerad när redigeringen börjar). `setProp`:
+  selectionMode, multiSelect, editOnClick, selectOnEdit, multiEdit + Tables. BEGRÄNSNINGAR i headern.
 - **`panel.h`** — `Panel`, CONTAINER-primitivet: barn i förälder-relativa
   koordinater, `clip`, `border`, scroll (`setScroll`; mushjulet scrollar
   vid överflöd), **`innerBounds(Ctx)`** (innehållsytan i LOGISKA px —
@@ -728,11 +729,13 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   autostorlek (Panel-beslutet), flikarna står alltid överst, inga ikoner i flikarna, ingen
   omordning med musen, ingen tooltip på själva fliken.
 - **`property_grid.h`** — `PropertyGrid : Panel`: tvåkolumners egenskaps-
-  lista (namn | värde). Rader är DATA (`Row` — 15 fält i den designerade
+  lista (namn | värde). Rader är DATA (`Row` — 19 fält i den designerade
   init-ordningen: name, value (alltid TEXT), choices, readOnly, tag (OPAK),
-  `Kind {Text, Check, Color, Number, Header}`, min/max/decimals/prefix/suffix
+  `Kind {Text, Check, Color, Number, Category}`, min/max/decimals/prefix/suffix
   för Number, allowAlpha för Color, toolTip, enabled (inaktiv NU), expanded
-  för Header). En hostad editor per slag flyttas till aktiv cell
+  för Category, allowEmpty/emptyText för Number, choiceIcons parallell med choices, colorDisplay för
+  Color). `setSelectOnEdit`/setProp `selectOnEdit` (förval true). Cellerna ritas,
+  mäts och tolkas av den interna `../../src/value_cell.h`, delad med DataGrid. En hostad editor per slag flyttas till aktiv cell
   (`TextEditor : TextInput` för text och tal, `ChoiceEditor : Dropdown`,
   `CheckEditor` som fokusbärare, `ColorEditor : ColorPicker`). `rows()` är
   en LÄSVÄG: raderna ändras bara via `setRows`/`addRow(Row)`/`setRow(i,
@@ -746,14 +749,16 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   vid ett EFFEKTIVT ändrat värde; läs `changedRow()` ur sender. En
   kryssruta växlar vid trycket, en färg sparas vid väljarens commit (ett tryck
   i gridden med öppen popup stänger bara den), ett otolkbart tal blir radens
-  FEL (`pending_`, verktygstipset str 430). En rubrik fäller raderna till
-  nästa rubrik; en INAKTIV grid visas infälld och dämpad (`enabledChanged`,
+  FEL (`pending_`, verktygstipset `str::InvalidValue`, id 430). En kategori fäller raderna till
+  nästa kategori, och ANVÄNDARENS fällning fyrar `onExpand`/`onCollapse` (`RowArgs`; `setExpanded`
+  aldrig); en INAKTIV grid visas infälld och dämpad (`enabledChanged`,
   `expanded` orört). HÖJDEN ur de synliga raderna (staplade gridar). Skriven
-  gräns: gridden är inget tabbstopp. `nameWidth` logiska px (0 = stilens
-  `gridNameW`). Privat cellgeometri i LOGISKA px; cellträffen PROJICERAR
+  gräns: gridden är inget tabbstopp. **KOLUMNERNA** (0 namnet, 1 värdet) har tabellernas lägen:
+  `setColumnWidth`/`setColumnSizing` (förval namnet Manual med `gridNameW`, värdet Autosize; AutoMin
+  cachat mot `damageStamp()`), räknade med `../../src/column_sizing.h`. Privat cellgeometri i LOGISKA px; cellträffen PROJICERAR
   den. **STYCKEFORMEN**: `addRow(Row)` · `setRow(index, Row)` ·
   `setRows(vec)` — samma vokabulär som `ListBox`/`Dropdown`s; `setRow`
-  ERSÄTTER hela raden. Index utanför ⇒ logg + no-op. `setProp`: nameWidth.
+  ERSÄTTER hela raden. Index utanför ⇒ logg + no-op.
 - **`scrollbar.h`** — `Scrollbar`: fristående rullningslist.
   `orientation`, `min`/`max`/`value`/`page` (valfria enheter), `onChange`
   (live) + `onCommit` (0.1.2 — släppet efter tumdrag/rännklick, varje
