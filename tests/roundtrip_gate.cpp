@@ -985,13 +985,37 @@ int main()
         // kryssets `setChecked(1, true)` SIST (två
         // argument, en Call; `setShowChecks` är ett setter-fält och står inte
         // i följden) och `setCellColor` ×2 och `setColumnWidth`
-        // (Call-satser; `setRowHeaders` är ett setter-fält).
+        // (Call-satser; `setRowHeaders` är ett setter-fält) — och kolumnernas
+        // lägen, tooltips och rubrikkryss, en kolumn med läget som femte
+        // argument och radslagen, fällningen och cellbilden: alla tar två eller
+        // fler argument och är Call-satser, inga setter-fält.
         ok(följd == "setColumns addColumn setColumn addRow addRow setRow "
-                    "setRows setRowColor setRowColor setChecked setCellColor "
-                    "setCellColor setColumnWidth ",
+                    "setRows setRowColor setRowColor setChecked "
+                    "setColumnSizing setCellColor setCellColor setColumnWidth "
+                    "setColumnSizing setColumnToolTip setColumnToolTip "
+                    "setColumnHeaderCheck addColumn addRow setRowKind "
+                    "setExpanded addRow setRowKind setCellImage removeRow ",
            "huvudet: kolumnerna och raderna är Call-satser i källordning (" +
                följd + ")");
-        ok(anrop.size() == 13 &&
+        // Sist borttagningen, `removeRow(3)` — ett argument, en Call och
+        // inget setter-fält.
+        ok(anrop.size() == 26 && anrop[25]->value == "3" &&
+               !bld::isSetterField("glaze::ListView", "removeRow"),
+           "borttagningen: removeRow(3) är en Call med indexet ordagrant");
+        ok(anrop.size() == 26 &&
+               anrop[10]->value == "0, glaze::ColumnSizing::Autosize" &&
+               anrop[15]->value == "1, \"Storlek i byte\"" &&
+               anrop[16]->value == "2, glaze::tr(2)" &&
+               anrop[18]->value == "\"E\", 30, glaze::Align::Left, "
+                                   "std::nullopt, glaze::ColumnSizing::Autosize" &&
+               anrop[20]->value == "4, glaze::ListView::RowKind::Category" &&
+               anrop[22]->value == "{}" &&
+               anrop[23]->value == "5, glaze::Table::RowKind::Blank" &&
+               anrop[24]->value == "2, 1, glaze::img(\"toolbar\", \"ok\")",
+           "kolumnlägen och radslag: läget, tooltipen (literal och tr), "
+           "femte argumentet, slaget genom två typer och cellbilden bevaras "
+           "ordagrant");
+        ok(anrop.size() == 26 &&
                anrop[4]->value == "{\"2b\", \"64,0\"}, {}, gfx::Color{0, 120, 0}" &&
                anrop[6]->value ==
                    "{{{\"a\"}, {}, gfx::Color{200, 0, 0}}, {{\"b\"}}, "
@@ -1000,7 +1024,7 @@ int main()
                anrop[8]->value == "0, {}",
            "radfärgen: tredje argumentet, de tre radformerna och {} bevaras "
            "ordagrant");
-        ok(anrop.size() == 13 &&
+        ok(anrop.size() == 26 &&
                anrop[0]->value ==
                    "{{\"SS-EN 50341\\nStandard\\nload cases\", 90, "
                    "glaze::Align::Right, glaze::Align::Center}, {\"Spann\", "
@@ -1008,8 +1032,8 @@ int main()
                    "glaze::Align::Center, std::nullopt}}",
            "huvudet: setColumns med FJÄRDE fältet bevaras ordagrant — \\n, {} "
            "och std::nullopt");
-        ok(anrop.size() == 13 &&
-               anrop[1]->value == "\"Nedhäng\\nb\\n(m)\", 70, "
+        ok(anrop.size() == 26 &&
+               anrop[1]->value =="\"Nedhäng\\nb\\n(m)\", 70, "
                                   "glaze::Align::Right, glaze::Align::Center",
            "huvudet: addColumn med fyra argument bevaras ordagrant");
         const bld::Stmt* dj = prop("dd", "align");
@@ -1070,8 +1094,9 @@ int main()
             std::string följd;
             for (const bld::Stmt* s : g)
                 följd += s->name + " ";
-            ok(följd == "setRows addRow setScroll setRow addRow addRow addRow "
-                        "addRow addRow setExpanded setRowEnabled ",
+            ok(följd == "setRows addRow setScroll setColumnWidth setRow addRow "
+                        "addRow addRow addRow addRow setExpanded setRowEnabled "
+                        "addRow addRow setColumnSizing ",
                "grid: anropen i KÄLLORDNING, varvade med okänd metod (" +
                    följd + ")");
             ok(g.size() >= 1 &&
@@ -1079,14 +1104,31 @@ int main()
                        "{{\"Bredd\", \"120\"}, {\"Höjd\", \"80\", {}, true, "
                        "\"h\"}}",
                "grid: setRows-literalen bevaras ordagrant");
+            // Kolumnerna och de nya radfälten — Call-satser med argumenten
+            // ORDAGRANT (kolumnens index gör dem till två argument).
+            ok(g.size() == 15 && g[3]->value == "0, 140" &&
+                   g[12]->value ==
+                       "{.name = \"Höjd\", .value = \"\", .kind = "
+                       "glaze::PropertyGrid::Kind::Number, .allowEmpty = true, "
+                       ".emptyText = \"Automatisk\"}" &&
+                   g[13]->value ==
+                       "{.name = \"Linje\", .value = \"Hel\", .choices = "
+                       "{\"Hel\", \"Streckad\"}, .choiceIcons = "
+                       "{glaze::img(\"toolbar\", \"ok\"), {}}}" &&
+                   g[14]->value == "1, glaze::ColumnSizing::AutoMin",
+               "grid: setColumnWidth/setColumnSizing och allowEmpty/"
+               "emptyText/choiceIcons bevaras ordagrant");
+            ok(prop("grid", "nameWidth") == nullptr &&
+                   prop("grid", "columnWidth") == nullptr,
+               "grid: kolumnbredden är ingen Prop (två argument)");
         }
 
-        // 3. `setNameWidth` normaliseras till en Prop — fältet står i
-        //    tabellen.
+        // 3. `setBorder` normaliseras till en Prop — fältet ärvs från
+        //    Panel i tabellen, och den varvar anropen ovan.
         {
-            const bld::Stmt* p = prop("grid", "nameWidth");
-            ok(p && p->value == "140",
-               "nameWidth: setNameWidth(140) normaliseras till Prop");
+            const bld::Stmt* p = prop("grid", "border");
+            ok(p && p->value == "true",
+               "border: setBorder(true) normaliseras till Prop");
         }
 
         // 4. `setColor` blir en CALL — `color` finns inte i tabellen:
@@ -1113,12 +1155,20 @@ int main()
                 addL |= s->name == "addItem" && s->value == "\"Delta\"";
                 setL |= s->name == "setItem" && s->value == "0, \"ALFA\"";
             }
+            bool ikonAdd = false, ikonSet = false;
             for (const bld::Stmt* s : d) {
                 addD |= s->name == "addItem" && s->value == "\"Tre\"";
                 setD |= s->name == "setItem" && s->value == "1, \"TVÅ\"";
+                ikonAdd |= s->name == "addItem" &&
+                           s->value == "\"Fyra\", glaze::img(\"toolbar\", \"ok\")";
+                ikonSet |= s->name == "setItem" &&
+                           s->value == "0, \"Ett\", "
+                                       "glaze::stockIcon(glaze::StockIcon::Line)";
             }
             ok(addL && setL, "lista: addItem/setItem är Calls");
             ok(addD && setD, "dd: addItem/setItem är Calls (samma form)");
+            ok(ikonAdd && ikonSet,
+               "dd: addItem/setItem med ikonen sist är Calls, ikonen ordagrant");
         }
     }
 
@@ -1217,20 +1267,19 @@ int main()
                     sortProp = true;
             ok(sortProp, "datagrid: setSortColumn normaliseras till Prop");
             ok(anrop("dataN", "setColumnEditor",
-                     "1, glaze::DataGrid::Editor::Choice") &&
-                   anrop("dataN", "setColumnChoices",
-                         "1, {\"Ny\", \"Pågår\", \"Klar\"}") &&
+                     "1, {glaze::DataGrid::Editor::Choice, {\"Ny\", \"Pågår\", "
+                     "\"Klar\"}}") &&
                    anrop("dataN", "setColumnEditor",
-                         "2, glaze::DataGrid::Editor::None") &&
+                         "2, {.editor = glaze::DataGrid::Editor::None}") &&
                    anrop("dataN", "setCurrentCell", "0, 1") &&
                    anrop("dataD", "setCurrentCell", "1, 0"),
-               "datagrid: kolumntypen, valen och cellen är Call-satser med "
-               "argumenten intakta");
-            // Ordningen: kolumntypen FÖRE addColumn ska stå kvar där.
+               "datagrid: redigeraren med sina val och cellen är Call-satser "
+               "med argumenten intakta");
+            // Ordningen: redigeraren FÖRE addColumn ska stå kvar där.
             std::string följd;
             for (const bld::Stmt* s : anropen(r.model, "dataN"))
                 följd += s->name + " ";
-            ok(följd.rfind("setColumnEditor setColumnChoices addColumn", 0) == 0,
+            ok(följd.rfind("setColumnEditor addColumn", 0) == 0,
                "datagrid: anropen i KÄLLORDNING (" + följd + ")");
             const bld::Stmt* ev = nullptr;
             for (const bld::Stmt& s : r.model.stmts)
@@ -2765,6 +2814,52 @@ int main()
         ok(ev && ev->shortForm && ev->handler == "rutnatValt" &&
                m.findProp("rutnat", "onSelectionChange") == nullptr,
            "fas1b: rutnat.onSelectionChange (kort) är Kind::Event");
+        // KNAPPCELLEN OCH FÄLLNINGEN: `onCellClick` KORT kräver namnet i
+        // `isKnownEvent` (annars en opak Prop), och `onExpand`/`onCollapse`
+        // står på tabellerna och egenskapslistan i båda formerna, den fulla med
+        // `glaze::RowArgs` ordagrant.
+        const auto händelse = [&m](const char* id, const char* namn) {
+            for (const bld::Stmt& s : m.stmts)
+                if (s.kind == bld::Stmt::Kind::Event && s.target == id &&
+                    s.name == namn)
+                    return &s;
+            return static_cast<const bld::Stmt*>(nullptr);
+        };
+        const bld::Stmt* klick = händelse("rutnat", "onCellClick");
+        const bld::Stmt* rUt   = händelse("rutnat", "onExpand");
+        const bld::Stmt* tIhop = händelse("tabell", "onCollapse");
+        const bld::Stmt* gUt   = händelse("grid", "onExpand");
+        const bld::Stmt* gIhop = händelse("grid", "onCollapse");
+        ok(klick && klick->shortForm && klick->handler == "rutnatValt" &&
+               m.findProp("rutnat", "onCellClick") == nullptr,
+           "fas1b: rutnat.onCellClick (kort) är Kind::Event");
+        ok(rUt && !rUt->shortForm && rUt->args == "glaze::RowArgs" &&
+               rUt->handler == "tradIhop" && tIhop && tIhop->shortForm &&
+               gUt && gUt->shortForm && gIhop && !gIhop->shortForm &&
+               gIhop->args == "glaze::RowArgs" &&
+               m.findProp("tabell", "onCollapse") == nullptr &&
+               m.findProp("grid", "onExpand") == nullptr,
+           "fas1b: onExpand/onCollapse på DataGrid, ListView och PropertyGrid "
+           "är Kind::Event i båda formerna");
+        // REDIGERARNA och CELLERNA: Call-satser med argumenten ORDAGRANT.
+        const std::string rn = följd("rutnat");
+        ok(rn.find("setColumnSizing(1, glaze::ColumnSizing::Autosize) ") !=
+                   std::string::npos &&
+               rn.find("setColumnEditor(1, {.editor = glaze::DataGrid::Editor::"
+                       "Number, .min = 0, .max = 100, .suffix = \"%\"}) ") !=
+                   std::string::npos &&
+               rn.find("setColumnEditor(0, {glaze::DataGrid::Editor::Choice, "
+                       "{\"a\", \"b\", \"c\"}, {glaze::img(\"toolbar\", \"ok\"), "
+                       "{}, glaze::stockIcon(glaze::StockIcon::Line)}}) ") !=
+                   std::string::npos &&
+               rn.find("setCellEditor(2, 1, glaze::DataGrid::EditorSpec{") !=
+                   std::string::npos &&
+               rn.find("clearCellEditor(0, 1) setCellEnabled(1, 1, false) "
+                       "setCellToolTip(1, 1, \"Låst\") setCellToolTip(2, 0, "
+                       "glaze::tr(2)) ") != std::string::npos &&
+               m.findProp("rutnat", "cellEnabled") == nullptr,
+           "fas1b: datagridens redigerare och celler är Call-satser (" + rn +
+               ")");
         const std::string gui = bld::emitGuiCpp(m, "calls.h", "\n");
         ok(gui.find("    kryss.setCheckState(glaze::CheckState::Indeterminate);"
                     "\n") != std::string::npos &&
@@ -2794,10 +2889,10 @@ int main()
             const char* värde;
         };
         for (const Fält& p :
-             {Fält{"tabell", "fillColumn", "0"},
-              Fält{"tabell", "iconSize", "48"},
-              Fält{"rutnat", "fillColumn", "1"},
+             {Fält{"tabell", "iconSize", "48"},
               Fält{"rutnat", "iconSize", "20"},
+              Fält{"rutnat", "editOnClick", "true"},
+              Fält{"rutnat", "multiEdit", "true"},
               Fält{"etikett", "elide", "true"},
               Fält{"etikett", "vAlign", "glaze::VAlign::Top"},
               Fält{"etikett", "buddy", "\"falt\""},
@@ -2823,7 +2918,8 @@ int main()
            "calls: kryss/val1.setColor är Call-satser (" + färgen("kryss") + "/" +
                färgen("val1") + ")");
         const std::string gui = bld::emitGuiCpp(m, "calls.h", "\n");
-        ok(gui.find("    tabell.setFillColumn(0);\n") != std::string::npos &&
+        ok(gui.find("    rutnat.setMultiEdit(true);\n") != std::string::npos &&
+               gui.find("    rutnat.setEditOnClick(true);\n") != std::string::npos &&
                gui.find("    etikett.setBuddy(\"falt\");\n") != std::string::npos &&
                gui.find("    filval.setDialogTitle(\"Välj CSV-fil\");\n") !=
                    std::string::npos,

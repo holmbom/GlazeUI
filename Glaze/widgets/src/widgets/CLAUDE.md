@@ -459,91 +459,84 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   `dragEnd` tar bort alla vid `Move` till ett annat mål; `drawDropIndicator`
   är LIKA i alla tre. **SLÄPPREGELN PER NOD** (post 49): ingen mittzon, och en
   plats vars FÖRÄLDER säger nej blir `DropSpot{}`. Grind: `tests/tree_gate.cpp`.
-- **`table.cpp`** — den DELADE tabellmaskinen: rader, deras sortering och
-  geometri för ListView och DataGrid. **SORTERINGEN ÄR EN LAT
-  PERMUTATION** (`order_` plats → rad, `pos_` rad → plats) som
-  `ensureOrder()` räknar om först när den behövs efter `orderChanged()` —
-  stabil, så lika rader behåller appens ordning i BÅDA riktningarna.
-  Jämförelsen (`compareRows`): nyckel mot nyckel numeriskt, en cell MED
-  nyckel före en utan, annars basens `compareNatural` (sifferföljder som tal,
-  inledande nollor ignorerade, ASCII-versaler vikta, UTF-8 bytevis). NaN räknas som
-  ingen nyckel — en jämförelse som inte är en strikt svag ordning hade gjort
-  `stable_sort` odefinierad. **GEOMETRIN** utgår från `scrollViewport`
-  (raderna under huvudet); `rowRect` är det SYNLIGA bandet (markeringen fyller
-  det man ser och Minimalistics markör står kvar vid vänsterkanten när man
-  rullar i sidled), `cellRect` följer den horisontella scrollen, och scrollen
-  läses alltid KLAMPAD. `clipRect` är raderna, så datagridens editorer aldrig
-  ritas över huvudet. `contentExtent` är bara radernas och kolumnernas.
-  Hjulet stegar i RADER lodrätt och i `wheelStep` vågrätt. **IKONSTORLEKEN**
-  (B6; 0 = AUTO): kroken **`baseRowH`** (`listRowH`/DataGrids `gridRowH`), och
-  `rowH` = max(bas, ikon + (bas − `iconFallback`)). **CELLENS FÄRGER**
-  (REQ8 6): `setCellColor` (logg + no-op utanför, kolumnen får saknas, växer
-  inte vektorn för en sättning som inte ändrar, invaliderar vid ändring),
-  `cellColors_` parallell med `rows_` (nollas av `setRow`/`setRows`), och
-  `drawCell` med `appColors` fyller bakgrunden FÖRE innehållet och väljer
-  `appTextColor` (cell → rad → tema); `drawCells` hoppar över kolumn 0 när
-  den är fast. **RADRUBRIKER** (REQ8 7):
-  `frozenW`/`cellRect`/`contentExtent`/`hitPosition`/`columnAt` (remsan är
-  radens del) och `drawRowHeaders` — en pass klippt mot radernas yta på hela
-  innehållsbredden: huvudets yta (`drawHeaderSurface`), per rad namnet
-  (`drawCell(…, false)`), subklassens `drawRowHeaderMarks` och en hårlinje
-  under raden, sist remsans högerkant. **BREDD EFTER INNEHÅLLET** (REQ8 8):
-  `cellContentW` mäter ALLA rader (text + i kolumn 0 `leadW` och ikonen);
-  `addRow`/`setRow`/`setRows`/`setCell`/`setIconSize` anropar
-  `contentChanged()`.
-- **`column_panel.cpp`** — KOLUMNHUVUDET (REQ8 13, utbrutet ur table.cpp för
-  Table och TreeView; loggraderna säger `ColumnPanel(namn)`).
-  **HUVUDET** (`drawHeader`, per UI): Slate och Glaze en remsa i `windowBg`
-  (barernas yta — Glaze med linjerna i den bestämda `buttonBorder`),
-  Minimalistic ingen yta; sorteringspilen är dropdownens chevron i `textDim`,
-  och avdelaren TÄNDS i `accent`/`focusWidth` under pekaren och medan den
-  dras. **RUBRIKERNA PÅ FLERA RADER**: `headerH` är `tableHeaderH` för EN rad
-  och en `Draw::lineHeight` till per rad; `headerLineCount` är det satta talet
-  eller AUTO:s, CACHAT i `HeaderCache` mot fontpekaren OCH radhöjden, skalan,
-  `cellPadX`, `columnDefaultW`, fyllkolumnens bredd `fillW` och `headerGen_`
-  (stegad av `headerChanged()` i kolumnsättarna, `setColumnWidth`,
-  `setFillColumn` och `languageChanged()` — två fyllkolumner med samma bredd
-  ger samma `fillW`). Raderna ur `Draw::elideLines` ritas var och en i en rect
-  LIKA HÖG SOM HUVUDET, flyttad `platsSkift` från mitten (`förstaPlats` per
-  `VAlign`) — ett enradshuvud får exakt den rect det alltid fått, och
-  `setHeaderLines`/`setColumns` klampar scrollen. **FYLLKOLUMNEN**
-  (`setFillColumn`, REQ3_TRAD_LISTOR_FALT B5, Qt:s Stretch; −1 = ingen):
-  kolumnen tar resten av innehållets bredd och aldrig mindre än sin egen
-  (`columnBaseW`); geometrin tar innehållsbredden som argument (`columnW`/
-  `columnX`/`columnsW`/`cellInContent`/`headerH(c, cw)`), och `contentW(c)` =
-  `innerBounds(c).w` BARA med en fyllkolumn — en tabell utan räknar exakt som
-  förut, och ett satt `headerLines` frågar inte bredden; fyllkolumnens kant
-  går inte att dra. `hasHeader` false (trädet utan kolumner) ger höjden 0.
-  **BREDD EFTER INNEHÅLLET** (REQ8 8): `columnBaseW` ger `fittedW` för en
-  negativ bredd (`Column::autoWidth`) — rubrikens bredaste `\n`-rad + luft
-  (pilens plats reserverad när `sortable_` eller kolumnen är den sorterade)
-  mot `cellContentW` + luft, båda plus kantens tjocklek som ANDRUM (utan det
-  fick den bredaste texten en ellips: kortningen jämför strikt och
-  (mått + luft) − luft är inte alltid måttet i flyttal), minst `columnMinW`,
-  cachat per kolumn i
-  `FitCache` (font, stil, skala, sortering, `fitGen_`); `setColumnWidth` stegar
-  inte `fitGen_` (en annan kolumns bredd ändrar inte måttet). Dubbelklicket:
-  `headerDoubleClick` nollar `resizeColumn_` (det andra trycket började ett
-  drag) och skriver `fittedW` som fast bredd. **FASTA FÖRSTA KOLUMNEN**
-  (REQ8 7): kroken `frozenW` smalnar `scrollViewport` från vänster,
-  `headerCellRect` rullar inte kolumn 0, `dividerAt` hoppar över rullande
-  kanter under den och `drawHeader` ritar rubrikerna som lambdan `rubrik(i)` —
-  de rullande klippta mot ytan till höger, den fasta sist.
-  **TABELLENS TRÄFF** (B3): skyddade `hitPosition(c, mx, my)` (huvudet, remsorna och
-  allt utanför rullningsytan i x och y är "ingen") bär publika `rowAt(lokalX,
-  lokalY)`, som svarar med APPENS radindex, och listvyns högertryck.
-  **IKONEN ÄR EN KROK** (`iconSide`/`drawIcon`): `drawCell` frågar sidan (0 =
-  ingen ikon) och låter kroken rita i en kvadrat — standard är radens
-  `ImageSource` (asset i sin storleksklass, pixlar i `iconFallback`) med
-  `iconFade`; en SATT ikonstorlek gäller VARJE rad, också en utan bild (texten
-  i linje), och bara en giltig bild ritas. Filväljarens interna lista ritar
-  mappar och filer i radens textfärg. **ZONEN FÖRE IKONEN**: `drawCell` flyttar
-  kolumn 0:s innehåll `leadW(c)`; `leadZone` är tom utan kolumner (inget
-  `columnW(0)` på en tom lista). **RADENS FÄRG**: `Row::color`, `setRowColor`
-  (logg + no-op utanför, invaliderar vid ändring) och skyddade
-  `appTextColor(rad, kolumn, tema)` för omarkerade rader; `setRow` är
-  tilldelning (färgen nollas) och anropar kroken `rowReplaced(rad)`, `setCell`
-  lämnar färgen.
+- **`table.cpp`** — den DELADE tabellmaskinen: rader, deras sortering och geometri för ListView och DataGrid.
+  **ORDNINGEN ÄR EN LAT CACHE I TVÅ STEG** som `ensureOrder()` räknar om först när den behövs: SORTERINGEN
+  (`sorted_`, inaktuell efter `orderChanged()` — raderna, sorteringen, ett slag) sorterar varje följd av
+  DATArader mellan två gränser (kategori- och tomrader står kvar) stabilt för sig, så lika rader behåller appens
+  ordning i BÅDA riktningarna, med nycklarna räknade EN gång per rad (`sortKey`: den explicita, annars kroken
+  `cellSortValue`, annars texten); SYNLIGHETEN (`order_` plats → rad, `pos_` rad → plats eller −1,
+  `categoryOf_`; inaktuell också efter `visibilityChanged()`, en fällning). Jämförelsen (`compareKeys`): nyckel
+  mot nyckel numeriskt, en cell MED nyckel före en utan, annars basens `compareNatural` (sifferföljder som tal,
+  inledande nollor ignorerade, ASCII-versaler vikta, UTF-8 bytevis). NaN räknas som ingen nyckel — en jämförelse
+  som inte är en strikt svag ordning hade gjort `stable_sort` odefinierad. **FÄLLNINGEN** (`applyExpanded`)
+  jämför en ögonblicksbild av `pos_` före och efter (`visibleSnapshot`/`reportHidden`) och säger `rowsHidden`
+  med de rader som doldes; `toggleCategoryFromUser` fyrar `onExpand`/`onCollapse` SIST. **`removeRow`** stryker
+  raden ur `rows_`, `keys_`, `cellColors_`, `cellImages_` och `cellW_`, räknar ned `current_`, säger
+  `rowRemoved` FÖRE den nya ordningen (sorteringen läser subklassens tillstånd), landar den aktuella på samma
+  plats (förbi tomrader) och rapporterar raderna en försvunnen kategori dolde. **GEOMETRIN** utgår från
+  `scrollViewport` (raderna under huvudet); `rowRect` är det SYNLIGA bandet (markeringen fyller det man ser och
+  Minimalistics markör står kvar vid vänsterkanten när man rullar i sidled), `cellRect` följer den horisontella
+  scrollen, och scrollen läses alltid KLAMPAD. `clipRect` är raderna, så datagridens editorer aldrig ritas över
+  huvudet. `contentExtent` är bara radernas och kolumnernas. Hjulet stegar i RADER lodrätt och i `wheelStep`
+  vågrätt. **IKONSTORLEKEN** (0 = AUTO): kroken **`baseRowH`** (`listRowH`/DataGrids `gridRowH`), och `rowH` =
+  max(bas, ikon + (bas − `iconFallback`)). **CELLENS FÄRGER**: `setCellColor` (logg + no-op utanför, kolumnen
+  får saknas, växer inte vektorn för en sättning som inte ändrar, invaliderar vid ändring), `cellColors_`
+  parallell med `rows_` (nollas av `setRow`/`setRows`), och `drawCell` med `appColors` fyller bakgrunden FÖRE
+  innehållet och väljer `appTextColor` (cell → rad → tema); `drawCells` hoppar över kolumn 0 när den är fast.
+  **RADRUBRIKER**: `frozenW`/`cellRect`/`contentExtent`/`hitPosition`/`columnAt` (remsan är radens del) och
+  `drawRowHeaders` — en pass klippt mot radernas yta på hela innehållsbredden: huvudets yta
+  (`drawHeaderSurface`), per rad namnet (`drawCell(…, false)`), subklassens `drawRowHeaderMarks` och en
+  hårlinje under raden, sist remsans högerkant. **BREDD EFTER INNEHÅLLET**: `cellContentW` tar DATAradernas
+  (också de doldas) bredaste cell ur `cellW_` (per rad och kolumn, < 0 = inaktuell, tömd när fonten, stilen,
+  skalan, radhöjden eller ikonstorleken byts) och mäter bara en inaktuell med `cellContentWidth` (`drawCell`s
+  ordning: indrag, zon, ikon, cellens bild, text); `setCell` och `setCellImage` gör EN cell inaktuell
+  (`contentChanged(kolumn)`), `setRow` raden, och en kategori som tillkommer eller försvinner kolumn 0.
+  **RITDELARNA**: `drawCell` drar `contentIndent` och bilden och lämnar värdet åt `drawCellValue`; `drawCells`
+  hoppar över kategori- och tomrader, som `drawSpanRows` ritar över hela bandet med
+  `valuecell::drawCategoryRow`. **HÖJDEN UR RADERNA**: `contentSize`/`heightForWidth` = huvudet (mot
+  innehållsbredden) + `positionCount() × rowH` + ramen, plus listens tjocklek när kolumnerna inte ryms — utan
+  `c.area` och `resolve()`.
+- **`column_panel.cpp`** — KOLUMNHUVUDET för Table och TreeView (loggraderna säger `ColumnPanel(namn)`).
+  **HUVUDET** (`drawHeader`, per UI): Slate och Glaze en remsa i `windowBg` (barernas yta — Glaze med linjerna i
+  den bestämda `buttonBorder`), Minimalistic ingen yta; sorteringspilen är dropdownens chevron i `textDim`, och
+  avdelaren TÄNDS i `accent`/`focusWidth` under pekaren och medan den dras. **RUBRIKERNA PÅ FLERA RADER**:
+  `headerH` är `tableHeaderH` för EN rad och en `Draw::lineHeight` till per rad; `headerLineCount` är det satta
+  talet eller AUTO:s, CACHAT i `HeaderCache` mot fontpekaren OCH radhöjden, skalan, `cellPadX`,
+  `columnDefaultW`, innehållsbredden `cw` (bara med en Autosize-kolumn, annars −1), `headerGen_` (stegad av
+  `headerChanged()` i kolumnsättarna, `setColumnWidth`, lägena, rubrikkrysset och `languageChanged()`) och
+  `contentGen_` (en AutoMin-bredd och kryssets zon följer innehållet). Raderna ur `Draw::elideLines` ritas var och
+  en i en rect LIKA HÖG SOM HUVUDET, flyttad `platsSkift` från mitten (`förstaPlats` per `VAlign`) — ett
+  enradshuvud får exakt den rect det alltid fått, och `setHeaderLines`/`setColumns` klampar scrollen.
+  **KOLUMNLÄGENA** (räkningen i `../column_sizing.h`, delad med PropertyGrid): `columnBaseW` är den satta bredden
+  (Manual, Autosize) eller `fittedW` (AutoMin — bara då frågas den), `autosizeShare` det som blir över av `cw`
+  efter ALLA baser delat lika mellan Autosize-kolumnerna, och `columnX` räknar andelen EN gång för hela summan
+  (O(k)). Geometrin tar innehållsbredden som argument (`columnW`/`columnX`/`columnsW`/`cellInContent`/
+  `headerH(c, cw)`), och `contentW(c)` = `innerBounds(c).w` BARA med en Autosize-kolumn — en tabell utan frågar
+  aldrig `resolve()` där, och ett satt `headerLines` frågar inte bredden; en Autosize-kolumns kant går inte att
+  dra. Draget och dubbelklicket skriver `Manual` genom `setManualWidth` (EN invalidering). `hasHeader` false
+  (trädet utan kolumner) ger höjden 0. **`fittedW`** — rubrikens bredaste `\n`-rad + luft + rubrikkryssets zon
+  (pilens plats reserverad när `sortable_` eller kolumnen är den sorterade) mot `cellContentW` + luft, båda plus
+  kantens tjocklek som ANDRUM (utan det fick den bredaste texten en ellips: kortningen jämför strikt och (mått +
+  luft) − luft är inte alltid måttet i flyttal), minst `columnMinW` — cachas per kolumn i `FitCache` (font,
+  stil, skala, sortering, `fitGen_`) med en EGEN generation per kolumn (`colGen_`, stegad av
+  `contentChanged(kolumn)`); `setColumnWidth` stegar inte `fitGen_`. Dubbelklicket: `headerDoubleClick` nollar
+  `resizeColumn_` (det andra trycket började ett drag) och skriver `fittedW`. **RUBRIKKRYSSET**: `hasHeaderCheck`
+  = `Column::headerCheck` och ett läge ur subklassens `headerCheckState`; zonen (`headerCheckZone`, rutan +
+  `checkGap` cellens luft in, huvudets höjd) står före rubrikens text (ritad med `valuecell::drawCheckBox`), och
+  ett tryck i den (`headerCheckAt`) går till `headerCheckToggled` i stället för sorteringen. `toolTipAt` svarar
+  kolumnens `toolTip` över rubriken. **FASTA FÖRSTA KOLUMNEN**: kroken `frozenW` smalnar `scrollViewport` från
+  vänster, `headerCellRect` rullar inte kolumn 0, `dividerAt` hoppar över rullande kanter under den och
+  `drawHeader` ritar rubrikerna som lambdan `rubrik(i)` — de rullande klippta mot ytan till höger, den fasta sist.
+  **TABELLENS TRÄFF**: skyddade `hitPosition(c, mx, my)` (huvudet, remsorna och allt utanför rullningsytan i x och
+  y är "ingen") bär publika `rowAt(lokalX, lokalY)`, som svarar med APPENS radindex, och listvyns högertryck.
+  **IKONEN ÄR EN KROK** (`iconSide`/`drawIcon`): `drawCell` frågar sidan (0 = ingen ikon) och låter kroken rita i
+  en kvadrat — standard är radens `ImageSource` (asset i sin storleksklass, pixlar i `iconFallback`) med
+  `iconFade`; en SATT ikonstorlek gäller VARJE rad, också en utan bild (texten i linje), och bara en giltig bild
+  ritas. Filväljarens interna lista ritar mappar och filer i radens textfärg. **ZONEN FÖRE IKONEN**: `drawCell`
+  flyttar kolumn 0:s innehåll `leadW(c)`; `leadZone` är tom utan kolumner (inget `columnW(0)` på en tom lista).
+  **RADENS FÄRG**: `Row::color`, `setRowColor` (logg + no-op utanför, invaliderar vid ändring) och skyddade
+  `appTextColor(rad, kolumn, tema)` för omarkerade rader; `setRow` är tilldelning (färgen nollas) och anropar
+  kroken `rowReplaced(rad)`, `setCell` lämnar färgen.
 - **`list_view.cpp`** — LISTVYN: valet och de tre recepten — samma som
   ListBox (Slate `accent`/`windowBg`, Glaze `accentSurface`/`onAccent`
   olaminerat, Minimalistic `rowMarkerW`-strecket, hover `buttonHover`,
@@ -568,32 +561,69 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   aktuell rad OCH `onActivate` satt (annars standardknappen; trädet och
   ListBox likadant). **HÖGERTRYCKET** (`rightDown`) är ListBoxens regel genom
   `hitPosition`, med `contextRow_` (appens rad, −1 för ingen) — nollad med
-  raderna. Grind: `listview_gate`.
+  raderna. **KATEGORIERNA**: `mouseDown` går huvudet → en kategorirad (fälls
+  och blir aktuell, aldrig vald) eller en tomrad (ingenting) → zonen →
+  solovalet → valet; `allRows()` och `assignSelection` tar bara synliga
+  DATArader, `rowsHidden` släpper valet, ankaret och solovalet på de dolda
+  utan event (kryssen står kvar), och `toggleCategory` fyrar valets par efter
+  `onCollapse` när den valde bort något (`hiddenDeselected_`); radloopen
+  hoppar över kategori- och tomrader (`drawSpanRows`), och den aktuella
+  kategorins fokusram spänner över radrubrikens remsa. **RUBRIKKRYSSET**:
+  `headerCheckState` (kolumn 0, rutorna på) räknas över de synliga
+  dataraderna och cachas i `headerState_` mot `checkGen_` och
+  `positionCount()`; `headerCheckToggled` sätter alla och fyrar EN `onCheck`
+  med `changedRows_`. `rowRemoved` räknar ned ankaret, solovalet, kryssens
+  rader och `contextRow_`. Rutorna ritas med `valuecell::drawCheckBox`.
+  Grind: `listview_gate`.
 - **`data_grid.cpp`** — DATAGRIDDEN: editorerna, kolumntypen, redigeringen
   och recepten runt cellerna — kolumnerna, raderna, sorteringen och huvudet
-  är `table.cpp`s. `TextEditor`/`ChoiceEditor` lämnar BARA över tangenterna
+  är `table.cpp`s, och tolkningen, måtten och ritningen av en kryss-, färg-,
+  tal- och knappcell är `../value_cell.h`s. `TextEditor`/`ChoiceEditor`/
+  `ColorEditor` lämnar BARA över tangenterna
   som AVSLUTAR en redigering (Enter, Escape, Tab, Upp/Ned — med Ctrl/Cmd/Alt
   går tangenten orörd till fältet, också Ctrl+Z) och meddelar
   fokusförlusten; resten ärvs. En cell börjar med `TextEditor::börja(text)` =
-  `setText` + `resetHistory()`. Vallistan STÄNGD lämnar Upp/Ned åt
+  `setText` + `resetHistory()`; i en talcell släpper fältet bara taltecken
+  (`filterNumberChars`, `../number_text.h`). Vallistan STÄNGD lämnar Upp/Ned åt
   datagriden, ÖPPEN är de listans. **AVSLUTET ÄR EN VÄG** (`endEdit(spara,
   postad)`) och ORDNINGEN är bärande: tillståndet nollas FÖRST (editorns
   `focusLost` ser då att ingen redigering pågår), datagriden tar fokus INNAN
-  editorn göms (annars tangenterna i tomma luften), och cellen skrivs och
-  `onChange` fyras SIST — en handler får bygga om tabellen. Ur `focusLost`
-  POSTAS eventet med radgenerationen `rowsGen_`. `fireCellChange` fyrar
-  `onChange` + `onCommit` med samma (rad, kolumn) genom `firePair`;
+  editorn göms (annars tangenterna i tomma luften), och cellerna skrivs och
+  `onChange` fyras SIST — en handler får bygga om tabellen. Ett tal går genom
+  `valuecell::commitNumber` med VARJE måls egen cells regler; otolkbart blir
+  cellens `CellSetting::pending` (felet, släppt av `cellSet`), och ett
+  effektivt oförändrat värde (`sameNumber`) skrivs inte. `editTargets` är
+  raderna en sparning skriver (alla valda med samma sorts redigerare med
+  `multiEdit`), och krysset, färgens `commitColor` (generationsvakten
+  `colorRow_`/`colorColumn_`/`colorGen_`) och rubrikkrysset går samma väg.
+  Ur `focusLost` POSTAS eventet med radgenerationen `rowsGen_` (stegad också
+  av `removeRow`). `fireCellChange` fyrar `onChange` + `onCommit` med samma
+  (rad, kolumn, rader) genom `firePair`;
   `endEdit`/`saveEdit` svarar, och editorerna flyttar inte cellen vid false.
-  `editable(k)` är EN fråga för ritningen och redigeringen, så en val-kolumn
-  utan val SER skrivskyddad ut för att den ÄR det.
+  `editable`/`cellActive`/`pressable`/`readOnlySurface` är EN fråga per cell
+  för ritningen och redigeringen, så en val-kolumn utan val SER skrivskyddad
+  ut för att den ÄR det. **TRYCKET** går: en öppen färgpopup (stänger bara
+  den) → huvudet och remsorna → en pågående redigering sparas → en
+  kategorirad fälls → den aktuella cellen och radvalet → cellens handling
+  (krysset växlar, färg och val öppnar, knappen trycks ned och klickar vid
+  släppet över samma cell, text och tal bara med `editOnClick`). Enter och
+  Space utan redigering går genom `activateCell`. **TABELLENS KROKAR**:
+  `cellContentWidth` (de typade cellernas mått, och `invalidateCellWidth`
+  när en redigerare, ett fel eller en visning ändras), `cellSortValue`
+  (talet, krysset 0/1, färgen RGBA packad), `drawCellValue` (felet på
+  `errorSurface`, det valdas ikon i en val-cell) och `cellDrawsOwnImage`
+  (knappen). `headerCheckState` räknas över de synliga aktiva krysscellerna
+  och cachas mot `damageStamp()`.
   `placeChild` läser bara Ctx:ets egna fält (`c` är BARNETS — datagridens
   `resolve()` hade räknats mot fel yta), skickar därför innehållsbredden
-  UTTRYCKLIGEN (`c.area` är datagridens `childArea`, fyllkolumnens bredd) och
+  UTTRYCKLIGEN (`c.area` är datagridens `childArea`, Autosize-kolumnernas
+  bredd), drar kategorins indrag, lägger talets fält i `numberFieldRect` och
   ger de dolda editorerna en tom rect; radhöjden är `baseRowH` (`gridRowH`).
   `startEdit` ger editorn KOLUMNENS justering innan den visas.
-  **RITNINGEN**: ytorna är FÄLTETS och LIKA i alla tre — `panel` är
-  skrivytan och `fieldReadOnly` en kolumn som inte går att redigera
-  (TextInputs två ytor) — och rutnätet `border`. Det som skiljer familjerna
+  **RITNINGEN**: ytorna är FÄLTETS, per CELL och LIKA i alla tre — `panel` är
+  skrivytan och `fieldReadOnly` en cell som inte går att redigera
+  (TextInputs två ytor), en inaktiv cell skrivyta med dämpad text — och
+  rutnätet `border`, inget för kategori- och tomrader. Det som skiljer familjerna
   är den AKTUELLA cellen, som listvyns val: Slate `accent`/`windowBg`, Glaze
   `accentSurface`/`onAccent` olaminerat med ramen i `buttonBorder`,
   Minimalistic `rowMarkerW`-strecket och texten i `accent`; resten av en rad
@@ -628,10 +658,20 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   `tests/dropdown_gate.cpp`. **JUSTERINGEN** (post 52): fältets text ritas i
   `textRect` — från `fieldPadX` till `fieldPadX` före pilens ruta — med
   `align_`. **TEXTSTORLEKEN** (REQ8 26) i fältet (`textCtx`) och i popupens rader (`setTextSize` vid öppningen; höjden ur `rowHeight`).
+  **POSTERNAS IKONER**: `icons_` parallell med `items_` men får vara kortare (en post utan ikon sist växer
+  inte vektorn); `DropdownRows` ritar ikonen före texten och reserverar dess plats på varje rad när NÅGON post
+  bär en (`hasIcons`), och fältet ritar det valdas i `iconRect` med `textRect` förbi den.
 - **`property_grid.cpp`** — kolumnbakgrunder, rader och gridlinjer +
-  cellgeometrin (`nameW`/`rowBounds`/`valueBounds` över de SYNLIGA raderna —
+  cellgeometrin (`columnW`/`rowBounds`/`valueBounds` över de SYNLIGA raderna —
   `pos_`, `rebuildVisible`, scrollen klampad i `scrollOffset`) som ritning
-  (`drawRow`/`drawCell` per slag), cellträff och editor-placering delar.
+  (`drawRow`/`drawCell` per slag — cellerna och kategoriraden ur
+  `../value_cell.h`, delad med DataGrid), cellträff och editor-placering delar.
+  **KOLUMNERNA**: `colWidth_`/`colSizing_` räknade med `../column_sizing.h`
+  mot innerytan minus listens remsa; AutoMin är `fittedW` (bredaste namnet
+  respektive värdecellen, `valueContentW`, utan kategorierna) cachad mot
+  `damageStamp()`, stilen, fonten och skalan. **KATEGORIN**: ett tryck sparar
+  först och fäller sedan genom `toggleCategoryFromUser`, som fyrar
+  `onExpand`/`onCollapse` SIST.
   FYRA editorer (ägda barn i childArea-logiska px ⇒ följer scrollen):
   `TextEditor : TextInput` (fritext och tal — `numeric_` släpper bara
   taltecken), `ChoiceEditor : Dropdown` (Enter med listans val, Escape —
@@ -641,8 +681,8 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   `colorRowGen_`, ett tryck med öppen popup stänger bara den).
   **COMMITEN är datagridens form**: `mouseDown` anropar `endEdit(true,
   false)` FÖRE cellträffen; ORDNINGEN i `endEdit`: läs rad + text,
-  `hideEditors()`, skriv värdet (talet tolkat, klampat och avrundat med
-  `../number_text.h`; otolkbart ⇒ `pending_[r]`, radens fel), fyra/posta
+  `hideEditors()`, skriv värdet (talet genom `valuecell::commitNumber`;
+  otolkbart ⇒ `pending_[r]`, radens fel), fyra/posta
   sist. Ett postat event slopas av `rowsGen_` (`setRows`) och av
   `rowGen_[r]` (`setRow`, `setRowEnabled(false)`). Ett effektivt oförändrat
   värde fyrar inget. `fireChange` sätter `changed_` igen före `onCommit`.
@@ -650,9 +690,9 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   (`rebuildVisible` läser `isEnabled()`), som ritas med `textDim` och
   värdekolumnen på `fieldReadOnly`. Glaze markerar aktiv rad med
   `accentSurface` + `onAccent`, Minimalistic med `rowMarkerW`-strecket.
-  **`setProp` (nameWidth) och STYCKEFORMEN** `addRow(Row)`/`setRow(i, Row)`/
+  **STYCKEFORMEN** `addRow(Row)`/`setRow(i, Row)`/
   `setRowEnabled`/`setExpanded` — index utanför ⇒ `gfx::log` + no-op;
-  `Panel::setProp` anropas SIST.
+  `setProp` har inga egna nycklar och lämnar allt till `Panel::setProp`.
 - **`separator.cpp` / `picture.cpp`** — de två ritnings-ENDA nivå
   1-komponenterna. Separatorns `draw()` är EN `Draw::line` mitt i ytan — i en
   `Bar` TVÄRS baren (`drawnVertical`) och tunn på båda axlarna (D15);
@@ -869,106 +909,64 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   filen** — kameraräkningen bor i `../canvas/camera_math.cpp` av samma skäl. Alla tre `case` delar EN gren med
   beslutet i klartext (ritytan är innehåll); tabellen står i filhuvudet. Kameran görs om till fasadens `MapView`
   på ETT ställe (`view()`), som ritningen, musens världspunkt, `toWorld`/`toLocal` och `unitsPerPixelAt` delar;
-  `knownBox` ger den senast ritade ytan (eller en färsk resolve). **DE FÖRANKRADE BARNEN** (REQ8 14): `projectIn`
-  är `toLocal`s och `placeChild`s EN projektion; `placeChild` räknas mot `c.area` (ritytans egen yta) EFTER
-  `draw()` i ritvandringen, så trögheten som stegas där syns i barnet samma bildruta. Hörnet: `gfx::anchorCorner`.
-  **TEXTENS MÅTT** (REQ7 4): de två formerna av `measureText` slutar i `measureWith` (nullopt utan `c.canvas`, och
-  för ett världsmått när tätheten är okänd — `detail::measureNeedsWorld`). Formen MED Ctx tar tätheten ur
-  `layoutPxPerUnit` — `lastBox_` eller de satta måtten, kameran som den är och en väntande kartskala; ALDRIG
-  `knownBox`/`resolve`/`contentSize`, för den anropas ur layouten. Formen UTAN går genom `behaviorCtx` + `resolve`
-  och har VAKTEN `measuring_` (RAII nollar den): ett anrop under dess egen layoutvandring loggar en gång per rityta
-  och svarar nullopt (canvas_gate MR). **INRAMNINGEN MOT YTAN JUST NU** (REQ9 6): `zoomToRect`/`zoomToBox`/`panBy`
-  räknar mot `currentBox` (färsk resolve, bredd och höjd > 0) — aldrig `lastBox_`, som en inaktiv flik (inte ritad
-  sedan REQ9 6) lämnar gammal; annars väntar de till `applyPending` i en ritning med yta (canvas_gate FL).
-  `onResize` är basens (widget.h). **MINNET** (REQ3 10): `setMemoryBudget` LAGRAR i `scene_->memoryBudget` (0 =
-  `App::canvasMemoryBudget()`) och gäller från nästa ritning, och ritytans TRE ritvägar (`drawScene`, `drawOverlay`,
-  `renderToBitmap`) öppnar sitt konto i fönstrets bildcache med RAII-typen `detail::ImageAccount` — bilderna räknas
-  på den rityta som ritade dem (../CLAUDE.md, `image_cache`); `setProp("memoryBudget")` prövar ändligt, heltal ≥ 0
-  och inom `size_t` FÖRE omvandlingen. **MÅLARNA** (REQ8 2) går EN väg, `måla` — `onPaint`, `onPaintOverlay` och
-  `onPaintLayer`, med lagret i `PaintArgs::layer` och ett lagers renderläge som start; `lagerMålare` ger den sista
-  som `detail::LayerPaint` åt `drawGround` (2D) och `målArgs(yta, c)` — 3D-målets argument (provtagningen,
-  rutnätet, `onPaint`, lagrens målare) som `drawScene` och `renderToBitmap` delar. `easeTo` stegas FÖRST i `draw()`
-  och invaliderar sig själv tills den är framme (Progress-mönstret; `scene_pixel_gate` F6).
+  `knownBox` ger den senast ritade ytan (eller en färsk resolve). **DE FÖRANKRADE BARNEN**: `projectIn` är
+  `toLocal`s och `placeChild`s EN projektion; `placeChild` räknas mot `c.area` EFTER `draw()` i ritvandringen, så
+  trögheten som stegas där syns i barnet samma bildruta. **TEXTENS MÅTT**: båda formerna av `measureText` slutar i
+  `measureWith`; formen MED Ctx tar tätheten ur `layoutPxPerUnit` och ALDRIG ur `knownBox`/`resolve`/
+  `contentSize` (den anropas ur layouten), formen UTAN har VAKTEN `measuring_` mot sin egen layoutvandring
+  (canvas_gate MR). **INRAMNINGEN** (`zoomToRect`/`zoomToBox`/`panBy`) räknar mot `currentBox` — aldrig
+  `lastBox_`, som en inaktiv flik lämnar gammal — eller väntar till `applyPending` (canvas_gate FL). **MINNET**:
+  `setMemoryBudget` LAGRAR i `scene_->memoryBudget` och gäller från nästa ritning, och de TRE ritvägarna
+  (`drawScene`, `drawOverlay`, `renderToBitmap`) öppnar sitt konto i bildcachen med `detail::ImageAccount`.
+  **MÅLARNA** går EN väg, `måla` (`onPaint`, `onPaintOverlay`, `onPaintLayer`), och `målArgs(yta, c)` är 3D-målets
+  argument som `drawScene` och `renderToBitmap` delar. `easeTo` stegas FÖRST i `draw()` och invaliderar sig själv
+  tills den är framme (Progress-mönstret).
   FÖNSTRET fyrar `onMouseDown`/`onMouseUp`/`onMouseCancel` med ritytans args (`fireMouse` → `mouseArgs`) och
   krokarna gör bara gesten; ett tryck appen TOG når ritytan som `appPress` (Begin fångar en kastad karta, Move
   ger `onMouseMove`, DoubleClick `onDoubleClick`). Ett tryck och ett dubbelklick ritar om fönstret, en rörelse
   gör det inte, och hjulkroken har PEKARENS position. **`onMouseMove` kommer EN gång per rörelse**: hover-kroken
   tiger medan `pressed()` — rörelsen kommer med knappen genom `mouseDrag` (`canvas_gate` E). **GESTERNA** bor i
-  krokarna, EFTER appens handler och bara när den inte satt `handled` — och sedan REQ9_INMATNING genom
-  BINDNINGSTABELLEN (../canvas/input_map.h): ett tryck läser dragets plan (`dragPlan` → `resolveDrag`, läget ur
-  `groupMode`) och `beginDrag` greppar världspunkten under pekaren när planen panorerar; VARJE RÖRELSE läser
-  planen igen med fönstrets modifierare (`moveDrag` — Shift mitt i draget byter), summerar axlarnas mängder per
-  handling (`addMotion`, `bindingAmount` × `bindingFactor`) och flyttar en VIRTUELL PEKARE med panoreringens
-  mängd som greppet ankras under (`gfx::anchorWorldAt`; med förvalen den riktiga), och släppet (`endDrag`)
-  startar trögheten ur den virtuella pekarens sampel eller vridsnäppet (`snapRotation` — en EGEN glidning av
-  bara bäringen som panorering och zoom INTE stoppar; bara en ny vridning och kamerasättarna gör det).
-  Mitten- och högerknappen går samma väg (`drags_[3]`) och TAR trycket bara när planen har en påslagen handling
-  (högerknappen alltså bara med en `RightDragX/Y`-rad). Ett drag gäller bara medan knappen hålls, och
-  `cursorAt` (`activeDrag`) läser samma sak. Hjulet, styrplattan och tangenterna slår upp sin rad per händelse
-  (`resolveEvent`) och utförs av `applyMotion` (vridning, zoom, förflyttning per kamerans sort). TRÖGHETEN stegas i `draw()` (`stepCoast`, efter
-  `stepEase`) och invaliderar tills `camera_math` säger att den är framme; `onCameraChange` därifrån POSTAS
-  (`postCameraChange` — en åt gången, med livstecken, i App:s RAMKÖ `detail::postFrameWork`, PRESTANDA D2), för
-  ingen handler får köras mitt i en ritning. **EFTER DE LÖPANDE HÄNDELSERNA RITAS RITYTAN OM, INTE FÖNSTRET**
-  (PRESTANDA D1): `onTick`, `postCameraChange`, hjulets tre grenar, `onGesture` och gestens kamerasteg anropar
-  ritytans `invalidate()` (som stegar `damageStamp` och ritar 3D-målet) i stället för `appWindow()->invalidate()`;
-  de tre dubbelklicken och tangenterna ritar fortfarande om fönstret. canvas3d_gate T2 och canvas_gate D1.
-  **STYRPLATTAN**: ett PRECIST hjul (`appWindow()->isPreciseWheel()`) PANORERAR i stället för att zooma —
-  `panAround` ankrar världspunkten under pekaren vid pekaren + `detail::precisePanPx`, exakt också under tilt;
-  OS:ets tröghet panorerar likadant, ritytans egen startar aldrig, och utan `pannable` bubblar hjulet
-  (`CanvasMouseArgs::precise`). Nypningen och vridningen är `Widget::gesture`: Begin tas bara med zoom eller
-  vridning på, och gesten ZOOMAR ELLER VRIDER — aldrig båda (Erik 2026-10-10): före `detail::decideGesture`s
-  beslut hålls båda (vridningen måste vara DUBBELT så stor), det hållna av den valda blir en SKULD som
-  `detail::catchUp` betalar av (dubbel fart, aldrig ett hopp), och en gest som släpps obestämd gör ingenting.
-  Vridningen är `rotateAround` (bäringen MINUS graderna), och ett steg som flyttade kameran fyrar
-  `onCameraChange` + ritytans omritning; en sekvens som vred snäpper vid End/Cancel. **VRIDSNÄPPET**:
-  `setRotationSnap(steg)`/`setRotationSnapTolerance(grader)` validerar med `camera_math` (förvalen 360 och 7),
-  invaliderar ingenting. Grind: `trackpad_gate`. **TRÄFFPROVET** är `detail::hitLayer` per ritat lager,
-  uppifrån, med kameran som den är nu och `behaviorCtx()` (kräver ett öppet fönster). **OVERLAY-LAGRET:**
-  `hasOverlay` svarar om `onPaintOverlay` är satt, och `drawOverlay` ritar den i de lokala px klippt till ytan
-  med ytans hörn — målaren tömmer sin sats innan klippet släpps. **ETIKETTERNA:** `drawScene` ger
-  `detail::prepareLayers` toningsflaggan och invaliderar sig själv medan en toning pågår (`labelsAnimating_`) —
-  och, i 3D-målet, medan en drapering väntar på bildens budget (`Target3DState::drapesPending`, PRESTANDA C1).
-  **PROFILERAREN** (PRESTANDA A1): 2D-vägens faser (`detail::PhaseScope` — CanvasPrepare, CanvasDraw med
-  rutnätet, CanvasPaint) och scopes på `glaze.hitTest` (alla tre formerna), `glaze.castRay` och `glaze.heightAt`.
-  **3D-VÄGEN (CANVAS_3D):** `uses3DTarget()` — en `Camera3D`, `setMultisample(> 1)`, `setDepth(true)`, en
-  del-vy, ett synligt World- eller Terrain-lager eller ett pass — tar `drawScene` till `detail::drawTarget3D`
-  (../canvas/target3d.h) med två `PaintContext`, fönstrets och målets (`targetBox`), och stämpeln
-  `damageStamp()`; annars 2D-vägen som förut, som släpper gamla mål (`dropViews(id, 0)`). `renderToBitmap` ger
-  `detail::renderBitmap3D` ett `PaintContext` med bildens ruta. Med 3D-kameran räknas "mitten" mot dess skugga
-  (`mapViewAt`) och `toWorld`/`toLocal`/musens världspunkt mot marken (`projection()`/`view3DFor()`);
-  `mainView3DFor` är 3D-mattens, plockningens och `CanvasMouseArgs::ray`s kamera. DEL-VYERNA (`views_`, vy 1
-  först) och de EGNA PROGRAMMEN (`SceneData::programs`, namnen unika) följer kollektionsvokabulären, och
-  `removeView`/`setViews` numrerar om lagrens vylistor. `setLighting` lagrar ljuset som `paintContext` pekar ut;
-  meshar, instanser och punkter är former som andra, utan egna grenar här. **ORBITEN (etapp 11)** går genom
-  SAMMA krokar: med `is3D_` (`motionKind` — Orbit, eller FirstPerson i läget "firstPerson" med `lookAround`/
-  `moveEye`) ger förvalets rader orbit för vänsterknappen och panorering för mitten och Shift, och
-  `applyMotion` kallar `orbitCamera`/`panCamera` (ett anrop per lodrätt läge)/`dollyCamera` (camera_math).
-  Ingen egen tröghet och inget snäpp — OS:ets tröghet (Momentum) panorerar som i kartan. Verktygen `orbitBy`/
-  `panBy`/`dollyBy`/`easeTo(Camera3D)`/`zoomToBox` går samma väg utan `onCameraChange` (`panBy` och `zoomToBox`
-  väntar på ytan, `applyPending`). Ett BYTE AV KAMERASORT mitt i ett drag avslutar draget; en ny `Camera3D` gör
-  det inte (förstapersonens tick). Högerknappen har en gest bara med en bindning — annars är trycket appens;
+  krokarna, EFTER appens handler och bara när den inte satt `handled`, genom BINDNINGSTABELLEN
+  (../canvas/input_map.h): ett tryck läser dragets plan (`dragPlan` → `resolveDrag`), VARJE RÖRELSE läser den
+  igen med fönstrets modifierare (`moveDrag` — Shift mitt i draget byter) och flyttar en VIRTUELL PEKARE som
+  greppet ankras under, och släppet (`endDrag`) startar trögheten ur den eller vridsnäppet (`snapRotation`, en
+  EGEN glidning av bäringen som panorering och zoom inte stoppar). Mitten- och högerknappen går samma väg
+  (`drags_[3]`) och TAR trycket bara när planen har en påslagen handling; ett drag gäller bara medan knappen
+  hålls, och `cursorAt` läser samma sak. Hjulet, styrplattan och tangenterna slår upp sin rad per händelse
+  (`resolveEvent`) och utförs av `applyMotion`. TRÖGHETEN stegas i `draw()` (`stepCoast` efter `stepEase`), och
+  `onCameraChange` därifrån POSTAS (`postCameraChange`, en åt gången, i App:s RAMKÖ), för ingen handler får
+  köras mitt i en ritning. **EFTER DE LÖPANDE HÄNDELSERNA RITAS RITYTAN OM, INTE FÖNSTRET**: `onTick`,
+  `postCameraChange`, hjulets grenar, `onGesture` och gestens kamerasteg anropar ritytans `invalidate()`; de
+  tre dubbelklicken och tangenterna ritar om fönstret (canvas3d_gate T2, canvas_gate D1). **STYRPLATTAN**: ett
+  PRECIST hjul PANORERAR i stället för att zooma (`panAround`, exakt också under tilt), ritytans egen tröghet
+  startar aldrig, och utan `pannable` bubblar hjulet. Nypningen och vridningen (`Widget::gesture`) ZOOMAR
+  ELLER VRIDER — aldrig båda: före `detail::decideGesture`s beslut hålls båda (vridningen måste vara DUBBELT så
+  stor), det hållna av den valda betalas av med `detail::catchUp` (aldrig ett hopp), och en gest som släpps
+  obestämd gör ingenting; en sekvens som vred snäpper vid End/Cancel. `setRotationSnap`/
+  `setRotationSnapTolerance` invaliderar ingenting (`trackpad_gate`). **OVERLAY-LAGRET:** `drawOverlay` ritar
+  `onPaintOverlay` i lokala px klippt till ytan med ytans hörn — målaren tömmer sin sats innan klippet släpps.
+  **ETIKETTERNA:** `drawScene` invaliderar sig själv medan en toning pågår (`labelsAnimating_`) och, i 3D-målet,
+  medan en drapering väntar på bildens budget (`drapesPending`). **PROFILERAREN**: 2D-vägens faser
+  (`detail::PhaseScope`) och scopes på `glaze.hitTest`, `glaze.castRay` och `glaze.heightAt`.
+  **3D-VÄGEN:** `uses3DTarget()` (en `Camera3D`, multisampling, djup, en del-vy, ett synligt World- eller
+  Terrain-lager eller ett pass) tar `drawScene` till `detail::drawTarget3D` (../canvas/target3d.h) med
+  fönstrets och målets `PaintContext` och stämpeln `damageStamp()`; annars 2D-vägen, som släpper gamla mål
+  (`dropViews(id, 0)`). Med 3D-kameran räknas "mitten" mot dess skugga (`mapViewAt`) och världspunkterna mot
+  marken; `mainView3DFor` är plockningens och `CanvasMouseArgs::ray`s kamera. DEL-VYERNA och de EGNA
+  PROGRAMMEN följer kollektionsvokabulären, och `removeView`/`setViews` numrerar om lagrens vylistor.
+  **ORBITEN** går genom SAMMA krokar (`motionKind` — Orbit, eller FirstPerson i läget "firstPerson"), utan egen
+  tröghet och snäpp; verktygen `orbitBy`/`panBy`/`dollyBy`/`easeTo(Camera3D)`/`zoomToBox` går samma väg utan
+  `onCameraChange`. Ett BYTE AV KAMERASORT mitt i ett drag avslutar draget, en ny `Camera3D` gör det inte;
   `mouseCancel` stoppar gesten där den står, och `gesture` fyrar `onGesture` först.
-  **TICKNINGEN:** `stepTick` i `draw()` postar EN tick åt gången i App:s
-  RAMKÖ (livstecknet; före appens poster, utan budget) så länge `tickAlive()` — `onTick` satt och
-  `setTicking` eller en tangent i `tickKeys_` (`keyTaken`: `onKeyDown` tog den)
-  som `isKeyHeld` fortfarande svarar för; en följd som tar slut nollar
-  `tickRunning_`. **`cameraLanded`** stegar stämpeln på det sista steget av en
-  rörelse som stegas i ritningen. **PLOCKNINGEN** (`hitTest(lokal,
-  HitOptions)`) routar till den översta vyn, samlar 2D-formerna (`hitLayer`,
-  `tolerance` som bas — REQ8 18) och rymdens (`pickShape3D`), skymmer och
-  sorterar med RITNINGENS regler (../canvas/CLAUDE.md); RUTAN (`hitTest(Rect,
-  HitMode)`, REQ8 19) är `hitLayerRect` i huvudvyn, utan Ground på terräng.
-  PRESTANDA C5: terrängens yta ur den FÖRSTA loopen återanvänds i den andra
-  (bara Mesh/Area3 utan `opaqueOnly` — instanserna blandar yta och hörn; den
-  andra plockar med `PickContext::surface = false`), ett lager utan snap
-  (`LayerData::snap`) ger inga hörn och kanter, `HitQuery::noGround` när
-  terräng ritas men inte under pekaren, skymmarna samlas bara med
-  `occlusion` i 3D-målet (`occluder(post, opacitet)` med lådan), och
-  `castRay` räknar skymmaren FÖRST och sätter taket `occlusionReach` — annars
-  bygger `pickMesh` BVH:n innan roten prövas. `pickShape3D(post)` sållar
-  Mesh/Instances i världens enhet på den CACHADE lådan före placeringen.
-  **WIDGETS PÅ RITYTAN:** `clipsChildren()`, och `clipRadius` = `surfaceRadius` × skalan — fältets hörn, 0 på en
-  PLATT yta (REQ8 4, `flat_`), som också ritar fokusmarkeringen rak INNANFÖR ytan och ingen kant.
+  **TICKNINGEN:** `stepTick` i `draw()` postar EN tick åt gången i App:s RAMKÖ så länge `tickAlive()` —
+  `onTick` satt och `setTicking` eller en tangent i `tickKeys_` som `onKeyDown` tog och `isKeyHeld` svarar för.
+  **`cameraLanded`** stegar stämpeln på det sista steget av en rörelse som stegas i ritningen.
+  **PLOCKNINGEN** (`hitTest(lokal, HitOptions)`) routar till den översta vyn, samlar 2D-formerna (`hitLayer`)
+  och rymdens (`pickShape3D`) och skymmer och sorterar med RITNINGENS regler; RUTAN (`hitTest(Rect,
+  HitMode)`) är `hitLayerRect` i huvudvyn. Terrängens yta ur den första loopen återanvänds i den andra, och
+  `castRay` räknar skymmaren FÖRST — sållningen och skymningen står i ../canvas/CLAUDE.md (`hit_index`,
+  `pick3d`). **WIDGETS PÅ RITYTAN:** `clipsChildren()`, och `clipRadius` = `surfaceRadius` × skalan — 0 på en
+  PLATT yta (`flat_`), som också ritar fokusmarkeringen rak INNANFÖR ytan och ingen kant.
 
 ## Fallgropar
 

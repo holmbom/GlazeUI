@@ -659,6 +659,60 @@ void mätcachen()
     }
 }
 
+// ------------------------------------------- 5. tabellens höjd ur raderna
+//
+// En tabell utan satt höjd mäts ur RADERNA: huvudet + de synliga platserna ×
+// radhöjden + ramens indrag — i LOGISKA px, samma svar i skala 1 och 2 — och
+// `heightForWidth` lägger till listens tjocklek när kolumnerna inte ryms i
+// bredden. Facit räknas ur stilens mått, aldrig ur tabellens geometri.
+// SABOTAGEN den fäller: en höjd som multipliceras med skalan (T1 i skala 2),
+// höjden ur `rowCount` och inte ur platserna (T2 — den ihopfällda kategorin),
+// en fällning som inte invaliderar (T2 — mätcachen står kvar på gamla höjden)
+// och listens tjocklek glömd (T3).
+void tabellensHojd()
+{
+    std::printf("\n=== 5. tabellens höjd ur raderna ===\n");
+
+    const glaze::Style& st  = glaze::defaultStyle(glaze::UI::Slate);
+    const float         ram = 2.0f * st.panelInset;
+    for (const float scale : {1.0f, 2.0f}) {
+        const std::string skala = " (skala " + std::to_string(int(scale)) + ")";
+        FalskFont         f(7.0f * scale, st.uiFontSize * scale);
+        const glaze::Ctx  c = ctxFör(st, f, scale);
+
+        glaze::ListView l;
+        l.width = 300.0f;
+        l.addColumn("A", 100.0f);
+        l.addColumn("B", 100.0f);
+        l.setRows({{{"a"}},
+                   {.cells = {"K"}, .kind = glaze::Table::RowKind::Category},
+                   {{"b"}}, {{"c"}}});
+        const gfx::Sizef s = Meter::measure(l, c);
+        ok(nära(s.h, st.tableHeaderH + 4.0f * st.listRowH + ram) &&
+               nära(s.w, 300.0f),
+           "T1: höjden är huvudet + platserna × radhöjden + ramen, logiskt" +
+               skala + " — fick " + std::to_string(s.h));
+
+        l.setExpanded(1, false);
+        ok(nära(Meter::measure(l, c).h,
+                st.tableHeaderH + 2.0f * st.listRowH + ram),
+           "T2: en ihopfälld kategori når mätcachen" + skala);
+        l.setExpanded(1, true);
+
+        const auto smal = Meter::measureHeightForWidth(l, c, 150.0f);
+        const auto bred = Meter::measureHeightForWidth(l, c, 400.0f);
+        const float bas = st.tableHeaderH + 4.0f * st.listRowH + ram;
+        ok(smal && bred && nära(*smal, bas + st.scrollThick) && nära(*bred, bas),
+           "T3: heightForWidth — listens tjocklek när kolumnerna inte ryms" +
+               skala);
+
+        l.height = 90.0f;
+        ok(nära(Meter::measure(l, c).h, 90.0f) &&
+               !Meter::measureHeightForWidth(l, c, 300.0f),
+           "T4: en satt höjd vinner" + skala);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -673,6 +727,7 @@ int main(int argc, char** argv)
     basensDefault();
     hojdForBredd();
     mätcachen();
+    tabellensHojd();
 
     std::printf("\n%d fall, %d fel\n", g_fall, g_fel);
     return g_fel == 0 ? 0 : 1;

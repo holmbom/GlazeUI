@@ -409,7 +409,7 @@ struct Fonster : glaze::AppWindow {
         ställ(pg, "pg", 460, 80);
         pg.width  = 170;
         pg.height = 80;
-        pg.setNameWidth(80);
+        pg.setColumnWidth(0, 80);
         pg.setRows({{"Typ", "A", {"A", "B", "C"}}});
         ställ(ok, "ok", 300, 340);
         ställ(avbryt, "avbryt", 420, 340);
@@ -621,7 +621,7 @@ std::vector<glaze::Button*> knapparI(glaze::AppWindow& f)
 
 // Egenskapslistans VÄRDECELL på rad `i`, i fysiska px — ur kontraktet, som
 // commit_gate: ingen ram, raden `gridRowH` hög, värdekolumnen från
-// `nameWidth` (80, satt i fönstret).
+// namnkolumnens bredd (80, satt i fönstret).
 gfx::Pointf värdecell(Fonster& w, int i)
 {
     const gfx::Rectf r = w.pg.resolve(w.pg.behaviorCtx());

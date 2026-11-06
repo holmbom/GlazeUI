@@ -694,12 +694,13 @@ void AppWindow::drawDragFeedback(Ctx c)
                    Pen{col.buttonBorder, m.borderWidth});
         break;
 
-    // SLATE — en YTA: `panel` och hårlinjen `border`, som en panel och en
-    // lista i samma familj.
+    // SLATE — en YTA: `panel` med kontrollkanten `buttonBorder`: plattan
+    // svävar över godtyckligt innehåll, ofta en yta i samma färg, där
+    // familjens hårlinje inte syntes — popupernas regel.
     case UI::Slate:
     default:
         Draw::rect(c, platta, m.cornerRadius, col.panel,
-                   Pen{col.border, m.borderWidth});
+                   Pen{col.buttonBorder, m.borderWidth});
         break;
     }
 

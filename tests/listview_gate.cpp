@@ -129,7 +129,10 @@
 //     (A5) · zonen/ikonen som glöms i kolumn 0 (A6) · det strikta andrummet
 //     (en hårlinje) som saknas (alla A/D — de förväntade värdena har det) · dubbelklicket som
 //     inte avslutar draget det andra trycket började (D2) eller som sorterar
-//     (D3) · en bredd som förblir `autoWidth` efter dubbelklicket (D4, D5)
+//     (D3) · ett läge som förblir `AutoMin` efter dubbelklicket (D4, D5)
+// …och kolumnlägenas, rubrikkryssets, kategoriernas, tomradens, cellbildens,
+// höjdens och prestandans (L, T, HK, KA, TR, CB, HO, PR — skrivna, en mening
+// per fall vid fallet).
 //
 // VAD DEN INTE MÄTER, skrivet så anspråket inte överdrivs:
 //   * hur cellfärgerna och radrubrikerna SER UT (färgerna mäts som
@@ -205,11 +208,12 @@ std::string fog(const std::vector<int>& v)
     return s + "}";
 }
 
-// Visningsordningen som appens radindex, plats för plats.
+// Visningsordningen som appens radindex, plats för plats — de SYNLIGA
+// platserna (en rad i en ihopfälld kategori har ingen).
 std::vector<int> ordning(const glaze::Table& t)
 {
     std::vector<int> v;
-    for (int p = 0; p < t.rowCount(); ++p)
+    for (int p = 0; p < t.positionCount(); ++p)
         v.push_back(t.rowAtDisplay(p));
     return v;
 }
@@ -224,7 +228,7 @@ struct Prov : glaze::ListView {
     using glaze::Table::languageChanged;
     using glaze::Panel::scrollRange;
     using glaze::Panel::inScrollStrip;
-    // Fyllkolumnens och ikonstorlekens geometri.
+    // Autosize-kolumnens och ikonstorlekens geometri.
     using glaze::Table::columnW;
     using glaze::Table::headerLineCount;
     using glaze::Table::iconSide;
@@ -240,6 +244,15 @@ struct Prov : glaze::ListView {
     using glaze::ListView::mouseUp;
     using glaze::ListView::mouseDoubleClick;
     using glaze::ColumnPanel::mouseDrag;
+    // Kolumnlägena, rubrikkrysset, kategorierna och höjden.
+    using glaze::ListView::keyDown;
+    using glaze::ListView::mouseMove;
+    using glaze::ListView::rightDown;
+    using glaze::ListView::headerCheckState;
+    using glaze::Table::contentSize;
+    using glaze::Table::navigationTarget;
+    using glaze::Table::contentIndent;
+    using glaze::Widget::hovered_;
 
     int ändringar   = 0;
     int aktiveringar = 0;
@@ -247,6 +260,25 @@ struct Prov : glaze::ListView {
     {
         onChange   = [this] { ++ändringar; };
         onActivate = [this] { ++aktiveringar; };
+    }
+};
+
+// RÄKNAREN — hur många CELLER tabellen mäter (`cellContentWidth`) och hur
+// många sorteringsvärden den frågar (`cellSortValue`): prestandans och den
+// lata omsorteringens grind.
+struct Raknad : glaze::ListView {
+    using glaze::Table::columnW;
+    mutable int mätningar = 0;
+    mutable int sorteringsvärden = 0;
+    float cellContentWidth(const glaze::Ctx& c, int row, int column) const override
+    {
+        ++mätningar;
+        return glaze::ListView::cellContentWidth(c, row, column);
+    }
+    std::optional<double> cellSortValue(int row, int column) const override
+    {
+        ++sorteringsvärden;
+        return glaze::ListView::cellSortValue(row, column);
     }
 };
 
@@ -1411,16 +1443,16 @@ void fallKryssen()
     }
 }
 
-// ====================== FYLLKOLUMNEN OCH IKONSTORLEKEN
+// ====================== AUTOSIZE-KOLUMNEN OCH IKONSTORLEKEN
 //
 // Q4–Q8, headless mot den inspelande renderern. Förväntat ur KONTRAKTET —
 // innehållets bredd är `innerBounds`, radhöjden max(`listRowH`, storleken +
 // `listRowH` − `iconFallback`). SABOTAGEN: `dividerAt` utan hoppet (Q5 ↔ på
-// fyllkolumnens kant), cachen utan `fillW` (Q6 — samma radantal smal och
-// bred), ingen reserverad ikonkolumn (Q7 text-x skiljer), `rowH` utan max
-// (Q7). MÄTER INTE dragningen med musen — Q5 drar med `setColumnWidth`, den
-// programmatiska tvillingen.
-void fallFyllOchIkon()
+// Autosize-kolumnens kant), huvudets cache utan innehållsbredden i nyckeln
+// (Q6 — samma radantal smal och bred), ingen reserverad ikonkolumn (Q7 text-x
+// skiljer), `rowH` utan max (Q7). MÄTER INTE dragningen med musen — Q5 drar
+// med `setColumnWidth`, den programmatiska tvillingen.
+void fallAutosizeOchIkon()
 {
     StegFont          f(8.0f);
     Inspelning        rec;
@@ -1436,41 +1468,42 @@ void fallFyllOchIkon()
     l.addColumn("B", 60);
     l.addColumn("C", 50);
     l.addRow({"a", "1", "x"});
-    l.setFillColumn(0);
+    l.setColumnSizing(0, glaze::ColumnSizing::Autosize);
     const auto summa = [&] {
         float s = 0.0f;
         for (int i = 0; i < l.columnCount(); ++i)
             s += l.columnW(c, i);
         return s;
     };
-    // ---- Q4. Σ kolumner == innehållets bredd, och fyllkolumnen ≥ sin egen.
+    // ---- Q4. Σ kolumner == innehållets bredd, och Autosize-kolumnen ≥ sin bas.
     check(nara(summa(), l.innerBounds(c).w) && l.columnW(c, 0) >= 80.0f,
-          "Q4: fyllkolumnen tar upp resten — Σ == innehållets bredd",
+          "Q4: Autosize-kolumnen tar upp resten — Σ == innehållets bredd",
           tal(summa()) + " mot " + tal(l.innerBounds(c).w));
     l.width = 150;
     check(nara(l.columnW(c, 0), 80.0f) && summa() > l.innerBounds(c).w,
-          "Q4: smalare än minimum — den satta bredden, och tabellen rullar",
+          "Q4: smalare än basen — den satta bredden, och tabellen rullar",
           tal(l.columnW(c, 0)));
     l.width = 300;
 
-    // ---- Q5. Fyllkolumnens kant är ingen avdelare; en annan avdelare
-    //          dragen tar fyllkolumnen upp skillnaden.
+    // ---- Q5. Autosize-kolumnens kant är ingen avdelare; en annan avdelare
+    //          dragen tar Autosize-kolumnen upp skillnaden.
     c.box = l.resolve(c);
     const float hy = c.box.y + m.panelInset + m.tableHeaderH / 2.0f;
     const float x0 = c.box.x + m.panelInset;
     check(l.cursorAt(c, x0 + l.columnW(c, 0), hy) != gfx::PointerShape::ResizeWE &&
               l.cursorAt(c, x0 + l.columnW(c, 0) + l.columnW(c, 1), hy) ==
                   gfx::PointerShape::ResizeWE,
-          "Q5: ↔ på en annan avdelare, aldrig på fyllkolumnens kant");
-    const float fyllFöre = l.columnW(c, 0);
+          "Q5: ↔ på en annan avdelare, aldrig på Autosize-kolumnens kant");
+    const float autoFöre = l.columnW(c, 0);
     l.setColumnWidth(1, 80.0f);
-    check(nara(fyllFöre - l.columnW(c, 0), 20.0f),
-          "Q5: en bredare kolumn — fyllkolumnen krymper lika mycket",
-          tal(fyllFöre - l.columnW(c, 0)));
+    check(nara(autoFöre - l.columnW(c, 0), 20.0f),
+          "Q5: en bredare kolumn — Autosize-kolumnen krymper lika mycket",
+          tal(autoFöre - l.columnW(c, 0)));
     l.setColumnWidth(1, 60.0f);
 
-    // ---- Q6. AUTO-huvudet följer fyllkolumnens bredd (cachens nyckel).
-    l.setColumn(0, "Ett mycket långt namn", 80);
+    // ---- Q6. AUTO-huvudet följer Autosize-kolumnens bredd (cachens nyckel).
+    l.setColumn(0, "Ett mycket långt namn", 80, glaze::Align::Left, std::nullopt,
+                glaze::ColumnSizing::Autosize);
     l.setHeaderLines(0);
     l.width = 700;
     const int bred = l.headerLineCount(c);
@@ -1735,12 +1768,17 @@ void fallRadrubriker()
               "Minimalistic" + n);
         const gfx::Color linje =
             ui == glaze::UI::Glaze ? col.buttonBorder : col.border;
+        // Remsan står per DATARAD: högerkantens linje är radens höjd, och
+        // under den sista raden finns ingen remsa.
         check(rec.vagratt(y0 + m.listRowH, x0, x0 + 60.0f) &&
                   rec.vagratt(y0 + 2.0f * m.listRowH, x0, x0 + 60.0f) &&
-                  rec.lodratt(x0 + 60.0f, y0, botten) &&
+                  rec.lodratt(x0 + 60.0f, y0, y0 + m.listRowH) &&
+                  rec.lodratt(x0 + 60.0f, y0 + m.listRowH,
+                              y0 + 2.0f * m.listRowH) &&
+                  !rec.lodratt(x0 + 60.0f, y0, botten) &&
                   rec.streckI(linje) > 0,
-              "R7: en hårlinje under varje radnamn och en vid remsans högerkant, "
-              "i huvudets linjefärg" + n);
+              "R7: en hårlinje under varje radnamn och en vid remsans högerkant "
+              "per datarad, i huvudets linjefärg" + n);
 
         check(l.hitPosition(c, x0 + 10.0f, y0 + 5.0f) == 0 &&
                   l.hitPosition(c, x0 + 10.0f, y0 + m.listRowH + 5.0f) == 1,
@@ -1767,11 +1805,11 @@ void fallRadrubriker()
     }
 }
 
-// A1–A8 och D1–D5. BREDD EFTER INNEHÅLLET: en autoWidth-kolumn
+// A1–A8 och D1–D5. BREDD EFTER INNEHÅLLET: en AutoMin-kolumn
 // följer rubriken (bredaste `\n`-raden, sorteringspilens plats alltid
 // reserverad) och cellerna (kolumn 0 med zonen och ikonen), aldrig smalare än
 // `columnMinW`; en fast bredd rörs inte; dubbelklicket på avdelaren skriver
-// den anpassade bredden som en fast bredd och avslutar draget.
+// `Manual` med den anpassade bredden och avslutar draget.
 void fallBreddEfterInnehall()
 {
     StegFont   f(8.0f);
@@ -1780,7 +1818,7 @@ void fallBreddEfterInnehall()
     const auto& m  = *c.style;
     const float pad = m.listPadX;
     const float pil = pad + 2.0f * m.chevronW;
-    const float automatisk = glaze::ColumnPanel::Column::autoWidth;
+    const auto  automatisk = glaze::ColumnSizing::AutoMin;
     // Andrummet: en hårlinje, 1 FYSISK px — ritningens kortning jämför strikt,
     // och (mått + luft) − luft ger inte alltid måttet tillbaka i flyttal.
     const float lucka = 1.0f / c.scale;
@@ -1798,18 +1836,20 @@ void fallBreddEfterInnehall()
     Prov l;
     l.width  = 400;
     l.height = 200;
-    l.addColumn("Namn", automatisk);
+    l.addColumn("Namn", 0.0f, glaze::Align::Left, std::nullopt, automatisk);
     l.addColumn("B", 70);
     l.addColumn("C");
     l.addRow({"kort", "x", "y"});
     l.addRow({"ett längre namn", "y", "z"});   // 15 tecken
     check(nara(l.columnW(c, 0), facit(4, 15, 0.0f, true)),
-          "A1: autoWidth = det bredaste av rubriken och cellerna, med luft",
+          "A1: AutoMin = det bredaste av rubriken och cellerna, med luft",
           tal(l.columnW(c, 0)) + " mot " + tal(facit(4, 15, 0.0f, true)));
     check(nara(l.columnW(c, 1), 70.0f) &&
               nara(l.columnW(c, 2), m.columnDefaultW),
           "A2: en fast bredd och standardbredden rörs inte");
-    check(l.columnWidth(0) == automatisk, "A2: columnWidth ger det SATTA värdet");
+    check(l.columnWidth(0) == 0.0f && l.columnSizing(0) == automatisk &&
+              l.columnSizing(1) == glaze::ColumnSizing::Manual,
+          "A2: columnWidth och columnSizing ger det SATTA");
 
     l.setCell(0, 0, "ett mycket mycket längre namn!");   // 30 tecken
     check(nara(l.columnW(c, 0), facit(4, 30, 0.0f, true)),
@@ -1822,10 +1862,11 @@ void fallBreddEfterInnehall()
     check(nara(l.columnW(c, 0), facit(4, 0, 0.0f, true)),
           "A3: utan rader följer bredden rubriken");
 
-    l.setColumn(0, "ab\nlång rubrik", automatisk);   // bredaste raden 11
+    l.setColumn(0, "ab\nlång rubrik", 0.0f, glaze::Align::Left, std::nullopt,
+                automatisk);   // bredaste raden 11
     check(nara(l.columnW(c, 0), facit(11, 0, 0.0f, true)),
           "A4: en rubrik på flera rader — den bredaste raden räknas");
-    l.setColumn(0, "Namn", automatisk);
+    l.setColumn(0, "Namn", 0.0f, glaze::Align::Left, std::nullopt, automatisk);
 
     l.setSortColumn(0);
     check(nara(l.columnW(c, 0), facit(4, 0, 0.0f, true)),
@@ -1854,18 +1895,22 @@ void fallBreddEfterInnehall()
     check(nara(l.columnW(c, 0), facit(4, 15, 0.0f, true)),
           "A6: och försvinner igen med ikonstorleken");
 
-    // Fyllkolumnen kan vara auto: den anpassade bredden är dess minsta.
-    l.setFillColumn(0);
+    // En Autosize-kolumns bas är den SATTA bredden (0 = standardbredden), inte
+    // innehållet.
+    l.setColumnSizing(0, glaze::ColumnSizing::Autosize);
     l.width = 150;
     c.box   = l.resolve(c);
-    check(nara(l.columnW(c, 0), facit(4, 15, 0.0f, true)),
-          "A7: en auto-fyllkolumn i en smal lista — den anpassade bredden är "
-          "minimum");
+    check(nara(l.columnW(c, 0), m.columnDefaultW),
+          "A7: en Autosize-kolumn i en smal lista — standardbredden är basen",
+          tal(l.columnW(c, 0)));
     l.width = 700;
     c.box   = l.resolve(c);
-    check(l.columnW(c, 0) > facit(4, 15, 0.0f, true) + 1.0f,
-          "A7: …och i en bred lista tar den upp resten");
-    l.setFillColumn(-1);
+    check(nara(l.columnW(c, 0) + 70.0f + m.columnDefaultW,
+               700.0f - 2.0f * m.panelInset),
+          "A7: …och i en bred lista tar den upp resten",
+          tal(l.columnW(c, 0)));
+    l.setColumnSizing(0, automatisk);
+    l.width = 400;
 
     // ---- D. Dubbelklicket på avdelaren.
     Prov d;
@@ -1891,13 +1936,15 @@ void fallBreddEfterInnehall()
     check(d.sortColumn() == -1,
           "D3: ett tryck på en avdelare sorterar inte");
     d.addRow({"ett mycket mycket mycket långt innehåll alls", "x"});
-    check(nara(d.columnWidth(0), fast) && nara(d.columnW(c, 0), fast),
-          "D4: bredden är FAST efteråt — den följer inte längre innehållet");
+    check(nara(d.columnWidth(0), fast) && nara(d.columnW(c, 0), fast) &&
+              d.columnSizing(0) == glaze::ColumnSizing::Manual,
+          "D4: bredden är FAST (Manual) efteråt — den följer inte längre "
+          "innehållet");
 
     Prov e;
     e.width  = 400;
     e.height = 200;
-    e.addColumn("Namn", automatisk);
+    e.addColumn("Namn", 0.0f, glaze::Align::Left, std::nullopt, automatisk);
     e.addRow({"abcdefgh"});
     c.box = e.resolve(c);
     const float ekant = c.box.x + m.panelInset + e.columnW(c, 0);
@@ -1906,8 +1953,10 @@ void fallBreddEfterInnehall()
     e.mouseUp(c, ekant, hy);
     e.addRow({"abcdefghijklmnopqrstuvwxyz"});
     check(e.columnWidth(0) > 0.0f &&
-              nara(e.columnWidth(0), facit(4, 8, 0.0f, true)),
-          "D5: en autoWidth-kolumn blir en FAST bredd vid dubbelklicket");
+              nara(e.columnWidth(0), facit(4, 8, 0.0f, true)) &&
+              e.columnSizing(0) == glaze::ColumnSizing::Manual,
+          "D5: en AutoMin-kolumn blir Manual med den anpassade bredden vid "
+          "dubbelklicket");
 
     Prov g;
     g.width  = 400;
@@ -1920,6 +1969,776 @@ void fallBreddEfterInnehall()
     g.mouseUp(c, c.box.x + m.panelInset + 20.0f, hy);
     check(nara(g.columnWidth(0), 80.0f),
           "D6: dubbelklick på en rubrik (inte en avdelare) ändrar ingen bredd");
+}
+
+// ===== KOLUMNLÄGEN, RUBRIKENS TOOLTIP, RUBRIKKRYSSET, KATEGORIER, TOMRADER,
+// ===== CELLBILDEN, HÖJDEN OCH PRESTANDAN
+//
+// Positionerna räknas ur KONTRAKTET som ovan (ramens indrag, huvudets höjd,
+// radens höjd, kolumnbredderna) och bredderna ur teckensteget. Vid varje fall
+// står det sabotage som fäller det.
+
+// L1–L6. KOLUMNLÄGENA: Autosize delar det som blir över LIKA och krymper
+// aldrig under sin bas, dess avdelare går inte att greppa, och ett avdelardrag
+// skriver Manual.
+void fallKolumnlagen()
+{
+    StegFont    f(8.0f);
+    Inspelning  rec;
+    glaze::Ctx  c = ctxFör(f, &rec, 1.0f, {0, 0, 800, 400});
+    const auto& m = *c.style;
+
+    Prov l;
+    l.width  = 400;
+    l.height = 200;
+    l.setColumns({{"Namn", 100},
+                  {.text = "A", .width = 40, .sizing = glaze::ColumnSizing::Autosize},
+                  {.text = "B", .width = 60, .sizing = glaze::ColumnSizing::Autosize}});
+    l.addRow({"x", "y", "z"});
+    c.box             = l.resolve(c);
+    const float inre  = 400.0f - 2.0f * m.panelInset;
+    const float andel = (inre - 100.0f - 40.0f - 60.0f) / 2.0f;
+    // Sabotage: andelen ges bara den första Autosize-kolumnen — L1 fäller.
+    check(nara(l.columnW(c, 1), 40.0f + andel) &&
+              nara(l.columnW(c, 2), 60.0f + andel) &&
+              nara(l.columnW(c, 0) + l.columnW(c, 1) + l.columnW(c, 2), inre),
+          "L1: två Autosize-kolumner delar resten LIKA ovanpå sina baser",
+          tal(l.columnW(c, 1)) + "/" + tal(l.columnW(c, 2)));
+
+    // Sabotage: andelen utan golvet 0 (negativ i en smal lista) — L2 fäller.
+    l.width = 150;
+    c.box   = l.resolve(c);
+    check(nara(l.columnW(c, 1), 40.0f) && nara(l.columnW(c, 2), 60.0f),
+          "L2: smalare än baserna — Autosize krymper aldrig under basen");
+    l.width = 400;
+    c.box   = l.resolve(c);
+
+    // Sabotage: `dividerAt` utan Autosize-hoppet — L3 fäller.
+    const float x0 = c.box.x + m.panelInset;
+    const float hy = c.box.y + m.panelInset + m.tableHeaderH / 2.0f;
+    const float k1 = x0 + l.columnW(c, 0) + l.columnW(c, 1);
+    check(l.cursorAt(c, k1, hy) != gfx::PointerShape::ResizeWE &&
+              l.cursorAt(c, x0 + l.columnW(c, 0), hy) ==
+                  gfx::PointerShape::ResizeWE,
+          "L3: en Autosize-kolumns avdelare går inte att greppa");
+
+    // Sabotage: draget skriver bara bredden (`setColumnWidth`) och lämnar
+    // läget — L4 fäller.
+    l.setColumnSizing(0, glaze::ColumnSizing::AutoMin);
+    const float start = l.columnW(c, 0);
+    const float kant  = x0 + start;
+    l.mouseDown(c, kant, hy);
+    l.mouseDrag(c, kant + 30.0f, hy);
+    l.mouseUp(c, kant + 30.0f, hy);
+    check(l.columnSizing(0) == glaze::ColumnSizing::Manual &&
+              nara(l.columnWidth(0), start + 30.0f),
+          "L4: ett avdelardrag på en AutoMin-kolumn skriver Manual med den "
+          "dragna bredden",
+          tal(l.columnWidth(0)) + " mot " + tal(start + 30.0f));
+
+    // Sabotage: en negativ bredd lagras — L5 fäller.
+    l.setColumnWidth(0, -5.0f);
+    check(nara(l.columnWidth(0), start + 30.0f),
+          "L5: en negativ bredd är en no-op");
+    l.setColumnWidth(0, 0.0f);
+    check(nara(l.columnW(c, 0), m.columnDefaultW),
+          "L5: bredden 0 är standardbredden");
+
+    // Sabotage: `setColumn` som behåller läget, tooltipen eller krysset — L6.
+    l.setColumnToolTip(1, "Hjälp");
+    l.setColumnHeaderCheck(1, true);
+    l.setColumn(1, "A2", 30.0f);
+    check(l.columnSizing(1) == glaze::ColumnSizing::Manual &&
+              l.columns()[1].toolTip.empty() && !l.columnHeaderCheck(1),
+          "L6: setColumn är tilldelning — läget Manual, tooltip och kryss "
+          "nollade");
+    l.setColumnSizing(99, glaze::ColumnSizing::Autosize);
+    check(l.columnSizing(99) == glaze::ColumnSizing::Manual &&
+              !l.columnHeaderCheck(99),
+          "L6: index utanför — no-op, och getterna svarar förvalet");
+}
+
+// T1–T3. RUBRIKENS TOOLTIP — över rubriken kolumnens egen, annars listans.
+void fallRubrikTooltip()
+{
+    StegFont    f(8.0f);
+    Inspelning  rec;
+    glaze::Ctx  c = ctxFör(f, &rec, 1.0f, {0, 0, 800, 400});
+    const auto& m = *c.style;
+
+    Prov l;
+    l.width  = 400;
+    l.height = 200;
+    l.addColumn("Namn", 100);
+    l.addColumn("Storlek", 80);
+    l.addRow({"a", "1"});
+    l.setColumnToolTip(1, "Filens storlek");
+    l.setToolTip("Listans");
+    c.box          = l.resolve(c);
+    const float x0 = c.box.x + m.panelInset;
+    const float hy = c.box.y + m.panelInset + m.tableHeaderH / 2.0f;
+    const float ry = c.box.y + m.panelInset + m.tableHeaderH + m.listRowH / 2.0f;
+    const auto tips = [&](float x, float y) {
+        const glaze::TrText t = l.toolTipAt(c, x, y);
+        return std::string(t.str());
+    };
+    // Sabotage: `toolTipAt` som aldrig frågar kolumnen — T1 fäller.
+    check(tips(x0 + 140.0f, hy) == "Filens storlek",
+          "T1: över rubriken med tooltip — kolumnens text");
+    // Sabotage: ingen fallback till widgetens — T2 fäller.
+    check(tips(x0 + 50.0f, hy) == "Listans",
+          "T2: över en rubrik utan tooltip — listans");
+    // Sabotage: rubrikens tooltip utan vakten `inHeader` — T3 fäller.
+    check(tips(x0 + 140.0f, ry) == "Listans",
+          "T3: under rubriken, över en cell — listans");
+}
+
+// HK1–HK7. RUBRIKKRYSSET i kolumn 0 med synliga rutor: tre lägen över de
+// SYNLIGA dataraderna, en vändning sätter alla och fyrar EN onCheck med
+// raderna i `changedRows()`, och trycket sorterar aldrig.
+void fallRubrikkrysset()
+{
+    StegFont    f(8.0f);
+    Inspelning  rec;
+    glaze::Ctx  c = ctxFör(f, &rec, 1.0f, {0, 0, 800, 400});
+    const auto& m = *c.style;
+    using glaze::CheckState;
+
+    Prov l;
+    l.width  = 400;
+    l.height = 300;
+    l.addColumn("Namn", 120);
+    l.addColumn("B", 60);
+    l.setRows({{{"a"}}, {{"b"}}, {{"c"}},
+               {.cells = {"K"}, .kind = glaze::Table::RowKind::Category},
+               {{"d"}}});
+    l.setShowChecks(true);
+    l.setColumnHeaderCheck(0, true);
+    int              kryss = 0, klar = 0;
+    std::vector<int> såg;
+    l.onCheck  = [&] {
+        ++kryss;
+        såg = l.changedRows();
+    };
+    l.onCommit = [&] { ++klar; };
+
+    // Sabotage: krysset i varje kolumn med `headerCheck` (utan kolumn-0-vakten)
+    // — HK1 fäller på kolumn 1.
+    l.setColumnHeaderCheck(1, true);
+    check(l.headerCheckState(0) == CheckState::Unchecked &&
+              !l.headerCheckState(1).has_value(),
+          "HK1: rubrikkrysset bara i kolumn 0, okryssat utan kryss");
+    l.setColumnHeaderCheck(1, false);
+    l.setChecked(0, true);
+    // Sabotage: två lägen (några = okryssat) — HK2 fäller.
+    check(l.headerCheckState(0) == CheckState::Indeterminate,
+          "HK2: några kryssade — det tredje läget");
+    l.setExpanded(3, false);   // "d" döljs
+    l.setChecked(1, true);
+    l.setChecked(2, true);
+    // Sabotage: läget räknat över ALLA rader (också den dolda) — HK2 fäller.
+    check(l.headerCheckState(0) == CheckState::Checked,
+          "HK2: alla SYNLIGA datarader kryssade — kryssat (den dolda räknas inte)");
+    l.setChecked(0, false);
+    l.setChecked(2, false);
+
+    c.box          = l.resolve(c);
+    const float x0 = c.box.x + m.panelInset;
+    const float hy = c.box.y + m.panelInset + m.tableHeaderH / 2.0f;
+    const float zx = x0 + m.listPadX + m.checkSize / 2.0f;
+    l.mouseDown(c, zx, hy);
+    l.mouseUp(c, zx, hy);
+    // Sabotage: en onCheck per ändrad rad — HK3 fäller (kryss == 2).
+    check(l.isChecked(0) && l.isChecked(1) && l.isChecked(2) &&
+              !l.isChecked(4) && kryss == 1 && klar == 1 &&
+              såg == std::vector<int>{0, 2} && l.changedRow() == -1,
+          "HK3: en vändning kryssar alla synliga — EN onCheck + onCommit med "
+          "de ändrade raderna",
+          fog(såg) + ", " + std::to_string(kryss) + "/" + std::to_string(klar));
+    // Sabotage: zonens tryck faller igenom till rubrikens — HK3 fäller
+    // (släppet sorterar).
+    check(l.sortColumn() == -1, "HK3: trycket i zonen sorterar aldrig");
+    l.mouseDown(c, zx, hy);
+    l.mouseUp(c, zx, hy);
+    check(!l.isChecked(0) && !l.isChecked(1) && !l.isChecked(2) &&
+              kryss == 2 && såg == std::vector<int>{0, 1, 2},
+          "HK4: alla kryssade — en vändning tar bort alla", fog(såg));
+
+    // Sabotage: `changedRows_` som inte sätts av ett kryss eller inte töms av
+    // ett val — HK5 fäller.
+    l.toggleCheckFromUser(1);
+    const std::vector<int> ettKryss = l.changedRows();
+    l.selectFromUser(0, 0u, false);
+    check(ettKryss == std::vector<int>{1} && l.changedRows().empty(),
+          "HK5: changedRows — {raden} för ett kryss, tom efter ett val",
+          fog(ettKryss));
+
+    // Sabotage: rubrikens text börjar vid luften (zonen glömd i drawHeader)
+    // — HK6 fäller.
+    rec.rensa();
+    l.draw(c);
+    const Inspelning::Text* t = rec.text("Namn");
+    check(t && nara(t->x, x0 + m.listPadX + m.checkSize + m.checkGap),
+          "HK6: rubriktexten börjar efter kryssets zon",
+          t ? tal(t->x) : "ingen text");
+
+    // Sabotage: zonen saknas i `fittedW` — HK7 fäller.
+    const float pad   = m.listPadX;
+    const float zon   = m.checkSize + m.checkGap;
+    const float lucka = 1.0f / c.scale;
+    l.setColumnSizing(0, glaze::ColumnSizing::AutoMin);
+    const float väntad =
+        std::max({m.columnMinW,
+                  8.0f * 4.0f + 2.0f * pad + zon + pad + 2.0f * m.chevronW + lucka,
+                  8.0f + m.tableCategoryIndent + zon + 2.0f * pad + lucka});
+    check(nara(l.columnW(c, 0), väntad),
+          "HK7: AutoMin reserverar rubrikkryssets zon",
+          tal(l.columnW(c, 0)) + " mot " + tal(väntad));
+
+    // HK8. Ett SLAGBYTE till Data ändrar vilka rader läget räknar — också när
+    // antalet platser står still (kategoriraden blir en okryssad datarad).
+    // Sabotage: `rowKindChanged` som returnerar före `checksChanged()` när
+    // raden blir en datarad — HK8 fäller (läget står kvar som kryssat).
+    l.setExpanded(3, true);
+    for (const int r : {0, 1, 2, 4})
+        l.setChecked(r, true);
+    const bool allaFöre = l.headerCheckState(0) == CheckState::Checked;
+    l.setRowKind(3, glaze::Table::RowKind::Data);
+    check(allaFöre && l.headerCheckState(0) == CheckState::Indeterminate,
+          "HK8: en kategorirad som blir en okryssad datarad gör läget delvis");
+    l.setShowChecks(false);
+    check(!l.headerCheckState(0).has_value(),
+          "HK7: utan synliga rutor — inget rubrikkryss");
+}
+
+// KA1–KA10. KATEGORIERNA: sorteringen inom avsnitt, fällningen (programmatisk
+// utan event, användarens med onExpand/onCollapse och bortvalet), tangenterna,
+// valet bara bland dataraderna, indraget och att setRow behåller slaget.
+void fallKategorier()
+{
+    StegFont    f(8.0f);
+    Inspelning  rec;
+    glaze::Ctx  c = ctxFör(f, &rec, 1.0f, {0, 0, 800, 600});
+    const auto& m = *c.style;
+    using K       = glaze::Table::RowKind;
+
+    Prov l;
+    l.width  = 400;
+    l.height = 400;
+    l.addColumn("Namn", 150);
+    l.addColumn("B", 60);
+    l.setRows({{{"b"}}, {{"a"}},
+               {.cells = {"K1"}, .kind = K::Category},
+               {{"z"}}, {{"x"}}, {{"y"}},
+               {.kind = K::Blank},
+               {{"w"}},
+               {.cells = {"K2"}, .kind = K::Category},
+               {{"2"}}, {{"1"}}});
+    std::vector<std::string> logg;
+    l.onExpand   = [&](glaze::Widget*, glaze::RowArgs& e) {
+        logg.push_back("expand:" + std::to_string(e.row));
+    };
+    l.onCollapse = [&](glaze::Widget*, glaze::RowArgs& e) {
+        logg.push_back("collapse:" + std::to_string(e.row));
+    };
+    l.onChange = [&] { logg.push_back("change"); };
+    l.onCommit = [&] { logg.push_back("commit"); };
+
+    // Sabotage: en sortering över hela tabellen utan avsnittens gränser — KA1.
+    l.setSortColumn(0);
+    const std::vector<int> upp{1, 0, 2, 4, 5, 3, 6, 7, 8, 10, 9};
+    check(ordning(l) == upp,
+          "KA1: sorteringen gäller INOM varje avsnitt — kategorier och "
+          "tomrader står kvar",
+          fog(ordning(l)));
+    l.setSortAscending(false);
+    const std::vector<int> ned{0, 1, 2, 3, 5, 4, 6, 7, 8, 9, 10};
+    check(ordning(l) == ned, "KA1: fallande — också inom avsnitten",
+          fog(ordning(l)));
+    l.setSortColumn(-1);
+    l.setSortAscending(true);
+
+    // Sabotage: `setExpanded` som fyrar onCollapse — KA2 fäller.
+    l.setSelectedIndex(4);
+    l.setExpanded(2, false);
+    check(l.positionCount() == 6 && l.displayRow(4) == -1 &&
+              l.rowAtDisplay(3) == 8 && logg.empty() && !l.isExpanded(2),
+          "KA2: en ihopfälld kategori döljer sina rader — utan event",
+          std::to_string(l.positionCount()) + " platser");
+    // Sabotage: den aktuella raden står kvar på en dold rad — KA2 fäller.
+    check(l.currentRow() == 2 && !l.isSelected(4),
+          "KA2: den aktuella raden flyttar till kategorin, och valet släpps",
+          std::to_string(l.currentRow()));
+    l.setExpanded(2, true);
+    l.setExpanded(0, false);   // en datarad — logg + no-op
+    check(l.positionCount() == 11 && l.isExpanded(0),
+          "KA3: setExpanded på en datarad är en no-op");
+
+    // Användarens fällning genom trycket på kategoriraden.
+    c.box          = l.resolve(c);
+    const float x0 = c.box.x + m.panelInset;
+    const auto  ry = [&](int p) {
+        return c.box.y + m.panelInset + m.tableHeaderH +
+               (float(p) + 0.5f) * m.listRowH;
+    };
+    l.setMultiSelect(true);
+    l.setSelectedIndex(4);
+    l.setSelected(0, true);
+    logg.clear();
+    l.mouseDown(c, x0 + 40.0f, ry(2));
+    l.mouseUp(c, x0 + 40.0f, ry(2));
+    // Sabotage: inget valpar efter ihopfällningen (bortvalet tyst) — KA4.
+    check(logg == std::vector<std::string>{"collapse:2", "change", "commit"} &&
+              l.selectedRows() == std::vector<int>{0} && l.currentRow() == 2,
+          "KA4: ett klick fäller ihop — onCollapse, sedan valets par för de "
+          "bortvalda raderna",
+          fog(logg));
+    logg.clear();
+    l.mouseDown(c, x0 + 40.0f, ry(2));
+    l.mouseUp(c, x0 + 40.0f, ry(2));
+    // Sabotage: onExpand med fel rad, eller ett valpar utan bortval — KA5.
+    check(logg == std::vector<std::string>{"expand:2"} &&
+              l.positionCount() == 11,
+          "KA5: ett klick till fäller ut — bara onExpand", fog(logg));
+
+    // Sabotage: Vänster/Höger/Space/Enter som inte fäller en aktuell
+    // kategorirad — KA6 fäller.
+    logg.clear();
+    const bool v1 = l.keyDown(gfx::Key::Left, 0u);
+    const bool v2 = l.keyDown(gfx::Key::Left, 0u);   // redan ihopfälld
+    const bool h1 = l.keyDown(gfx::Key::Right, 0u);
+    l.keyDown(gfx::Key::Space, 0u);
+    l.keyDown(gfx::Key::Return, 0u);
+    check(v1 && !v2 && h1 &&
+              logg == std::vector<std::string>{"collapse:2", "expand:2",
+                                               "collapse:2", "expand:2"},
+          "KA6: Vänster fäller ihop, Höger ut, Space och Enter vänder — och en "
+          "redan ihopfälld bubblar",
+          fog(logg));
+
+    // Sabotage: `assignSelection` utan datavakten — KA7 fäller.
+    l.setSelected(2, true);
+    l.selectAll();
+    check(!l.isSelected(2) && !l.isSelected(6) && !l.isSelected(8) &&
+              l.selectedRows().size() == 8,
+          "KA7: en kategori- eller tomrad väljs aldrig, och 'alla' är dataraderna",
+          fog(l.selectedRows()));
+    l.clearSelection();
+    l.keyDown(gfx::Key::A, gfx::kModCtrl);
+    check(l.selectedRows().size() == 8, "KA7: Ctrl+A tar bara dataraderna");
+
+    // Sabotage: indraget glömt i drawCell eller i contentIndent — KA8 fäller.
+    rec.rensa();
+    l.draw(c);
+    const Inspelning::Text* ta = rec.text("a");
+    const Inspelning::Text* tx = rec.text("x");
+    check(ta && tx && nara(ta->x, x0 + m.listPadX) &&
+              nara(tx->x, x0 + m.listPadX + m.tableCategoryIndent),
+          "KA8: raderna i en kategori står indragna i kolumn 0, raderna före "
+          "den första inte",
+          (ta ? tal(ta->x) : "-") + "/" + (tx ? tal(tx->x) : "-"));
+    check(nara(l.contentIndent(c, 4, 0), m.tableCategoryIndent) &&
+              l.contentIndent(c, 4, 1) == 0.0f &&
+              l.contentIndent(c, 0, 0) == 0.0f &&
+              l.contentIndent(c, 2, 0) == 0.0f,
+          "KA8: indraget bara i kolumn 0 och bara för en datarad i en kategori");
+
+    // Sabotage: setRow som tilldelar hela raden (slaget blir Data) — KA9.
+    l.setExpanded(8, false);
+    l.setRow(8, {"Kategori två"});
+    check(l.rowKind(8) == K::Category && !l.isExpanded(8) &&
+              l.cell(8, 0) == "Kategori två",
+          "KA9: setRow behåller slaget och fällningen");
+    l.setExpanded(8, true);
+
+    // Sabotage: `rowKindChanged` som inte släpper valet — KA10 fäller.
+    l.setSelectedIndex(4);
+    l.setRowKind(4, K::Category);
+    check(!l.isSelected(4) && l.rowKind(4) == K::Category,
+          "KA10: en rad som blir kategori lämnar valet");
+    l.setRowKind(4, K::Data);
+}
+
+// RB1–RB8. BORTTAGNINGEN (`removeRow`) — den enda sättaren som flyttar appens
+// index: raderna efter den borttagna ett steg upp, och allt som hör till dem
+// följer med. Programmatiskt, alltså inget event i något fall.
+void fallBorttagningen()
+{
+    using K = glaze::Table::RowKind;
+    {
+        Prov l;
+        l.addColumn("A");
+        for (int i = 0; i < 6; ++i)
+            l.addRow({"r" + std::to_string(i)});
+        l.setMultiSelect(true);
+        l.setShowChecks(true);
+        l.setSelectedIndex(4);   // aktuell, vald och ankaret
+        l.setSelected(1, true);
+        l.setChecked(2, true);
+        l.setChecked(5, true);
+        int kryss = 0;
+        l.onCheck = [&] { ++kryss; };
+
+        // Sabotage: `current_` som inte räknas ned, eller `selected_`/
+        // `checked_` som inte tappar posten i `rowRemoved` (valet och kryssen
+        // står kvar på PLATSEN) — RB1 fäller.
+        l.removeRow(0);
+        check(l.rowCount() == 5 && l.cell(0, 0) == "r1" && l.currentRow() == 3 &&
+                  l.selectedRows() == std::vector<int>{0, 3} &&
+                  l.checkedRows() == std::vector<int>{1, 4} && l.ändringar == 0 &&
+                  kryss == 0,
+              "RB1: FÖRE den aktuella raden — den aktuella, valet och kryssen "
+              "följer sina rader, inget event",
+              std::to_string(l.currentRow()) + " " + fog(l.selectedRows()) + " " +
+                  fog(l.checkedRows()));
+        // Sabotage: ankaret som inte räknas ned — spannet börjar på fel rad.
+        l.selectFromUser(1, gfx::kModShift, false);
+        check(l.selectedRows() == std::vector<int>{1, 2, 3},
+              "RB1: ankaret följer sin rad — Shift+klick spänner från den",
+              fog(l.selectedRows()));
+        l.setSelectedIndex(3);
+        l.setSelected(0, true);
+        const int e0 = l.ändringar;
+
+        // Sabotage: ett kryss på den borttagna raden som flyttar till nästa
+        // — RB2 fäller.
+        l.removeRow(4);
+        check(l.rowCount() == 4 && l.currentRow() == 3 &&
+                  l.selectedRows() == std::vector<int>{0, 3} &&
+                  l.checkedRows() == std::vector<int>{1} && l.ändringar == e0,
+              "RB2: EFTER den aktuella raden — den aktuella orörd, krysset på "
+              "den borttagna försvinner",
+              std::to_string(l.currentRow()) + " " + fog(l.checkedRows()));
+
+        // Sabotage: en vald rad vars val ärvs av raden som flyttar in, eller
+        // en aktuell rad som blir −1 när det finns en rad före — RB3 fäller.
+        l.removeRow(3);
+        check(l.rowCount() == 3 && l.currentRow() == 2 &&
+                  l.selectedRows() == std::vector<int>{0} && l.ändringar == e0,
+              "RB3: PÅ den aktuella (vald) raden, sist — valet lämnar den, och "
+              "den aktuella landar på raden före",
+              std::to_string(l.currentRow()) + " " + fog(l.selectedRows()));
+
+        // Sabotage: landningen på platsen FÖRE i stället för på samma plats —
+        // RB4 fäller.
+        l.selectFromUser(1, gfx::kModCtrl, true);   // bara den aktuella flyttar
+        l.removeRow(1);
+        check(l.rowCount() == 2 && l.currentRow() == 1 && l.cell(1, 0) == "r3",
+              "RB4: PÅ den aktuella raden mitt i — den aktuella blir raden som "
+              "nu står på samma plats",
+              std::to_string(l.currentRow()));
+
+        // Sabotage: en vakt som släpper igenom ett index utanför — RB5 fäller.
+        l.removeRow(2);
+        l.removeRow(-1);
+        check(l.rowCount() == 2, "RB5: index utanför ⇒ no-op");
+        l.removeRow(0);
+        l.removeRow(0);
+        check(l.rowCount() == 0 && l.currentRow() == -1 &&
+                  l.selectedRows().empty() && l.positionCount() == 0,
+              "RB5: den sista raden borta — ingen aktuell rad i en tom tabell",
+              std::to_string(l.currentRow()));
+    }
+    {
+        // SORTERAD VY: indexen är appens, och landningen räknas i
+        // VISNINGSORDNINGEN.
+        Prov l;
+        l.addColumn("A");
+        l.setRows({{{"c"}}, {{"a"}}, {{"b"}}, {{"d"}}});
+        l.setShowChecks(true);
+        l.setSortColumn(0);   // a b c d ⇒ raderna 1 2 0 3
+        l.setSelectedIndex(2);
+        l.setChecked(0, true);
+        // Sabotage: permutationen som inte görs om efter borttagningen
+        // (`orderChanged` glömd) — RB6 fäller.
+        l.removeRow(1);
+        check(l.rowCount() == 3 && ordning(l) == std::vector<int>{1, 0, 2} &&
+                  l.currentRow() == 1 && l.selectedRows() == std::vector<int>{1} &&
+                  l.checkedRows() == std::vector<int>{0},
+              "RB6: sorterad vy — raderna efter flyttar upp, valet och krysset "
+              "följer sina rader",
+              fog(ordning(l)) + " " + std::to_string(l.currentRow()));
+        // Sabotage: landningen räknad på INDEXET i stället för på platsen
+        // (index 1 är "d", platsen 0 är "c") — RB6 fäller.
+        l.removeRow(1);
+        check(l.currentRow() == 0 && l.cell(0, 0) == "c" &&
+                  l.selectedRows().empty(),
+              "RB6: den aktuella i en sorterad vy landar på raden som står på "
+              "samma PLATS",
+              std::to_string(l.currentRow()));
+    }
+    {
+        // NYCKLARNA OCH FÄRGERNA följer sina rader.
+        Prov l;
+        l.addColumn("A");
+        l.setRows({{{"a"}}, {{"b"}}, {{"c"}}, {{"d"}}});
+        l.setSortKey(3, 0, -1.0);   // d med nyckel står först
+        l.setCellColor(3, 0, gfx::Color{200, 0, 0}, std::nullopt);
+        l.setRowColor(2, gfx::Color{0, 140, 0});
+        l.setSortColumn(0);
+        // Sabotage: `keys_`, `cellColors_` eller färgen som inte tappar posten
+        // — nyckeln och färgerna står kvar på index 3 — RB7 fäller.
+        l.removeRow(0);
+        check(ordning(l) == std::vector<int>{2, 0, 1} &&
+                  l.cellBackground(2, 0) == gfx::Color{200, 0, 0} &&
+                  !l.cellBackground(1, 0) &&
+                  l.rowColor(1) == gfx::Color{0, 140, 0} && !l.rowColor(2),
+              "RB7: sorteringsnyckeln, cellfärgen och radfärgen följer sina rader",
+              fog(ordning(l)));
+    }
+    {
+        // KATEGORIERNA: K1 ihopfälld med "a", K2 utfälld med "b" och "c".
+        Prov l;
+        l.addColumn("A");
+        l.setMultiSelect(true);
+        l.setRows({{.cells = {"K1"}, .kind = K::Category, .expanded = false},
+                   {{"a"}},
+                   {.cells = {"K2"}, .kind = K::Category},
+                   {{"b"}},
+                   {{"c"}}});
+        l.setSelectedIndex(3);
+        // Sabotage: en borttagning som inte räknar om synligheten — RB8 fäller.
+        l.removeRow(4);
+        check(l.rowCount() == 4 && l.positionCount() == 3 &&
+                  l.currentRow() == 3 && l.selectedRows() == std::vector<int>{3},
+              "RB8: en rad i en kategori — kategorin står kvar och valet följer",
+              std::to_string(l.positionCount()));
+        // Sabotage: ingen `reportHidden` efter borttagningen — den aktuella
+        // och valet står kvar på en DOLD rad — RB8 fäller.
+        l.removeRow(2);
+        check(l.rowCount() == 3 && l.positionCount() == 1 &&
+                  l.displayRow(2) == -1 && l.currentRow() == 0 &&
+                  l.selectedRows().empty() && l.ändringar == 0,
+              "RB8: en kategori som försvinner — raderna efter den hör till den "
+              "ihopfällda före, lämnar valet, och den aktuella flyttar dit",
+              std::to_string(l.currentRow()) + " " +
+                  std::to_string(l.positionCount()));
+    }
+}
+
+// TR1–TR5. TOMRADEN: hoppas över av tangenterna, blir aldrig aktuell, får
+// ingen hover, inget kryss och ingen text.
+void fallTomrad()
+{
+    StegFont    f(8.0f);
+    Inspelning  rec;
+    glaze::Ctx  c = ctxFör(f, &rec, 1.0f, {0, 0, 800, 400});
+    const auto& m = *c.style;
+
+    Prov l;
+    l.width  = 400;
+    l.height = 200;
+    l.addColumn("Namn", 150);
+    l.setRows({{{"a"}},
+               {.cells = {"spöke"}, .kind = glaze::Table::RowKind::Blank},
+               {{"b"}}});
+    // Sabotage: navigationTarget utan tomradshoppet — TR1 fäller (1).
+    check(l.navigationTarget(c, gfx::Key::Down, 0) == 2 &&
+              l.navigationTarget(c, gfx::Key::Up, 2) == 0 &&
+              l.navigationTarget(c, gfx::Key::End, 0) == 2,
+          "TR1: tangenterna hoppar över tomraden");
+
+    c.box           = l.resolve(c);
+    const float x0  = c.box.x + m.panelInset;
+    const float ry1 = c.box.y + m.panelInset + m.tableHeaderH + 1.5f * m.listRowH;
+    const float ry0 = ry1 - m.listRowH;
+    l.mouseDown(c, x0 + 40.0f, ry1);
+    l.mouseUp(c, x0 + 40.0f, ry1);
+    // Sabotage: mouseDown utan tomradsvakten — TR2 fäller.
+    check(l.currentRow() == -1 && l.selectedIndex() == -1 && l.ändringar == 0,
+          "TR2: ett klick på tomraden gör ingenting");
+
+    // Sabotage: mouseMove utan tomradsvakten — TR3 fäller.
+    const gfx::Color hov = c.theme->colors.buttonHover;
+    l.hovered_           = true;
+    l.mouseMove(c, x0 + 40.0f, ry1);
+    rec.rensa();
+    l.draw(c);
+    const int påTom = rec.antalYtor(hov);
+    l.mouseMove(c, x0 + 40.0f, ry0);
+    rec.rensa();
+    l.draw(c);
+    check(påTom == 0 && rec.antalYtor(hov) == 1,
+          "TR3: en tomrad får ingen hover — en datarad får det",
+          std::to_string(påTom) + "/" + std::to_string(rec.antalYtor(hov)));
+    l.hovered_ = false;
+
+    // Sabotage: setChecked eller högertrycket utan datavakten — TR4 fäller.
+    l.setChecked(1, true);
+    l.rightDown(c, x0 + 40.0f, ry1);
+    check(!l.isChecked(1) && l.contextRow() == -1,
+          "TR4: en tomrad kryssas aldrig och är tom yta för snabbmenyn");
+
+    // Sabotage: `drawCells` som ritar tomradens celler — TR5 fäller.
+    rec.rensa();
+    l.draw(c);
+    check(!har(rec.texter, "spöke") && har(rec.texter, "a"),
+          "TR5: en tomrad ritar ingen text");
+}
+
+// CB1–CB5. CELLENS BILD i kolumn 2: ritad före texten i radens storleksklass,
+// mätt i AutoMin och nollad av setRow; kolumn 0 är radens ikon.
+void fallCellbild()
+{
+    StegFont          f(8.0f);
+    Inspelning        rec;
+    glaze::ImageCache bilder(rec);
+    glaze::Ctx        c = ctxFör(f, &rec, 1.0f, {0, 0, 800, 400});
+    c.images            = &bilder;
+    const auto& m       = *c.style;
+
+    Prov l;
+    l.width  = 500;
+    l.height = 200;
+    l.addColumn("A", 100);
+    l.addColumn("B", 100);
+    l.addColumn("C", 120);
+    l.addRow({"a", "b", "c"});
+    l.setCellImage(0, 2, glaze::Bitmap(8, 8));
+    l.setCellImage(9, 2, glaze::Bitmap(8, 8));   // utanför — no-op
+    check(l.cellImage(0, 2).valid() && !l.cellImage(0, 1).valid() &&
+              !l.cellImage(9, 2).valid(),
+          "CB1: cellens bild lagras per cell, och utanför är den tom");
+
+    c.box          = l.resolve(c);
+    const float x0 = c.box.x + m.panelInset;
+    rec.rensa();
+    l.draw(c);
+    const Inspelning::Text* tc = rec.text("c");
+    const float             bx = x0 + 200.0f + m.listPadX;
+    // Sabotage: drawCell som bara ritar kolumn 0:s bild — CB2 fäller.
+    check(rec.bilder.size() == 1 && nara(rec.bilder[0].x, bx) &&
+              nara(rec.bilder[0].w, m.iconFallback) && tc &&
+              nara(tc->x, bx + m.iconFallback + m.iconGap),
+          "CB2: bilden i kolumn 2 före texten, i radens storleksklass",
+          std::to_string(rec.bilder.size()) + " bilder");
+
+    // Sabotage: kolumn 0 i en egen lagring — CB3 fäller.
+    l.setCellImage(0, 0, glaze::Bitmap(8, 8));
+    check(l.rows()[0].img.valid() && l.cellImage(0, 0).valid(),
+          "CB3: kolumn 0:s bild är radens ikon");
+
+    // Sabotage: bilden glömd i `cellContentWidth` — CB4 fäller.
+    l.setColumnSizing(2, glaze::ColumnSizing::AutoMin);
+    const float lucka  = 1.0f / c.scale;
+    const float väntad = std::max(
+        {m.columnMinW,
+         8.0f + 2.0f * m.listPadX + m.listPadX + 2.0f * m.chevronW + lucka,
+         8.0f + m.iconFallback + m.iconGap + 2.0f * m.listPadX + lucka});
+    check(nara(l.columnW(c, 2), väntad),
+          "CB4: AutoMin räknar cellens bild", tal(l.columnW(c, 2)));
+
+    // Sabotage: setRow som lämnar cellbilderna — CB5 fäller.
+    l.setRow(0, {"a", "b", "c"});
+    check(!l.cellImage(0, 2).valid(), "CB5: setRow nollar cellernas bilder");
+}
+
+// HO1–HO5. HÖJDEN UR RADERNA: utan satt höjd är tabellen huvudet + de
+// synliga platserna × radhöjden + ramen, och listens tjocklek när kolumnerna
+// inte ryms.
+void fallHojdUrRaderna()
+{
+    StegFont    f(8.0f);
+    Inspelning  rec;
+    glaze::Ctx  c = ctxFör(f, &rec, 1.0f, {0, 0, 800, 600});
+    const auto& m = *c.style;
+    const float ram = 2.0f * m.panelInset;
+
+    Prov l;
+    l.width = 300;
+    l.addColumn("A", 100);
+    l.addColumn("B", 100);
+    // Sabotage: en tom tabell som mäts 0 hög — HO1 fäller.
+    check(nara(l.contentSize(c).h, m.tableHeaderH + ram),
+          "HO1: en tom tabell är lika hög som huvudet");
+    l.setRows({{{"a"}}, {.cells = {"K"}, .kind = glaze::Table::RowKind::Category},
+               {{"b"}}, {{"c"}}, {.kind = glaze::Table::RowKind::Blank}});
+    // Sabotage: höjden räknad ur `height` (ingen autostorlek) — HO2 fäller.
+    check(nara(l.contentSize(c).h, m.tableHeaderH + 5.0f * m.listRowH + ram),
+          "HO2: höjden är huvudet + platserna × radhöjden + ramen",
+          tal(l.contentSize(c).h));
+    // Sabotage: höjden räknad ur `rowCount` och inte ur platserna — HO3.
+    l.setExpanded(1, false);
+    check(nara(l.contentSize(c).h, m.tableHeaderH + 2.0f * m.listRowH + ram),
+          "HO3: en ihopfälld kategori krymper höjden");
+    l.setExpanded(1, true);
+    // Sabotage: listens tjocklek glömd, eller alltid med — HO4 fäller.
+    const float bas = m.tableHeaderH + 5.0f * m.listRowH + ram;
+    const auto  smal = l.heightForWidth(c, 150.0f);
+    const auto  bred = l.heightForWidth(c, 400.0f);
+    check(smal && bred && nara(*smal, bas + m.scrollThick) && nara(*bred, bas),
+          "HO4: kolumnerna bredare än ytan ger listens tjocklek till",
+          (smal ? tal(*smal) : "-") + "/" + (bred ? tal(*bred) : "-"));
+    // Sabotage: en satt höjd som inte vinner — HO5 fäller.
+    l.height = 120;
+    check(nara(l.contentSize(c).h, 120.0f) && !l.heightForWidth(c, 300.0f),
+          "HO5: en satt höjd vinner");
+}
+
+// PR1–PR4. PRESTANDAN: 20 000 rader, där ett setCell efter uppvärmningen
+// mäter EN cell, en annan kolumns cell ingen, och setRow sorterar om bara när
+// den sorterade cellen ändrades — nycklarna räknas en gång per rad och
+// sortering.
+void fallPrestanda()
+{
+    StegFont   f(8.0f);
+    Inspelning rec;
+    glaze::Ctx c = ctxFör(f, &rec, 1.0f, {0, 0, 800, 600});
+    constexpr int kRader = 20000;
+
+    Raknad l;
+    l.width  = 400;
+    l.height = 300;
+    l.addColumn("A", 100);
+    l.addColumn("B", 0.0f, glaze::Align::Left, std::nullopt,
+                glaze::ColumnSizing::AutoMin);
+    std::vector<glaze::Table::Row> rader;
+    rader.reserve(kRader);
+    for (int i = 0; i < kRader; ++i)
+        rader.push_back({{"r" + std::to_string(i), "v"}});
+    l.setRows(std::move(rader));
+    l.columnW(c, 1);
+    // Sabotage: cachen saknas (varje fråga mäter alla) — PR1 fäller i andra frågan.
+    const int uppvärmning = l.mätningar;
+    l.mätningar           = 0;
+    l.columnW(c, 1);
+    check(uppvärmning == kRader && l.mätningar == 0,
+          "PR1: uppvärmningen mäter varje cell en gång, sedan ingen",
+          std::to_string(uppvärmning) + "/" + std::to_string(l.mätningar));
+
+    // Sabotage: setCell som gör hela kolumnens cache inaktuell — PR2 fäller.
+    l.mätningar = 0;
+    l.setCell(500, 1, "en betydligt längre text");
+    const float bred = l.columnW(c, 1);
+    check(l.mätningar == 1 && bred > 8.0f * 20.0f,
+          "PR2: setCell mäter EN cell, och bredden följer den",
+          std::to_string(l.mätningar));
+    l.mätningar = 0;
+    l.setCell(501, 0, "x");
+    l.columnW(c, 1);
+    check(l.mätningar == 0, "PR2: en cell i en annan kolumn mäter ingenting i B",
+          std::to_string(l.mätningar));
+
+    // Sabotage: `compareRows` som frågar `cellSortValue` i jämförelsen — PR3
+    // fäller (fler frågor än rader).
+    l.setSortColumn(0);
+    l.sorteringsvärden = 0;
+    l.rowAtDisplay(0);
+    check(l.sorteringsvärden == kRader,
+          "PR3: sorteringen frågar varje rads värde EN gång",
+          std::to_string(l.sorteringsvärden));
+
+    // Sabotage: setRow som alltid sorterar om — PR4 fäller.
+    l.sorteringsvärden = 0;
+    l.setRow(7, {"r7", "ny"});
+    l.rowAtDisplay(0);
+    const int orörd = l.sorteringsvärden;
+    l.setRow(7, {"zzz", "ny"});
+    l.rowAtDisplay(0);
+    check(orörd == 0 && l.sorteringsvärden == kRader &&
+              l.rowAtDisplay(kRader - 1) == 7,
+          "PR4: setRow sorterar om bara när den sorterade cellen ändrades",
+          std::to_string(orörd) + "/" + std::to_string(l.sorteringsvärden));
 }
 
 // ============================================================ MED FÖNSTER
@@ -2624,10 +3443,19 @@ int main(int argc, char** argv)
     fallRadfargen();
     fallRadbilden();
     fallKryssen();
-    fallFyllOchIkon();
+    fallAutosizeOchIkon();
     fallCellfarger();
     fallRadrubriker();
     fallBreddEfterInnehall();
+    fallKolumnlagen();
+    fallRubrikTooltip();
+    fallRubrikkrysset();
+    fallKategorier();
+    fallBorttagningen();
+    fallTomrad();
+    fallCellbild();
+    fallHojdUrRaderna();
+    fallPrestanda();
     fallMedFonster();
 
     if (g_skips)

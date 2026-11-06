@@ -20,13 +20,13 @@
 // egenskaper per grupp) är tabellens, ur den delade basen `ColumnPanel`:
 // samma `Column`-aggregat, samma kollektionsvokabulär (`addColumn`/
 // `setColumn(index, …)`/`setColumns(lista)`), samma huvud, avdelardrag,
-// fyllkolumn och sorteringspil. KOLUMN 0 är NODENS text — med indrag, pil,
+// kolumnlägen och sorteringspil. KOLUMN 0 är NODENS text — med indrag, pil,
 // kryss och ikon, kortad med ellips mot kolumnens kant — och kolumn 1…n
 // nodens CELLER (`TreeNode::cells`, `setCell(stig, kolumn, text)`), i nodens
 // textfärg som tabellens rad. Ett träd UTAN kolumner har inget huvud och
 // ritar som ett vanligt träd; med kolumner rullar det i sidled som tabellen. Också
 // BREDDEN EFTER INNEHÅLLET är tabellens: en kolumn med
-// `Column::autoWidth` följer rubriken och de SYNLIGA nodernas innehåll —
+// `ColumnSizing::AutoMin` följer rubriken och de SYNLIGA nodernas innehåll —
 // kolumn 0 mäts med indrag, pil, ruta och ikon — och ett dubbelklick på en
 // avdelare skriver den anpassade bredden som en fast bredd.
 // SORTERINGEN sker INOM SYSKON: varje barnlista visas i kolumnens naturliga
@@ -450,7 +450,7 @@ public:
     // setProp-egenskaper: selectedPath ("0,2" — TEXTformen; C++-literalen
     // `{0, 2}` går via `bld::parseIndexPath` i verktygsvägen, och de
     // klamrarna tas också emot här), multiSelect och showChecks; sorteringen,
-    // huvudet och fyllkolumnen tar ColumnPanel.
+    // huvudet och kolumnlägena tar ColumnPanel.
     bool setProp(const std::string& key, const std::string& value) override;
 
     // Fäll ut förfäderna och rulla raden i synfältet (WinForms
@@ -475,7 +475,7 @@ protected:
     void orderChanged() override;
     void headerSorted() override;
     void languageChanged() override;
-    // BREDD EFTER INNEHÅLLET — `Column::autoWidth` och dubbelklicket
+    // BREDD EFTER INNEHÅLLET — `ColumnSizing::AutoMin` och dubbelklicket
     // på en avdelare mäter de SYNLIGA raderna: kolumn 0 är nodens block
     // (indrag, pil, ruta, ikon, text), kolumn 1…n cellerna. Allt som ändrar
     // det — raderna (`rowsChanged`), en nods text, ikon eller celler och

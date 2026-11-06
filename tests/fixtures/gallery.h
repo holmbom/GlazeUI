@@ -60,8 +60,8 @@
 // utan bild, `setSortKey`, `setCell`, `setSelected`) och den inaktiverade
 // med MASSFORMEN (`setColumns`/`setRows` — aggregatliteralerna), så både
 // grammatiken och previewn bär varje form. `onActivate` står i den KORTA
-// formen. Datagriden likadant, med kolumntypen (`setColumnEditor`/
-// `setColumnChoices`) FÖRE kolumnerna på den aktiva — typen hör till
+// formen. Datagriden likadant, med kolumntypen (`setColumnEditor` med
+// redigeraren och valen i `EditorSpec`) FÖRE kolumnerna på den aktiva — typen hör till
 // INDEXET, så satsordningen ska inte avgöra — och en aktuell cell i båda.
 // Dess `onChange` bär `CellChangeArgs` (rad och kolumn).
 // Båda listvyerna har KRYSSRUTOR (`setShowChecks` och ett

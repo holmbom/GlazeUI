@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include <vector>
 
 #include "glaze/widgets/table.h"
@@ -79,10 +80,23 @@
 // eget släpp — lasten och släppet är appens (ingen inbyggd omordning: i en
 // sorterad vy betyder "mellan rad 3 och 4" ingenting i appens index).
 //
+// RUBRIKKRYSSET: `setColumnHeaderCheck(0, true)` med `showChecks` på ger en
+// kryssruta i första kolumnens rubrik i tre lägen (alla, inga, några av de
+// SYNLIGA dataraderna kryssade); en vändning sätter alla synliga datarader och
+// fyrar `onCheck` EN gång, med raderna i `changedRows()` och `changedRow()` −1,
+// följt av `onCommit`.
+//
+// KATEGORIERNA (table.h): en kategori- eller tomrad väljs aldrig, kryssas
+// aldrig och får ingen hover. Ett klick på en kategorirad — eller Space/Enter
+// när den är aktuell — fäller den, Vänster fäller ihop och Höger ut. Spannet
+// och Ctrl+A tar bara DATAraderna, och en ihopfällning som användaren gör
+// väljer bort de rader som döljs och fyrar `onChange` efter `onCollapse`
+// (trädets regel).
+//
 // SKRIVNA BEGRÄNSNINGAR utöver tabellens (table.h): ingen typeahead
-// (ListBoxens skäl), ingen kryssruta i huvudet (markera alla), ingen
-// gummibandsmarkering med musen, och en första kolumn smalare än luften och
-// rutan låter rutan sticka ut i nästa kolumn (som ikonen gör).
+// (ListBoxens skäl), ingen gummibandsmarkering med musen, och en första
+// kolumn smalare än luften och rutan låter rutan sticka ut i nästa kolumn
+// (som ikonen gör).
 
 namespace glaze {
 
@@ -133,6 +147,10 @@ public:
     // `onCommit` — då med den kryssade radens index, som kan peka utanför
     // eller på en annan rad i den nya listan.
     int changedRow() const { return changedRow_; }
+    // ALLA rader som vändes i senaste `onCheck` (appens index,
+    // visningsordning): `{changedRow()}` för ett kryss, alla ändrade för
+    // rubrikkrysset; tom efter ett rent val och efter `setRows`.
+    const std::vector<int>& changedRows() const { return changedRows_; }
 
     // Raden under det SENASTE högertrycket (filhuvudet) — läs den i
     // `onContextMenu` och i menyns handlers; −1 när listan är inaktiverad.
@@ -186,6 +204,13 @@ protected:
     void rowsReplaced() override;
     void rowAppended() override;
     void rowReplaced(int row) override;
+    void rowRemoved(int row) override;
+    void rowKindChanged(int row) override;
+    void rowsHidden(const std::vector<int>& rows) override;
+
+    // Rubrikkrysset i kolumn 0 när rutorna syns (filhuvudet).
+    std::optional<CheckState> headerCheckState(int column) const override;
+    bool headerCheckToggled(int column) override;
 
     // ANVÄNDARVÄGARNA — de ENDA som fyrar event (ListBoxens
     // `selectFromUser`-prejudikat; protected så en subklass, och en grind,
@@ -202,6 +227,29 @@ protected:
     bool toggleCheckFromUser(int row);
 
 private:
+    // FRÅN HÄR NED är sektionen list_view.cpp:s egen: lagringen och
+    // hjälparna ändras med implementationen.
+    std::vector<int> changedRows_;   // senaste `onCheck`s rader
+
+    // ANVÄNDARENS FÄLLNING (`Table::toggleCategoryFromUser`) och, när den
+    // valde bort dolda rader (`rowsHidden` sätter flaggan), valets par efter
+    // `onCollapse`.
+    bool toggleCategory(int row);
+    bool hiddenDeselected_ = false;
+
+    // RUBRIKKRYSSETS LÄGE räknas över de synliga dataraderna och cachas mot
+    // kryssens generation och antalet platser: en dold rad stegar
+    // generationen (`rowsHidden`), en utfällning ökar antalet platser.
+    void checksChanged() { ++checkGen_; }
+    unsigned checkGen_ = 0;
+    struct HeaderState {
+        unsigned   gen       = 0;
+        int        positions = -1;
+        CheckState state     = CheckState::Unchecked;
+        bool       valid     = false;
+    };
+    mutable HeaderState headerState_;
+
     // Valet och kryssen per RAD (appens index) — `char` och inte `bool`, så
     // vektorerna är riktiga vektorer. Båda följer raden genom sorteringen.
     std::vector<char> selected_;
@@ -228,7 +276,11 @@ private:
     // Sätter valet till exakt `rader` (appens index). Svarar true när
     // något faktiskt ändrades — användarvägen fyrar bara då.
     bool assignSelection(const std::vector<int>& rader);
-    std::vector<int> allRows() const;   // 0 … rowCount() − 1
+    std::vector<int> allRows() const;   // de synliga DATAraderna, i visningsordning
+    bool isDataRow(int row) const
+    {
+        return row >= 0 && row < rowCount() && rowKind(row) == RowKind::Data;
+    }
     void fireChange();                  // onChange, därefter onCommit
 };
 

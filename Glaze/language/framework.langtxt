@@ -66,8 +66,9 @@
 # more") och posten för en inbäddad kontroll utan verktygstips (421,
 # "Kontroll"; kontrollens eget verktygstips är postens text när det finns).
 #
-# Id 430–439 är EGENSKAPSLISTANS: en rads verktygstips när värdet i den inte
-# går att tolka (430, "Ogiltigt värde" — Windows formulärfel "Invalid value").
+# Id 430–439 är DE TYPADE CELLERNAS (egenskapslistan och datagriden): en
+# cells verktygstips när värdet i den inte går att tolka (430, "Ogiltigt
+# värde" — Windows formulärfel "Invalid value").
 #
 # Id 81–83: meddelanderutans "Abort" (81 — att låna `Cancel` är fel på
 # engelska och finska), filstorlekens byte-enhet (82 — "B", men finskans tavu

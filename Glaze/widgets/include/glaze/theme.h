@@ -229,7 +229,8 @@ public:
                                    // ljust i båda lägena, dämpat i mörkt
 
         // PANELRUBRIKEN — rubrikraden i en dockningspanel, ett flytande
-        // verktygsfälts rubrik och en `PropertyGrid`s rubrikrader: en ton av
+        // verktygsfälts rubrik och kategoriraderna i `PropertyGrid` och
+        // tabellerna (`Table::RowKind::Category`): en ton av
         // TEXTEN mot panelens yta (`panel`), så raden skiljer sig från panelen
         // i varje palett och läge och rubriktexten, knapptecknen och
         // fokusringen ändå syns på den (contrast_gate mäter alla fyra).

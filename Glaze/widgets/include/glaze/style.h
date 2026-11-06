@@ -181,7 +181,7 @@ struct Style {
                           // varje värde ger rena hörn.
     float panelInset;     // innehållsytans indrag när panelen har ram
     float gridRowH;       // griddens radhöjd
-    float gridNameW;      // namnkolumnens bredd när nameWidth är 0
+    float gridNameW;      // namnkolumnens bredd när ingen satts (0)
     float gridPadX;       // textens indrag i en cell
     float rowMarkerW;     // en RADS vänstermarkör — PropertyGrids
                           // aktiva rad och Dropdown-listans valda rad, som är
@@ -815,6 +815,18 @@ struct Style {
                                  // senaste rullningen eller pekarens rörelse
                                  // över ytan — ett BETEENDEMÅTT, som
                                  // `toolTipDelayMs`
+
+    // ---- TABELLENS KATEGORIER OCH CELLKNAPPAR. Sist i structen och i
+    // `kSlateRegular`, av samma skäl som fälten ovan.
+    float tableCategoryIndent;   // indraget i första kolumnen för raderna
+                                 // under en kategorirad
+    float cellButtonInset;       // knappcellens knapp står så här långt in
+                                 // från cellens kanter, runt om
+
+    // ---- FÄRGCELLENS RUTA (`ColorDisplay::Swatch`). Sist i structen och i
+    // `kSlateRegular`, av samma skäl som fälten ovan.
+    float colorCellSwatchW;      // rutans bredd när cellen bara visar rutan;
+                                 // höjden är `checkSize`
 };
 
 // ------------------------------------------------------- UI -> dess styles

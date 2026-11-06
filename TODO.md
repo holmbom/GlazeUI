@@ -50,8 +50,6 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
   Ägarens `event()` och `acceleratorFallback` får också de tangenter ingen widget i den flytande panelen tog, som om panelen satt dockad. I dag släpps bara menygenvägarna igenom.
 - 💡 **Händelse när appens tema eller läge byts**
   Bara OS:ets byte ger en händelse (`EventType::SystemThemeChanged`). Ett `onThemeChanged` som fyrar vid `setThemeMode`, vid byte av tema och vid OS-bytet i System-läget, efter att det nya temat gäller.
-- 💡 **`DataGrid`: kryssrutekolumn och redigerare per cell** — [data_grid.h](Glaze/widgets/include/glaze/widgets/data_grid.h)
-  En kolumn med kryssrutor (klick och Space, `onCommit` som de andra), ritad med radmönstret som ListBox, ListView, TreeView och PropertyGrid redan har; och `setCellEditor`/`setCellChoices` per cell med `Editor::None` för en låst cell, kolumnens redigerare som förval.
 - 💡 **`PropertyGrid` som ett tabbstopp med en aktuell rad** — [property_grid.h](Glaze/widgets/include/glaze/widgets/property_grid.h)
   Gridden är inget tabbstopp, så Space når bara en kryssruta som just tryckts. En aktuell rad som ListViews: pilarna flyttar den, Space växlar en kryssruta, Enter eller F2 öppnar cellens redigerare.
 - 💡 **Redigerbar kombinationsruta (`ComboBox`)**

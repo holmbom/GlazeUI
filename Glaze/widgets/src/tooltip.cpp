@@ -90,11 +90,12 @@ void ToolTipBody::draw(const Ctx& c)
                    Pen{col.buttonBorder, m.borderWidth});
         break;
 
-    // SLATE — en YTA: `panel` och hårlinjen `border`, som en panel och en
-    // lista i samma familj.
+    // SLATE — en YTA: `panel` med kontrollkanten `buttonBorder`. Plattan är
+    // ett eget fönster utan skugga, och familjens hårlinje syntes inte mot en
+    // yta i samma färg bakom den — dropdownens och menyernas regel.
     case UI::Slate:
     default:
-        Draw::rect(c, b, 0.0f, col.panel, Pen{col.border, m.borderWidth});
+        Draw::rect(c, b, 0.0f, col.panel, Pen{col.buttonBorder, m.borderWidth});
         break;
     }
 

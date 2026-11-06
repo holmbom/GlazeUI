@@ -21,6 +21,19 @@ versionen sätts.
 
 ## Nästa
 
+## 0.9.0
+
+- **New** — `DataGrid` har `PropertyGrid`s typade celler och fler: `Editor` är `Text`, `Choice` (med ikoner per val, `choiceIcons`), `Check`, `Color` (`allowAlpha`), `Number` (`min`/`max`, `decimals`, `prefix`/`suffix`, `allowEmpty`/`emptyText`; utanför gränserna klampas, otolkbar text visas som fel i cellen med en tooltip), `Button` (`onCellClick`) och `None`. Kolumnens redigerare sätts med `setColumnEditor(kolumn, EditorSpec)`, och en cell kan ha en egen (`setCellEditor`/`clearCellEditor`), vara inaktiv (`setCellEnabled`) och ha en tooltip (`setCellToolTip`). Läsvägarna är `isChecked`, `colorValue`, `numberValue` och `hasError` per cell.
+- **New** — `DataGrid`: ett klick växlar ett kryss, öppnar färgväljaren och vallistan och trycker en knapp; text och tal börjar som förut, eller med ett klick (`setEditOnClick`). Enter öppnar en redigerbar cell, och Tab går till nästa redigerbara cell. Med `setMultiEdit` gäller en ändring i en vald rad samma kolumn i alla valda rader, och `CellChangeArgs::rows` säger vilka som ändrades.
+- **New** — kategorirader och tomma rader i `ListView` och `DataGrid` (`Table::RowKind` `Data`/`Category`/`Blank`, `setRowKind`): en kategorirad spänner över hela bredden, raderna under den står indragna och fälls in och ut (`setExpanded`, `onExpand`/`onCollapse`), och sorteringen gäller inom varje kategori. `PropertyGrid`s fällbara rad heter `Kind::Category` och fyrar också `onExpand`/`onCollapse`.
+- **New** — kolumnlägena `ColumnSizing::Manual` (satt bredd), `AutoMin` (det minsta rubriken och innehållet behöver) och `Autosize` (tar utrymmet som finns, delat lika) i `ListView`, `DataGrid`, `TreeView` och `PropertyGrid` (`setColumnSizing`). En kolumnrubrik kan ha en tooltip (`setColumnToolTip`) och ett kryss i tre lägen som slår på eller av alla rader (`setColumnHeaderCheck`).
+- **New** — bild i en cell (`setCellImage`), ikoner i `Dropdown`s poster (`addItem(text, ikon)`) och `Table::removeRow`. `ListView` och `DataGrid` får en höjd ur sina rader när ingen är satt, och en ändrad cell mäts om ensam, så tusentals rader går fort.
+- **New** — färgcellen i `DataGrid` och `PropertyGrid` visas som `ColorDisplay::Swatch` (förval, en bred ruta), `Hex` eller `Both`; en låst cell (`EditorSpec::readOnly`) ritas som sitt slag på det skrivskyddade fältets yta; `setSelectOnEdit` väljer om texten markeras när redigeringen börjar (förval ja).
+- **New** — `demo --tables` visar `DataGrid`, `ListView` och `PropertyGrid` i ett fönster med reglage för varje egenskap och en händelselogg.
+- **Fix** — ett fönster med `setContentSize` hoppade tillbaka till den begärda storleken när ett barn visades eller doldes efter att användaren ändrat storleken (till exempel vid ett klick i en tabell).
+- **Fix** — i Slate syntes popupernas kant (vallistan, menyerna, färg- och datumväljaren, tooltipen och dragbilden) knappt mot ytan bakom; kanten är nu kontrollkanten `buttonBorder`.
+- **Brytande** — `setFillColumn` och `Column::autoWidth` är ersatta av `ColumnSizing`, `PropertyGrid::setNameWidth` av `setColumnWidth`/`setColumnSizing`, `DataGrid::setColumnEditor(int, Editor)` och `setColumnChoices` av `setColumnEditor(int, EditorSpec)`, `PropertyGrid::Kind::Header` heter `Kind::Category` och `str::PropertyGridInvalid` heter `str::InvalidValue`.
+
 ## 0.8.0
 
 - **New** — `PropertyGrid` har typade celler: `Row::kind` är `Text` (med `choices` en vallista), `Check` (klick och Space), `Color` (färgväljarens popup, `allowAlpha`), `Number` (`min`/`max`, `decimals`, `prefix`/`suffix`; utanför gränserna klampas, otolkbar text visas som fel på raden med en tooltip) eller `Header` (en fällbar rubrikrad, `setExpanded`). Varje rad har en egen `toolTip` och `enabled` (`setRowEnabled`), och läsvägarna är `isChecked`, `colorValue`, `numberValue` och `hasError`. Allt går att uttrycka i `.glazeui`.

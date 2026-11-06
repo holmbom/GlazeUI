@@ -22,7 +22,9 @@
 #include "glaze/app_window.h"
 #include "glaze/draw.h"
 
+#include "../column_sizing.h"
 #include "../prop_parse.h"
+#include "../value_cell.h"
 
 namespace glaze {
 namespace {
@@ -110,27 +112,32 @@ int ColumnPanel::compareNatural(const std::string& a, const std::string& b)
 // ------------------------------------------------------------- kolumnerna
 
 void ColumnPanel::addColumn(TrText text, float bredd, Align align,
-                            std::optional<Align> headerAlign)
+                            std::optional<Align> headerAlign,
+                            ColumnSizing sizing)
 {
-    columns_.push_back(Column{std::move(text), bredd, align, headerAlign});
+    columns_.push_back(
+        Column{std::move(text), bredd, align, headerAlign, sizing, {}, false});
     headerChanged();
     contentChanged();
     orderChanged();   // en sorteringskolumn som inte fanns kan börja gälla
 }
 
 void ColumnPanel::setColumn(int index, TrText text, float bredd, Align align,
-                            std::optional<Align> headerAlign)
+                            std::optional<Align> headerAlign,
+                            ColumnSizing sizing)
 {
     if (index < 0 || index >= columnCount()) {
         gfx::log("ColumnPanel(%s): setColumn(%d) utanför intervallet (%d "
                  "kolumner) — ignoreras", name.c_str(), index, columnCount());
         return;
     }
+    // TILLDELNING: tooltip och rubrikkryss nollas (column_panel.h).
     columns_[std::size_t(index)] =
-        Column{std::move(text), bredd, align, headerAlign};
+        Column{std::move(text), bredd, align, headerAlign, sizing, {}, false};
     headerChanged();
     contentChanged();
     invalidate();
+    clampScroll();   // ett nytt läge kan ha krympt spelrummet i sidled
 }
 
 void ColumnPanel::setColumns(std::vector<Column> columns)
@@ -155,6 +162,11 @@ void ColumnPanel::setColumnWidth(int index, float bredd)
                  "kolumner) — ignoreras", name.c_str(), index, columnCount());
         return;
     }
+    if (bredd < 0.0f) {
+        gfx::log("ColumnPanel(%s): setColumnWidth(%d, %g) — en negativ bredd, "
+                 "ignoreras", name.c_str(), index, double(bredd));
+        return;
+    }
     Column& k = columns_[std::size_t(index)];
     if (k.width == bredd)
         return;   // hård regel 1: invalidera vid ÄNDRING
@@ -168,6 +180,105 @@ float ColumnPanel::columnWidth(int index) const
     return index >= 0 && index < columnCount()
                ? columns_[std::size_t(index)].width
                : 0.0f;
+}
+
+void ColumnPanel::setManualWidth(int index, float bredd)
+{
+    Column& k = columns_[std::size_t(index)];
+    if (k.sizing == ColumnSizing::Manual && k.width == bredd)
+        return;   // hård regel 1: invalidera vid ÄNDRING
+    k.sizing = ColumnSizing::Manual;
+    k.width  = bredd;
+    headerChanged();
+    invalidate();
+    clampScroll();   // en Autosize-kolumn som blev fast kan ha krympt spelrummet
+}
+
+void ColumnPanel::setColumnSizing(int index, ColumnSizing sizing)
+{
+    if (index < 0 || index >= columnCount()) {
+        gfx::log("ColumnPanel(%s): setColumnSizing(%d) utanför intervallet (%d "
+                 "kolumner) — ignoreras", name.c_str(), index, columnCount());
+        return;
+    }
+    Column& k = columns_[std::size_t(index)];
+    if (k.sizing == sizing)
+        return;   // hård regel 1: invalidera vid ÄNDRING
+    k.sizing = sizing;
+    headerChanged();
+    invalidate();
+    clampScroll();
+}
+
+ColumnSizing ColumnPanel::columnSizing(int index) const
+{
+    return index >= 0 && index < columnCount()
+               ? columns_[std::size_t(index)].sizing
+               : ColumnSizing::Manual;
+}
+
+void ColumnPanel::setColumnToolTip(int index, TrText toolTip)
+{
+    if (index < 0 || index >= columnCount()) {
+        gfx::log("ColumnPanel(%s): setColumnToolTip(%d) utanför intervallet (%d "
+                 "kolumner) — ignoreras", name.c_str(), index, columnCount());
+        return;
+    }
+    TrText& t = columns_[std::size_t(index)].toolTip;
+    if (t == toolTip)
+        return;
+    t = std::move(toolTip);
+    // Ingen ritning bär den; tooltipen läses vid nästa vila (widget.h).
+}
+
+void ColumnPanel::setColumnHeaderCheck(int index, bool on)
+{
+    if (index < 0 || index >= columnCount()) {
+        gfx::log("ColumnPanel(%s): setColumnHeaderCheck(%d) utanför intervallet "
+                 "(%d kolumner) — ignoreras", name.c_str(), index, columnCount());
+        return;
+    }
+    bool& k = columns_[std::size_t(index)].headerCheck;
+    if (k == on)
+        return;   // hård regel 1: invalidera vid ÄNDRING
+    k = on;
+    headerChanged();       // zonen tar rubrikens plats (AUTO-höjden)
+    contentChanged(index); // och en del av den anpassade bredden
+    invalidate();
+}
+
+bool ColumnPanel::columnHeaderCheck(int index) const
+{
+    return index >= 0 && index < columnCount() &&
+           columns_[std::size_t(index)].headerCheck;
+}
+
+void ColumnPanel::contentChanged()
+{
+    ++fitGen_;
+    ++contentGen_;
+}
+
+void ColumnPanel::contentChanged(int column)
+{
+    if (column < 0)
+        return;
+    if (std::size_t(column) >= colGen_.size())
+        colGen_.resize(std::size_t(column) + 1, 0u);
+    ++colGen_[std::size_t(column)];
+    ++contentGen_;
+}
+
+// RUBRIKENS TOOLTIP: över en kolumns rubrik dess egen, annars widgetens.
+// Remsorna hör inte till rubriken.
+TrText ColumnPanel::toolTipAt(const Ctx& c, float x, float y) const
+{
+    if (!inScrollStrip(c, x, y) && inHeader(c, x, y)) {
+        const int k = headerColumnAt(c, x);
+        if (k >= 0 && !columns_[std::size_t(k)].toolTip.empty())
+            return columns_[std::size_t(k)].toolTip;
+    }
+    return Widget::toolTipAt(c, x, y);
 }
 
 // ------------------------------------------------------------ sorteringen
@@ -221,25 +332,6 @@ void ColumnPanel::setHeaderVAlign(VAlign v)
         return;
     headerVAlign_ = v;
     invalidate();   // bara ritningen — höjden beror inte på justeringen
-}
-
-// ------------------------------------------------------------ fyllkolumnen
-
-void ColumnPanel::setFillColumn(int column)
-{
-    if (column < -1) {
-        gfx::log("ColumnPanel(%s): setFillColumn(%d) — −1 är ingen, "
-                 "ignoreras", name.c_str(), column);
-        return;
-    }
-    if (column == fillColumn_)
-        return;   // hård regel 1: invalidera vid ÄNDRING
-    fillColumn_ = column;
-    // Två fyllkolumner med samma bredd ger samma `fillW` — nyckeln räcker
-    // inte ensam, så bytet stegar generationen.
-    headerChanged();
-    invalidate();
-    clampScroll();   // bredden kan ha krympt spelrummet i sidled
 }
 
 void ColumnPanel::languageChanged()
@@ -313,18 +405,6 @@ bool ColumnPanel::setProp(const std::string& key, const std::string& value)
         setHeaderLines(int(v));   // negativt ⇒ sättarens logg + no-op
         return true;
     }
-    if (key == "fillColumn") {
-        // Heltalet som `headerLines` — skräp är inte −1.
-        double v = 0.0;
-        if (!propparse::parseDouble(value, v) || v != std::floor(v) ||
-            std::abs(v) > double(std::numeric_limits<int>::max())) {
-            gfx::log("ColumnPanel(%s): '%s' är ingen kolumn för fillColumn "
-                     "(ignoreras)", name.c_str(), value.c_str());
-            return true;
-        }
-        setFillColumn(int(v));   // < −1 ⇒ sättarens logg + no-op
-        return true;
-    }
     if (key == "headerVAlign") {
         VAlign v = VAlign::Center;
         if (propparse::parseVAlign(value, v))
@@ -363,15 +443,16 @@ int ColumnPanel::headerLineCount(const Ctx& c, float cw) const
         return headerLines_;
     const float  pad   = cellPadX(c);
     const float  lh    = Draw::lineHeight(c);
-    const float  fillW = hasFill() ? columnW(c, fillColumn_, cw) : -1.0f;
+    const float  nyckelCw = hasAutosize() ? cw : -1.0f;
     HeaderCache& k     = headerCache_;
     if (k.valid && k.font == c.font && k.scale == c.scale && k.lineH == lh &&
         k.padX == pad && k.defaultW == c.style->columnDefaultW &&
-        k.fillW == fillW && k.gen == headerGen_)
+        k.cw == nyckelCw && k.gen == headerGen_ && k.content == contentGen_)
         return k.lines;
     int n = 1;
     for (int i = 0; i < columnCount(); ++i) {
-        const float w = columnW(c, i, cw) - 2.0f * pad;
+        // Rubrikkryssets zon står före texten (`drawHeader`).
+        const float w = columnW(c, i, cw) - 2.0f * pad - headerCheckW(c, i);
         if (w > 0.0f)   // ritningen hoppar över en så smal kolumn
             n = std::max(n, int(Draw::elideLines(
                                     c, columns_[std::size_t(i)].text.str(),
@@ -379,7 +460,7 @@ int ColumnPanel::headerLineCount(const Ctx& c, float cw) const
                                     .size()));
     }
     k = HeaderCache{c.font, c.scale, lh, pad, c.style->columnDefaultW,
-                    fillW, headerGen_, n, true};
+                    nyckelCw, headerGen_, contentGen_, n, true};
     return n;
 }
 
@@ -421,19 +502,42 @@ gfx::Rectf ColumnPanel::scrollViewport(const Ctx& c) const
     return gfx::Rectf{in.x + fz, in.y + h, in.w - fz, in.h - h};
 }
 
-// Innehållsbredden ur listans EGEN Ctx — bara när en fyllkolumn finns, så
-// en lista utan den räknar som vanligt (och aldrig `resolve()` här).
+// Innehållsbredden ur listans EGEN Ctx — bara när en Autosize-kolumn finns,
+// så en lista utan den aldrig frågar `resolve()` här.
 float ColumnPanel::contentW(const Ctx& c) const
 {
-    return hasFill() ? innerBounds(c).w : 0.0f;
+    return hasAutosize() ? innerBounds(c).w : 0.0f;
 }
 
+bool ColumnPanel::hasAutosize() const
+{
+    return std::any_of(columns_.begin(), columns_.end(), [](const Column& k) {
+        return k.sizing == ColumnSizing::Autosize;
+    });
+}
+
+// KOLUMNENS BAS efter läget (column_sizing.h). Den anpassade bredden frågas
+// bara för en AutoMin-kolumn — den kan mäta alla rader.
 float ColumnPanel::columnBaseW(const Ctx& c, int column) const
 {
-    const float w = columns_[std::size_t(column)].width;
-    if (w < 0.0f)
-        return fittedW(c, column);   // efter innehållet
-    return w > 0.0f ? w : c.style->columnDefaultW;
+    const Column& k = columns_[std::size_t(column)];
+    return columnsizing::baseWidth(
+        k.sizing, k.width, c.style->columnDefaultW,
+        k.sizing == ColumnSizing::AutoMin ? fittedW(c, column) : 0.0f);
+}
+
+// DET SOM BLIR ÖVER per Autosize-kolumn: `cw` minus ALLA kolumners baser,
+// delat lika. O(k).
+float ColumnPanel::autosizeShare(const Ctx& c, float cw) const
+{
+    float baser = 0.0f;
+    int   antal = 0;
+    for (int i = 0; i < columnCount(); ++i) {
+        baser += columnBaseW(c, i);
+        if (columns_[std::size_t(i)].sizing == ColumnSizing::Autosize)
+            ++antal;
+    }
+    return columnsizing::autosizeShare(cw, baser, antal);
 }
 
 // DEN ANPASSADE BREDDEN. Rubrikens bredaste rad (`\n` bryter, och en
@@ -454,11 +558,15 @@ float ColumnPanel::fittedW(const Ctx& c, int column) const
         k.sortCol != sortColumn_ || k.gen != fitGen_ ||
         k.w.size() != columns_.size()) {
         k = FitCache{c.font, c.style, c.scale, sortable_, sortColumn_, fitGen_,
-                     std::vector<float>(columns_.size(), -1.0f), true};
+                     std::vector<float>(columns_.size(), -1.0f),
+                     std::vector<unsigned>(columns_.size(), 0u), true};
     }
-    float& w = k.w[std::size_t(column)];
-    if (w >= 0.0f)
+    float&         w   = k.w[std::size_t(column)];
+    unsigned&      gen = k.colGen[std::size_t(column)];
+    const unsigned nu  = colGenOf(column);
+    if (w >= 0.0f && gen == nu)
         return w;
+    gen = nu;
 
     const auto& m   = *c.style;
     const float pad = cellPadX(c);
@@ -471,7 +579,7 @@ float ColumnPanel::fittedW(const Ctx& c, int column) const
         rub = std::max(rub, Draw::measure(c, text.substr(b, e - b)).w);
         b = e + 1;
     }
-    rub += 2.0f * pad;
+    rub += 2.0f * pad + headerCheckW(c, column);
     if (sortable_ || column == sortColumn_)
         rub += pad + 2.0f * m.chevronW;
     // ANDRUM: kantens tjocklek (en hårlinje = 1 fysisk px). Ritningen kortar
@@ -491,18 +599,15 @@ float ColumnPanel::columnW(const Ctx& c, int column) const
     return columnW(c, column, contentW(c));
 }
 
-// FYLLKOLUMNEN tar upp resten av innehållets bredd och aldrig mindre än
-// sin egen; alla andra kolumner är sin bas. O(k) för fyllkolumnen.
+// En AUTOSIZE-kolumn är sin bas plus sin andel av det som blir över; alla
+// andra kolumner är sin bas. O(k) för en Autosize-kolumn.
 float ColumnPanel::columnW(const Ctx& c, int column, float cw) const
 {
-    const float bas = columnBaseW(c, column);
-    if (column != fillColumn_ || !hasFill())
+    const float        bas = columnBaseW(c, column);
+    const ColumnSizing l   = columns_[std::size_t(column)].sizing;
+    if (l != ColumnSizing::Autosize)
         return bas;
-    float övriga = 0.0f;
-    for (int i = 0; i < columnCount(); ++i)
-        if (i != column)
-            övriga += columnBaseW(c, i);
-    return std::max(bas, cw - övriga);
+    return columnsizing::effectiveWidth(l, bas, autosizeShare(c, cw));
 }
 
 float ColumnPanel::columnX(const Ctx& c, int column) const
@@ -510,11 +615,14 @@ float ColumnPanel::columnX(const Ctx& c, int column) const
     return columnX(c, column, contentW(c));
 }
 
+// Andelen räknas EN gång för hela summan — O(k) och inte O(k²).
 float ColumnPanel::columnX(const Ctx& c, int column, float cw) const
 {
-    float summa = 0.0f;
+    const float andel = hasAutosize() ? autosizeShare(c, cw) : 0.0f;
+    float       summa = 0.0f;
     for (int i = 0; i < column && i < columnCount(); ++i)
-        summa += columnW(c, i, cw);
+        summa += columnsizing::effectiveWidth(columns_[std::size_t(i)].sizing,
+                                              columnBaseW(c, i), andel);
     return summa;
 }
 
@@ -547,6 +655,39 @@ gfx::Rectf ColumnPanel::headerCellRect(const Ctx& c, int column) const
                       columnW(c, column), h.h};
 }
 
+// ---------------------------------------------------------- rubrikkrysset
+
+bool ColumnPanel::hasHeaderCheck(int column) const
+{
+    return column >= 0 && column < columnCount() &&
+           columns_[std::size_t(column)].headerCheck &&
+           headerCheckState(column).has_value();
+}
+
+float ColumnPanel::headerCheckW(const Ctx& c, int column) const
+{
+    return hasHeaderCheck(column) ? c.style->checkSize + c.style->checkGap
+                                  : 0.0f;
+}
+
+gfx::Rectf ColumnPanel::headerCheckZone(const Ctx& c, int column) const
+{
+    const gfx::Rectf r = headerCellRect(c, column);
+    return gfx::Rectf{r.x + cellPadX(c), r.y, headerCheckW(c, column), r.h};
+}
+
+int ColumnPanel::headerCheckAt(const Ctx& c, float mx, float my) const
+{
+    if (!inHeader(c, mx, my))
+        return -1;
+    const int k = headerColumnAt(c, mx);
+    if (k < 0 || !hasHeaderCheck(k))
+        return -1;
+    const float lx = Draw::localX(c, resolve(c), mx);
+    const gfx::Rectf z = headerCheckZone(c, k);
+    return lx >= z.x && lx < z.x + z.w ? k : -1;
+}
+
 // ---------------------------------------------------------------- träffen
 
 bool ColumnPanel::inHeader(const Ctx& c, float mx, float my) const
@@ -577,8 +718,8 @@ int ColumnPanel::dividerAt(const Ctx& c, float mx) const
     const gfx::Rectf hb = headerRect(c);
     const float      fz = frozenW(c);
     for (int i = columnCount() - 1; i >= 0; --i) {
-        if (i == fillColumn_)
-            continue;   // fyllkolumnens kant följer bredden (Qt:s Stretch)
+        if (columns_[std::size_t(i)].sizing == ColumnSizing::Autosize)
+            continue;   // en Autosize-kolumns kant följer bredden (Qt:s Stretch)
         const gfx::Rectf r    = headerCellRect(c, i);
         const float      kant = r.x + r.w;
         // Utrullad — ingen synlig avdelare att greppa; en rullande kolumns
@@ -660,11 +801,21 @@ void ColumnPanel::drawHeader(const Ctx& c) const
                           Pen{pil, m.borderWidth});
             textHöger = chev.x - pad;
         }
+        // RUBRIKKRYSSET först i rubriken, i tre lägen, där en enradsrubrik
+        // står (pilens plats i höjdled); texten börjar efter zonen.
+        float tx = r.x + pad;
+        if (const auto läge = hasHeaderCheck(i) ? headerCheckState(i)
+                                                : std::nullopt) {
+            const float s = m.checkSize;
+            valuecell::drawCheckBox(
+                c, {tx, r.y + r.h / 2.0f + pilSkift - s / 2.0f, s, s}, *läge,
+                på ? col.buttonBorder : col.border, fg);
+            tx += headerCheckW(c, i);
+        }
         // RUBRIKENS RADER: var och en i en rect lika hög som huvudet,
         // flyttad till sin plats (`platsSkift`) — `Draw::text` centrerar den
         // där. En rubrik på EN rad i ett enradshuvud ritas därmed i exakt den
         // rect och med exakt den text (`elide`) den alltid ritats med.
-        const float tx = r.x + pad;
         if (textHöger > tx) {
             const Column& k     = columns_[std::size_t(i)];
             const auto    rader = Draw::elideLines(c, k.text.str(),
@@ -749,6 +900,13 @@ bool ColumnPanel::headerMouseDown(const Ctx& c, float mx, float my)
         resizeColumn_ = avd;
         resizeStartX_ = Draw::localX(c, resolve(c), mx);
         resizeStartW_ = columnW(c, avd);
+    } else if (const int kryss = headerCheckAt(c, mx, my); kryss >= 0) {
+        // RUBRIKKRYSSET vänds direkt och sorterar aldrig — inte heller vid
+        // släppet, för trycket är ingen rubriks. En handler som rev listan
+        // lämnar den orörd.
+        invalidate();
+        headerCheckToggled(kryss);
+        return true;
     } else {
         pressHeader_      = headerColumnAt(c, mx);
         pressHeaderStill_ = pressHeader_ >= 0;
@@ -772,9 +930,9 @@ bool ColumnPanel::headerDoubleClick(const Ctx& c, float mx, float my)
     const int avd = dividerAt(c, mx);
     if (avd >= 0) {
         resizeColumn_ = -1;
-        setColumnWidth(avd, fittedW(c, avd));
+        setManualWidth(avd, fittedW(c, avd));   // "anpassa nu" — Manual
     }
-    return true;
+    return true;   // i rubrikkryssets zon har båda trycken redan vänt det
 }
 
 void ColumnPanel::mouseDrag(const Ctx& c, float mx, float my)
@@ -782,9 +940,10 @@ void ColumnPanel::mouseDrag(const Ctx& c, float mx, float my)
     Panel::mouseDrag(c, mx, my);   // tumdraget i en remsa
     if (resizeColumn_ >= 0) {
         // Bredden följer pekaren från greppets punkt, aldrig smalare än
-        // stilens `columnMinW`. `setColumnWidth` invaliderar vid ändring.
+        // stilens `columnMinW`, och kolumnen blir `Manual`. Invaliderar vid
+        // ändring.
         const float lx = Draw::localX(c, resolve(c), mx);
-        setColumnWidth(resizeColumn_,
+        setManualWidth(resizeColumn_,
                        std::max(c.style->columnMinW,
                                 resizeStartW_ + (lx - resizeStartX_)));
         return;
@@ -805,7 +964,9 @@ void ColumnPanel::mouseMove(const Ctx& c, float mx, float my)
     int rubrik = -1, avd = -1;
     if (!inScrollStrip(c, mx, my) && inHeader(c, mx, my)) {
         avd    = dividerAt(c, mx);
-        rubrik = avd < 0 ? headerColumnAt(c, mx) : -1;
+        // Rubrikkryssets zon är ingen sortering — ingen rubrikhover där.
+        rubrik = avd < 0 && headerCheckAt(c, mx, my) < 0 ? headerColumnAt(c, mx)
+                                                          : -1;
     }
     if (rubrik != hotHeader_ || avd != hotDivider_) {
         hotHeader_  = rubrik;

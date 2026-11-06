@@ -97,6 +97,12 @@
 
 namespace glaze {
 
+// HUR EN FÄRGCELL VISAS i `DataGrid` och `PropertyGrid`: bara rutan
+// (`Swatch`, `checkSize` hög och `Style::colorCellSwatchW` bred), bara
+// hextexten (`Hex`) eller en ruta i kryssrutans storlek med hextexten efter
+// (`Both`).
+enum class ColorDisplay { Swatch, Hex, Both };
+
 class ColorPicker : public Widget {
 public:
     // BÅDA out-of-line (color_picker.cpp): popupen är ofullständig här, och
@@ -165,6 +171,14 @@ protected:
     // en subklass, och en grind, når den. Reglagens drag och släpp har egna
     // vägar in i samma `userColor`.
     void colorFromUser(gfx::Color c);
+
+    // POPUPEN STÄNGDES — vilken väg som helst (palettens val, Enter eller
+    // Escape i popupen, ett klick utanför, `close()`), efter att väljaren
+    // själv släppt den. En subklass som är en cells redigerare (datagridens,
+    // egenskapslistans) avslutar sin redigering här, så att tangenterna går
+    // tillbaka till listan direkt. Körs ur popupfönstrets stängning. Standard
+    // ingenting.
+    virtual void popupDismissed() {}
 
 private:
     class Popup;   // popupfönstret och dess innehåll — color_picker.cpp

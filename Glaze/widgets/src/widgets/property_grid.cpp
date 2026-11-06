@@ -5,15 +5,15 @@
 // projicerar till fysiska px (Draw::project). Basen Panel ger klipp,
 // hjulscroll, overlay-listerna och innehållsytan; contentExtent överrids
 // så radhöjden (data, inte barn) styr scrollintervallet. Radens slag
-// (text, kryss, färg, tal, rubrik) bestämmer cellens innehåll (`drawCell`)
+// (text, kryss, färg, tal, kategori) bestämmer cellens innehåll (`drawCell`)
 // och vilken editor som öppnas (`openEditor`); beslutens skäl står i headern.
+// Tolkningen, måtten och ritningen av de typade cellerna är de delade
+// (`valuecell`), och kolumnlägenas räkning likaså (`columnsizing`).
 
 #include "glaze/widgets/property_grid.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
-#include <cstdlib>
 
 #include <gfx/platform.h>
 
@@ -23,11 +23,31 @@
 #include "glaze/widgets/dropdown.h"
 #include "glaze/widgets/textinput.h"
 
-#include "../color_panel.h"
+#include "../column_sizing.h"
 #include "../number_text.h"
 #include "../prop_parse.h"
+#include "../value_cell.h"
 
 namespace glaze {
+
+namespace {
+
+// Talradens gränser, decimaler, text runt talet och tomma värde — de typade
+// cellernas form.
+valuecell::NumberSpec numberSpec(const PropertyGrid::Row& r)
+{
+    return valuecell::NumberSpec{r.min,    r.max,        r.decimals, r.prefix,
+                                 r.suffix, r.allowEmpty, r.emptyText};
+}
+
+// En bilds sida: assetens storleksklass, annars stilens reservsida.
+float imageSide(const Ctx& c, const ImageSource& img)
+{
+    const float k = img.sizeClass();
+    return k > 0.0f ? k : c.style->iconFallback;
+}
+
+} // namespace
 
 // ------------------------------------------------------------- editorn
 //
@@ -59,6 +79,18 @@ public:
         resetHistory();
     }
 
+    // Hela texten markerad (det man skriver ERSÄTTER värdet), eller markören
+    // sist utan markering.
+    void markera(bool allt)
+    {
+        if (allt) {
+            selectAll();
+        } else {
+            const int sist = int(text().size());
+            setSelection(sist, sist);
+        }
+    }
+
 protected:
     bool keyDown(gfx::Key k, std::uint32_t mods) override
     {
@@ -81,10 +113,7 @@ protected:
     {
         if (!numeric_)
             return TextInput::textInput(utf8);
-        std::string ok;
-        for (const char* p = utf8; *p; ++p)
-            if (numbertext::isNumberChar(*p))
-                ok.push_back(*p);
+        const std::string ok = numbertext::filterNumberChars(utf8);
         if (ok.empty())
             return true;
         return TextInput::textInput(ok.c_str());
@@ -168,7 +197,8 @@ protected:
         if (!focused())
             return;
         const auto&      m   = *c.style;
-        const gfx::Rectf box = PropertyGrid::checkBoxRect(c, c.bounds());
+        const gfx::Rectf box = valuecell::boxRect(
+            c, PropertyGrid::cellContent(c, c.bounds()), Align::Left);
         Draw::frame(c, Draw::inset(box, -m.focusOffset),
                     m.checkRadius + m.focusOffset,
                     Pen{c.theme->colors.accent, m.focusWidth});
@@ -240,6 +270,14 @@ protected:
             owner_.hideEditors();
     }
 
+    // POPUPEN STÄNGDES: valet är redan sparat (`commitColor`), så
+    // redigeringen avslutas med den — ett andra Enter behövs inte.
+    void popupDismissed() override
+    {
+        if (isVisible())
+            owner_.hideEditors();
+    }
+
 private:
     PropertyGrid& owner_;
 };
@@ -282,17 +320,17 @@ PropertyGrid::PropertyGrid() : sep_(tr(str::DecimalSeparator))
 
 // ------------------------------------------------------------- raderna
 
-// En INAKTIV grid visas infälld: varje rubrik står stängd (radernas
+// En INAKTIV grid visas infälld: varje kategori står stängd (radernas
 // `expanded` rörs inte, så de öppnas igen som de var när gridden aktiveras),
-// och bara rubrikerna — och raderna före den första — syns.
+// och bara kategorierna — och raderna före den första — syns.
 void PropertyGrid::rebuildVisible()
 {
     pos_.assign(rows_.size(), -1);
     visibleCount_ = 0;
-    bool öppen    = true;   // raderna före den första rubriken syns alltid
+    bool öppen    = true;   // raderna före den första kategorin syns alltid
     for (std::size_t i = 0; i < rows_.size(); ++i) {
         const Row& r = rows_[i];
-        if (r.kind == Kind::Header) {
+        if (r.kind == Kind::Category) {
             pos_[i] = visibleCount_++;
             öppen   = r.expanded && isEnabled();
         } else if (öppen) {
@@ -386,9 +424,9 @@ void PropertyGrid::setExpanded(int row, bool on)
         return;
     }
     Row& r = rows_[std::size_t(row)];
-    if (r.kind != Kind::Header) {
+    if (r.kind != Kind::Category) {
         gfx::log("PropertyGrid(%s): setExpanded(%d) på en rad som inte är en "
-                 "rubrik — ignoreras", this->name.c_str(), row);
+                 "kategori — ignoreras", this->name.c_str(), row);
         return;
     }
     if (r.expanded == on)
@@ -406,7 +444,7 @@ void PropertyGrid::setExpanded(int row, bool on)
 bool PropertyGrid::isChecked(int row) const
 {
     return valid(row) && rows_[std::size_t(row)].kind == Kind::Check &&
-           propparse::parseBool(rows_[std::size_t(row)].value);
+           valuecell::parseCheck(rows_[std::size_t(row)].value);
 }
 
 std::optional<gfx::Color> PropertyGrid::colorValue(int row) const
@@ -414,12 +452,7 @@ std::optional<gfx::Color> PropertyGrid::colorValue(int row) const
     if (!valid(row) || rows_[std::size_t(row)].kind != Kind::Color)
         return std::nullopt;
     const Row& r = rows_[std::size_t(row)];
-    gfx::Color c{};
-    if (!propparse::parseHexColor(numbertext::trim(r.value), c, true))
-        return std::nullopt;
-    if (!r.allowAlpha)
-        c = colorpanel::opak(c);   // färgväljarens läsregel
-    return c;
+    return valuecell::parseColor(r.value, r.allowAlpha);
 }
 
 std::optional<double> PropertyGrid::numberValue(int row) const
@@ -427,19 +460,19 @@ std::optional<double> PropertyGrid::numberValue(int row) const
     if (!valid(row) || rows_[std::size_t(row)].kind != Kind::Number)
         return std::nullopt;
     const Row& r = rows_[std::size_t(row)];
-    double     v = 0.0;
-    if (!numbertext::parseUser(r.value, v))
-        return std::nullopt;
-    return numbertext::effective(v, r.min, r.max, r.decimals);
+    return valuecell::numberValue(r.value, numberSpec(r));
 }
 
+// Ett tillåtet tomt tal är inget fel — men användarens otolkbara text är det.
 bool PropertyGrid::hasError(int row) const
 {
     if (!valid(row))
         return false;
-    switch (rows_[std::size_t(row)].kind) {
+    const Row& r = rows_[std::size_t(row)];
+    switch (r.kind) {
     case Kind::Number:
-        return pending_[std::size_t(row)].has_value() || !numberValue(row);
+        return pending_[std::size_t(row)].has_value() ||
+               valuecell::numberError(r.value, numberSpec(r));
     case Kind::Color:
         return !colorValue(row);
     default:
@@ -449,18 +482,80 @@ bool PropertyGrid::hasError(int row) const
 
 std::string PropertyGrid::numberDisplay(int row) const
 {
-    if (pending_[std::size_t(row)])
-        return *pending_[std::size_t(row)];
+    const Row&                        r = rows_[std::size_t(row)];
+    const std::optional<std::string>& p = pending_[std::size_t(row)];
+    return valuecell::displayNumber(r.value, p ? &*p : nullptr, numberSpec(r),
+                                    sep_.str());
+}
+
+std::string PropertyGrid::numberEditText(int row) const
+{
+    const Row&                        r = rows_[std::size_t(row)];
+    const std::optional<std::string>& p = pending_[std::size_t(row)];
+    return valuecell::editNumberText(r.value, p ? &*p : nullptr, numberSpec(r),
+                                     sep_.str());
+}
+
+// Det valda valets ikon: valet är det värde som står i `choices`, och ikonen
+// den på samma index i `choiceIcons`.
+const ImageSource& PropertyGrid::choiceIcon(int row) const
+{
+    static const ImageSource ingen{};
     const Row& r = rows_[std::size_t(row)];
-    if (const std::optional<double> v = numberValue(row))
-        return numbertext::format(*v, r.decimals, sep_.str());
-    return r.value;
+    const auto it = std::find(r.choices.begin(), r.choices.end(), r.value);
+    const std::size_t k = std::size_t(it - r.choices.begin());
+    return it == r.choices.end() || k >= r.choiceIcons.size() ? ingen
+                                                              : r.choiceIcons[k];
+}
+
+// ------------------------------------------------------------- kolumnerna
+
+void PropertyGrid::setColumnWidth(int column, float width)
+{
+    if (column < 0 || column > 1 || width < 0.0f) {
+        gfx::log("PropertyGrid(%s): setColumnWidth(%d, %g) utanför — ignoreras",
+                 this->name.c_str(), column, double(width));
+        return;
+    }
+    if (colWidth_[column] == width)
+        return;
+    colWidth_[column] = width;
+    invalidate();
+}
+
+float PropertyGrid::columnWidth(int column) const
+{
+    return column >= 0 && column <= 1 ? colWidth_[column] : 0.0f;
+}
+
+void PropertyGrid::setColumnSizing(int column, ColumnSizing sizing)
+{
+    if (column < 0 || column > 1) {
+        gfx::log("PropertyGrid(%s): setColumnSizing(%d) utanför — ignoreras",
+                 this->name.c_str(), column);
+        return;
+    }
+    if (colSizing_[column] == sizing)
+        return;
+    colSizing_[column] = sizing;
+    invalidate();
+}
+
+ColumnSizing PropertyGrid::columnSizing(int column) const
+{
+    return column >= 0 && column <= 1 ? colSizing_[column]
+                                      : ColumnSizing::Manual;
+}
+
+void PropertyGrid::setSelectOnEdit(bool on)
+{
+    selectOnEdit_ = on;
 }
 
 bool PropertyGrid::setProp(const std::string& key, const std::string& value)
 {
-    if (key == "nameWidth") {
-        setNameWidth(static_cast<float>(std::atof(value.c_str())));
+    if (key == "selectOnEdit") {
+        setSelectOnEdit(propparse::parseBool(value));
         return true;
     }
     return Panel::setProp(key, value);   // basen SIST — konventionen
@@ -483,7 +578,7 @@ TrText PropertyGrid::toolTipAt(const Ctx& c, float x, float y) const
     const int i = rowAt(c, x, y);
     if (i >= 0) {
         if (hasError(i))
-            return tr(str::PropertyGridInvalid);
+            return valuecell::invalidToolTip();
         if (!rows_[std::size_t(i)].toolTip.empty())
             return rows_[std::size_t(i)].toolTip;
     }
@@ -514,9 +609,75 @@ gfx::Sizef PropertyGrid::contentSize(const Ctx& c) const
 // cellträffen och editor-placeringen projicerar dem. Alla scroll-
 // förskjutna (samma rymd som ritningen).
 
-float PropertyGrid::nameW(const Ctx& c) const
+// Basen per läge, det som blir över delat lika mellan Autosize-kolumnerna —
+// tabellernas regel. Innehållsbredden är innerytan minus listens remsa, samma
+// yta som värdecellen stannar före (`valueBounds`).
+float PropertyGrid::columnW(const Ctx& c, int column) const
 {
-    return nameWidth_ > 0.0f ? nameWidth_ : c.style->gridNameW;
+    const auto& m = *c.style;
+    const float defaultW[2] = {m.gridNameW, m.columnDefaultW};
+    float       bas[2]      = {0.0f, 0.0f};
+    int         auto_       = 0;
+    for (int k = 0; k < 2; ++k) {
+        bas[k] = columnsizing::baseWidth(
+            colSizing_[k], colWidth_[k], defaultW[k],
+            colSizing_[k] == ColumnSizing::AutoMin ? fittedW(c, k) : 0.0f);
+        if (colSizing_[k] == ColumnSizing::Autosize)
+            ++auto_;
+    }
+    const float cw    = std::max(0.0f, innerBounds(c).w - m.scrollThick);
+    const float andel = columnsizing::autosizeShare(cw, bas[0] + bas[1], auto_);
+    return columnsizing::effectiveWidth(colSizing_[column], bas[column], andel);
+}
+
+float PropertyGrid::fittedW(const Ctx& c, int column) const
+{
+    const std::uint64_t stämpel = damageStamp();
+    if (!fitValid_ || fitStamp_ != stämpel || fitStyle_ != c.style ||
+        fitFont_ != c.font || fitScale_ != c.scale) {
+        float namn = 0.0f, värde = 0.0f;
+        for (int i = 0; i < int(rows_.size()); ++i) {
+            const Row& r = rows_[std::size_t(i)];
+            if (r.kind == Kind::Category)
+                continue;
+            if (!r.name.empty())
+                namn = std::max(namn, Draw::measure(c, r.name).w);
+            värde = std::max(värde, valueContentW(c, i));
+        }
+        const auto& m = *c.style;
+        fitW_[0]  = std::max(m.columnMinW, namn + 2.0f * m.gridPadX);
+        fitW_[1]  = std::max(m.columnMinW, värde + 2.0f * m.gridPadX);
+        fitValid_ = true;
+        fitStamp_ = stämpel;
+        fitStyle_ = c.style;
+        fitFont_  = c.font;
+        fitScale_ = c.scale;
+    }
+    return fitW_[column];
+}
+
+// Värdecellens innehåll i de typade cellernas mått: rutan, färgen (i sitt
+// `colorDisplay`), talet med sin text runt, och texten — med valets ikon före.
+float PropertyGrid::valueContentW(const Ctx& c, int row) const
+{
+    const Row& r = rows_[std::size_t(row)];
+    switch (r.kind) {
+    case Kind::Check:
+        return valuecell::checkW(c);
+    case Kind::Color:
+        return valuecell::colorW(c, r.value, r.allowAlpha, r.colorDisplay);
+    case Kind::Number:
+        return valuecell::numberW(c, numberDisplay(row), numberSpec(r));
+    case Kind::Category:
+        return 0.0f;
+    case Kind::Text:
+    default: {
+        const ImageSource& ikon = choiceIcon(row);
+        const float        bild =
+            ikon.valid() ? imageSide(c, ikon) + c.style->iconGap : 0.0f;
+        return bild + (r.value.empty() ? 0.0f : Draw::measure(c, r.value).w);
+    }
+    }
 }
 
 float PropertyGrid::scrollOffset(const Ctx& c, const gfx::Rectf& in) const
@@ -542,18 +703,19 @@ gfx::Rectf PropertyGrid::valueBounds(const Ctx& c, int row) const
 {
     const gfx::Rectf full = rowBounds(c, row);
     const float      nw   = nameW(c);
-    // Stanna före overlay-listens remsa — editorn får inte täcka den
-    // (barn vinner hit-testen över remsan, dokumenterad panel-regel).
-    return gfx::Rectf{full.x + nw, full.y,
-                      std::max(0.0f, full.w - nw - c.style->scrollThick),
+    // Kolumn 1:s bredd — men aldrig förbi overlay-listens remsa: editorn får
+    // inte täcka den (barn vinner hit-testen över remsan, dokumenterad
+    // panel-regel). Får kolumnerna inte plats klipps värdet.
+    const float rum = std::max(0.0f, full.w - nw - c.style->scrollThick);
+    return gfx::Rectf{full.x + nw, full.y, std::min(columnW(c, 1), rum),
                       full.h};
 }
 
-gfx::Rectf PropertyGrid::checkBoxRect(const Ctx& c, const gfx::Rectf& cell)
+gfx::Rectf PropertyGrid::cellContent(const Ctx& c, const gfx::Rectf& cell)
 {
-    const float s = c.style->checkSize;
-    return gfx::Rectf{cell.x + c.style->gridPadX, cell.y + (cell.h - s) / 2.0f,
-                      s, s};
+    const float pad = c.style->gridPadX;
+    return gfx::Rectf{cell.x + pad, cell.y, std::max(0.0f, cell.w - 2.0f * pad),
+                      cell.h};
 }
 
 int PropertyGrid::rowAt(const Ctx& c, float mx, float my) const
@@ -570,10 +732,11 @@ int PropertyGrid::rowAt(const Ctx& c, float mx, float my) const
 
 // ------------------------------------------------------------ ritningen
 
-// RADEN — en rubrikrad är en fylld remsa i `panelHeader` (alla tre UI) med
-// vinkeln i expanderkolumnen och namnet; en annan rad är namn + värdecell, med
-// den aktiva radens markering per UI. Kolumnskiljaren skärs bara för raderna
-// med två kolumner: en rubrikrad är en enda yta.
+// RADEN — en kategorirad är de typade cellernas kategorirad (en fylld remsa
+// i `panelHeader` med vinkeln i expanderkolumnen och namnet, alla tre UI); en
+// annan rad är namn + värdecell, med den aktiva radens markering per UI.
+// Kolumnskiljaren skärs bara för raderna med två kolumner: en kategorirad är
+// en enda yta.
 void PropertyGrid::drawRow(const Ctx& c, int i, const gfx::Rectf& r) const
 {
     const auto& m   = *c.style;
@@ -582,18 +745,10 @@ void PropertyGrid::drawRow(const Ctx& c, int i, const gfx::Rectf& r) const
     const float nw  = nameW(c);
     const bool  på  = isEnabled() && rd.enabled;   // gridden och raden
 
-    if (rd.kind == Kind::Header) {
-        Draw::rect(c, r, 0.0f, col.panelHeader);
-        const bool  ut    = rd.expanded && isEnabled();   // inaktiv = infälld
-        const float halvW = ut ? m.chevronW : m.chevronH;
-        const float halvH = ut ? m.chevronH : m.chevronW;
-        const gfx::Rectf e{r.x, r.y, m.treeExpanderW, r.h};
-        Draw::chevron(c,
-                      {e.x + e.w / 2.0f - halvW, e.y + e.h / 2.0f - halvH,
-                       2.0f * halvW, 2.0f * halvH},
-                      ut ? Dir::Down : Dir::Right, Pen{col.textDim, 0.0f});
-        Draw::text(c, {r.x + m.treeExpanderW + m.gridPadX, r.y, r.w, r.h},
-                   rd.name, på ? col.text : col.textDim);
+    if (rd.kind == Kind::Category) {
+        // Inaktiv grid = infälld.
+        valuecell::drawCategoryRow(c, r, rd.name, ImageSource{},
+                                   rd.expanded && isEnabled(), på, 0.0f);
     } else {
         gfx::Color namn = på ? col.text : col.textDim;
         if (i == active_) {
@@ -637,78 +792,53 @@ void PropertyGrid::drawRow(const Ctx& c, int i, const gfx::Rectf& r) const
 // `errorSurface` mot mörka ytor). En skrivskyddad eller inaktiv rad — eller
 // en inaktiv grid — skriver sitt värde i `textDim`; en skrivskyddad kryssruta
 // behåller full kontrast, för den läses som ett värde och inte som en
-// avstängd kontroll. Rutan är listornas kryssruta: kontur med `checkRadius`
-// och bock med `checkStroke`.
+// avstängd kontroll. Cellerna är de typade cellernas (`valuecell`), i
+// värdecellens innehåll (`cellContent`).
 void PropertyGrid::drawCell(const Ctx& c, int i, const gfx::Rectf& r) const
 {
-    const auto& m    = *c.style;
-    const auto& col  = c.theme->colors;
-    const Row&  rd   = rows_[std::size_t(i)];
-    const float nw   = nameW(c);
-    const bool  på   = isEnabled() && rd.enabled;   // gridden och raden
-    const gfx::Rectf cell{r.x + nw, r.y, r.w - nw, r.h};
-    const gfx::Color fg = rd.readOnly || !på ? col.textDim : col.text;
-    const bool fel = hasError(i);
+    const auto&      m    = *c.style;
+    const auto&      col  = c.theme->colors;
+    const Row&       rd   = rows_[std::size_t(i)];
+    const bool       på   = isEnabled() && rd.enabled;   // gridden och raden
+    const gfx::Rectf cell = valueBounds(c, i);
+    const gfx::Rectf in   = cellContent(c, cell);
+    const gfx::Color fg   = rd.readOnly || !på ? col.textDim : col.text;
+    const bool       fel  = hasError(i);
     if (fel)
-        Draw::rect(c, cell, 0.0f, col.errorSurface);
-    const gfx::Color txt = fel ? col.onError : fg;
+        valuecell::drawError(c, cell);
+    const gfx::Color txt = fel ? valuecell::errorText(c) : fg;
 
     switch (rd.kind) {
-    case Kind::Check: {
-        const gfx::Rectf box = checkBoxRect(c, cell);
-        Draw::frame(c, box, m.checkRadius,
-                    Pen{på ? col.buttonBorder : col.border, m.borderWidth});
-        if (isChecked(i))
-            Draw::check(c, box, Pen{på ? col.text : col.textDim, m.checkStroke});
+    case Kind::Check:
+        valuecell::drawCheck(c, in, Align::Left, isChecked(i), på,
+                             på ? col.text : col.textDim);
         break;
-    }
-    case Kind::Color: {
-        const std::optional<gfx::Color> färg = colorValue(i);
-        if (!färg) {
-            Draw::text(c, {cell.x + m.gridPadX, r.y, cell.w, r.h}, rd.value,
-                       txt);
-            break;
-        }
-        // Färgrutan: inaktiv tonas den med ikonernas mått, och med alfa ritas
-        // den över ett rutmönster så att genomskinligheten syns.
-        const gfx::Rectf box = checkBoxRect(c, cell);
-        gfx::Color       fyll = *färg;
-        if (!på)
-            fyll.a = static_cast<std::uint8_t>(
-                std::lround(float(fyll.a) * (1.0f - m.iconFade)));
-        if (rd.allowAlpha)
-            Draw::checker(c, box, m.colorSwatchRadius, m.colorCheckerCell,
-                          col.panel, col.appWorkspace);
-        Draw::rect(c, box, m.colorSwatchRadius, fyll,
-                   Pen{på ? col.buttonBorder : col.border, m.borderWidth});
-        Draw::text(c, {box.x + box.w + m.checkGap, r.y, cell.w, r.h},
-                   propparse::hexColorText(*färg, rd.allowAlpha), txt);
+    case Kind::Color:
+        valuecell::drawColor(c, in, Align::Left, rd.value, rd.allowAlpha,
+                             rd.colorDisplay, på, txt);
         break;
-    }
-    case Kind::Number: {
-        // Prefixet vänster, suffixet högerställt, talet emellan — samma tre
-        // ytor som editorn placeras mellan (`openEditor`).
-        const float x0 = cell.x + m.gridPadX;
-        const float pw = rd.prefix.empty() ? 0.0f : Draw::measure(c, rd.prefix).w;
-        const float sw = rd.suffix.empty() ? 0.0f : Draw::measure(c, rd.suffix).w;
-        if (!rd.prefix.empty())
-            Draw::text(c, {x0, r.y, pw, r.h}, rd.prefix, txt);
-        Draw::text(c,
-                   {x0 + pw, r.y,
-                    std::max(0.0f, cell.w - 2.0f * m.gridPadX - pw - sw), r.h},
-                   numberDisplay(i), txt);
-        if (!rd.suffix.empty())
-            Draw::text(c, {cell.x, r.y, cell.w - m.gridPadX, r.h}, rd.suffix,
-                       txt, Align::Right);
+    case Kind::Number:
+        valuecell::drawNumber(c, in, Align::Left, numberDisplay(i),
+                              numberSpec(rd), txt);
         break;
-    }
-    case Kind::Header:
+    case Kind::Category:
         break;
     case Kind::Text:
-    default:
-        // Värdet ritas alltid — den aktiva cellens editor täcker det.
-        Draw::text(c, {r.x + nw + m.gridPadX, r.y, r.w, r.h}, rd.value, fg);
+    default: {
+        // Värdet ritas alltid — den aktiva cellens editor täcker det. Ett val
+        // med ikon visar den före texten.
+        float              x    = in.x;
+        const ImageSource& ikon = choiceIcon(i);
+        if (ikon.valid()) {
+            const float sida = imageSide(c, ikon);
+            Draw::stateGlyph(c, {x, r.y + (r.h - sida) / 2.0f, sida, sida}, ikon,
+                             på);
+            x += sida + m.iconGap;
+        }
+        Draw::text(c, {x, r.y, std::max(0.0f, in.x + in.w - x), r.h}, rd.value,
+                   fg);
         break;
+    }
     }
 }
 
@@ -790,7 +920,7 @@ gfx::Sizef PropertyGrid::contentExtent(const Ctx& c) const
 // ------------------------------------------------------------ beteendet
 
 // ORDNINGEN i ett tryck: remsan → en öppen färgpopup → den pågående
-// redigeringen → rubrikraden → en rad som inte går att ändra → kryssrutan →
+// redigeringen → kategoriraden → en rad som inte går att ändra → kryssrutan →
 // färgen → text, vallista och tal. Tillståndet ändras alltid FÖRE editorn
 // öppnas och händelserna fyras SIST.
 void PropertyGrid::mouseDown(const Ctx& c, float mx, float my)
@@ -830,10 +960,10 @@ void PropertyGrid::mouseDown(const Ctx& c, float mx, float my)
         return;
     }
     const Row& rd = rows_[std::size_t(i)];
-    if (rd.kind == Kind::Header) {
+    if (rd.kind == Kind::Category) {
         hideEditors();
         if (rd.enabled)
-            setExpanded(i, !rd.expanded);
+            toggleCategoryFromUser(i);
         return;
     }
     const gfx::Rectf r = resolve(c);
@@ -843,13 +973,24 @@ void PropertyGrid::mouseDown(const Ctx& c, float mx, float my)
         return;
     }
     if (rd.kind == Kind::Check) {
-        rows_[std::size_t(i)].value = isChecked(i) ? "false" : "true";
+        rows_[std::size_t(i)].value = valuecell::checkText(!isChecked(i));
         changed_                    = i;
         openEditor(c, i);   // fokuserbäraren på cellen
         fireChange(i);      // händelserna sist
         return;
     }
     openEditor(c, i);
+}
+
+// Fällningen är `setExpanded`s (synligheten, en redigering som döljs), och
+// händelsen fyras SIST — en handler får fylla på eller bygga om raderna.
+bool PropertyGrid::toggleCategoryFromUser(int row)
+{
+    const bool ut = !rows_[std::size_t(row)].expanded;
+    setExpanded(row, ut);
+    RowArgs e;
+    e.row = row;
+    return fireEvent(ut ? onExpand : onCollapse, e);
 }
 
 // Raden redigeras i en av fyra editorer; de andra stängs först. Editorns
@@ -876,19 +1017,17 @@ void PropertyGrid::openEditor(const Ctx& c, int row)
         ed = colorEd_;
         break;
     case Kind::Number: {
-        // Fältet står MELLAN prefixet och suffixet, som ritningen ställer dem.
-        const float pad = c.style->gridPadX;
-        const float pw  = r.prefix.empty() ? 0.0f
-                                           : pad + Draw::measure(c, r.prefix).w;
-        const float sw  = r.suffix.empty() ? 0.0f
-                                           : pad + Draw::measure(c, r.suffix).w;
-        x += pw;
-        w = std::max(0.0f, cell.w - pw - sw);
+        // Fältet står MELLAN prefixet och suffixet — samma yta som talet
+        // ritas i (`numberFieldRect`).
+        const gfx::Rectf fält = valuecell::numberFieldRect(
+            c, cellContent(c, cell), numberSpec(r));
+        x += fält.x - cell.x;
+        w = fält.w;
         ed = editor_;
         break;
     }
-    case Kind::Header:
-        active_ = -1;   // en rubrik redigeras aldrig
+    case Kind::Category:
+        active_ = -1;   // en kategori redigeras aldrig
         return;
     case Kind::Text:
     default:
@@ -913,13 +1052,18 @@ void PropertyGrid::openEditor(const Ctx& c, int row)
         break;
     }
     case Kind::Number:
-        editor_->börja(numberDisplay(row), true);
+        editor_->börja(numberEditText(row), true);
         break;
     default:
         if (r.choices.empty()) {
             editor_->börja(r.value, false);
         } else {
-            picker_->setItems(r.choices);
+            // Valen med sina ikoner — massformen bär bara texterna.
+            picker_->setItems({});
+            for (std::size_t k = 0; k < r.choices.size(); ++k)
+                picker_->addItem(r.choices[k], k < r.choiceIcons.size()
+                                                   ? r.choiceIcons[k]
+                                                   : ImageSource{});
             const auto it =
                 std::find(r.choices.begin(), r.choices.end(), r.value);
             picker_->setSelectedIndex(
@@ -933,7 +1077,7 @@ void PropertyGrid::openEditor(const Ctx& c, int row)
         colorEd_->open();   // klicket ÄR intentionen — öppna popupen direkt
     else if (r.kind == Kind::Number ||
              (r.kind == Kind::Text && r.choices.empty()))
-        editor_->selectAll();   // det man skriver ERSÄTTER värdet
+        editor_->markera(selectOnEdit_);
     else if (r.kind == Kind::Text)
         picker_->open();   // öppna listan direkt
     invalidate();
@@ -989,19 +1133,18 @@ bool PropertyGrid::endEdit(bool spara, bool postad)
         return true;
     }
     if (rd.kind == Kind::Number) {
-        double v = 0.0;
-        if (!numbertext::parseUser(ny, v)) {
+        const valuecell::NumberSpec   spec = numberSpec(rd);
+        const valuecell::NumberCommit nytt = valuecell::commitNumber(ny, spec);
+        if (nytt.result == valuecell::Commit::Invalid) {
             pending_[std::size_t(r)] = ny;
             invalidate();
             return true;
         }
-        const double eff = numbertext::effective(v, rd.min, rd.max, rd.decimals);
-        const std::optional<double> förut = numberValue(r);
         pending_[std::size_t(r)].reset();
         invalidate();
-        if (förut && *förut == eff)
+        if (valuecell::sameNumber(rd.value, nytt.canonical, spec))
             return true;
-        rd.value = numbertext::format(eff, rd.decimals, ".");
+        rd.value = nytt.canonical;
     } else {
         if (ny == rd.value)
             return true;
@@ -1031,7 +1174,7 @@ bool PropertyGrid::toggleActive()
     const int r = active_;
     if (!valid(r) || rows_[std::size_t(r)].kind != Kind::Check)
         return true;
-    rows_[std::size_t(r)].value = isChecked(r) ? "false" : "true";
+    rows_[std::size_t(r)].value = valuecell::checkText(!isChecked(r));
     changed_                    = r;
     invalidate();
     return fireChange(r);
@@ -1052,7 +1195,7 @@ void PropertyGrid::commitColor()
     const std::optional<gfx::Color> förut = colorValue(r);
     if (förut && *förut == nu)
         return;
-    rd.value = propparse::hexColorText(nu, rd.allowAlpha);
+    rd.value = valuecell::colorText(nu, rd.allowAlpha);
     changed_ = r;
     invalidate();
     fireChange(r);

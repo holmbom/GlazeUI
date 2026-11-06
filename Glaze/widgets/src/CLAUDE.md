@@ -195,57 +195,49 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   → rutans mått, med greppets offset så skiktet inte hoppar) och
   `clampPane` (minimimåtten; den fasta rutans vinner när båda inte ryms).
 - **`ease.h`** (INTERN) — glidningarnas kurva, kamerans och dockningens.
-- **`number_text.h`** (INTERN) — talet som text för `SpinBox` och PropertyGrid: `isNumberChar`,
-  `parseUser`, `effective` (klampning, avrundning, −0 → 0), `format` — i "C"-lokalen.
+- **`number_text.h`** (INTERN) — talet som text för `SpinBox` och de typade cellerna: `isNumberChar`,
+  `filterNumberChars` (talfältens tangentfilter), `parseUser`, `effective` (klampning, avrundning, −0 → 0),
+  `format` — i "C"-lokalen.
+- **`value_cell.h/.cpp`** (INTERN) — DE TYPADE CELLERNA, `glaze::valuecell`, delade av PropertyGrid och DataGrid (och
+  listvyns och kolumnhuvudets kryssruta): textformerna, talets tolkning och sparning (`commitNumber` → Ok/Empty/
+  Invalid), geometrin (`numberFieldRect` — ritningen och talets editor i samma yta), måtten, ritningen (kryss, färg,
+  tal, fel, knapp, kategoriraden) och felets tooltip (`str::InvalidValue`). EN kod, så en talcell och en talrad aldrig
+  tolkar eller ser olika ut; inga tal, inga färger, inget statiskt tillstånd.
+- **`column_sizing.h`** (INTERN, header-only) — KOLUMNLÄGENAS räkning, `glaze::columnsizing`, delad av ColumnPanel och
+  PropertyGrid (`baseWidth`, `autosizeShare`, `effectiveWidth`), ren aritmetik i logiska px.
 - **`scrollbar_fade.h/.cpp`** (INTERN) — rullningslisternas Auto-tid: EN timer per fönster (`kScrollbarTimerId`,
   `scrollbarArm`/`scrollbarTimer`/`scrollbarPointer`); tiderna bär widgetarna, klockan `detail::scrollbarNowMs`.
-- **`text_field.h/.cpp`** (INTERN) — TEXTFÄLTET, delat av `TextInput` och
-  `TextArea` (`sash.h`-prejudikatet): `drawSurface` (ytan och kanten per
-  familj med `switch (c.ui)` och de fyra tillståndens tabeller; svaret är
-  markeringens färgpar), `drawFocusRing`, `drawRun` (EN textrad med valfri
-  markering i tre segment — TextInputs rad och varje rad i det flerradiga
-  fältet), `caretWidth` (aldrig under en fysisk px), UTF-8-gränserna
-  (`nextBoundary`/`prevBoundary`/`floorBoundary` — den sista för en position
-  ur en ANNAN text, `setText` i båda fälten), `wordAt` (dubbelklickets ord:
-  ordtecken — ASCII-alnum, `_`, allt utanför ASCII — blanktecken eller
-  skiljetecken i följd; ett ordtecken på EN av sidorna vinner, radbrytningen
-  är en gräns) och FILTREN för det som SKRIVS och KLISTRAS (`singleLine` —
-  TextInputs, `multiLine(text, keepTabs)` — CRLF/CR → LF, tabb → blanksteg
-  utom med `keepTabs` (`TextArea::setAcceptsTab`) — och `unifyNewlines`, bara
-  radsluten, för `TextArea::setText`). **TABBSTOPPEN** (REQ3_TRAD_LISTOR_FALT
-  B8): `tabbedWidth`/`tabbedPrefix`/`tabbedIndexAtX`/`tabbedWrapLines` och
-  `drawRun(…, tabW)` — en tabb flyttar x till NÄSTA multipel av `tabW` från
-  den visuella radens början, bitarna mellan mäts med Draw (aldrig `c.font`),
-  TABBEN BRYTER INTE, och utan `\t` eller med `tabW <= 0` är svaren EXAKT
-  Draw:s (snabbvägen — det enradiga fältet rörs inte); kerning över en tabb
-  finns inte. GEOMETRIN i övrigt är widgetens. Grindad headless i
-  `textarea_gate` (filtren, ordet, gränserna, T1–T8). Också
-  `editShortcut(mods)` — fältens genvägar A/C/X/V/Z/Y är
-  Ctrl UTAN Alt (AltGr är Ctrl+Alt på Windows), på macOS Cmd utan Ctrl och
-  Option (TODO 79), EN fråga för båda fälten — lösenordets `codepoints`/
-  `byteOfCodepoint`/`maskBytes`/`maskInto` (en tom eller saknad mask ⇒ 0,
-  ingen division), MAXLÄNGDEN `fitMaxLength` (kodpunkter; resten är texten
-  utan markeringen, `ins` kapas, tomt när inget ryms, 0 = obegränsat — `resten
-  >= max` prövas FÖRE subtraktionen) och ÅNGRA-HISTORIKEN `History`: differenser (position,
-  borttaget, infogat, markeringen FÖRE) i en `deque`; `record` kapar gör
-  om-svansen, slår ihop efter ORD (skrivande sammanhängande och utan
-  ordtecken direkt efter blanksteg/`\n`; backsteg respektive Delete i följd;
-  `Block` är eget och förseglar) och håller djupet 100 och budgeten 4 MiB
-  (det nyaste steget behålls alltid) — talen i det anonyma blocket, inte i
-  Style. `undo`/`redo` förseglar och svarar med en `Restore`, som fältet
-  utför i sin egen väg. Grindad i `textfield_gate` H1.
-- **`date_model.h`** (INTERN, header-only) — DATUMVÄLJARENS MODELL, REN STD:
-  giltigheten (år 1–9999 — prövat FÖRE `std::chrono::year`, som bara bär
-  ±32767), ISO-texten åt båda hållen (`iso`/`läsIso` — generös med blanksteg
-  och ensiffrigt, strikt med året och avskiljaren), klampningen (en övre
-  gräns under den undre räknas som den undre), dag- och månadssteg (31 jan +
-  1 månad = sista feb), veckans första dag ur språkets text, månadsrutnätets
-  FÖRSTA RUTA och `idag()` ur `localtime` (ingen tidszonsdatabas krävs).
-  ÖVERSIKTERNA: tolv rutor (`kOversiktKolumner` × `kOversiktRader`, statiskt
-  kontrollerat), `decennium`, `åretIRuta`, `åretFinns` och `månadenInom`/
-  `åretInom` ("släckt" i översikten). KLOCKSLAGET: `tid`/`hhmm`/`läsTid`/
-  `läsIsoTid`/`nuMinuter`, i minuter. Grindat headless i `datepicker_gate`
-  mot ett handskrivet facit.
+- **`text_field.h/.cpp`** (INTERN) — TEXTFÄLTET, delat av `TextInput` och `TextArea` (`sash.h`-prejudikatet):
+  `drawSurface` (ytan och kanten per familj med `switch (c.ui)` och de fyra tillståndens tabeller; svaret är
+  markeringens färgpar), `drawFocusRing`, `drawRun` (EN textrad med valfri markering i tre segment — TextInputs rad
+  och varje rad i det flerradiga fältet), `caretWidth` (aldrig under en fysisk px), UTF-8-gränserna
+  (`nextBoundary`/`prevBoundary`/`floorBoundary` — den sista för en position ur en ANNAN text, `setText` i båda
+  fälten), `wordAt` (dubbelklickets ord: ordtecken — ASCII-alnum, `_`, allt utanför ASCII — blanktecken eller
+  skiljetecken i följd; ett ordtecken på EN av sidorna vinner, radbrytningen är en gräns) och FILTREN för det som
+  SKRIVS och KLISTRAS (`singleLine` — TextInputs, `multiLine(text, keepTabs)` — CRLF/CR → LF, tabb → blanksteg utom
+  med `keepTabs` (`TextArea::setAcceptsTab`) — och `unifyNewlines`, bara radsluten, för `TextArea::setText`).
+  **TABBSTOPPEN**: `tabbedWidth`/`tabbedPrefix`/`tabbedIndexAtX`/`tabbedWrapLines` och `drawRun(…, tabW)` — en
+  tabb flyttar x till NÄSTA multipel av `tabW` från den visuella radens början, bitarna mellan mäts med Draw
+  (aldrig `c.font`), TABBEN BRYTER INTE, och utan `\t` eller med `tabW <= 0` är svaren EXAKT Draw:s (snabbvägen —
+  det enradiga fältet rörs inte); kerning över en tabb finns inte. GEOMETRIN i övrigt är widgetens. Grindad
+  headless i `textarea_gate` (filtren, ordet, gränserna, T1–T8). Också `editShortcut(mods)` — fältens genvägar
+  A/C/X/V/Z/Y är Ctrl UTAN Alt (AltGr är Ctrl+Alt på Windows), på macOS Cmd utan Ctrl och Option, EN fråga för
+  båda fälten — lösenordets `codepoints`/`byteOfCodepoint`/`maskBytes`/`maskInto` (en tom eller saknad mask ⇒ 0,
+  ingen division), MAXLÄNGDEN `fitMaxLength` (kodpunkter; resten är texten utan markeringen, `ins` kapas, tomt när
+  inget ryms, 0 = obegränsat — `resten >= max` prövas FÖRE subtraktionen) och ÅNGRA-HISTORIKEN `History`:
+  differenser (position, borttaget, infogat, markeringen FÖRE) i en `deque`; `record` kapar gör om-svansen, slår
+  ihop efter ORD (skrivande sammanhängande och utan ordtecken direkt efter blanksteg/`\n`; backsteg respektive
+  Delete i följd; `Block` är eget och förseglar) och håller djupet 100 och budgeten 4 MiB (det nyaste steget
+  behålls alltid) — talen i det anonyma blocket, inte i Style. `undo`/`redo` förseglar och svarar med en
+  `Restore`, som fältet utför i sin egen väg. Grindad i `textfield_gate` H1.
+- **`date_model.h`** (INTERN, header-only) — DATUMVÄLJARENS MODELL, REN STD: giltigheten (år 1–9999 — prövat FÖRE
+  `std::chrono::year`, som bara bär ±32767), ISO-texten åt båda hållen (`iso`/`läsIso` — generös med blanksteg och
+  ensiffrigt, strikt med året och avskiljaren), klampningen (en övre gräns under den undre räknas som den undre),
+  dag- och månadssteg (31 jan + 1 månad = sista feb), veckans första dag ur språkets text, månadsrutnätets FÖRSTA
+  RUTA och `idag()` ur `localtime` (ingen tidszonsdatabas krävs). ÖVERSIKTERNA: tolv rutor (`kOversiktKolumner` ×
+  `kOversiktRader`, statiskt kontrollerat), `decennium`, `åretIRuta`, `åretFinns` och `månadenInom`/`åretInom`
+  ("släckt" i översikten). KLOCKSLAGET: `tid`/`hhmm`/`läsTid`/`läsIsoTid`/`nuMinuter`, i minuter. Grindat
+  headless i `datepicker_gate` mot ett handskrivet facit.
 - **`dialog_layout.h`** (INTERN) — modaldialogernas
   gemensamma layout, utan tillstånd: `placeButtonRow(c, rad)` (bredderna med
   `Button`s formel, golvade av `msgBtnMinW`, högerställda med KUMULATIVA

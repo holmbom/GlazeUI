@@ -1300,7 +1300,7 @@ void fallBildUrPixlar()
     }
 }
 
-// W1–W7. BREDD EFTER INNEHÅLLET i trädet: en `autoWidth`-kolumn
+// W1–W9. BREDD EFTER INNEHÅLLET i trädet: en `AutoMin`-kolumn
 // följer rubriken (sorteringspilens plats reserverad) och de SYNLIGA
 // nodernas innehåll — kolumn 0 med indrag, pil, ruta och ikon, kolumn 1…n
 // cellerna; en hopfälld grens noder räknas inte och en utfällning växer
@@ -1315,7 +1315,7 @@ void fallBreddEfterInnehall()
     const auto& m  = *c.style;
     const float pad = m.listPadX;
     const float pil = pad + 2.0f * m.chevronW;
-    const float a   = glaze::ColumnPanel::Column::autoWidth;
+    const auto  a   = glaze::ColumnSizing::AutoMin;
     // Radens kolumn-0-block: djup · indrag + pilens ruta (+ rutan) + texten.
     const auto block = [&](int djup, int tecken, bool kryss, bool bild) {
         float w = float(djup) * m.treeIndent + m.treeExpanderW +
@@ -1339,7 +1339,9 @@ void fallBreddEfterInnehall()
     Trad t;
     t.width  = 400;
     t.height = 200;
-    t.setColumns({{"Namn", a}, {"Värde", a}, {"Fast", 50}});
+    t.setColumns({{.text = "Namn", .sizing = a},
+                  {.text = "Värde", .sizing = a},
+                  {"Fast", 50}});
     t.setNodes({{.text = "rot",
                  .children = {{.text = "barn med långt namn",
                                .cells = {"1", "22"}},
@@ -1425,8 +1427,40 @@ void fallBreddEfterInnehall()
           "W6: draget som det andra trycket började är avslutat, och inget "
           "sorterades");
     d.addNode({}, "en nod som är mycket mycket längre än den förra");
-    check(nara(d.columnWidth(0), fast) && nara(d.columnW(c, 0), fast),
-          "W7: bredden är FAST efteråt");
+    check(nara(d.columnWidth(0), fast) && nara(d.columnW(c, 0), fast) &&
+              d.columnSizing(0) == glaze::ColumnSizing::Manual,
+          "W7: bredden är FAST (Manual) efteråt");
+
+    // En AutoMin-kolumn som dubbelklickas blir Manual med den anpassade
+    // bredden.
+    t.setNodes({{.text = "abcdefgh"}});
+    c.box             = t.resolve(c);
+    const float tkant = c.box.x + m.panelInset + t.columnW(c, 0);
+    const float tfast = t.columnW(c, 0);
+    t.mouseDown(c, tkant, hy);
+    t.mouseDoubleClick(c, tkant, hy);
+    t.mouseUp(c, tkant, hy);
+    check(t.columnSizing(0) == glaze::ColumnSizing::Manual &&
+              nara(t.columnWidth(0), tfast),
+          "W8: dubbelklicket skriver Manual med den anpassade bredden",
+          std::to_string(t.columnWidth(0)) + " mot " + std::to_string(tfast));
+
+    // Två Autosize-kolumner delar det som blir över LIKA, och ett träd har
+    // samma lägen som tabellen.
+    Trad s;
+    s.width  = 400;
+    s.height = 200;
+    s.setColumns({{"Namn", 100},
+                  {.text = "A", .width = 40, .sizing = glaze::ColumnSizing::Autosize},
+                  {.text = "B", .width = 60, .sizing = glaze::ColumnSizing::Autosize}});
+    s.setNodes({{.text = "x"}});
+    c.box             = s.resolve(c);
+    const float inre  = 400.0f - 2.0f * m.panelInset;
+    const float andel = (inre - 100.0f - 40.0f - 60.0f) / 2.0f;
+    check(nara(s.columnW(c, 1), 40.0f + andel) &&
+              nara(s.columnW(c, 2), 60.0f + andel),
+          "W9: två Autosize-kolumner i trädet delar resten lika",
+          std::to_string(s.columnW(c, 1)) + "/" + std::to_string(s.columnW(c, 2)));
 }
 
 // ============================================================= MED FÖNSTER

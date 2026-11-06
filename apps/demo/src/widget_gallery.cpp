@@ -21,6 +21,19 @@ constexpr gfx::Color kKlar{64, 150, 84, 255};      // klart
 constexpr gfx::Color kBildA{44, 112, 196, 255};    // bildernas två färger
 constexpr gfx::Color kBildB{246, 186, 58, 255};
 
+// LAGERLISTANS KOLUMNER, i den ordning de står.
+enum LagerKolumn : int {
+    kLagerNamn, kLagerSynlig, kLagerFarg, kLagerBredd, kLagerOpacitet,
+    kLagerLinje, kLagerTaBort,
+};
+// Lagerlistans mått och gränser.
+constexpr float  kLagerNamnW          = 64.0f;   // namnets golv (Autosize)
+constexpr float  kLagerLinjeW         = 96.0f;   // linjetypens kolumn
+constexpr int    kLinjeIkonPx         = 16;      // linjetypernas ikoner
+constexpr double kLinjeBreddMax       = 20.0;    // linjebredd i px
+constexpr int    kLinjeBreddDecimaler = 1;
+constexpr double kProcentMax          = 100.0;   // opaciteten
+
 // En BILD UR PIXLAR: `n` × `n` pixlar som appen räknar fram —
 // fyra ringar i två färger ut till en genomskinlig rand, så skalningen syns.
 // Det en app annars hade fått ur en server, en kamera eller en heatmap.
@@ -54,7 +67,49 @@ std::string hexText(gfx::Color c)
     return s;
 }
 
+// LINJETYPERNAS IKONER i lagerlistans vallista — appens egna ritade ikoner
+// (registrerade nedan), i listradens storlek och i färg.
+glaze::ImageSource linjeIkon(const char* namn)
+{
+    return glaze::drawnIcon(namn, kLinjeIkonPx, glaze::IconStyle::Auto);
+}
+
+// LAGERLISTANS CELLER — det som hör till en CELL och inte till kolumnen:
+// etiketternas linjebredd får vara tom (och visar "Auto"), ytornas linjetyp är låst och
+// vägarna går inte att ta bort. Satt efter lagrets NAMN, så att det följer
+// lagret när listan fylls om (`setRows` nollar cellernas inställningar).
+void lagerCeller(glaze::DataGrid& dg)
+{
+    using E = glaze::DataGrid::Editor;
+    for (int r = 0; r < dg.rowCount(); ++r) {
+        const std::string& namn = dg.cell(r, kLagerNamn);
+        if (namn == trs(demo::str::LagerEtiketter)) {
+            dg.setCellEditor(r, kLagerBredd,
+                             {.editor = E::Number, .min = 0, .max = kLinjeBreddMax,
+                              .decimals = kLinjeBreddDecimaler, .suffix = " px",
+                              .allowEmpty = true,
+                              .emptyText  = trs(demo::str::CellAuto)});
+        } else if (namn == trs(demo::str::LagerYtor)) {
+            // Kolumnens vallista, låst: cellen visar sin ikon och text.
+            glaze::DataGrid::EditorSpec last = dg.columnEditor(kLagerLinje);
+            last.readOnly                    = true;
+            dg.setCellEditor(r, kLagerLinje, std::move(last));
+        } else if (namn == trs(demo::str::LagerVagar)) {
+            dg.setCellEnabled(r, kLagerTaBort, false);
+            dg.setCellToolTip(r, kLagerTaBort, glaze::tr(demo::str::CellLast));
+        }
+    }
+}
+
 } // namespace
+
+// Linjetyperna: en hel, en streckad och en prickad linje, ett lager var.
+GLAZE_REGISTER_ICON("LinjeHel", "M 3 12 H 21", "all blue")
+GLAZE_REGISTER_ICON("LinjeStreckad", "M 3 12 H 7 M 10 12 H 14 M 17 12 H 21",
+                    "all blue")
+GLAZE_REGISTER_ICON("LinjePrickad",
+                    "M 3 12 H 4 M 7 12 H 8 M 11 12 H 12 M 15 12 H 16 M 19 12 H 20",
+                    "all blue")
 
 // ---------------------------------------------------------------- hjälpare
 
@@ -645,16 +700,24 @@ WidgetGallery::WidgetGallery()
                          {"None", "Left", "Top", "Right", "Bottom", "Fill"},
                          false, ""});
         rader.push_back({"width", "120", {}, false, ""});
-        // De typade slagen: en rubrikrad som fäller raderna under sig, en
-        // kryssruta, en färg med alfa och ett tal med gränser och suffix.
+        // De typade slagen: en kategorirad som fäller raderna under sig, en
+        // kryssruta, en färg med alfa, ett tal med gränser och suffix och ett
+        // VALFRITT tal, som får vara tomt och då visar "AUTO".
         using Kind = glaze::PropertyGrid::Kind;
-        rader.push_back({.name = "Appearance", .kind = Kind::Header});
+        rader.push_back({.name = "Appearance", .kind = Kind::Category});
         rader.push_back({.name = "visible", .value = "true", .kind = Kind::Check});
         rader.push_back({.name = "color", .value = "#3366FF80",
                          .kind = Kind::Color, .allowAlpha = true});
         rader.push_back({.name = "opacity", .value = "80", .kind = Kind::Number,
                          .min = 0, .max = 100, .decimals = 0, .suffix = "%"});
+        rader.push_back({.name = "height", .value = "", .kind = Kind::Number,
+                         .min = 0, .decimals = 0, .suffix = " px",
+                         .allowEmpty = true, .emptyText = "AUTO"});
 
+        // KOLUMNLÄGENA: den aktiva griddens namnkolumn följer det bredaste
+        // namnet (AutoMin) och värdet tar resten (Autosize, förvalet); den
+        // inaktiverade har en fast namnkolumn (Manual). Att fälla kategorin
+        // skriver raden i statusraden.
         auto* grid1      = g->add<glaze::PropertyGrid>();
         grid1->x         = 8;
         grid1->anchorTop = {"g7Sep", 10};
@@ -662,11 +725,23 @@ WidgetGallery::WidgetGallery()
         grid1->anchors   = {true, true, true, false};
         grid1->right     = 8;
         grid1->name      = "grid1";
-        grid1->setNameWidth(56);
+        grid1->setColumnSizing(0, glaze::ColumnSizing::AutoMin);
+        grid1->setColumnSizing(1, glaze::ColumnSizing::Autosize);
         grid1->setRows(rader);
         grid1->onChange  = [this](glaze::Widget* s, glaze::ChangeArgs& e) {
             gridChanged(s, e);
         };
+        auto falld = [this](glaze::Widget* s, glaze::RowArgs& e) {
+            auto* pg = static_cast<glaze::PropertyGrid*>(s);
+            if (e.row < 0 || e.row >= int(pg->rows().size()))
+                return;
+            const glaze::PropertyGrid::Row& r = pg->rows()[std::size_t(e.row)];
+            statusTxt_->setText(trs(demo::str::GridPrefix) + r.name +
+                                trs(r.expanded ? demo::str::TradUtfalld
+                                               : demo::str::TradIhopfalld));
+        };
+        grid1->onExpand   = falld;
+        grid1->onCollapse = falld;
 
         auto* grid2      = g->add<glaze::PropertyGrid>();
         grid2->x         = 8;
@@ -675,7 +750,7 @@ WidgetGallery::WidgetGallery()
         grid2->anchors   = {true, true, true, false};
         grid2->right     = 8;
         grid2->name      = "grid2";
-        grid2->setNameWidth(56);
+        grid2->setColumnWidth(0, 56);
         grid2->setRows(rader);
         grid2->disable();
     }
@@ -1274,7 +1349,7 @@ WidgetGallery::WidgetGallery()
         lista->setIconSize(48);
         lista->addRow({"Ringar.png", "9 kB"}, ringar(48, kBildA, kBildB));
         lista->addRow({"Ringar-omvänd.png", "9 kB"}, ringar(48, kBildB, kBildA));
-        lista->setFillColumn(0);
+        lista->setColumnSizing(0, glaze::ColumnSizing::Autosize);
     }
 
     // === 37 · Markdown ========================
@@ -1944,33 +2019,55 @@ WidgetGallery::WidgetGallery()
             const char* datum;
             const char* ikon;   // nullptr = ingen
         };
+        // Raderna står i två KATEGORIER (rubrikrader över hela bredden, som
+        // fälls med ett klick) med en TOM rad emellan; sorteringen gäller inom
+        // varje kategori. Kategoriernas namn är språkets.
         const Fil filer[] = {
             {"Rapport.pdf", "12 kB", 12288, "2026-10-07", "info"},
-            {"Semester.png", "3 MB", 3145728, "2026-09-30", "ok"},
             {"Budget.xlsx", "48 kB", 49152, "2026-08-21", "gear"},
             {"Anteckningar.txt", "900 B", 900, "2026-08-19", nullptr},
             {"fil10.txt", "1 kB", 1024, "2026-01-02", nullptr},
             {"fil2.txt", "2 kB", 2048, "2026-01-01", nullptr},
         };
-        for (const Fil& f : filer) {
+        const Fil bilder[] = {
+            {"Semester.png", "3 MB", 3145728, "2026-09-30", "ok"},
+        };
+        auto läggTill = [lv](const Fil& f) {
             lv->addRow({f.namn, f.storlek, f.datum},
                        f.ikon ? glaze::img("toolbar", f.ikon)
                               : glaze::ImageSource{});
             lv->setSortKey(lv->rowCount() - 1, 1, f.bytes);
-        }
+        };
+        auto kategori = [lv](std::uint32_t namn) {
+            lv->addRow({trs(namn)});
+            lv->setRowKind(lv->rowCount() - 1, glaze::ListView::RowKind::Category);
+        };
+        kategori(demo::str::TradDokument);   // rad 0
+        for (const Fil& f : filer)           // rad 1–5
+            läggTill(f);
+        lv->addRow({});                      // rad 6, den tomma
+        lv->setRowKind(lv->rowCount() - 1, glaze::ListView::RowKind::Blank);
+        kategori(demo::str::TradBilder);     // rad 7
+        for (const Fil& f : bilder)          // rad 8
+            läggTill(f);
         // En STATUSFÄRG på en rad — Budget.xlsx har ett fel. Indexet
         // är appens, så färgen följer raden genom sorteringen; på en vald rad
         // vinner markeringens textfärg.
         lv->setRowColor(2, kFel);
         lv->setMultiSelect(true);
         lv->setSortColumn(0);   // naturligt: fil2 före fil10
-        lv->setSelectedIndex(0);
+        constexpr int kRapportRad  = 1;   // första filen under Dokument
+        constexpr int kSemesterRad = 8;   // filen under Bilder
+        lv->setSelectedIndex(kRapportRad);
         // KRYSS — rutan först i första kolumnen, OBEROENDE
         // av valet: ett klick i rutan eller Space vänder krysset utan att
         // flytta markeringen, och krysset följer RADEN (appens index) genom
-        // sorteringen. Semester.png är rad 1.
+        // sorteringen. Semester.png är rad 8. Krysset i RUBRIKEN slår på
+        // eller av alla synliga rader och visar ett tredje läge när bara
+        // några är kryssade.
         lv->setShowChecks(true);
-        lv->setChecked(1, true);
+        lv->setChecked(kSemesterRad, true);
+        lv->setColumnHeaderCheck(0, true);
         lv->onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) {
             listaAndrad(s, e);
         };
@@ -1980,10 +2077,12 @@ WidgetGallery::WidgetGallery()
         lv->onCheck = [this](glaze::Widget* s, glaze::ChangeArgs& e) {
             listaKryssad(s, e);
         };
-        // FYLLKOLUMNEN: namnet tar resten av bredden,
-        // och dess satta bredd är minimum. Högertrycket väljer raden och
-        // skriver den i statusraden.
-        lv->setFillColumn(0);
+        // KOLUMNLÄGENA: namnet tar resten av bredden (Autosize — dess satta
+        // bredd är golvet) och storleken följer sitt innehåll (AutoMin).
+        // Högertrycket väljer raden och skriver den i statusraden.
+        lv->setColumnSizing(0, glaze::ColumnSizing::Autosize);
+        lv->setColumnSizing(1, glaze::ColumnSizing::AutoMin);
+        lv->setColumnToolTip(1, glaze::tr(demo::str::ListaStorlekTips));
         lv->onContextMenu = [this](glaze::Widget* s, glaze::ContextMenuArgs& e) {
             listaMeny(s, e);
         };
@@ -2024,11 +2123,18 @@ WidgetGallery::WidgetGallery()
         // (130), den inaktiverade (80) och foten.
         auto* g = grupp(sData, demo::str::G18Data, "g18", 644, 12, 304, 298);
 
-        // REDIGERBAR: värd och port i fritext, protokollet ur en VALLISTA och
-        // id:t skrivskyddat. Kolumntypen hör till INDEXET, så den kan sättas
-        // före eller efter kolumnerna. Värdarna och protokollen är DATA och
-        // översätts inte — bara rubrikerna är UI-text ("Id" heter samma sak
-        // på alla fyra språken). Fem rader i en yta för fyra: den rullar.
+        // LAGERLISTAN: en rad per lager och dess egenskaper i cellerna —
+        // synlig (kryss, med ett kryss i rubriken som slår på eller av alla),
+        // färg, linjebredd och opacitet (tal med gränser och enhet), linjetyp
+        // (en vallista med ikoner) och en knapp som tar bort lagret. Ett
+        // klick växlar ett kryss, öppnar färgväljaren eller listan direkt;
+        // talen börjar med dubbelklick, F2 eller att man skriver. Raderna
+        // står i två KATEGORIER med en TOM rad emellan, och sorteringen gäller
+        // inom varje kategori. HELA RADER väljs med flerval, och en ändring i
+        // en vald rad gäller samma kolumn i ALLA valda rader. Lagrets namn
+        // tar det som blir över av bredden (Autosize), kryss, färg, tal och
+        // knapp följer sitt innehåll (AutoMin). Lagernamnen är språkets;
+        // linjetyperna och färgerna är DATA.
         auto* dg      = g->add<glaze::DataGrid>();
         dg->x         = 8;
         dg->anchorTop = {"g18Sep", 10};
@@ -2036,25 +2142,75 @@ WidgetGallery::WidgetGallery()
         dg->right     = 8;
         dg->height    = 130;
         dg->name      = "dataN";
-        dg->addColumn(glaze::tr(demo::str::DataVard), 96);
-        dg->addColumn(glaze::tr(demo::str::DataPort), 52, glaze::Align::Right);
-        dg->addColumn(glaze::tr(demo::str::DataProtokoll), 84);
-        dg->addColumn("Id", 48, glaze::Align::Right);
-        dg->setColumnEditor(2, glaze::DataGrid::Editor::Choice);
-        dg->setColumnChoices(2, {"HTTP", "HTTPS", "FTP", "SSH"});
-        dg->setColumnEditor(3, glaze::DataGrid::Editor::None);
-        dg->addRow({"alpha", "8080", "HTTP", "1"});
-        dg->addRow({"beta", "443", "HTTPS", "2"});
-        dg->addRow({"gamma", "21", "FTP", "3"});
-        dg->addRow({"delta", "22", "SSH", "4"});
-        dg->addRow({"epsilon", "8443", "HTTPS", "5"});
-        // En STATUSFÄRG på en rad: gamma talar okrypterad FTP. Den
-        // AKTUELLA cellen behåller markeringens färg, resten av raden bär
-        // appens.
-        dg->setRowColor(2, kFel);
-        dg->setCurrentCell(0, 0);
+        {
+            using E = glaze::DataGrid::Editor;
+            using S = glaze::ColumnSizing;
+            dg->setColumns(
+                {{.text = glaze::tr(demo::str::CellLager), .width = kLagerNamnW,
+                  .sizing = S::Autosize},
+                 {.text = glaze::tr(demo::str::CellSynlig), .sizing = S::AutoMin,
+                  .headerCheck = true},
+                 {.text = glaze::tr(demo::str::CellFarg), .sizing = S::AutoMin},
+                 {.text = glaze::tr(demo::str::CellBredd), .align = glaze::Align::Right,
+                  .sizing = S::AutoMin},
+                 {.text = glaze::tr(demo::str::CellOpac), .align = glaze::Align::Right,
+                  .sizing = S::AutoMin, .toolTip = glaze::tr(demo::str::CellOpacTips)},
+                 {.text = glaze::tr(demo::str::CellLinjetyp), .width = kLagerLinjeW},
+                 {.text = "", .sizing = S::AutoMin}});
+            dg->setColumnEditor(kLagerSynlig, {.editor = E::Check});
+            dg->setColumnEditor(kLagerFarg, {.editor = E::Color});
+            dg->setColumnEditor(kLagerBredd, {.editor   = E::Number,
+                                              .min      = 0,
+                                              .max      = kLinjeBreddMax,
+                                              .decimals = kLinjeBreddDecimaler,
+                                              .suffix   = " px"});
+            dg->setColumnEditor(kLagerOpacitet, {.editor   = E::Number,
+                                                 .min      = 0,
+                                                 .max      = kProcentMax,
+                                                 .decimals = 0,
+                                                 .suffix   = "%"});
+            dg->setColumnEditor(kLagerLinje, {.editor      = E::Choice,
+                                    .choices     = {trs(demo::str::CellHel),
+                                                    trs(demo::str::CellStreckad),
+                                                    trs(demo::str::CellPrickad)},
+                                    .choiceIcons = {linjeIkon("LinjeHel"),
+                                                    linjeIkon("LinjeStreckad"),
+                                                    linjeIkon("LinjePrickad")}});
+            dg->setColumnEditor(kLagerTaBort, {.editor = E::Button});
+        }
+        {
+            using K              = glaze::DataGrid::RowKind;
+            const std::string tb  = trs(demo::str::SnabbTaBort);
+            const std::string hel = trs(demo::str::CellHel);
+            dg->setRows(
+                {{.cells = {trs(demo::str::CellBakgrund)}, .kind = K::Category},
+                 {{trs(demo::str::LagerPlattor), "true", "#C8C8C8", "1", "100", hel, tb}},
+                 {{trs(demo::str::LagerYtor), "true", "#7FB77E", "0.5", "60", hel, tb}},
+                 {.kind = K::Blank},
+                 {.cells = {trs(demo::str::CellForgrund)}, .kind = K::Category},
+                 {{trs(demo::str::LagerVagar), "true", "#D04030", "2.5", "100",
+                   trs(demo::str::CellStreckad), tb}},
+                 {{trs(demo::str::LagerEtiketter), "false", "#202020", "", "80",
+                   trs(demo::str::CellPrickad), tb}}});
+        }
+        lagerCeller(*dg);
+        dg->setSelectionMode(glaze::DataGrid::SelectionMode::FullRow);
+        dg->setMultiSelect(true);
+        dg->setMultiEdit(true);
+        constexpr int kForstaLagret = 1;   // raden efter kategorin Bakgrund
+        dg->setCurrentCell(kForstaLagret, kLagerNamn);
         dg->onChange = [this](glaze::Widget* s, glaze::CellChangeArgs& e) {
             dataAndrad(s, e);
+        };
+        // TA BORT: knappens rad är appens index, och `removeRow` tar bort den
+        // direkt i handlern — datagriden rör ingenting efter `onCellClick`, och
+        // cellernas egna inställningar följer sina rader.
+        dg->onCellClick = [this](glaze::Widget* s, glaze::CellClickArgs& e) {
+            auto*             d    = static_cast<glaze::DataGrid*>(s);
+            const std::string namn = d->cell(e.row, 0);
+            statusTxt_->setText(trs(demo::str::DataPrefix) +
+                                trs(demo::str::SnabbTaBort) + " · " + namn);
+            d->removeRow(e.row);
         };
 
         // INAKTIVERAD, byggd med MASSFORMEN — samma aggregat som listvyns.
@@ -2072,7 +2228,7 @@ WidgetGallery::WidgetGallery()
                         {"Id", 48, glaze::Align::Right}});
         dD->setRows({{{"alpha", "8080", "HTTP", "1"}},
                      {{"beta", "443", "HTTPS", "2"}}});
-        dD->setColumnEditor(3, glaze::DataGrid::Editor::None);
+        dD->setColumnEditor(3, {.editor = glaze::DataGrid::Editor::None});
         dD->setCurrentCell(1, 2);
         dD->disable();
 
@@ -2178,8 +2334,7 @@ WidgetGallery::WidgetGallery()
         dg->addColumn(glaze::tr(demo::str::RubBeskrivning), 128);
         dg->addColumn(glaze::tr(demo::str::RubAntal), 66, glaze::Align::Center);
         dg->addColumn(glaze::tr(demo::str::RubHojd), 90, glaze::Align::Right);
-        dg->setColumnEditor(1, glaze::DataGrid::Editor::Choice);
-        dg->setColumnChoices(1, {"1", "2", "3", "4"});
+        dg->setColumnEditor(1, {glaze::DataGrid::Editor::Choice, {"1", "2", "3", "4"}});
         dg->addRow({"Hörnstolpe", "2", "12,0"});
         dg->addRow({"Raklinjestolpe", "4", "10,5"});
         dg->addRow({"Ändstolpe", "1", "11,2"});
@@ -2678,11 +2833,20 @@ void WidgetGallery::listaKryssad(glaze::Widget* sender, glaze::ChangeArgs&)
     // VILKEN rad som kryssades står i `changedRow()` och ÅT VILKET HÅLL i
     // radens tillstånd — trädets mönster, och samma statustexter. Krysset är
     // inte valet: det ändrar inget av det `listaAndrad` skriver.
-    auto*     l   = static_cast<glaze::ListView*>(sender);
-    const int rad = l->changedRow();
-    statusTxt_->setText(trs(l->isChecked(rad) ? demo::str::TradKryssad
-                                              : demo::str::TradAvkryssad) +
-                        l->cell(rad, 0));
+    // Rubrikkrysset vänder flera rader på en gång: `changedRow()` är då −1,
+    // och raderna står i `changedRows()`.
+    auto*                   l     = static_cast<glaze::ListView*>(sender);
+    const std::vector<int>& rader = l->changedRows();
+    const int rad = l->changedRow() >= 0 ? l->changedRow()
+                                         : (rader.empty() ? -1 : rader.front());
+    if (rad < 0)
+        return;
+    std::string text = trs(l->isChecked(rad) ? demo::str::TradKryssad
+                                             : demo::str::TradAvkryssad) +
+                       l->cell(rad, 0);
+    if (rader.size() > 1)
+        text += " (" + std::to_string(rader.size()) + ")";
+    statusTxt_->setText(text);
 }
 
 // SNABBMENYN MOT NODEN: högertrycket har redan
@@ -2720,11 +2884,19 @@ void WidgetGallery::listaMeny(glaze::Widget* sender, glaze::ContextMenuArgs&)
 void WidgetGallery::dataAndrad(glaze::Widget* sender, glaze::CellChangeArgs& e)
 {
     // VILKEN cell som sparades bär args — raden och kolumnen, appens index
-    // oberoende av sorteringen. VÄRDET läses ur sender (regel 6).
+    // oberoende av sorteringen, och ALLA ändrade rader i `rows` (flera valda
+    // rader på en gång, rubrikkrysset med `row` −1). VÄRDET läses ur sender
+    // (regel 6).
     auto* g = static_cast<glaze::DataGrid*>(sender);
-    statusTxt_->setText(trs(demo::str::DataPrefix) + g->cell(e.row, 0) +
-                        " · " + g->columns()[std::size_t(e.column)].text.str() +
-                        " = " + g->cell(e.row, e.column));
+    const int rad = e.row >= 0 ? e.row : (e.rows.empty() ? -1 : e.rows.front());
+    if (rad < 0 || e.column < 0 || e.column >= g->columnCount())
+        return;
+    std::string text = trs(demo::str::DataPrefix) + g->cell(rad, 0) + " · " +
+                       g->columns()[std::size_t(e.column)].text.str() + " = " +
+                       g->cell(rad, e.column);
+    if (e.rows.size() > 1)
+        text += " (" + std::to_string(e.rows.size()) + ")";
+    statusTxt_->setText(text);
 }
 
 void WidgetGallery::flikBytt(glaze::Widget* sender, glaze::ChangeArgs&)

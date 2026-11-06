@@ -709,7 +709,13 @@ void ListBox::draw(const Ctx& c)
                         Pen{isSelected(aktuell) ? col.windowBg : col.text,
                             m.borderWidth});
         Draw::endClip(c);
-        Draw::frame(c, b, 0.0f, Pen{col.border, m.borderWidth});
+        // En POPUP (dropdownens lista, menyerna) är ett eget fönster utan
+        // skugga över en yta i samma färg: kanten är då kontrollkanten
+        // `buttonBorder` (≥ 3:1 mot fönsterytan), så popupen syns mot det som
+        // ligger bakom. En lista i fönstret behåller familjens hårlinje.
+        Draw::frame(c, b, 0.0f,
+                    Pen{ownsSurface() ? col.buttonBorder : col.border,
+                        m.borderWidth});
         break;
     }
 

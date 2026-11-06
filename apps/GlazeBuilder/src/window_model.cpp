@@ -1112,15 +1112,14 @@ constexpr SetterFieldSpec kSetterFields[] = {
     {"glaze::TreeView",      "selectedPath",  false},
     {"glaze::TreeView",      "multiSelect",   false},
     {"glaze::TreeView",      "showChecks",    false},
-    // TRÄDETS KOLUMNER — ColumnPanels sortering, huvud och
-    // fyllkolumn, samma rader som listvyns; kolumnerna och cellerna
+    // TRÄDETS KOLUMNER — ColumnPanels sortering och huvud, samma
+    // rader som listvyns; kolumnerna, deras lägen och cellerna
     // (`setCell(stig, kolumn, text)`) är Call-satser.
     {"glaze::TreeView",      "sortColumn",    false},
     {"glaze::TreeView",      "sortAscending", false},
     {"glaze::TreeView",      "sortable",      false},
     {"glaze::TreeView",      "headerLines",   false},
     {"glaze::TreeView",      "headerVAlign",  false},
-    {"glaze::TreeView",      "fillColumn",    false},
     {"glaze::Slider",        "min",           false},
     {"glaze::Scrollbar",     "min",           false},
     {"glaze::Progress",      "min",           false},
@@ -1155,7 +1154,6 @@ constexpr SetterFieldSpec kSetterFields[] = {
     {"glaze::CaptionButton", "kind",          false},
     {"glaze::CaptionButton", "shape",         false},
     {"glaze::CaptionButton", "restoreGlyph",  false},
-    {"glaze::PropertyGrid",  "nameWidth",     false},
     // LISTVYN — sorteringen är Tables och valet listvyns. EXAKTA
     // typer och inte `subtypes` mot Table: basen registreras inte, och en
     // användartyp utanför arvstabellen ska behålla sin anropsform. Kryssens
@@ -1172,22 +1170,20 @@ constexpr SetterFieldSpec kSetterFields[] = {
     // kolumnaggregatets fjärde fält och åker med kollektionens Call-satser.
     {"glaze::ListView",      "headerLines",   false},
     {"glaze::ListView",      "headerVAlign",  false},
-    // FYLLKOLUMNEN OCH IKONSTORLEKEN — Tables,
-    // ett heltal och ett tal; datagridens rader nedan.
-    {"glaze::ListView",      "fillColumn",    false},
+    // IKONSTORLEKEN — Tables tal; datagridens rad nedan. Kolumnernas
+    // lägen (`setColumnSizing(kolumn, läge)`) tar två argument och är
+    // Call-satser.
     {"glaze::ListView",      "iconSize",      false},
     // RADRUBRIKERNA — Tables ETT bool-argument, båda ättlingarna.
     {"glaze::ListView",      "rowHeaders",    false},
-    // DATAGRIDDEN — samma sortering och samma huvud, och inget
-    // eget setter-fält: kolumntypen och den aktuella cellen tar två
-    // argument och är Call-satser (`setColumnEditor`/`setColumnChoices`/
-    // `setCurrentCell`).
+    // DATAGRIDDEN — samma sortering och samma huvud; redigerarna, cellerna
+    // och den aktuella cellen tar flera argument och är Call-satser
+    // (`setColumnEditor`/`setCellEditor`/`setCellEnabled`/`setCurrentCell` …).
     {"glaze::DataGrid",      "sortColumn",    false},
     {"glaze::DataGrid",      "sortAscending", false},
     {"glaze::DataGrid",      "sortable",      false},
     {"glaze::DataGrid",      "headerLines",   false},
     {"glaze::DataGrid",      "headerVAlign",  false},
-    {"glaze::DataGrid",      "fillColumn",    false},
     {"glaze::DataGrid",      "iconSize",      false},
     {"glaze::DataGrid",      "rowHeaders",    false},
     // DATAGRIDDENS RADVAL — ett enum-värde
@@ -1195,6 +1191,14 @@ constexpr SetterFieldSpec kSetterFields[] = {
     // listvyns bool; `setSelected(rad, på)` är en Call.
     {"glaze::DataGrid",      "selectionMode", false},
     {"glaze::DataGrid",      "multiSelect",   false},
+    // ENKLA KLICKET OCH FLERA RADER PÅ EN GÅNG — två bools
+    // (`dg.setEditOnClick(true);`, `dg.setMultiEdit(true);`).
+    {"glaze::DataGrid",      "editOnClick",   false},
+    {"glaze::DataGrid",      "multiEdit",     false},
+    // TEXTEN MARKERAD VID REDIGERING — en bool på båda gridarna
+    // (`dg.setSelectOnEdit(false);`).
+    {"glaze::DataGrid",      "selectOnEdit",  false},
+    {"glaze::PropertyGrid",  "selectOnEdit",  false},
     // DELAREN — `vertical` är SAMMA namn och samma betydelse som
     // Separatorns (linjen är stående), därav en exakt rad till och inte en
     // generisk post.

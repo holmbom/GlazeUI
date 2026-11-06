@@ -201,7 +201,10 @@ tre-fils-modellen och de hårda reglerna.
       **ListBox** (normal, kryss, av) · 11 SpinBox (heltal, två decimaler
       med kvartssteg och ett inaktiverat, UTAN mått och syskonankrade;
       decimaltecknet följer SPRÅKET, så ett byte i startfönstret skriver om
-      de vilande talfälten — `Widget::languageChanged`) · 7 PropertyGrid ·
+      de vilande talfälten — `Widget::languageChanged`) · 7 PropertyGrid (en
+      kategorirad vars fällning skrivs i statusraden med `onExpand`/`onCollapse`,
+      ett valfritt tal som visar "AUTO" när det är tomt; den aktiva med namnet
+      `AutoMin` och värdet `Autosize`, den inaktiverade med en fast namnkolumn) ·
       **21 FilePicker** (post 25, fjärde kolumnen: öppna med appens "Bilder"
       och ramverkets "Alla filer", spara med ".txt", mapp och ett
       inaktiverat — etiketterna är RAMVERKETS dialogtitlar, och "…" öppnar
@@ -222,7 +225,7 @@ tre-fils-modellen och de hårda reglerna.
       sidan rullar dit: "Namn" med `setBuddy` mot ett fält, en etikett med
       `setElide`, "Ta bort" i appens röda `setColor`, en bildknapp med
       `ringar(64)` i `setIconSize(32)`, radioknappar i sina färger, och en
-      listvy med 48 px-miniatyrer och `setFillColumn(0)`). Sedan samma pass
+      listvy med 48 px-miniatyrer och namnet `Autosize`). Sedan samma pass
       har g21:s första fält `setDialogTitle` (1906) och g24:s anteckning
       `setAcceptsTab(true)` (1471 säger det) · **37 Markdown** (REQ7_MARKDOWN —
       under grupp 36, y = 720, STRÄCKT mot sidans högerkant: en rullande
@@ -273,20 +276,27 @@ tre-fils-modellen och de hårda reglerna.
       REQ3_TRAD_LISTOR_FALT: Musik bär tolv utfällda spår ("01.flac" … — data,
       löv för släppet), så trädet rullar och ett drag nära kanten
       AUTOSKROLLAR; `tradMeny` öppnar snabbmenyn "Ta bort" (tar bort valet
-      bakifrån) mot `contextPath()`, och listvyn i 14 har `setFillColumn(0)`
-      och `listaMeny` mot `contextRow()`) · 14
+      bakifrån) mot `contextPath()`, och listvyn i 14 har `listaMeny` mot
+      `contextRow()`) · 14
       ListView (styckeformen ur en lokal tabell med `setSortKey` på bytes —
       storleken VISAS som text men SORTERAS på talet — flerval, sorterad på
-      namn, Budget.xlsx i felfärg med `setRowColor`, KRYSS med Semester.png
-      kryssad och tooltipen 1842; den inaktiverade med MASSFORMEN, fallande på
+      namn INOM två KATEGORIER (Dokument, Bilder) med en TOM rad emellan,
+      Budget.xlsx i felfärg med `setRowColor`, KRYSS med Semester.png
+      kryssad, RUBRIKKRYSSET i kolumn 0, namnet `Autosize` och storleken
+      `AutoMin` med rubrikens tooltip; den inaktiverade med MASSFORMEN, fallande på
       storleken, en rad med färgfältet och ett kryss; `listaAktiverad` läser
-      raden ur `currentRow()`, `listaKryssad` krysset ur `changedRow()` med
-      trädets texter 1600/1601) · 18 DataGrid (värd
-      och port i fritext, protokollet ur en VALLISTA och id:t skrivskyddat;
-      FTP-raden i felfärg; fem rader i
-      en yta för fyra så den rullar; en inaktiverad med massformen.
-      `dataAndrad` skriver den sparade cellen: VILKEN ur `CellChangeArgs`,
-      värdet ur sender) · **32 ListBox med flerval** (FAS1_B_WIDGETS, under
+      raden ur `currentRow()`, `listaKryssad` krysset ur `changedRow()` — eller
+      ur `changedRows()` när rubrikkrysset vände flera — med
+      trädets texter 1600/1601) · 18 DataGrid (LAGERLISTAN: ett lager per rad
+      i två kategorier med en tom rad emellan — synlig som kryss med
+      rubrikkryss, färg, linjebredd och opacitet som tal med gränser och
+      enhet, linjetypen en vallista med appens ritade ikoner (`LinjeHel`/
+      `LinjeStreckad`/`LinjePrickad`) och en knappcell "Ta bort" vars
+      `onCellClick` gör `removeRow`; HELA rader med flerval och `setMultiEdit`;
+      `lagerCeller` sätter cellernas egna redigerare, inaktivering och tooltip
+      efter lagrets namn; en inaktiverad med massformen. `dataAndrad` skriver
+      den sparade cellen: VILKEN ur `CellChangeArgs` (`rows` när flera
+      ändrades), värdet ur sender) · **32 ListBox med flerval** (FAS1_B_WIDGETS, under
       g13: kartans fyra lager med två valda, listvyns tangenter och solo vid
       släppet) och **33 DataGrid med radval** (under g18: `FullRow` med
       flerval, två valda; `onSelectionChange` och listboxens `onChange` delar
@@ -696,8 +706,22 @@ tre-fils-modellen och de hårda reglerna.
   fyra lägen: menyerna i namnlisten och den stora ikonen över namnlisten och raden
   under, menyraden eller det yttersta bandet vid överkanten. Visa → Verktygsfält
   visar och döljer fälten och lägger till och tar bort fler. Temat byts i remsan överst, i menyn Tema
-  och med F7/F8/F9 (`valjTema`/`valjLage`, som `synkaUtseende` speglar). Texterna
+  och med F7/F8/F9 (`valjTema`/`valjLage`, som `synkaUtseende` speglar). Datagriden
+  är en LAGERLISTA med alla typade celler (kryss med rubrikkryss, färg med alfa, tal
+  med enhet, vallista med standardikoner, skrivskyddat, knapp) i två kategorier
+  med en tom rad emellan, och listvyn har en kategori och rubrikkrysset. Texterna
   är literaler och inte tr-id: fönstret ingår inte i demons översatta yta.
+- **`tables_window.h/.cpp`** — **`demo --tables`**, HANDKODAT: PROVBÄNKEN för
+  `DataGrid`, `ListView` och `PropertyGrid` i samma fönster — reglagen i en
+  rullande kolumn med en gruppram per widget (kolumnens läge och bredd följer
+  den valda kolumnen), de tre widgetarna staplade i en rullande yta så höjden ur
+  raderna syns, och nederst en HÄNDELSELOGG (en `ListView`) med varje event och
+  dess args. Knapparna som verkar på en pågående redigering (`commitEdits`,
+  läsvägarna, `beginEdit`, `cancelEdit`) är VERKTYGSKNAPPAR som inte tar fokus,
+  så redigeringen står kvar tills knappen når den. Cellernas egna inställningar
+  läggs om efter varje `setRows` (`tillampaCeller`, efter radernas namn), och en
+  `glaze::Timer` (`takt_`) kan skriva en slumpvald cell 60 gånger i sekunden.
+  Texterna är literaler.
 - **`window_lab.h/.cpp`** (FONSTER_OCH_TIMER F2) — **`demo --window-lab`**,
   HANDKODAT (kodvägen): geometriraden ur `geometry()` uppdaterad av en
   upprepande `glaze::Timer` (250 ms, startad i `onShow`, stoppad i `onHide`/
@@ -794,7 +818,8 @@ tre-fils-modellen och de hårda reglerna.
   START, bara ikonen syns (en autostart). Utan systemfält ignoreras båda, för
   en dold app utan ikon går inte att nå. `timeout 3 ./demo --tray --hidden`
   ska ge 124: pumpen lever med fönstret dolt. **`demo --window-lab`** öppnar
-  fönsterlabbet, **`demo --dock`** dockningen, och **`demo --splash`** visar
+  fönsterlabbet, **`demo --dock`** dockningen, **`demo --tables`** tabellernas
+  provbänk, och **`demo --splash`** visar
   splashen FÖRST (dess `run()`
   återvänder när timern stängt den) och fortsätter sedan med det fönster de
   andra flaggorna valt.
@@ -892,7 +917,9 @@ Erik E9: *"demot ska ha all text som ändras … appen ska ju demo:a vad som
   raden under; nb och fi utan modersmålstalare) och 2000–2009 (REQ9_TERMINAL —
   dockningens terminalflik: rubriken, slutkoden och startfelet; nb och fi utan
   modersmålstalare) och 2010–2019 (REQ9_INMATNING —
-  grupp 27:s lägen och vändningar och listans tooltip), alla
+  grupp 27:s lägen och vändningar och listans tooltip) och 2020–2039 (2020–2034
+  de typade cellerna — grupp 18:s lagerlista och grupp 14:s rubriktooltip; lagrens
+  namn 1483–1486 och "Ta bort" återanvänds; nb och fi utan modersmålstalare), alla
   fyra språken KOMPLETTA. Packas till den committade
   `apps/demo/language.bin`, som CMake kopierar till körplatsen precis som
   `assets.bin`, och `main.cpp` laddar den med `glaze::loadLanguage()`.

@@ -987,5 +987,35 @@ inline constexpr std::uint32_t InmVandPlatta = 2016;
 inline constexpr std::uint32_t InmVandZoom = 2017;
 // "Hjulet rullar åt andra hållet i den här listan"
 inline constexpr std::uint32_t InmListaVand = 2018;
+// "Lager"
+inline constexpr std::uint32_t CellLager = 2020;
+// "Synlig"
+inline constexpr std::uint32_t CellSynlig = 2021;
+// "Färg"
+inline constexpr std::uint32_t CellFarg = 2022;
+// "Bredd"
+inline constexpr std::uint32_t CellBredd = 2023;
+// "Opac."
+inline constexpr std::uint32_t CellOpac = 2024;
+// "Opacitet i procent"
+inline constexpr std::uint32_t CellOpacTips = 2025;
+// "Linjetyp"
+inline constexpr std::uint32_t CellLinjetyp = 2026;
+// "Hel"
+inline constexpr std::uint32_t CellHel = 2027;
+// "Streckad"
+inline constexpr std::uint32_t CellStreckad = 2028;
+// "Prickad"
+inline constexpr std::uint32_t CellPrickad = 2029;
+// "Bakgrund"
+inline constexpr std::uint32_t CellBakgrund = 2030;
+// "Förgrund"
+inline constexpr std::uint32_t CellForgrund = 2031;
+// "Auto"
+inline constexpr std::uint32_t CellAuto = 2032;
+// "Vägarna är låsta"
+inline constexpr std::uint32_t CellLast = 2033;
+// "Sorteras på antal byte"
+inline constexpr std::uint32_t ListaStorlekTips = 2034;
 
 } // namespace demo::str

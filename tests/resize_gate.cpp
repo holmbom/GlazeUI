@@ -30,6 +30,9 @@
 //       200 varv), sedan inga; ett syntetiskt `MouseMotion` genom
 //       `handleEvent` ⇒ leveranserna går igen
 //   Z14 handlern stänger fönstret ⇒ resten av omgången levereras inte
+//   Z15 användarens storlek (ett drag efter `setContentSize`) står kvar när
+//       ett barn döljs och visas — den gamla innehållsbegäran återställer
+//       inte fönstret
 //   Z13 (D3D11) ett riktigt fönster: den första `onResize` före `onShow` och
 //       före den första ritningen
 //
@@ -43,6 +46,8 @@
 //   * roten noteras inte i `renderContent` (Z8)
 //   * den första leveransen i `revealHidden` borttagen (Z13 — efter ritningen)
 //   * livstecknet/stängningen frågas inte efter en handler (Z14)
+//   * `trackClientSize` uppdaterar inte innehållsbegäran (Z15 — fönstret
+//     hoppar tillbaka till 300 × 200 när barnet döljs)
 //
 // Mäter INTE: en inaktiv dockningsflik (Z7), ritytans `toWorld` i handlern
 // (Z12), Windows/macOS modala fönsterdrag (OS:ets loop — handen), Metal och
@@ -398,6 +403,48 @@ void fallOffscreen()
           "Z14 resten av omgången levereras inte efter en stängning");
 }
 
+// Z15 — ANVÄNDARENS STORLEK vinner över en gammal innehållsbegäran: fönstret
+// har bett om en innehållsstorlek, OS-fönstret får en annan (ett drag i kanten
+// — här `setSize` + den `WindowResized` OS:et skickar), och sedan döljs och
+// visas ett barn (`notifyContentInsets` → `applyContentSize`). Fönstret ska stå
+// kvar i användarens storlek, inte återställas till begäran.
+void fallAnvandarensStorlek()
+{
+    Fonster w;
+    w.setOffscreen(true);
+    w.setContentSize(300, 200);
+    static Kedja k2;
+    bool         kordes = false;
+    k2.steg = {
+        [&] {
+            kordes = true;
+            w.window().setSize(360, 260);
+            gfx::Event e;
+            e.type = gfx::EventType::WindowResized;
+            w.handleEvent(e);
+        },
+        [&] {
+            check(lika(w.clientSize(), 360, 260),
+                  "Z15 (fixturen) klientytan följde draget");
+            w.b.hide();
+        },
+        [&] { w.b.show(); },
+        [&] {
+            check(lika(w.clientSize(), 360, 260),
+                  "Z15 ett barn som döljs och visas återställer inte fönstret "
+                  "till den gamla innehållsbegäran");
+            check(lika(w.contentSize(), 360, 260),
+                  "Z15 innehållsytan är den användaren gav fönstret");
+            w.close();
+        },
+    };
+    k2.fönster = &w;
+    glaze::app().post([] { k2.kör(); });
+    w.run();
+    if (!kordes)
+        std::exit(77);
+}
+
 #ifdef GLAZE_BACKEND_D3D11
 // Z13 — ett RIKTIGT fönster (inte offscreen): den första leveransen kommer
 // före den första synliga bildrutan (`revealHidden`), alltså före `onShow`
@@ -450,6 +497,7 @@ int main(int argc, char** argv)
     std::printf("resize_gate — onResize: upptäckten i ritningen, leveransen i "
                 "svansen\n");
     fallOffscreen();
+    fallAnvandarensStorlek();
 #ifdef GLAZE_BACKEND_D3D11
     fallForstaVisningen();
 #endif

@@ -188,11 +188,6 @@ const BuilderWindow::FieldMeta BuilderWindow::kFieldMeta[] = {
     {"glaze::Scrollbar", "page",    FieldKind::Number, "", ""},
     {"glaze::Scrollbar", "orientation", FieldKind::Enum,
      "Horizontal;Vertical", "glaze::Scrollbar::Orientation::"},
-    // PropertyGrid: fältet står i settertabellen och behöver både en
-    // widget-ände och en panelrad — annars round-trippar
-    // `grid.setNameWidth(120);` korrekt men är både
-    // oritad och oredigerbar. Namnkolumnens bredd är LOGISKA px.
-    {"glaze::PropertyGrid", "nameWidth", FieldKind::Number, "", ""},
     // VERKTYGSKNAPPEN. Bildraden behöver ingen rad här — `img`
     // har en egen gren i `refreshPropPanel` (choices ur assets.bin).
     {"glaze::ToolButton", "text",      FieldKind::Text, "", ""},
@@ -234,15 +229,14 @@ const BuilderWindow::FieldMeta BuilderWindow::kFieldMeta[] = {
     {"glaze::TreeView",   "selectedPath", FieldKind::Raw, "", ""},
     {"glaze::TreeView",   "multiSelect",  FieldKind::Bool, "true;false", ""},
     {"glaze::TreeView",   "showChecks",   FieldKind::Bool, "true;false", ""},
-    // TRÄDETS KOLUMNER — listvyns sortering, huvud och fyllkolumn;
-    // kolumnerna och cellerna är anrop utan panelrad.
+    // TRÄDETS KOLUMNER — listvyns sortering och huvud; kolumnerna,
+    // deras lägen och cellerna är anrop utan panelrad.
     {"glaze::TreeView",   "sortColumn",    FieldKind::Integer, "", ""},
     {"glaze::TreeView",   "sortAscending", FieldKind::Bool, "true;false", ""},
     {"glaze::TreeView",   "sortable",      FieldKind::Bool, "true;false", ""},
     {"glaze::TreeView",   "headerLines",   FieldKind::Integer, "", ""},
     {"glaze::TreeView",   "headerVAlign",  FieldKind::Enum,
      "Top;Center;Bottom", "glaze::VAlign::"},
-    {"glaze::TreeView",   "fillColumn",    FieldKind::Integer, "", ""},
     // LISTVYN. Kolumnerna och raderna är ANROP (kollektionen) och
     // har ingen panelrad. Kryssens
     // synlighet är ListBoxens och trädets Bool-rad; själva
@@ -258,9 +252,7 @@ const BuilderWindow::FieldMeta BuilderWindow::kFieldMeta[] = {
     {"glaze::ListView",   "headerLines",   FieldKind::Integer, "", ""},
     {"glaze::ListView",   "headerVAlign",  FieldKind::Enum,
      "Top;Center;Bottom", "glaze::VAlign::"},
-    // FYLLKOLUMNEN (−1 = ingen) och IKONSTORLEKEN (0 = AUTO) —
-    // datagridens likadant nedan.
-    {"glaze::ListView",   "fillColumn",    FieldKind::Integer, "", ""},
+    // IKONSTORLEKEN (0 = AUTO) — datagridens likadant nedan.
     {"glaze::ListView",   "iconSize",      FieldKind::Number, "", ""},
     // RADRUBRIKERNA: en bool, båda tabellerna.
     {"glaze::ListView",   "rowHeaders",    FieldKind::Bool, "true;false", ""},
@@ -272,13 +264,18 @@ const BuilderWindow::FieldMeta BuilderWindow::kFieldMeta[] = {
     {"glaze::DataGrid",   "headerLines",   FieldKind::Integer, "", ""},
     {"glaze::DataGrid",   "headerVAlign",  FieldKind::Enum,
      "Top;Center;Bottom", "glaze::VAlign::"},
-    {"glaze::DataGrid",   "fillColumn",    FieldKind::Integer, "", ""},
     {"glaze::DataGrid",   "iconSize",      FieldKind::Number, "", ""},
     {"glaze::DataGrid",   "rowHeaders",    FieldKind::Bool, "true;false", ""},
     // RADVALET — läget och flervalet.
     {"glaze::DataGrid",   "selectionMode", FieldKind::Enum,
      "Cell;FullRow", "glaze::DataGrid::SelectionMode::"},
     {"glaze::DataGrid",   "multiSelect",   FieldKind::Bool, "true;false", ""},
+    // ENKLA KLICKET och FLERA RADER PÅ EN GÅNG.
+    {"glaze::DataGrid",   "editOnClick",   FieldKind::Bool, "true;false", ""},
+    {"glaze::DataGrid",   "multiEdit",     FieldKind::Bool, "true;false", ""},
+    // TEXTEN MARKERAD VID REDIGERING — båda gridarna.
+    {"glaze::DataGrid",   "selectOnEdit",  FieldKind::Bool, "true;false", ""},
+    {"glaze::PropertyGrid", "selectOnEdit", FieldKind::Bool, "true;false", ""},
     // DELAREN. Måtten är LOGISKA px (Number), den fasta rutan ett
     // enum med typens eget prefix.
     {"glaze::Splitter",   "vertical",  FieldKind::Bool, "true;false", ""},

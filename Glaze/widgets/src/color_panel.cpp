@@ -448,10 +448,12 @@ void ColorPanel::draw(const Ctx& c)
         Draw::rect(c, b, 0.0f, col.panel,
                    Pen{col.buttonBorder, m.borderWidth});
         break;
-    // SLATE — en YTA: `panel` och hårlinjen `border`.
+    // SLATE — en YTA: `panel`, och kanten är kontrollkanten `buttonBorder`:
+    // popupen är ett eget fönster utan skugga, och familjens hårlinje syntes
+    // inte mot en yta i samma färg bakom den.
     case UI::Slate:
     default:
-        Draw::rect(c, b, 0.0f, col.panel, Pen{col.border, m.borderWidth});
+        Draw::rect(c, b, 0.0f, col.panel, Pen{col.buttonBorder, m.borderWidth});
         break;
     }
 }

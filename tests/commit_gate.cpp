@@ -545,7 +545,7 @@ void fallProgrammatiskt()
                .kind = glaze::PropertyGrid::Kind::Color});
     pg.addRow({.name = "Skala", .value = "1.5",
                .kind = glaze::PropertyGrid::Kind::Number, .min = 0, .max = 10});
-    pg.addRow({.name = "Grupp", .kind = glaze::PropertyGrid::Kind::Header});
+    pg.addRow({.name = "Grupp", .kind = glaze::PropertyGrid::Kind::Category});
     pg.setRowEnabled(1, false);
     pg.setExpanded(4, false);
     dg.addColumn("A", 50);
@@ -683,7 +683,7 @@ struct Vard : glaze::AppWindow {
         tal3.setMax(100);
         tal3.setValue(5);
         datum3.setDate(2026, 5, 6);
-        grid2.setNameWidth(80);
+        grid2.setColumnWidth(0, 80);
         grid2.setRows({{"A", "1"}, {"B", "2"}, {"C", "3"}});
         tabell2.addColumn("A", 120);
         tabell2.addRow({"x0"});
@@ -708,7 +708,7 @@ struct Vard : glaze::AppWindow {
         listvy.addColumn("A", 120);
         listvy.addRow({"x"});
         listvy.addRow({"y"});
-        grid.setNameWidth(80);
+        grid.setColumnWidth(0, 80);
         grid.setRows({{"Bredd", "10"},
                       {"Höjd", "20"},
                       {"Djup", "30"},
@@ -889,7 +889,7 @@ struct Vard : glaze::AppWindow {
     }
 
     // PropertyGridens VÄRDECELL på rad `i` — ur KONTRAKTET: ingen ram, raden
-    // `gridRowH` hög, värdekolumnen från `nameWidth` (80) till remsan.
+    // `gridRowH` hög, värdekolumnen från namnkolumnens bredd (80) till remsan.
     gfx::Pointf värdecell(int i) { return värdecell(grid, i); }
     gfx::Pointf värdecell(glaze::PropertyGrid& g, int i)
     {

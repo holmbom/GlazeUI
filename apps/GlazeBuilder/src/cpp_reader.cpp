@@ -142,6 +142,10 @@ bool isKnownEvent(const std::string& name)
            // DATAGRIDDENS RADVAL: `grid.onSelectionChange = [this] {
            // valdaRader(); };` är en koppling och inte en opak rad.
            name == "onSelectionChange" ||
+           // DATAGRIDDENS KNAPPCELL: `grid.onCellClick = [this] {
+           // taBort(); };` är en koppling och inte en opak rad. Tabellernas
+           // och egenskapslistans fällning är trädets `onExpand`/`onCollapse`.
+           name == "onCellClick" ||
            // MARKDOWN-VYNS LÄNKAR: `hjalp.onLinkClick = [this] {
            // lankKlickad(); };` är en koppling och inte en opak rad.
            name == "onLinkClick" ||

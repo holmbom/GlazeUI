@@ -973,23 +973,32 @@ bool argRubrikJustering(const std::vector<std::string>& a, std::size_t i,
     return true;
 }
 
-// DATAGRIDDENS KOLUMNTYP: exakt `glaze::DataGrid::Editor::Text|Choice|None`
-// — prefixet krävs av samma skäl som justeringens.
+// DATAGRIDDENS REDIGERARE: exakt `glaze::DataGrid::Editor::Text|Choice|Check|
+// Color|Number|Button|None` — prefixet krävs av samma skäl som justeringens.
 bool argEditor(const std::vector<std::string>& a, std::size_t i,
                glaze::DataGrid::Editor& ut)
 {
-    if (i >= a.size())
-        return false;
-    const std::string t = trimma(a[i]);
-    static const std::string kPrefix = "glaze::DataGrid::Editor::";
-    if (t.rfind(kPrefix, 0) != 0)
-        return false;
-    const std::string svans = t.substr(kPrefix.size());
-    if (svans == "Text")        ut = glaze::DataGrid::Editor::Text;
-    else if (svans == "Choice") ut = glaze::DataGrid::Editor::Choice;
-    else if (svans == "None")   ut = glaze::DataGrid::Editor::None;
-    else                        return false;
-    return true;
+    using E = glaze::DataGrid::Editor;
+    return i < a.size() &&
+           enumVärde<E>(a[i], {"glaze::DataGrid::Editor::"},
+                        {{"Text", E::Text},     {"Choice", E::Choice},
+                         {"Check", E::Check},   {"Color", E::Color},
+                         {"Number", E::Number}, {"Button", E::Button},
+                         {"None", E::None}},
+                        ut);
+}
+
+// FÄRGCELLENS VISNING: exakt `glaze::ColorDisplay::Swatch|Hex|Both` — en enum
+// på namnrymdsnivå, ETT prefix för datagriden och egenskapslistan.
+bool argColorDisplay(const std::vector<std::string>& a, std::size_t i,
+                     glaze::ColorDisplay& ut)
+{
+    using D = glaze::ColorDisplay;
+    return i < a.size() &&
+           enumVärde<D>(a[i], {"glaze::ColorDisplay::"},
+                        {{"Swatch", D::Swatch}, {"Hex", D::Hex},
+                         {"Both", D::Both}},
+                        ut);
 }
 
 // Ett MÅTT (kolumnbredd) — samma tal som en fältrad tar (`bld::parseNum`:
@@ -999,21 +1008,36 @@ bool argMått(const std::vector<std::string>& a, std::size_t i, float& ut)
     return i < a.size() && bld::parseNum(trimma(a[i]), ut);
 }
 
-// En KOLUMNBREDD: ett mått, eller konstanten för "efter innehållet"
-// (`Column::autoWidth`, tal −1) — kolumntypen är basens, så konstanten nås
-// genom varje typ som ärver den. Alla former kompilerar, så alla utförs.
-bool argKolumnBredd(const std::vector<std::string>& a, std::size_t i, float& ut)
+// KOLUMNENS LÄGE: exakt `glaze::ColumnSizing::Manual|AutoMin|Autosize` — en
+// enum på namnrymdsnivå, så prefixet är ETT för tabellerna, trädet och
+// egenskapslistan.
+bool argSizing(const std::vector<std::string>& a, std::size_t i,
+               glaze::ColumnSizing& ut)
 {
-    if (i < a.size()) {
-        const std::string t = trimma(a[i]);
-        for (const char* typ :
-             {"Table", "ColumnPanel", "ListView", "DataGrid", "TreeView"})
-            if (t == std::string("glaze::") + typ + "::Column::autoWidth") {
-                ut = glaze::ColumnPanel::Column::autoWidth;
-                return true;
-            }
-    }
-    return argMått(a, i, ut);
+    using S = glaze::ColumnSizing;
+    return i < a.size() &&
+           enumVärde<S>(a[i], {"glaze::ColumnSizing::"},
+                        {{"Manual", S::Manual},
+                         {"AutoMin", S::AutoMin},
+                         {"Autosize", S::Autosize}},
+                        ut);
+}
+
+// TABELLRADENS SLAG: `glaze::Table::RowKind::Data|Category|Blank` — samma
+// typ nås genom ättlingarna (`glaze::ListView::RowKind::`,
+// `glaze::DataGrid::RowKind::`), och alla tre kompilerar.
+bool argRowKind(const std::vector<std::string>& a, std::size_t i,
+                glaze::Table::RowKind& ut)
+{
+    using K = glaze::Table::RowKind;
+    return i < a.size() &&
+           enumVärde<K>(a[i],
+                        {"glaze::Table::RowKind::", "glaze::ListView::RowKind::",
+                         "glaze::DataGrid::RowKind::"},
+                        {{"Data", K::Data},
+                         {"Category", K::Category},
+                         {"Blank", K::Blank}},
+                        ut);
 }
 
 // Ett TAL för en `double`- eller `float`-parameter. Samma grind som
@@ -1056,7 +1080,7 @@ bool argDecimal(const std::vector<std::string>& a, std::size_t i, double& ut)
 }
 
 // EGENSKAPSGRIDENS RADSLAG: exakt `glaze::PropertyGrid::Kind::Text|Check|Color|
-// Number|Header` — prefixet krävs av samma skäl som kolumntypens.
+// Number|Category` — prefixet krävs av samma skäl som kolumntypens.
 bool argRadSlag(const std::vector<std::string>& a, std::size_t i,
                 glaze::PropertyGrid::Kind& ut)
 {
@@ -1071,25 +1095,31 @@ bool argRadSlag(const std::vector<std::string>& a, std::size_t i,
     else if (svans == "Check")  ut = glaze::PropertyGrid::Kind::Check;
     else if (svans == "Color")  ut = glaze::PropertyGrid::Kind::Color;
     else if (svans == "Number") ut = glaze::PropertyGrid::Kind::Number;
-    else if (svans == "Header") ut = glaze::PropertyGrid::Kind::Header;
+    else if (svans == "Category") ut = glaze::PropertyGrid::Kind::Category;
     else                        return false;
     return true;
 }
 
 // EGENSKAPSGRIDENS RAD — aggregatet `glaze::PropertyGrid::Row` i den form C++
-// tar: typnamnet eller bara `{…}`, POSITIONELLT eller DESIGNERAT med de femton
+// tar: typnamnet eller bara `{…}`, POSITIONELLT eller DESIGNERAT med de nitton
 // namnen i DEKLARATIONSORDNING (`{.name = "Synlig", .value = "true", .kind =
 // glaze::PropertyGrid::Kind::Check}`, `aggregatFält`: fel ordning, ett okänt
 // eller upprepat namn och en blandning kompilerar inte i C++20 och avvisas
 // likadant). Texterna är strängliteraler (verktygstipset också
-// `glaze::tr(N)`, tokenet bevaras), `choices` en strikt stränglista, flaggorna
-// `true`/`false`, gränserna decimaltal, `decimals` ett heltal och `kind`
-// enumet med sitt prefix. `{}` är en tom rad. ATOMISKT: `ut` fylls först när
-// hela literalen gått igenom — samma fältlambda delas av raden och listan.
-const char* const kRadFält[] = {"name",     "value",    "choices", "readOnly",
-                                "tag",      "kind",     "min",     "max",
-                                "decimals", "prefix",   "suffix",  "allowAlpha",
-                                "toolTip",  "enabled",  "expanded"};
+// `glaze::tr(N)`, tokenet bevaras), `choices` en strikt stränglista,
+// `choiceIcons` en lista av bilder (`parseBildKällor` — varje `argImg`s form),
+// flaggorna `true`/`false`, gränserna decimaltal, `decimals` ett heltal och
+// `kind` och `colorDisplay` enumen med sina prefix. `{}` är en tom rad. ATOMISKT: `ut` fylls först
+// när hela literalen gått igenom — samma fältlambda delas av raden och listan.
+bool parseBildKällor(const std::string& v, std::vector<glaze::ImageSource>& ut);
+
+const char* const kRadFält[] = {"name",       "value",     "choices",
+                                "readOnly",   "tag",       "kind",
+                                "min",        "max",       "decimals",
+                                "prefix",     "suffix",    "allowAlpha",
+                                "toolTip",    "enabled",   "expanded",
+                                "allowEmpty", "emptyText", "choiceIcons",
+                                "colorDisplay"};
 
 bool radFält(glaze::PropertyGrid::Row& r, std::size_t k, const std::string& val)
 {
@@ -1108,7 +1138,11 @@ bool radFält(glaze::PropertyGrid::Row& r, std::size_t k, const std::string& val
     case 11: return argFlagga({val}, 0, r.allowAlpha);
     case 12: return argText({val}, 0, r.toolTip);
     case 13: return argFlagga({val}, 0, r.enabled);
-    default: return argFlagga({val}, 0, r.expanded);
+    case 14: return argFlagga({val}, 0, r.expanded);
+    case 15: return argFlagga({val}, 0, r.allowEmpty);
+    case 16: return argStr({val}, 0, r.emptyText);
+    case 17: return parseBildKällor(val, r.choiceIcons);
+    default: return argColorDisplay({val}, 0, r.colorDisplay);
     }
 }
 
@@ -1116,6 +1150,44 @@ bool parsePropertyRow(const std::string& v, glaze::PropertyGrid::Row& ut)
 {
     return parseAggregat(v, {"glaze::PropertyGrid::Row"}, kRadFält, false, ut,
                          radFält);
+}
+
+// DATAGRIDDENS REDIGERARE MED SINA VAL — aggregatet
+// `glaze::DataGrid::EditorSpec` i egenskapsradens form: typnamnet eller bara
+// `{…}`, POSITIONELLT eller DESIGNERAT med de tretton namnen i
+// DEKLARATIONSORDNING (`{.editor = glaze::DataGrid::Editor::Number, .min = 0,
+// .max = 100, .suffix = "%"}`, `{glaze::DataGrid::Editor::Choice, {"Hel",
+// "Streckad"}}`). Redigeraren är `argEditor`s enum, visningen
+// `argColorDisplay`s, valen en strikt
+// stränglista, ikonerna `parseBildKällor`s lista, gränserna decimaltal,
+// `decimals` ett heltal, texterna strängliteraler och flaggorna
+// `true`/`false`. `{}` är fritextens förval. ATOMISKT, `parsePropertyRow`s
+// familj.
+bool parseEditorSpec(const std::string& v, glaze::DataGrid::EditorSpec& ut)
+{
+    static const char* const kFält[] = {
+        "editor", "choices", "choiceIcons", "min",        "max",       "decimals",
+        "prefix", "suffix",  "allowAlpha",  "allowEmpty", "emptyText",
+        "colorDisplay", "readOnly"};
+    return parseAggregat(
+        v, {"glaze::DataGrid::EditorSpec"}, kFält, false, ut,
+        [](glaze::DataGrid::EditorSpec& s, std::size_t k, const std::string& val) {
+            switch (k) {
+            case 0:  return argEditor({val}, 0, s.editor);
+            case 1:  return bld::parseStringList(trimma(val), s.choices);
+            case 2:  return parseBildKällor(val, s.choiceIcons);
+            case 3:  return argDecimal({val}, 0, s.min);
+            case 4:  return argDecimal({val}, 0, s.max);
+            case 5:  return argInt({val}, 0, s.decimals);
+            case 6:  return argStr({val}, 0, s.prefix);
+            case 7:  return argStr({val}, 0, s.suffix);
+            case 8:  return argFlagga({val}, 0, s.allowAlpha);
+            case 9:  return argFlagga({val}, 0, s.allowEmpty);
+            case 10: return argStr({val}, 0, s.emptyText);
+            case 11: return argColorDisplay({val}, 0, s.colorDisplay);
+            default: return argFlagga({val}, 0, s.readOnly);
+            }
+        });
 }
 
 // `{{"Bredd", "120"}, {.name = "Synlig", .value = "true", .kind = …}}` →
@@ -1129,64 +1201,68 @@ bool parsePropertyRows(const std::string& v,
                               radFält);
 }
 
-// `{{"Namn", 160}, {"Storlek", 70, glaze::Align::Right}}` → kolumnerna.
-// Aggregatet `glaze::ColumnPanel::Column` (tabellens och trädets —
-// `glaze::Table::Column` är samma typ) i FÄLTORDNING (rubrik, bredd,
-// justering, rubrikens justering) med 1–4 fält, precis som C++
-// tillåter. Rubriken är en strängliteral ELLER `glaze::tr(N)` (tokenet
-// bevaras; `\n` i literalen är en radbrytning i rubriken). ATOMISKT: `ut`
-// fylls först när hela literalen gått igenom — `parsePropertyRows`s familj.
+// `{{"Namn", 160}, {.text = "Kommentar", .sizing =
+// glaze::ColumnSizing::Autosize}}` → kolumnerna. Aggregatet
+// `glaze::ColumnPanel::Column` (tabellens och trädets — genom ättlingarna
+// `glaze::Table::Column`, `glaze::ListView::Column`, `glaze::DataGrid::Column`
+// och `glaze::TreeView::Column` samma typ) i den form C++ tar: typnamnet eller
+// bara `{…}`, POSITIONELLT i fältordningen (rubrik, bredd, justering,
+// rubrikens justering, läge, tooltip, rubrikkryss — 1–7 fält) eller DESIGNERAT
+// i deklarationsordning (`aggregatFält`). Rubriken och tooltipen är en
+// strängliteral ELLER `glaze::tr(N)` (tokenet bevaras; `\n` i literalen är en
+// radbrytning i rubriken), bredden ett mått, justeringarna `argJustering`s och
+// `argRubrikJustering`s former, läget `argSizing`s och krysset `true`/`false`.
+// `{}` är en tom lista. ATOMISKT, `parseTableRowsLiteral`s familj.
 bool parseColumnsLiteral(const std::string& v,
                          std::vector<glaze::ColumnPanel::Column>& ut)
 {
-    std::string inre;
-    if (!skalaKlammer(v, inre))
-        return false;
-    std::vector<std::string> texter;
-    if (!delaKlammer(inre, texter))
-        return false;
-    std::vector<glaze::ColumnPanel::Column> kolumner;
-    kolumner.reserve(texter.size());
-    for (const std::string& kt : texter) {
-        std::string kInre;
-        if (!skalaKlammer(kt, kInre))
-            return false;
-        std::vector<std::string> fält;
-        if (!delaKlammer(kInre, fält) || fält.empty() || fält.size() > 4)
-            return false;
-        glaze::ColumnPanel::Column k;
-        if (!argText(fält, 0, k.text) ||
-            (fält.size() > 1 && !argKolumnBredd(fält, 1, k.width)) ||
-            (fält.size() > 2 && !argJustering(fält, 2, k.align)) ||
-            (fält.size() > 3 && !argRubrikJustering(fält, 3, k.headerAlign)))
-            return false;
-        kolumner.push_back(std::move(k));
-    }
-    ut = std::move(kolumner);
-    return true;
+    static const char* const kFält[] = {"text",   "width",   "align",
+                                        "headerAlign", "sizing", "toolTip",
+                                        "headerCheck"};
+    return parseAggregatLista(
+        v, {},
+        {"glaze::ColumnPanel::Column", "glaze::Table::Column",
+         "glaze::ListView::Column", "glaze::DataGrid::Column",
+         "glaze::TreeView::Column"},
+        kFält, true, ut,
+        [](glaze::ColumnPanel::Column& k, std::size_t f, const std::string& val) {
+            switch (f) {
+            case 0:  return argText({val}, 0, k.text);
+            case 1:  return argMått({val}, 0, k.width);
+            case 2:  return argJustering({val}, 0, k.align);
+            case 3:  return argRubrikJustering({val}, 0, k.headerAlign);
+            case 4:  return argSizing({val}, 0, k.sizing);
+            case 5:  return argText({val}, 0, k.toolTip);
+            default: return argFlagga({val}, 0, k.headerCheck);
+            }
+        });
 }
 
 // `{{{"a.txt", "12 kB"}}, {{"b.png"}, glaze::img("fil", "bild")}}` →
 // raderna. Aggregatet `glaze::Table::Row` i den form C++ tar — typnamnet
 // (`glaze::Table::Row`, eller genom ättlingen `glaze::ListView::Row`/
 // `glaze::DataGrid::Row`) eller bara `{…}`, POSITIONELLT i fältordningen
-// (celler, bild, färg — 0–3 fält) eller
-// DESIGNERAT i deklarationsordning (`{.cells = {"a"}, .color = gfx::Color{0,
-// 140, 0}}`, `aggregatFält`). Cellerna är `parseStringList`s strikta
-// listform, bilden `argImg`s två former och färgen `argValfriFärg`s tre.
+// (celler, bild, färg, slag, fällning — 0–5 fält) eller
+// DESIGNERAT i deklarationsordning (`{.cells = {"Bilder"}, .kind =
+// glaze::ListView::RowKind::Category}`, `aggregatFält`). Cellerna är
+// `parseStringList`s strikta listform, bilden `argImg`s former, färgen
+// `argValfriFärg`s tre, slaget `argRowKind`s och fällningen `true`/`false`.
 // `{}` är en tom rad, och en tom lista inga rader.
 bool parseTableRowsLiteral(const std::string& v,
                            std::vector<glaze::Table::Row>& ut)
 {
-    static const char* const kFält[] = {"cells", "img", "color"};
+    static const char* const kFält[] = {"cells", "img", "color", "kind",
+                                        "expanded"};
     return parseAggregatLista(
         v, {}, {"glaze::Table::Row", "glaze::ListView::Row", "glaze::DataGrid::Row"},
         kFält, false, ut,
         [](glaze::Table::Row& r, std::size_t k, const std::string& val) {
             switch (k) {
-            case 0: return bld::parseStringList(trimma(val), r.cells);
-            case 1: return argImg(val, r.img);
-            default: return argValfriFärg({val}, 0, r.color);
+            case 0:  return bld::parseStringList(trimma(val), r.cells);
+            case 1:  return argImg(val, r.img);
+            case 2:  return argValfriFärg({val}, 0, r.color);
+            case 3:  return argRowKind({val}, 0, r.kind);
+            default: return argFlagga({val}, 0, r.expanded);
             }
         });
 }
@@ -3493,6 +3569,29 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
         // tillståndssättarna `setRowEnabled(index, på)` / `setExpanded(index,
         // på)` ett index och en flagga.
         const std::string& mm = call.method;
+        // KOLUMNERNA — 0 namnet, 1 värdet: bredden (`setColumnWidth(0,
+        // 120)`, ett mått) och läget (`setColumnSizing(1,
+        // glaze::ColumnSizing::AutoMin)`), tabellernas ord och former.
+        if (mm == "setColumnWidth" || mm == "setColumnSizing") {
+            const std::vector<std::string> a      = delaArgument(call.args);
+            int                            kolumn = 0;
+            float                          bredd  = 0.0f;
+            glaze::ColumnSizing            läge   = glaze::ColumnSizing::Manual;
+            const bool ok = a.size() == 2 && argInt(a, 0, kolumn) &&
+                            (mm == "setColumnWidth" ? argMått(a, 1, bredd)
+                                                    : argSizing(a, 1, läge));
+            if (!ok) {
+                gfx::log("%s(%s): opak %s-rad (argumenten avkodas inte, "
+                         "gridden lämnas ORÖRD)", origin, w.name.c_str(),
+                         mm.c_str());
+                return false;
+            }
+            if (mm == "setColumnWidth")
+                pg->setColumnWidth(kolumn, bredd);
+            else
+                pg->setColumnSizing(kolumn, läge);
+            return true;
+        }
         if (mm == "addRow" || mm == "setRow" || mm == "setRowEnabled" ||
             mm == "setExpanded") {
             std::vector<std::string> a = delaArgument(call.args);
@@ -3525,17 +3624,23 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
         }
     }
 
-    // ListBox och Dropdown bär IDENTISK form — en gren, två typer.
+    // ListBox och Dropdown bär samma form — en gren, två typer; Dropdownens
+    // post tar dessutom en valfri IKON sist (`addItem("Streckad",
+    // glaze::img("linjer", "streckad"))`, `argImg`s former).
     {
         auto* lb = dynamic_cast<glaze::ListBox*>(&w);
         auto* dd = dynamic_cast<glaze::Dropdown*>(&w);
         if (lb || dd) {
             std::vector<std::string> a = delaArgument(call.args);
             std::string              text;
+            glaze::ImageSource       ikon{};
+            // Ikonens argument: bara Dropdownens post har ett.
+            const std::size_t ikonPlats = dd ? 1u : 0u;
             if (call.method == "addItem") {
-                if (a.size() == 1 && argStr(a, 0, text)) {
+                if (a.size() >= 1 && a.size() <= 1 + ikonPlats &&
+                    argStr(a, 0, text) && (a.size() < 2 || argImg(a[1], ikon))) {
                     if (lb) lb->addItem(std::move(text));
-                    else    dd->addItem(std::move(text));
+                    else    dd->addItem(std::move(text), std::move(ikon));
                     return true;
                 }
                 gfx::log("%s(%s): opak addItem-rad (argumenten avkodas "
@@ -3544,10 +3649,11 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
             }
             if (call.method == "setItem") {
                 int index = 0;
-                if (a.size() == 2 && argInt(a, 0, index) &&
-                    argStr(a, 1, text)) {
+                if (a.size() >= 2 && a.size() <= 2 + ikonPlats &&
+                    argInt(a, 0, index) && argStr(a, 1, text) &&
+                    (a.size() < 3 || argImg(a[2], ikon))) {
                     if (lb) lb->setItem(index, std::move(text));
-                    else    dd->setItem(index, std::move(text));
+                    else    dd->setItem(index, std::move(text), std::move(ikon));
                     return true;
                 }
                 gfx::log("%s(%s): opak setItem-rad (argumenten avkodas "
@@ -3877,8 +3983,10 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
 
     // KOLUMNERNA — tabellens (ListView, DataGrid) och
     // trädets, ur den delade basen `glaze::ColumnPanel`: kollektionsvokabulären
-    // `addColumn`/`setColumn`/`setColumns` och bredden ensam
-    // (`setColumnWidth`). ATOMISKT som resten av `applyCall`: exakt
+    // `addColumn`/`setColumn`/`setColumns` (med läget som femte argument),
+    // och bredden, läget, rubrikens tooltip och rubrikkrysset ensamma
+    // (`setColumnWidth`/`setColumnSizing`/`setColumnToolTip`/
+    // `setColumnHeaderCheck`). ATOMISKT som resten av `applyCall`: exakt
     // argumentantal, allt parsat till temporärer, och listan muteras först när
     // allt lyckats — annars logg + `false` ⇒ OPAK rad. Ett index UTANFÖR
     // kolumnerna är däremot widgetens eget logg + no-op.
@@ -3886,7 +3994,8 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
         const std::string& mm       = call.method;
         const bool         ärKolumn =
             mm == "addColumn" || mm == "setColumn" || mm == "setColumns" ||
-            mm == "setColumnWidth";
+            mm == "setColumnWidth" || mm == "setColumnSizing" ||
+            mm == "setColumnToolTip" || mm == "setColumnHeaderCheck";
         if (ärKolumn) {
             std::vector<std::string>                a = delaArgument(call.args);
             int                                     index = 0;
@@ -3894,23 +4003,35 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
             float                                   bredd = 0.0f;
             glaze::Align                            just  = glaze::Align::Left;
             std::optional<glaze::Align>             rubrikJust;
+            glaze::ColumnSizing                     läge = glaze::ColumnSizing::Manual;
+            bool                                    på   = false;
             std::vector<glaze::ColumnPanel::Column> kolumner;
             bool                                    ok = false;
 
             if (mm == "addColumn" || mm == "setColumn") {
                 const std::size_t bas = mm == "setColumn" ? 1u : 0u;
-                ok = a.size() >= bas + 1 && a.size() <= bas + 4 &&
+                ok = a.size() >= bas + 1 && a.size() <= bas + 5 &&
                      (bas == 0 || argInt(a, 0, index)) &&
                      argText(a, bas, rubrik) &&
-                     (a.size() <= bas + 1 || argKolumnBredd(a, bas + 1, bredd)) &&
+                     (a.size() <= bas + 1 || argMått(a, bas + 1, bredd)) &&
                      (a.size() <= bas + 2 || argJustering(a, bas + 2, just)) &&
                      (a.size() <= bas + 3 ||
-                      argRubrikJustering(a, bas + 3, rubrikJust));
+                      argRubrikJustering(a, bas + 3, rubrikJust)) &&
+                     (a.size() <= bas + 4 || argSizing(a, bas + 4, läge));
             } else if (mm == "setColumns") {
                 ok = parseColumnsLiteral(call.args, kolumner);
-            } else {   // setColumnWidth
+            } else if (mm == "setColumnWidth") {
                 ok = a.size() == 2 && argInt(a, 0, index) &&
-                     argKolumnBredd(a, 1, bredd);
+                     argMått(a, 1, bredd);
+            } else if (mm == "setColumnSizing") {
+                ok = a.size() == 2 && argInt(a, 0, index) &&
+                     argSizing(a, 1, läge);
+            } else if (mm == "setColumnToolTip") {
+                ok = a.size() == 2 && argInt(a, 0, index) &&
+                     argText(a, 1, rubrik);
+            } else {   // setColumnHeaderCheck
+                ok = a.size() == 2 && argInt(a, 0, index) &&
+                     argFlagga(a, 1, på);
             }
 
             if (!ok) {
@@ -3920,14 +4041,20 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
                 return false;
             }
             if (mm == "addColumn")
-                kp->addColumn(std::move(rubrik), bredd, just, rubrikJust);
+                kp->addColumn(std::move(rubrik), bredd, just, rubrikJust, läge);
             else if (mm == "setColumn")
                 kp->setColumn(index, std::move(rubrik), bredd, just,
-                              rubrikJust);
+                              rubrikJust, läge);
             else if (mm == "setColumns")
                 kp->setColumns(std::move(kolumner));
-            else
+            else if (mm == "setColumnWidth")
                 kp->setColumnWidth(index, bredd);
+            else if (mm == "setColumnSizing")
+                kp->setColumnSizing(index, läge);
+            else if (mm == "setColumnToolTip")
+                kp->setColumnToolTip(index, std::move(rubrik));
+            else
+                kp->setColumnHeaderCheck(index, på);
             return true;
         }
     }
@@ -3939,16 +4066,22 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
     // radens textfärg: `setRowColor(index, färg)` och ett
     // valfritt tredje argument till `addRow`/`setRow`, avkodade av
     // `argValfriFärg` — och cellens: `setCellColor(rad, kolumn,
-    // bakgrund, text)`, två valfria färger. ATOMISKT som resten av
-    // `applyCall`: exakt argumentantal, allt parsat till temporärer, och
-    // tabellen muteras först när allt lyckats — annars logg + `false` ⇒ OPAK
-    // rad. Ett index UTANFÖR tabellen är däremot widgetens eget logg + no-op.
+    // bakgrund, text)`, två valfria färger — och radens slag och fällning
+    // (`setRowKind(rad, glaze::Table::RowKind::Category)`, `setExpanded(rad,
+    // på)`) och cellens bild (`setCellImage(rad, kolumn, bild)`) — och
+    // borttagningen, `removeRow(index)`, som flyttar raderna efter ett index
+    // upp. ATOMISKT som
+    // resten av `applyCall`: exakt argumentantal, allt parsat till temporärer,
+    // och tabellen muteras först när allt lyckats — annars logg + `false` ⇒
+    // OPAK rad. Ett index UTANFÖR tabellen är däremot widgetens eget logg +
+    // no-op.
     if (auto* tb = dynamic_cast<glaze::Table*>(&w)) {
         const std::string& mm       = call.method;
         const bool         ärTabell =
             mm == "addRow" || mm == "setRow" || mm == "setRows" ||
             mm == "setCell" || mm == "setSortKey" || mm == "setRowColor" ||
-            mm == "setCellColor";
+            mm == "setCellColor" || mm == "setRowKind" ||
+            mm == "setExpanded" || mm == "setCellImage" || mm == "removeRow";
         if (ärTabell) {
             std::vector<std::string>       a = delaArgument(call.args);
             int                            index = 0, kolumn = 0;
@@ -3958,6 +4091,8 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
             std::vector<glaze::Table::Row> rader;
             std::string                    text;
             double                         nyckel = 0.0;
+            glaze::Table::RowKind          slag   = glaze::Table::RowKind::Data;
+            bool                           på     = false;
             bool                           ok     = false;
 
             if (mm == "addRow" || mm == "setRow") {
@@ -3979,6 +4114,17 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
             } else if (mm == "setCell") {
                 ok = a.size() == 3 && argInt(a, 0, index) &&
                      argInt(a, 1, kolumn) && argStr(a, 2, text);
+            } else if (mm == "setRowKind") {
+                ok = a.size() == 2 && argInt(a, 0, index) &&
+                     argRowKind(a, 1, slag);
+            } else if (mm == "setExpanded") {
+                ok = a.size() == 2 && argInt(a, 0, index) &&
+                     argFlagga(a, 1, på);
+            } else if (mm == "setCellImage") {
+                ok = a.size() == 3 && argInt(a, 0, index) &&
+                     argInt(a, 1, kolumn) && argImg(a[2], bild);
+            } else if (mm == "removeRow") {
+                ok = a.size() == 1 && argInt(a, 0, index);
             } else {   // setSortKey
                 ok = a.size() == 3 && argInt(a, 0, index) &&
                      argInt(a, 1, kolumn) && argDecimal(a, 2, nyckel);
@@ -3989,6 +4135,22 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
                          "tabellen lämnas ORÖRD)", origin, w.name.c_str(),
                          mm.c_str());
                 return false;
+            }
+            if (mm == "setRowKind") {
+                tb->setRowKind(index, slag);
+                return true;
+            }
+            if (mm == "setExpanded") {
+                tb->setExpanded(index, på);
+                return true;
+            }
+            if (mm == "setCellImage") {
+                tb->setCellImage(index, kolumn, std::move(bild));
+                return true;
+            }
+            if (mm == "removeRow") {
+                tb->removeRow(index);
+                return true;
             }
             if (mm == "addRow")
                 tb->addRow(std::move(celler), bild, färg);
@@ -4017,27 +4179,38 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
         if (const auto r = applyRowSelectionCall<true>(*lv, call, origin, w.name))
             return *r;
 
-    // DATAGRIDDENS KOLUMNTYP och AKTUELLA CELL. Kolumntypen hör
-    // till INDEXET (`setColumnEditor(1, glaze::DataGrid::Editor::Choice)`,
-    // valen som strikt strängliste-literal) och cellen är två heltal.
-    // Samma atomiska form som tabellgrenen: allt parsat till temporärer,
-    // annars logg + `false` ⇒ OPAK rad; ett index utanför är widgetens
-    // eget logg + no-op.
+    // DATAGRIDDENS REDIGERARE, CELLER och AKTUELLA CELL. Kolumnens
+    // redigerare hör till INDEXET och bär sina val i aggregatet
+    // (`setColumnEditor(2, {.editor = glaze::DataGrid::Editor::Number, .max =
+    // 100})`, `parseEditorSpec`); cellens egen likadant med rad och kolumn
+    // först (`setCellEditor`), och `clearCellEditor`/`setCellEnabled`/
+    // `setCellToolTip` tar rad, kolumn och (utom den första) en flagga
+    // respektive en text. Den aktuella cellen är två heltal. Samma atomiska
+    // form som tabellgrenen: allt parsat till temporärer, annars logg +
+    // `false` ⇒ OPAK rad; ett index utanför är widgetens eget logg + no-op.
     if (auto* dg = dynamic_cast<glaze::DataGrid*>(&w)) {
         const std::string& mm = call.method;
-        if (mm == "setColumnEditor" || mm == "setColumnChoices" ||
-            mm == "setCurrentCell") {
-            std::vector<std::string> a      = delaArgument(call.args);
-            int                      kolumn = 0, rad = 0;
-            glaze::DataGrid::Editor  typ    = glaze::DataGrid::Editor::Text;
-            std::vector<std::string> val;
-            bool                     ok = false;
+        if (mm == "setColumnEditor" || mm == "setCellEditor" ||
+            mm == "clearCellEditor" || mm == "setCellEnabled" ||
+            mm == "setCellToolTip" || mm == "setCurrentCell") {
+            std::vector<std::string>    a      = delaArgument(call.args);
+            int                         kolumn = 0, rad = 0;
+            glaze::DataGrid::EditorSpec spec;
+            glaze::TrText               tips;
+            bool                        på = false;
+            bool                        ok = false;
             if (mm == "setColumnEditor")
                 ok = a.size() == 2 && argInt(a, 0, kolumn) &&
-                     argEditor(a, 1, typ);
-            else if (mm == "setColumnChoices")
-                ok = a.size() == 2 && argInt(a, 0, kolumn) &&
-                     bld::parseStringList(trimma(a[1]), val);
+                     parseEditorSpec(a[1], spec);
+            else if (mm == "setCellEditor")
+                ok = a.size() == 3 && argInt(a, 0, rad) && argInt(a, 1, kolumn) &&
+                     parseEditorSpec(a[2], spec);
+            else if (mm == "setCellEnabled")
+                ok = a.size() == 3 && argInt(a, 0, rad) && argInt(a, 1, kolumn) &&
+                     argFlagga(a, 2, på);
+            else if (mm == "setCellToolTip")
+                ok = a.size() == 3 && argInt(a, 0, rad) && argInt(a, 1, kolumn) &&
+                     argText(a, 2, tips);
             else
                 ok = a.size() == 2 && argInt(a, 0, rad) &&
                      argInt(a, 1, kolumn);
@@ -4048,9 +4221,15 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
                 return false;
             }
             if (mm == "setColumnEditor")
-                dg->setColumnEditor(kolumn, typ);
-            else if (mm == "setColumnChoices")
-                dg->setColumnChoices(kolumn, std::move(val));
+                dg->setColumnEditor(kolumn, std::move(spec));
+            else if (mm == "setCellEditor")
+                dg->setCellEditor(rad, kolumn, std::move(spec));
+            else if (mm == "clearCellEditor")
+                dg->clearCellEditor(rad, kolumn);
+            else if (mm == "setCellEnabled")
+                dg->setCellEnabled(rad, kolumn, på);
+            else if (mm == "setCellToolTip")
+                dg->setCellToolTip(rad, kolumn, std::move(tips));
             else
                 dg->setCurrentCell(rad, kolumn);
             return true;

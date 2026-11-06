@@ -2432,6 +2432,116 @@ void fallStorIkon()
     ok(fri.appIcon.rowBeside() == nullptr, "inget synligt fält: ingen rad");
 }
 
+// ======================== 24. TABELLENS HÖJD UR RADERNA I LAYOUTEN
+//
+// (a) En Top-DOCKAD listvy med AUTO-huvud (`setHeaderLines(0)`) och en
+// Autosize-kolumn får sin remsa ur BREDDEN: kolumnen tar innehållets bredd,
+// rubriken bryts mot den och huvudets rader blir fler när remsan smalnar — och
+// ett odockat syskon börjar under remsan. Förväntat värde HANDRÄKNAT med fall
+// 20:s text och font: textbredden 400 → 1 rad, 200 → 2, 100 → 4.
+// (b) TRE listvyer staplade med syskonankare i en rullande Panel: var och en
+// är huvudet + raderna + ramen hög, de står efter varandra, och panelens
+// spelrum är summan minus ytan.
+// SABOTAGEN den fäller: en tabell som svarar `nullopt` i `heightForWidth`
+// (a: remsan blir `contentSize`s enradshuvud), `contentSize` utan raderna
+// (b: höjden är huvudet), en höjd som multipliceras med skalan (a och b i
+// skala 2) och en cw utan ramens indrag (a: en rad för lite vid 200).
+namespace {
+
+struct Rullyta final : glaze::Panel {
+    using glaze::Panel::childArea;
+    using glaze::Panel::scrollRange;
+};
+
+} // namespace
+
+void fallTabellHojd()
+{
+    std::printf("\n=== 24. tabellens höjd ur raderna i layouten ===\n");
+
+    const glaze::Style& st  = glaze::defaultStyle(glaze::UI::Slate);
+    const float         ram = 2.0f * st.panelInset;
+    const float         pad = st.listPadX;
+
+    for (float scale : {1.0f, 2.0f}) {
+        BrytFont    f(10.0f * scale, kRadH * scale);
+        const auto  ctx = [&](float w, float h) {
+            return ctxFör(st, f, scale, gfx::Rectf{0, 0, w * scale, h * scale});
+        };
+        const std::string sk =
+            " (skala " + std::to_string(static_cast<int>(scale)) + ")";
+
+        // (a) Top-dockad med AUTO-huvud.
+        {
+            Yta             rot;
+            glaze::ListView t;
+            t.name = "tabell";
+            t.dock = glaze::Dock::Top;
+            t.setHeaderLines(0);
+            t.setColumns({{.text  = kBrytText,
+                           .width = 50.0f,
+                           .sizing = glaze::ColumnSizing::Autosize}});
+            t.setRows({{{"a"}}, {{"b"}}});
+            glaze::Panel lös;
+            lös.anchors = {true, true, true, true};
+            rot.adopt(t);
+            rot.adopt(lös);
+            const struct {
+                float text;
+                int   rader;
+            } fall[] = {{400, 1}, {200, 2}, {100, 4}};
+            for (const auto& k : fall) {
+                const float      bredd = k.text + ram + 2.0f * pad;
+                const glaze::Ctx cc    = barnCtx(rot, ctx(bredd, 400));
+                const float      väntad = st.tableHeaderH +
+                                         float(k.rader - 1) * kRadH +
+                                         2.0f * st.listRowH + ram;
+                const std::string b =
+                    " vid textbredden " + std::to_string(int(k.text)) + sk;
+                okNära(t.resolve(cc).h / scale, väntad,
+                       "(a) Top-dockad: huvudet på " + std::to_string(k.rader) +
+                           " rader + raderna + ramen" + b);
+                okNära(lös.resolve(cc).y / scale, väntad,
+                       "(a) det odockade syskonet börjar under tabellen" + b);
+            }
+        }
+
+        // (b) Tre staplade i en rullande Panel.
+        {
+            Rullyta p;
+            p.anchors = {true, true, true, true};
+            glaze::ListView t[3];
+            const int       rader[3] = {3, 4, 2};
+            const char*     namn[3]  = {"t1", "t2", "t3"};
+            for (int i = 0; i < 3; ++i) {
+                t[i].name    = namn[i];
+                t[i].anchors = {true, true, true, false};
+                t[i].addColumn("A", 100.0f);
+                for (int r = 0; r < rader[i]; ++r)
+                    t[i].addRow({"r" + std::to_string(r)});
+                if (i > 0)
+                    t[i].anchorTop = {namn[i - 1], 8.0f};
+                p.adopt(t[i]);
+            }
+            const glaze::Ctx pc = ctx(300, 200);
+            glaze::Ctx       cc = pc;
+            cc.area             = p.childArea(pc);
+            float y     = 0.0f;
+            for (int i = 0; i < 3; ++i) {
+                const gfx::Rectf r = t[i].resolve(cc);
+                const float      h = st.tableHeaderH +
+                                float(rader[i]) * st.listRowH + ram;
+                const std::string b = " (" + std::string(namn[i]) + ")" + sk;
+                okNära(r.h / scale, h, "(b) höjden ur raderna" + b);
+                okNära(r.y / scale, y, "(b) staplad efter den förra" + b);
+                y += h + 8.0f;
+            }
+            okNära(p.scrollRange(pc).h, (y - 8.0f) - 200.0f,
+                   "(b) panelens spelrum är staplens höjd minus ytan" + sk);
+        }
+    }
+}
+
 int main(int argc, char** argv)
 {
     for (int i = 1; i < argc; ++i)
@@ -2465,6 +2575,7 @@ int main(int argc, char** argv)
     fallExtentMedBredd();
     fallInversBadaHallen();
     fallGruppramRadbrytning();
+    fallTabellHojd();
 
     std::printf("\n%d fall, %d fel\n", g_fall, g_fel);
     return g_fel == 0 ? 0 : 1;

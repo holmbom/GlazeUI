@@ -356,17 +356,10 @@ void CalendarView::draw(const Ctx& c)
     const gfx::Rectf t   = titel(c, b);
 
     // YTAN — dropdownlistans och färgväljarens popup: en yta man läser i,
-    // fyrkantig (popupen är opak).
-    switch (c.ui) {
-    case UI::Glaze:
-    case UI::Minimalistic:
-        Draw::rect(c, b, 0.0f, col.panel, Pen{col.buttonBorder, m.borderWidth});
-        break;
-    case UI::Slate:
-    default:
-        Draw::rect(c, b, 0.0f, col.panel, Pen{col.border, m.borderWidth});
-        break;
-    }
+    // fyrkantig (popupen är opak), med kontrollkanten `buttonBorder` i alla
+    // tre familjerna: popupen är ett eget fönster utan skugga, och en
+    // hårlinje syntes inte mot en yta i samma färg bakom den.
+    Draw::rect(c, b, 0.0f, col.panel, Pen{col.buttonBorder, m.borderWidth});
 
     // TITELRADEN — läget i ord: månaden på språket och året, året, eller
     // decenniet. Titeln är en KNAPP upp till nästa läge (inte i det översta),

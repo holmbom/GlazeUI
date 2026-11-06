@@ -85,13 +85,19 @@
 //                 raden bär dessutom `choices`, `readOnly` och `tag`, och
 //                 `addRow({…})`/`setRow(i, {…})` tar samma `Row`-aggregat
 //                 positionellt eller DESIGNERAT (`.name = …, .kind =
-//                 glaze::PropertyGrid::Kind::Check, .toolTip = …`) — rubrik,
-//                 kryssruta, färg med alfa och tal med gränser, prefix och
-//                 suffix — och `setExpanded(i, på)`/`setRowEnabled(i, på)`
-//                 är tillståndssatserna. Satserna är MEDVETET varvade med
-//                 en OKÄND metod (`grid.setScroll(0, 0)` — riktig
+//                 glaze::PropertyGrid::Kind::Check, .toolTip = …`) — kategori,
+//                 kryssruta, färg med alfa, tal med gränser, prefix och
+//                 suffix, ett valfritt tal (`.allowEmpty`, `.emptyText`) och
+//                 en vallista med ikoner (`.choiceIcons`) — och
+//                 `setExpanded(i, på)`/`setRowEnabled(i, på)` är
+//                 tillståndssatserna; kolumnerna tar `setColumnWidth(0, 140)`
+//                 och `setColumnSizing(1, glaze::ColumnSizing::AutoMin)`, och
+//                 `grid.onExpand` KORT och `grid.onCollapse` FULL (med
+//                 `glaze::RowArgs`) är fällningens events. `dd.addItem`/
+//                 `setItem` bär postens ikon sist. Satserna är MEDVETET varvade
+//                 med en OKÄND metod (`grid.setScroll(0, 0)` — riktig
 //                 Panel-metod som `applyCall` inte känner) och med en Prop
-//                 (`setNameWidth`), så byte-identiteten grindar den
+//                 (`setBorder`), så byte-identiteten grindar den
 //                 RELATIVA ORDNINGEN och inte bara nodklassningen (regel 4)
 //   lista.setChecked  KOLLISIONEN: `setChecked` heter likadant på
 //                 Checkbox/Radio med ETT bool-argument. Settertabellen är inte
@@ -272,6 +278,15 @@
 //               setter-fält och `setChecked(1, true)` en Call-sats (två
 //               argument, som ListBoxens) — SIST, efter `setRows`, som nollar
 //               kryssen — och `tabell.onCheck` KORT är listvyns event.
+//               KOLUMNLÄGENA OCH RADSLAGEN: `setColumnSizing` (Autosize och
+//               AutoMin), `setColumnToolTip` (literal och `glaze::tr`),
+//               `setColumnHeaderCheck` och `addColumn` med läget som FEMTE
+//               argument; en kategorirad och en tom rad ur `addRow` +
+//               `setRowKind` (genom `glaze::ListView::RowKind` och
+//               `glaze::Table::RowKind`), `setExpanded(rad, på)`,
+//               `setCellImage` och `tabell.onCollapse` KORT.
+//               BORTTAGNINGEN: `removeRow(3)` SIST tar bort raden "d", och
+//               kategorin och tomraden flyttar upp ett index.
 //   falt        COMMIT, FOKUS OCH MARKERING: `selectAll()` och
 //               `setSelection(0, 2)` är anrop som previewn KÄNNER (de sätter
 //               markeringen, som inte syns utan fokus), och de fyra
@@ -355,6 +370,13 @@
 //               då inte skilja), `rutnat` med datagriddens radval
 //               (`setSelectionMode(glaze::DataGrid::SelectionMode::FullRow)`,
 //               `setMultiSelect`, `setSelected`) och `onSelectionChange` KORT,
+//               radslagen i `setRows`-literalen (designerat och
+//               positionellt), redigerarna (`setColumnEditor` med
+//               `EditorSpec` designerat, positionellt med ikoner och för
+//               Color/Button; `setCellEditor` med och utan typnamn,
+//               `clearCellEditor`, `setCellEnabled`, `setCellToolTip`), de två
+//               setter-fälten `setEditOnClick`/`setMultiEdit`, `onCellClick`
+//               KORT och `onExpand` FULL (med `glaze::RowArgs`),
 //               `alfa` med `setColor("#RRGGBBAA")` FÖRE `setAllowAlpha(true)`
 //               (läsningens regel), `tid` med `setShowTime(true)` och
 //               `setTime(14, 30)`, och statusradens fält — `setPanels` med en
