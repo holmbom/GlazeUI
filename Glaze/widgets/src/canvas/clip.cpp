@@ -29,6 +29,31 @@ constexpr int kMaskStep  = 16;
 // kamera över en hel värld får inte ge en gigantisk bild.
 constexpr double kMaxWorldMaskPx = 4096.0;
 
+// Världsmaskens RUTA i maskpx: när klippets låda inte ryms i taket täcker
+// masken den synliga marken i hela rutor, så den byggs om först när marken
+// når en ny ruta.
+constexpr double kWorldTile = 256.0;
+
+// Hur många gånger världsmaskens täthet halveras innan gittret ger upp.
+constexpr int kMaxDensitySteps = 64;
+
+// En OKTAV i tätheten: världsmaskens täthet halveras med den när det som
+// behövs inte ryms, och ett gitter som står kvar godtas så länge dess täthet
+// ligger inom en oktav åt båda hållen från den som behövs.
+constexpr double kDensityOctave = 2.0;
+
+// Världsmaskens marginal för avrundningen till hela maskpx: gittrets början
+// avrundas nedåt och slutet uppåt, högst en maskpx var.
+constexpr double kLatticeSlackPx = 2.0;
+
+// Maskens STORLEKSKLASS: steget är tvåpotensen under måttet delad med detta —
+// en mask blir högst en åttondel större än det den behöver.
+constexpr int kSizeClassDivisor = 8;
+
+// Ett HÅLS GOLV mot ögats plan, som multipel av ytterringens: hålet klipps
+// längre från ögat, så att dess klippkant aldrig når ytterringens.
+constexpr double kHoleFloorFactor = 2.0;
+
 // En världsmask i 2D får ha högst så många gånger ritytans px — en större
 // låda vid den tätheten ritas med en skärmmask (clip.h).
 constexpr double kMaxWorldMaskShare = 4.0;
@@ -133,27 +158,38 @@ bool plainArea(const Polygon& p, ClipArea& out)
     return true;
 }
 
-// Ringen genom kameran till målets px: i det HOMOGENA klippt mot ögats plan
-// (W ≥ kNearW × ringens största W — en punkt bakom ögat har ingen bild) och
-// sedan delad med W. Tom när hela ringen ligger bakom ögat.
-void projectRing(const Projection& proj, const ClipRing& in, ClipRing& out)
+// Ringens största W genom kameran — ögats avstånd längs blicken. W är affin i
+// planet, så ett håls största W är aldrig större än dess ytterrings.
+double ringMaxW(const Projection& proj, const ClipRing& in)
+{
+    double maxW = 0.0;
+    for (const gfx::Point2d& p : in) {
+        double c[4];
+        proj.clip(p.x, p.y, 0.0, c);
+        maxW = std::max(maxW, c[3]);
+    }
+    return maxW;
+}
+
+// Ringen genom kameran till målets px: i det HOMOGENA klippt mot planet
+// W = `golv` (en punkt bakom ögat har ingen bild) och sedan delad med W. Tom
+// när hela ringen ligger bakom golvet.
+void projectRing(const Projection& proj, const ClipRing& in, double golv,
+                 ClipRing& out)
 {
     struct Hom {
         double x, y, w;
     };
     std::vector<Hom> h;
     h.reserve(in.size());
-    double maxW = 0.0;
     for (const gfx::Point2d& p : in) {
         double c[4];
         proj.clip(p.x, p.y, 0.0, c);
         h.push_back(Hom{c[0], c[1], c[3]});
-        maxW = std::max(maxW, c[3]);
     }
     out.clear();
-    if (!(maxW > 0.0))
+    if (!(golv > 0.0))
         return;
-    const double golv = maxW * kNearW;
     for (std::size_t i = 0, n = h.size(); i < n; ++i) {
         const Hom&   u  = h[i];
         const Hom&   v  = h[(i + 1) % n];
@@ -224,6 +260,25 @@ int roundUp(int v, int step)
     return (v + step - 1) / step * step;
 }
 
+} // namespace
+
+// MÅTTETS STORLEKSKLASS (clip.h).
+int sizeClassStep(int v)
+{
+    int pot = kMaskStep;
+    while (pot * 2 <= v && pot < kMaxMaskPx)
+        pot *= 2;
+    return std::max(kMaskStep, pot / kSizeClassDivisor);
+}
+
+int sizeClass(int v)
+{
+    const int q = roundUp(v, sizeClassStep(v));
+    return q <= kMaxMaskPx ? q : v;
+}
+
+namespace {
+
 // Rutnätet för lådan [x0, x1] × [y0, y1] på gittret `lat`: hela maskpixlar,
 // inom gittrets ruta. false när lådan ligger utanför.
 bool fitGrid(const Bounds& b, const MaskGrid& lat, MaskGrid& out)
@@ -247,13 +302,8 @@ bool fitGrid(const Bounds& b, const MaskGrid& lat, MaskGrid& out)
     out.s  = lat.s;
     out.x0 = lat.x0 + i0 / lat.s;
     out.y0 = lat.y0 + j0 / lat.s;
-    out.w  = i1 - i0;
-    out.h  = j1 - j0;
-    const int qw = roundUp(out.w, kMaskStep), qh = roundUp(out.h, kMaskStep);
-    if (qw <= kMaxMaskPx)
-        out.w = qw;
-    if (qh <= kMaxMaskPx)
-        out.h = qh;
+    out.w  = sizeClass(i1 - i0);
+    out.h  = sizeClass(j1 - j0);
     return true;
 }
 
@@ -366,8 +416,12 @@ bool screenAreas(const PaintContext& f, const ClipPolys& polys,
 
 // Ytorna i världen genom ritningens kamera till målets px (planet z = 0).
 // Det som ligger helt bakom ögat faller bort — en yta utan ytterring ritar
-// ingenting, ett hål som faller bort täcker ingenting. false när en punkt
-// inte är ändlig.
+// ingenting, ett hål som faller bort täcker ingenting. Ytterringen klipps
+// mot W = kNearW × dess största W och hålen mot dubbla det: ett hål som
+// korsar ögats plan tillsammans med ytterringen får då sin klippkant en bit
+// INNANFÖR ytterringens, och ytan förblir en enkel yta med hål (klippkanten
+// ligger långt utanför bilden, så skillnaden syns aldrig). false när en
+// punkt inte är ändlig.
 bool projectedAreas(const PaintContext& f, const ClipPolys& polys,
                     std::vector<ClipArea>& out)
 {
@@ -378,10 +432,11 @@ bool projectedAreas(const PaintContext& f, const ClipPolys& polys,
         ClipArea world;
         if (!plainArea(polys.polys[i], world))
             return false;
-        ClipArea a;
+        ClipArea     a;
+        const double golv = ringMaxW(proj, world[0]) * kNearW;
         for (std::size_t k = 0; k < world.size(); ++k) {
             ClipRing r;
-            projectRing(proj, world[k], r);
+            projectRing(proj, world[k], k == 0 ? golv : kHoleFloorFactor * golv, r);
             if (r.size() >= 3)
                 a.push_back(std::move(r));
             else if (k == 0)
@@ -604,10 +659,11 @@ std::optional<ClipLook> planLook(const PaintContext& f, ClipMasks& pool,
     return out;
 }
 
-// Markytans gitter i 3D-målet: den del av planen z = scenens lägsta..högsta
-// höjd som vyn ser, i en upplösning som följer skärmen (maskpx per världsenhet
-// vid markpunkten längst ner i bilden). false när vyn inte ser någon mark.
-bool worldLimit(const PaintContext& f, MaskGrid& out)
+// Den SYNLIGA MARKEN i 3D-målet: den del av planen z = scenens lägsta..högsta
+// höjd som vyn ser (`syn`), och tätheten som följer skärmen där (`s`, maskpx
+// per världsenhet vid markpunkten längst ner i bilden). false när vyn inte ser
+// någon mark.
+bool visibleGround(const PaintContext& f, Bounds& syn, double& s)
 {
     const gfx::View3D&  v   = *f.view3D;
     double              zlo = 0.0, zhi = 0.0;
@@ -638,44 +694,134 @@ bool worldLimit(const PaintContext& f, MaskGrid& out)
     if (!b.any() || !std::isfinite(b.x0) || !std::isfinite(b.y0) ||
         !std::isfinite(b.x1) || !std::isfinite(b.y1))
         return false;
-    const double ex = b.x1 - b.x0, ey = b.y1 - b.y0;
-    if (!(ex > 0.0) || !(ey > 0.0))
+    if (!(b.x1 > b.x0) || !(b.y1 > b.y0))
         return false;
     const gfx::Rectf& box = v.box;
     const Projection  proj(v);
-    double s = proj.groundScale(box.x + box.w / 2.0, box.y + box.h - 1.0);
+    s = proj.groundScale(box.x + box.w / 2.0, box.y + box.h - 1.0);
     if (!(s > 0.0) || !std::isfinite(s))
         s = f.world.pxPerUnit;
-    s = std::min(s, kMaxWorldMaskPx / std::max(ex, ey));
     if (!(s > 0.0) || !std::isfinite(s))
         return false;
-    out = MaskGrid{b.x0, b.y0, s, std::max(1, static_cast<int>(std::ceil(ex * s))),
-                   std::max(1, static_cast<int>(std::ceil(ey * s)))};
+    syn = b;
     return true;
 }
 
-// VÄRLDSMASKEN i 3D-målet (prismat). Nyckeln är källan och gittrets
-// indata — förälderns gitter, eller vyn, scenens låda och kartans skala som
-// `worldLimit` räknar det ur; masken, dess rutnät och lådan tas ur poolen
-// när de redan finns.
+// Täcker gittret rutan [x0, x1] × [y0, y1]?
+bool covers(const MaskGrid& g, double x0, double y0, double x1, double y1)
+{
+    return g.x0 <= x0 && g.y0 <= y0 && g.x0 + g.w / g.s >= x1 &&
+           g.y0 + g.h / g.s >= y1;
+}
+
+// Spannet [a0, a1] i världen på tätheten s: dess mått i hela maskpx från
+// gittrets början (a0 nedåt till en hel maskpx).
+double latticeSpan(double a0, double a1, double s)
+{
+    return std::ceil((a1 - std::floor(a0 * s) / s) * s);
+}
+
+// Det som behövs, [a0, a1], utvidgat på båda sidor inom budgeten
+// (`kMaxWorldMaskPx` maskpx på tätheten s) i hela rutor om `kWorldTile`, och
+// inom lådan [l0, l1]. Ryms ingen hel ruta på var sida står spannet som det är.
+void widen(double& a0, double& a1, double l0, double l1, double s)
+{
+    const double t   = kWorldTile / s;                          // rutans sida
+    const double rum = (kMaxWorldMaskPx - kLatticeSlackPx) / s - (a1 - a0);   // marginalen
+    const double m   = rum / 2.0 - t;   // en ruta lämnas åt snäppningen per sida
+    if (m <= 0.0)
+        return;
+    a0 = std::max(l0, std::floor((a0 - m) / t) * t);
+    a1 = std::min(l1, std::ceil((a1 + m) / t) * t);
+}
+
+// VÄRLDSMASKENS GITTER utan förälder — oberoende av vyn, så en kamerarörelse
+// inte bygger en ny mask. Tätheten är markskalans tvåpotens uppåt (minst en
+// maskpx per skärmpx längst ner i bilden). Det som BEHÖVS är klippets låda
+// (`lådan`), eller — när den inte ryms i `kMaxWorldMaskPx` per sida — det
+// synliga av den; ryms inte heller det halveras tätheten tills det gör det.
+// Gittret som SENAST användes för klippet (`key`, i poolen) står kvar så
+// länge det täcker det som behövs i en täthet inom en oktav. Ett nytt gitter
+// är lådan, eller det synliga utvidgat runt sin mitt till hela budgeten i
+// rutor om `kWorldTile` maskpx — så att en kamera som rör sig inom det inte
+// ger ett nytt. false när vyn inte ser någon mark eller klippet inte syns.
+bool worldGrid(const PaintContext& f, ClipMasks& pool, std::uint64_t key,
+               const Bounds& lådan, MaskGrid& out)
+{
+    Bounds syn;
+    double s = 0.0;
+    if (!visibleGround(f, syn, s))
+        return false;
+    s = std::exp2(std::ceil(std::log2(s)));
+    for (int varv = 0; varv < kMaxDensitySteps && s > 0.0 && std::isfinite(s); ++varv) {
+        // Det som behövs i den här tätheten.
+        double x0 = lådan.x0, y0 = lådan.y0, x1 = lådan.x1, y1 = lådan.y1;
+        const bool helaLådan = latticeSpan(x0, x1, s) <= kMaxWorldMaskPx &&
+                               latticeSpan(y0, y1, s) <= kMaxWorldMaskPx;
+        if (!helaLådan) {
+            x0 = std::max(x0, syn.x0);
+            y0 = std::max(y0, syn.y0);
+            x1 = std::min(x1, syn.x1);
+            y1 = std::min(y1, syn.y1);
+            if (!(x1 > x0) || !(y1 > y0))
+                return false;   // klippet ligger utanför det synliga
+            if (latticeSpan(x0, x1, s) > kMaxWorldMaskPx ||
+                latticeSpan(y0, y1, s) > kMaxWorldMaskPx) {
+                s /= kDensityOctave;
+                continue;
+            }
+        }
+        // DET SENASTE GITTRET står kvar så länge det räcker.
+        if (const MaskGrid* förra = pool.lastGrid(key);
+            förra && förra->s >= s / kDensityOctave && förra->s <= s * kDensityOctave &&
+            covers(*förra, x0, y0, x1, y1)) {
+            out = *förra;
+            return true;
+        }
+        // Ett nytt: lådan, eller det synliga utvidgat inom budgeten.
+        if (!helaLådan) {
+            widen(x0, x1, lådan.x0, lådan.x1, s);
+            widen(y0, y1, lådan.y0, lådan.y1, s);
+        }
+        const double gx0 = std::floor(x0 * s) / s, gy0 = std::floor(y0 * s) / s;
+        out = MaskGrid{gx0, gy0, s,
+                       sizeClass(std::max(1, static_cast<int>(latticeSpan(x0, x1, s)))),
+                       sizeClass(std::max(1, static_cast<int>(latticeSpan(y0, y1, s))))};
+        pool.rememberGrid(key, out);
+        return true;
+    }
+    return false;
+}
+
+// VÄRLDSMASKEN i 3D-målet (prismat). Nyckeln är källan och GITTRET —
+// förälderns gitter och nyckel, eller det vyoberoende gittret ur
+// `worldGrid` —, så samma klipp på samma gitter är samma mask; masken och dess
+// rutnät tas ur poolen när de redan finns.
 ClipLook worldLook(const PaintContext& f, ClipMasks& pool, const ClipLook& parent,
                    const ClipPolys& polys, std::uint64_t source)
 {
-    KeyHash k;
+    KeyHash  k;
+    MaskGrid lat = parent.wg;
     k.mix(std::uint64_t{2});
     k.mix(source);
     if (parent.world) {
-        mixGrid(k, parent.wg);
         k.mix(parent.wKey);
     } else {
-        mixView(k, *f.view3D);
-        k.mix(f.world.pxPerUnit);
-        if (f.scene)
-            if (const std::optional<Box3> scen = sceneBox(*f.scene, f.view))
-                for (const double v : {scen->min.x, scen->min.y, scen->min.z,
-                                       scen->max.x, scen->max.y, scen->max.z})
-                    k.mix(v);
+        Bounds lådan;
+        if (!polygonBounds(polys, lådan)) {
+            logNotFinite();
+            return emptyWorld(pool, parent);
+        }
+        // Gittret som står kvar hör till klippet OCH vyn: en del-vy ser en
+        // annan mark än huvudvyn.
+        KeyHash fäste;
+        fäste.mix(std::uint64_t{5});
+        fäste.mix(source);
+        fäste.mix(static_cast<std::uint64_t>(static_cast<std::int64_t>(f.view)));
+        if (!lådan.any() || !worldGrid(f, pool, nonZero(fäste.h), lådan, lat))
+            return emptyWorld(pool, parent);   // ingenting av klippet syns
     }
+    mixGrid(k, lat);
     const std::uint64_t key = nonZero(k.h);
     if (const std::optional<ClipMasks::Found> m = pool.find(key))
         return m->answer == ClipMasks::Answer::Mask
@@ -690,9 +836,7 @@ ClipLook worldLook(const PaintContext& f, ClipMasks& pool, const ClipLook& paren
     }
     const Bounds b = boundsOf(areas);
     MaskGrid     g;
-    MaskGrid     lat = parent.wg;
-    if ((!parent.world && !worldLimit(f, lat)) ||   // ingen synlig mark
-        !b.any() || !fitGrid(b, lat, g)) {
+    if (!b.any() || !fitGrid(b, lat, g)) {
         pool.remember(key, ClipMasks::Answer::Empty);
         return emptyWorld(pool, parent);
     }
@@ -704,12 +848,6 @@ ClipLook worldLook(const PaintContext& f, ClipMasks& pool, const ClipLook& paren
             into = std::move(areas);
         });
     return worldPlaced(parent, g, bild, key);
-}
-
-// Samma skärmmask i båda utseendena?
-bool sameScreen(const ClipLook& a, const ClipLook& b)
-{
-    return a.screen == b.screen && a.sKey == b.sKey;
 }
 
 } // namespace
@@ -795,6 +933,7 @@ void ClipMasks::fill(TargetPool::Slot& s, const gfx::Image* parent,
             gfx::log("Canvas: en klippyta går inte att fylla (en självkorsning, "
                      "ett hål utanför ytterringen eller för få punkter) — den "
                      "klipper bort sin del");
+            ++unfilled_;
             continue;
         }
         for (const gfx::FillChunk& c : chunks) {
@@ -864,6 +1003,20 @@ const gfx::Image* ClipMasks::empty()
     return &empty_->image();
 }
 
+const MaskGrid* ClipMasks::lastGrid(std::uint64_t key)
+{
+    const auto it = grids_.find(key);
+    if (it == grids_.end())
+        return nullptr;
+    it->second.used = r_->frameSerial();
+    return &it->second.grid;
+}
+
+void ClipMasks::rememberGrid(std::uint64_t key, const MaskGrid& g)
+{
+    grids_[key] = GridMemo{g, r_->frameSerial()};
+}
+
 bool ClipMasks::valid(std::uint64_t key, const std::function<bool()>& valid)
 {
     const auto [it, ny] = validity_.try_emplace(key);
@@ -877,21 +1030,54 @@ void ClipMasks::trim()
 {
     const std::uint64_t serial = r_->frameSerial();
     targets_.trim(serial);
-    std::erase_if(memos_, [serial](const Memo& m) { return m.used + 2 < serial; });
+    std::erase_if(memos_, [serial](const Memo& m) { return m.used + kKeptFrames < serial; });
     std::erase_if(validity_, [serial](const auto& v) {
-        return v.second.used + 2 < serial;
+        return v.second.used + kKeptFrames < serial;
+    });
+    std::erase_if(grids_, [serial](const auto& g) {
+        return g.second.used + kKeptFrames < serial;
     });
 }
 
 // -------------------------------------------------------------------- klippet
 
-ClipScope refineClip(const PaintContext& f, const ClipScope& parent,
-                     ClipSpace space, const ClipPolys& polys, std::uint64_t source)
+namespace {
+
+// Ett klipp utan ytor: allt bortklippt (aldrig ett oklippt).
+const std::shared_ptr<const ClipSnapshot>& noSurfaces()
+{
+    static const std::shared_ptr<const ClipSnapshot> tom =
+        std::make_shared<const ClipSnapshot>();
+    return tom;
+}
+
+// Kedjans klipp i skärmrymden: förälderns först, sedan stegets ytor som
+// skärmmask — världsklippet projicerat genom vyn.
+ClipLook chainOnScreen(const PaintContext& f, ClipMasks& pool, const ClipStep& step)
+{
+    const ClipLook parent = step.parent ? chainOnScreen(f, pool, *step.parent) : ClipLook{};
+    return screenLook(f, pool, parent, step.space, step.snapshot->polys(), step.source);
+}
+
+} // namespace
+
+ClipLook ClipScope::onScreen(const PaintContext& f) const
+{
+    if (!chain || !f.view3D || !f.res)
+        return flat;
+    return chainOnScreen(f, f.res->clips(), *chain);
+}
+
+ClipScope refineClip(const PaintContext& f, const ClipScope& parent, ClipSpace space,
+                     const std::shared_ptr<const ClipSnapshot>& snapshot,
+                     std::uint64_t source)
 {
     ClipScope out = parent;
     if (!f.res)
         return out;
-    ClipMasks& pool = f.res->clips();
+    const std::shared_ptr<const ClipSnapshot>& ytor = snapshot ? snapshot : noSurfaces();
+    const ClipPolys polys = ytor->polys();
+    ClipMasks&      pool  = f.res->clips();
     if (!f.view3D) {
         std::optional<ClipLook> plan;
         if (space == ClipSpace::World)
@@ -900,23 +1086,14 @@ ClipScope refineClip(const PaintContext& f, const ClipScope& parent,
         out.tall = out.flat;
         return out;
     }
-    out.flat = screenLook(f, pool, parent.flat, space, polys, source);
-    if (space == ClipSpace::World) {
-        out.tall = worldLook(f, pool, parent.tall, polys, source);
-        return out;
-    }
-    // Skärmklippet ser 2D-programmen och 3D-programmen lika — samma mask, om
-    // föräldrarna har samma.
-    if (sameScreen(parent.tall, parent.flat)) {
-        out.tall         = parent.tall;
-        out.tall.screen  = out.flat.screen;
-        out.tall.sg      = out.flat.sg;
-        out.tall.sRect   = out.flat.sRect;
-        out.tall.sKey    = out.flat.sKey;
-        out.tall.planned = false;
-    } else {
-        out.tall = screenLook(f, pool, parent.tall, space, polys, source);
-    }
+    // 3D-MÅLET: 2D-programmen och 3D-programmen ser samma klipp — ett
+    // världsklipp som världsmask, ett skärmklipp som skärmmask — och kedjan
+    // bär ytorna till skärmrymdens innehåll (`onScreen`).
+    out.tall  = space == ClipSpace::World
+                    ? worldLook(f, pool, parent.tall, polys, source)
+                    : screenLook(f, pool, parent.tall, space, polys, source);
+    out.flat  = out.tall;
+    out.chain = std::make_shared<const ClipStep>(ClipStep{parent.chain, space, ytor, source});
     return out;
 }
 
@@ -924,8 +1101,8 @@ ClipFrame prepareClips(const PaintContext& f, const SceneData& scene, ClipUse us
 {
     ClipFrame cf;
     if (use != ClipUse::Drape && clipApplies(scene.clip, scene.invalidClip))
-        cf.canvas = refineClip(f, cf.canvas, scene.clip.space,
-                               validPolygons(scene.clip), scene.clip.version);
+        cf.canvas = refineClip(f, cf.canvas, scene.clip.space, scene.clip.snapshot,
+                               scene.clip.content);
     // Utan lagerklipp står listan tom — `of()` ger då ritytans (det vanliga
     // fallet kostar ingen allokering per ritning).
     const bool någotLager = std::any_of(
@@ -942,8 +1119,8 @@ ClipFrame prepareClips(const PaintContext& f, const SceneData& scene, ClipUse us
         if (!clipApplies(L.clip, scene.invalidClip) || !L.visible || !layerDrawn(f, L) ||
             (use == ClipUse::Drape && L.clip.space != ClipSpace::World))
             continue;
-        cf.layers[i] = refineClip(f, cf.canvas, L.clip.space, validPolygons(L.clip),
-                                  L.clip.version);
+        cf.layers[i] = refineClip(f, cf.canvas, L.clip.space, L.clip.snapshot,
+                                  L.clip.content);
     }
     return cf;
 }
@@ -1059,8 +1236,24 @@ std::uint64_t polygonKey(const Polygon& p)
 void revalidateClip(ClipState& k, std::size_t first, std::size_t last)
 {
     k.valid.resize(k.polygons.size(), 1);
-    for (std::size_t i = first; i < last && i < k.polygons.size(); ++i)
+    k.keys.resize(k.polygons.size(), 0);
+    for (std::size_t i = first; i < last && i < k.polygons.size(); ++i) {
         k.valid[i] = clipPolygonValid(k.polygons[i]) ? 1 : 0;
+        k.keys[i]  = polygonKey(k.polygons[i]);
+    }
+    const ClipPolys ritade = validPolygons(k);
+    KeyHash         h;
+    h.mix(static_cast<std::uint64_t>(k.space));
+    std::size_t antal = 0;
+    for (std::size_t i = 0; i < k.polygons.size(); ++i)
+        if (ritade.drawn(i))
+            ++antal;
+    h.mix(static_cast<std::uint64_t>(antal));
+    for (std::size_t i = 0; i < k.polygons.size(); ++i)
+        if (ritade.drawn(i))
+            h.mix(k.keys[i]);
+    k.content  = h.h;
+    k.snapshot = std::make_shared<const ClipSnapshot>(ClipSnapshot{k.polygons, k.valid});
 }
 
 namespace {

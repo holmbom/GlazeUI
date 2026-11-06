@@ -58,10 +58,9 @@ public:
         // i kant som de alltid gjort. `setBorder(false)` gör `innerBounds`
         // identisk med ytan; ramen ritas ändå av ListBox, ovanpå raderna.
         setBorder(false);
-        // INGA OVERLAY-REMSOR: popupen scrollar med en OSYNLIG offset,
-        // och en synlig tumme hade varit ett oredovisat utseendedelta.
-        // Kapningen vid `dropMaxRows` finns kvar och gör listan kort.
-        showScrollbars(false);
+        // Kapningen vid `dropMaxRows` gör listan kort; en längre lista rullar,
+        // och rullningslisten följer läget som ärvs (förvalet Auto), så det
+        // syns att det finns fler poster.
     }
 
     // ÄGAREN är ingen subklass och når inte ListBoxens skyddade popup-yta —

@@ -118,6 +118,9 @@ protected:
     // och med `dock` som minne hade linjen hamnat på fel sida.
     virtual bool drawsInnerEdge() const { return true; }
 
+    // Ingen rullningslist i en rad (panel.h).
+    bool hasScrollbars() const override { return false; }
+
     // Barnets spann (början, längd) på TVÄRAXELN i FYSISKA px — y/höjd i den
     // liggande raden (`row`), x/bredd i den stående: barens hela, eller i en
     // REN rad barnets eget mått centrerat i den (och hela baren för ett barn

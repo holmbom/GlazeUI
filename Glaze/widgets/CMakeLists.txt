@@ -145,6 +145,8 @@ add_library(glaze_impl ${_glaze_lib_type}
     src/app_window.cpp
     src/drag_drop.cpp
     src/tooltip.cpp
+    # RULLNINGSLISTORNAS TID — fönstrets timer (intern, se src/scrollbar_fade.h).
+    src/scrollbar_fade.cpp
     src/language.cpp
     src/lang_builtin.cpp
     src/gui_loader.cpp

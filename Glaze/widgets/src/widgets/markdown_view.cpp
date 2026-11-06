@@ -134,7 +134,6 @@ GLAZE_REGISTER_WIDGET("markdownview", MarkdownView)
 MarkdownView::MarkdownView(TrText t) : text_(std::move(t))
 {
     setClip(true);
-    showScrollbars(true);   // överflöd ska SYNAS (TextArea/ListBox-prejudikatet)
 }
 
 // Här och inte i headern: dokumentet och layouterna är interna typer.

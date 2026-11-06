@@ -106,9 +106,26 @@
 //      ruta), `parent` bort ur `ClipMasks::fill` (KL3 — snittet), `emptyScreen`
 //      som "inget klipp" (KL4), nyckeln utan ytornas koordinater (KL1 — ett
 //      ändrat klipp fylls inte om), `projectedAreas` med skärmens matris också i
-//      världen (KL6). MÄTER INTE pixlarna (scene_pixel_gate K, scene3d_pixel_gate
-//      KL), föremålen i rymden (NullRenderer bygger inga program) eller klippet
-//      i 3D-målet.
+//      världen (KL6). KL8–KL11 maskerna delas på INNEHÅLLET: KL8 åtta lager med
+//      samma världsklipp under en vriden 2D-kamera är EN fyllning, en panorering
+//      ger en till (inte åtta) och en rak kamera en världsmask för alla; KL9 ett
+//      lager med ett annat klipp får en egen mask medan de andra delar; KL10
+//      `setLayerClip` med en ny yta ger en ny mask och tillbaka till samma yta
+//      delar igen utan ny fyllning; KL11 `setInvalidClip(Hide)` och `Show` med
+//      giltiga ytor fyller inte om, och med ritytans klipp som förälder delar
+//      lagren fortfarande. Sabotage som SKA fälla dem: `ClipState::version` som
+//      källa i `prepareClips` (KL8–KL11), `content` räknat utan `keys` (KL9,
+//      KL10 — två olika ytor delar mask), `keys` inte omräknade i intervallet
+//      i `revalidateClip` (KL10 — den nya ytan ger den gamla masken) och
+//      `content` stegat i `setInvalidClip` (KL11). KL12 ett hål som korsar
+//      ögats plan tillsammans med ytterringen i en lutad kartvy går att fylla
+//      (`ClipMasks::unfilled` 0) — sabotage: hålet mot ytterringens golv.
+//      KL13 i 3D-målet bär formen i världen världsmasken och målarens
+//      skärmrymd en projicerad skärmmask; en orbit bygger bara om den senare,
+//      och utan något i skärmrymden ingenting — sabotage: `out.flat` som den
+//      projicerade skärmmasken, `onScreen` som `flat`, vyn i världsmaskens
+//      gitter. MÄTER INTE pixlarna (scene_pixel_gate K, scene3d_pixel_gate KL)
+//      eller föremålen i rymden (NullRenderer bygger inga program).
 //   FD FORMEN I FLERA DELAR (`Shape::polygons(std::vector<Polygon>, …)`) i
 //      lagren och i målaren: två delar med var sitt hål ger EN form med 64
 //      vertex (8 + 8 kanter à 4) och 144 index (2 × (8 trianglar + 8 · 6)) i
@@ -1738,20 +1755,77 @@ std::string rekt(const gfx::Rectf& r)
     return tal(r.x) + ", " + tal(r.y) + ", " + tal(r.w) + " × " + tal(r.h);
 }
 
-// Omsluter maskens ruta punkterna [x0, x1] × [y0, y1] och är högst ett steg
-// (16 px) större? Maskens rutnät är hela pixlar, avrundat uppåt till 16.
+// Maskens rutnät är HELA pixlar: början avrundas nedåt och slutet uppåt, högst
+// en pixel var.
+constexpr double kHelaPixlar = 2.0;
+// Jämförelsens tolerans för flyttal i målets px.
+constexpr double kPxTolerans = 1e-3;
+
+// Ett måtts klassteg — klippets egen regel (clip.h `sizeClassStep`).
+double klassSteg(double v)
+{
+    return glaze::detail::sizeClassStep(static_cast<int>(std::ceil(v)));
+}
+
+// Omsluter maskens ruta punkterna [x0, x1] × [y0, y1] och är högst ett
+// klassteg större? Maskens rutnät är hela pixlar, avrundat uppåt till sin
+// storleksklass.
 bool omsluter(const gfx::Rectf& r, double x0, double y0, double x1, double y1)
 {
-    const double slack = 16.0 + 2.0;
-    return r.x <= x0 + 1e-3 && r.y <= y0 + 1e-3 && r.x + r.w >= x1 - 1e-3 &&
-           r.y + r.h >= y1 - 1e-3 && r.w <= (x1 - x0) + slack &&
-           r.h <= (y1 - y0) + slack;
+    return r.x <= x0 + kPxTolerans && r.y <= y0 + kPxTolerans &&
+           r.x + r.w >= x1 - kPxTolerans && r.y + r.h >= y1 - kPxTolerans &&
+           r.w <= (x1 - x0) + klassSteg(x1 - x0) + kHelaPixlar &&
+           r.h <= (y1 - y0) + klassSteg(y1 - y0) + kHelaPixlar;
 }
 
 // Den tomma maskens ruta (clip.cpp `kEmptyOrigin`): 1 × 1 utanför varje gitter.
 bool tomRuta(const gfx::Rectf& r)
 {
     return r.w == 1.0f && r.h == 1.0f && r.x < 0.0f && r.y < 0.0f;
+}
+
+// Skärmmaskerna scenens anrop bär, i ritordning (nullptr = inget klipp).
+std::vector<const gfx::Image*> skärmMasker(const Bänk& b)
+{
+    std::vector<const gfx::Image*> v;
+    for (const Anrop* a : scen(b))
+        v.push_back(a->clip.screen);
+    return v;
+}
+
+// Bär alla anrop utom `undantag` (ett index, eller -1) samma mask?
+bool delarMask(const std::vector<const gfx::Image*>& v, int undantag = -1)
+{
+    const gfx::Image* första = nullptr;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        if (static_cast<int>(i) == undantag)
+            continue;
+        if (!v[i] || (första && v[i] != första))
+            return false;
+        första = v[i];
+    }
+    return första != nullptr;
+}
+
+// `antal` nya lager med var sin röd yta, och samma världsklipp `klipp` på dem
+// alla. Svarar med lagrens index i ritordning — lagrets plats i `skärmMasker`
+// är dess plats i listan.
+std::vector<int> klippadeLager(Bänk& b, int antal, const glaze::Polygon& klipp)
+{
+    std::vector<int> lager;
+    for (int i = 0; i < antal; ++i) {
+        const int l = b.yta.addLayer("klippat");
+        b.yta.addShape(l, glaze::Shape::rect({400, 400, 200, 200},
+                                             gfx::Color{255, 0, 0, 255}));
+        b.yta.setLayerClips(l, {klipp});
+        lager.push_back(l);
+    }
+    return lager;
+}
+
+glaze::Polygon klippRuta(double x0, double y0, double x1, double y1)
+{
+    return glaze::Polygon{{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}, {}};
 }
 
 void fallKL()
@@ -2012,6 +2086,196 @@ void fallKL()
               "KL7 bäring 30°: skärmmasken, och en panorering fyller om",
               std::to_string(f1) + " → " + std::to_string(f2) + " → " +
                   std::to_string(f3));
+    }
+
+    // KL8 ÅTTA LAGER MED SAMMA VÄRLDSKLIPP delar en mask: under en vriden
+    // kamera EN skärmmask (en fyllning), en panorering fyller om den EN gång
+    // — inte åtta —, och med rak kamera är det EN världsmask för alla.
+    {
+        Bänk b;
+        b.yta.setCenter(500.0, 500.0);
+        b.yta.setBearing(30.0f);
+        klippadeLager(b, 8, klippRuta(450, 450, 550, 550));
+        b.frame();
+        const std::uint64_t f0 = b.res.clips().fills();
+        const auto          m0 = skärmMasker(b);
+        check(m0.size() == 8 && delarMask(m0) && f0 == 1,
+              "KL8 vriden kamera: åtta lager med samma klipp delar EN skärmmask "
+              "och en fyllning",
+              std::to_string(m0.size()) + " anrop, " + std::to_string(f0) +
+                  " fyllningar");
+        b.yta.setCenter(510.0, 505.0);
+        b.frame();
+        const std::uint64_t f1 = b.res.clips().fills();
+        check(f1 == f0 + 1 && delarMask(skärmMasker(b)),
+              "KL8 en panorering under bäring fyller om EN mask, inte åtta",
+              std::to_string(f0) + " → " + std::to_string(f1));
+        b.yta.setBearing(0.0f);
+        b.frame();
+        const std::uint64_t f2 = b.res.clips().fills();
+        const auto          m2 = skärmMasker(b);
+        check(f2 == f1 + 1 && m2.size() == 8 && delarMask(m2),
+              "KL8 rak kamera: EN världsmask för alla åtta lager",
+              std::to_string(f1) + " → " + std::to_string(f2));
+        b.yta.setCenter(520.0, 510.0);
+        b.frame();
+        check(b.res.clips().fills() == f2 && delarMask(skärmMasker(b)),
+              "KL8 rak kamera: en panorering fyller inte om världsmasken",
+              std::to_string(f2) + " → " + std::to_string(b.res.clips().fills()));
+    }
+
+    // KL9 ETT LAGER MED ETT ANNAT KLIPP får en egen mask — de andra sju delar
+    // den gemensamma.
+    {
+        Bänk b;
+        b.yta.setCenter(500.0, 500.0);
+        b.yta.setBearing(30.0f);
+        const std::vector<int> lager = klippadeLager(b, 8, klippRuta(450, 450, 550, 550));
+        b.yta.setLayerClips(lager[3], {klippRuta(430, 430, 520, 570)});
+        b.frame();
+        const auto m = skärmMasker(b);
+        check(m.size() == 8 && m[3] != nullptr && delarMask(m, 3) &&
+                  m[3] != m[0] && b.res.clips().fills() == 2,
+              "KL9 ett lager med ett annat klipp har en egen mask, de sju andra "
+              "delar en — två fyllningar",
+              std::to_string(m.size()) + " anrop, " +
+                  std::to_string(b.res.clips().fills()) + " fyllningar");
+    }
+
+    // KL10 `setLayerClip(lager, yta, ny yta)` ger en ny mask, och tillbaka till
+    // samma yta delar lagret den gamla igen utan en ny fyllning.
+    {
+        Bänk b;
+        b.yta.setCenter(500.0, 500.0);
+        b.yta.setBearing(30.0f);
+        const glaze::Polygon a = klippRuta(450, 450, 550, 550);
+        const glaze::Polygon n = klippRuta(430, 430, 520, 570);
+        const std::vector<int> lager = klippadeLager(b, 8, a);
+        b.frame();
+        const std::uint64_t f0 = b.res.clips().fills();
+        b.yta.setLayerClip(lager[5], 0, n);
+        b.frame();
+        const auto          m1 = skärmMasker(b);
+        const std::uint64_t f1 = b.res.clips().fills();
+        check(f0 == 1 && f1 == 2 && m1.size() == 8 && delarMask(m1, 5) &&
+                  m1[5] != m1[0],
+              "KL10 en ny yta i ett lager ger en ny mask och de andra behåller sin",
+              std::to_string(f0) + " → " + std::to_string(f1));
+        b.yta.setLayerClip(lager[5], 0, a);
+        b.frame();
+        check(b.res.clips().fills() == f1 && delarMask(skärmMasker(b)),
+              "KL10 tillbaka till samma yta delar lagret den gamla masken igen "
+              "utan ny fyllning",
+              std::to_string(f1) + " → " + std::to_string(b.res.clips().fills()));
+    }
+
+    // KL11 `setInvalidClip(Hide)` och `Show` med giltiga ytor fyller inte om;
+    // med ritytans klipp som förälder delar lagren fortfarande mask.
+    {
+        Bänk b;
+        b.yta.setCenter(500.0, 500.0);
+        b.yta.setBearing(30.0f);
+        b.yta.setClips({klippRuta(420, 420, 580, 580)});
+        klippadeLager(b, 8, klippRuta(450, 450, 550, 550));
+        b.frame();
+        const std::uint64_t f0 = b.res.clips().fills();
+        const auto          m0 = skärmMasker(b);
+        b.yta.setInvalidClip(glaze::InvalidClip::Hide);
+        b.frame();
+        const std::uint64_t f1 = b.res.clips().fills();
+        const auto          m1 = skärmMasker(b);
+        b.yta.setInvalidClip(glaze::InvalidClip::Show);
+        b.frame();
+        const std::uint64_t f2 = b.res.clips().fills();
+        const auto          m2 = skärmMasker(b);
+        check(f0 == 2 && f1 == f0 && f2 == f0,
+              "KL11 Hide och Show med giltiga ytor fyller inte om (ritytans mask "
+              "och lagrens delade)",
+              std::to_string(f0) + " → " + std::to_string(f1) + " → " +
+                  std::to_string(f2));
+        check(m0.size() == 8 && delarMask(m0) && delarMask(m1) && delarMask(m2),
+              "KL11 med ritytans klipp som förälder delar de åtta lagren mask",
+              std::to_string(m0.size()) + " anrop");
+    }
+
+    // KL12 ETT HÅL SOM KORSAR ÖGATS PLAN tillsammans med ytterringen: i en
+    // lutad kartvy ligger både klippets ytterring och dess hål delvis bakom
+    // ögat. Hålet klipps längre från ögat än ytterringen, så den projicerade
+    // ytan förblir en enkel yta med hål och går att fylla — ingen yta klipper
+    // bort sin del. Sabotage som SKA fälla: hålet klippt mot samma golv som
+    // ytterringen, eller mot sitt eget största W (`projectedAreas`).
+    {
+        Bänk b;
+        b.yta.setCenter(0.0, 0.0);
+        b.yta.setPitch(60.0f);
+        glaze::Polygon p = klippRuta(-1.0e6, -1.0e6, 1.0e6, 1.0e6);
+        p.holes          = {klippRuta(-1.0e5, -1.0e5, 1.0e5, 1.0e5).outer};
+        b.yta.setClips({p});
+        b.yta.addShape(glaze::Shape::rect({-2.0e5, -2.0e5, 4.0e5, 4.0e5}, kRöd));
+        b.frame();
+        const auto s = scen(b);
+        check(b.res.clips().unfilled() == 0 && b.res.clips().fills() >= 1 &&
+                  !s.empty() && s[0]->clip.screen && !tomRuta(s[0]->clip.screenRect),
+              "KL12 ett hål som korsar ögats plan med ytterringen: masken fylls, "
+              "ingen yta klipper bort sin del",
+              std::to_string(b.res.clips().unfilled()) + " ofyllda ytor, " +
+                  std::to_string(b.res.clips().fills()) + " fyllningar");
+    }
+
+    // KL13 I 3D-MÅLET läser det som ritas i VÄRLDEN världsmasken i sin
+    // världspunkt — 2D-programmen också —, och bara det som ritas i
+    // SKÄRMRYMDEN (målarens `screenSpace`) får världsklippet projicerat till en
+    // skärmmask, byggd först när något ritas där. En orbit bygger om
+    // skärmmasken men inte världsmasken, och utan något i skärmrymden fyller
+    // den ingenting. Sabotage som SKA fälla: `out.flat` som den projicerade
+    // skärmmasken i `refineClip` (formen bär en skärmmask), `onScreen` som
+    // `flat` (målarens skärmrymd bär världsmasken), vyn i världsmaskens
+    // gitter (orbiten fyller två).
+    {
+        Bänk b;
+        b.yta.setClips({klippRuta(-50, -50, 50, 50)});
+        b.yta.addShape(glaze::Shape::rect({-100, -100, 200, 200}, kRöd));
+        bool iSkärmen = true;
+        b.yta.onPaint = [&](glaze::Widget*, glaze::PaintArgs& e) {
+            if (!iSkärmen)
+                return;
+            e.painter.screenSpace();
+            e.painter.fillRect({20, 20, 40, 40}, kRöd);
+        };
+        glaze::Camera3D k{.target = {0, 0, 0}, .distance = 300, .azimuth = 0,
+                          .elevation = 45};
+        b.yta.setCamera(k);
+        b.frame();
+        const std::uint64_t f1      = b.res.clips().fills();
+        bool                världen = false, skärmen = false;
+        for (const Anrop& a : b.r.anrop) {
+            if (a.program != gfx::MeshProgram::Fill)
+                continue;
+            if (a.clip.world && !a.clip.screen)
+                världen = true;
+            if (a.clip.screen && !a.clip.world)
+                skärmen = true;
+        }
+        check(b.yta.is3D() && världen && skärmen && f1 == 2,
+              "KL13 3D-målet: formen i världen bär världsmasken, målarens skärmrymd "
+              "en projicerad skärmmask — två fyllningar",
+              std::string(världen ? "världsmask" : "ingen världsmask") + ", " +
+                  (skärmen ? "skärmmask" : "ingen skärmmask") + ", " +
+                  std::to_string(f1) + " fyllningar");
+        k.azimuth += 10.0f;
+        b.yta.setCamera(k);
+        b.frame();
+        const std::uint64_t f2 = b.res.clips().fills();
+        check(f2 == f1 + 1,
+              "KL13 en orbit bygger om skärmrymdens skärmmask men inte världsmasken",
+              std::to_string(f1) + " → " + std::to_string(f2));
+        iSkärmen = false;
+        k.azimuth += 10.0f;
+        b.yta.setCamera(k);
+        b.frame();
+        check(b.res.clips().fills() == f2,
+              "KL13 utan något i skärmrymden fyller en orbit ingenting",
+              std::to_string(f2) + " → " + std::to_string(b.res.clips().fills()));
     }
 }
 

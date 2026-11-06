@@ -389,6 +389,8 @@ struct ImageOut
     // platta under tilt samplas där världspunkten faktiskt ligger, och
     // divisionen med q i fragmentet gör en fyrhörning exakt projektiv.
     float3 uvq : TEXCOORD0;
+    // Världspunkten (chunk-lokal) för världsmasken — perspektivkorrekt.
+    float2 world : TEXCOORD1;
 };
 
 int flags() { return (int)(gParams.w + 0.5); }
@@ -403,7 +405,8 @@ ImageOut imageVs(ImageIn i)
                    c.z, c.w);
     // Speglingen FÖRE multiplikationen med q — v' är bildens koordinat.
     const float v = (flags() & 2) ? 1.0 - i.uv.y : i.uv.y;
-    o.uvq = float3(i.uv.x * i.q, v * i.q, i.q);
+    o.uvq   = float3(i.uv.x * i.q, v * i.q, i.q);
+    o.world = i.pos;
     return o;
 }
 
@@ -420,7 +423,7 @@ float4 imagePs(ImageOut i) : SV_Target
     // Rak alfa som UI:t; opaciteten, klippmaskerna och målarens klipp rör
     // bara alfan.
     t.a *= saturate(gParams.z) * clipCoverage(i.pos.xy) *
-           glaze_clipScreen(i.pos.xy);
+           glaze_clip(i.pos.xy, i.world);
     return t;
 }
 )hlsl";

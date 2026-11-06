@@ -161,6 +161,18 @@ struct PainterState {
         return matrixOf(keyScreen, ox, oy, oz);
     }
 
+    // ETT ANROPS KLIPP: det i världen läser maskerna i sin världspunkt (`tall`
+    // för det med höjd), det i skärmrymden får skärmrymdens klipp
+    // (`ClipScope::onScreen` — i 3D-målet världsklippet projicerat).
+    void bindClip(gfx::SceneClip& c, bool iSkärmen, bool tall, double ox,
+                  double oy) const
+    {
+        if (iSkärmen)
+            clip.onScreen(ctx).apply(c, ox, oy);
+        else
+            clip.apply(c, tall, ox, oy);
+    }
+
     template <class V>
     void drawTransient(gfx::MeshProgram prog, const std::vector<V>& v,
                        const std::vector<std::uint32_t>& idx, double ox,
@@ -195,12 +207,10 @@ struct PainterState {
         strokeUniforms(key, pxPerUnit(ctx, vy, Unit::World),
                        pxPerUnit(ctx, vy, key.dashUnit), d.uniforms);
         // KLIPPET — satsen töms vid varje klippbyte, så det som gäller nu
-        // är det satsen byggdes under. Det med höjd (Line3, Glyph3) ser
-        // världsmasken; allt i skärmrymden bara skärmmasken.
-        clip.apply(d.uniforms.clip,
-                   !keyScreen && (prog == gfx::MeshProgram::Line3 ||
-                                  prog == gfx::MeshProgram::Glyph3),
-                   ox, oy);
+        // är det satsen byggdes under.
+        bindClip(d.uniforms.clip, keyScreen,
+                 prog == gfx::MeshProgram::Line3 || prog == gfx::MeshProgram::Glyph3,
+                 ox, oy);
         if (prog == gfx::MeshProgram::Glyph || prog == gfx::MeshProgram::Glyph3) {
             // GOLVET OCH TAKET — som lagrens `drawGlyphs`.
             const GlyphLimits lim =
@@ -607,7 +617,7 @@ struct PainterState {
         dr.userBytes = sizeof(MeshUniforms);
         dr.textures  = b.textures;
         dr.state     = objectState();
-        clip.apply(dr.uniforms.clip, !screen, origin.x, origin.y);
+        bindClip(dr.uniforms.clip, screen, true, origin.x, origin.y);
         ctx.c->r->drawMesh(dr);
     }
 
@@ -674,7 +684,7 @@ struct PainterState {
             dr.userBytes     = sizeof(MeshUniforms);
             dr.textures      = b.textures;
             dr.state         = objectState();
-            clip.apply(dr.uniforms.clip, !screen, blockOrigin.x, blockOrigin.y);
+            bindClip(dr.uniforms.clip, screen, true, blockOrigin.x, blockOrigin.y);
             ctx.c->r->drawMesh(dr);
         };
         for (const InstanceCell& c : set->cells) {
@@ -775,7 +785,7 @@ struct PainterState {
             dr.userBytes     = sizeof(PointUniforms);
             dr.textures      = textures;
             dr.state         = objectState();
-            clip.apply(dr.uniforms.clip, !screen, chunkOrigin.x, chunkOrigin.y);
+            bindClip(dr.uniforms.clip, screen, true, chunkOrigin.x, chunkOrigin.y);
             ctx.c->r->drawMesh(dr);
         }
     }
@@ -916,7 +926,9 @@ struct PainterState {
                 return;
         }
         clip = refineClip(ctx, clip, screen ? ClipSpace::Screen : ClipSpace::World,
-                          ClipPolys{ytor, giltig}, källa.h);
+                          std::make_shared<const ClipSnapshot>(
+                              ClipSnapshot{std::move(ytor), std::move(giltig)}),
+                          källa.h);
     }
 
     // EN RITYTA PÅ YTAN (painter.h `drawCanvas`): ritytans lager i ett eget

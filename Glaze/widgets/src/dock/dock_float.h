@@ -152,6 +152,13 @@ private:
 // start där huvudfönstret ska behålla aktiveringen), ett fälts fönster
 // aktiveras ALDRIG (`noActivate_` + `toolWindow_`, som VS:s flytande
 // verktygsfält: ett klick på "Fet" lämnar tangentbordet i textfältet).
+// TANGENTBORDET: OS:et levererar tangenterna till ägaren, som aktiveras, så
+// ett tryck på en widget i fältet som TAR fokus (ett textfält, en vallista, ett
+// talfält) ger fältets fönster tangentbordet (`AppWindow::keysFromOwner_`):
+// ägaren skickar tangent, släpp och tecken dit genom `openKeyPopup`, och
+// fönstret skickar vidare till sina egna popuper. Det gäller tills ett
+// tryck landar i ett annat fönster än fältets, fältets fokus försvinner eller
+// fönstret döljs, stängs eller dockas.
 class DockFloatWindow final : public AppWindow {
 public:
     DockFloatWindow(DockHost& host, DockPanel& panel);

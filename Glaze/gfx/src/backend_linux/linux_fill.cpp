@@ -126,7 +126,7 @@ void main()
     vec2  pix = vPixH.xy / vPixH.z;
     frag = vec4(col.rgb,
                 col.a * cov * uPaint1.y * clipCoverage(pix) *
-                    glaze_clipScreen(pix));
+                    glaze_clip(pix, vWorld));
 }
 )glsl";
 

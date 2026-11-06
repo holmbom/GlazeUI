@@ -308,6 +308,12 @@ bool appWheelInverted(InputDevice d, bool horizontal)
     return App::instance_ && App::instance_->wheelInverted(d, horizontal);
 }
 
+ScrollbarVisibility appScrollbarVisibility()
+{
+    return App::instance_ ? App::instance_->scrollbarVis_
+                          : ScrollbarVisibility::Auto;
+}
+
 } // namespace detail
 
 AppWindow* App::find(const std::string& title) const
@@ -421,6 +427,17 @@ bool App::wheelInverted(InputDevice d, bool horizontal) const
     if (d == InputDevice::Keyboard)
         return false;
     return wheel_[d == InputDevice::Touchpad ? 1 : 0][horizontal ? 1 : 0];
+}
+
+// Listorna ritas om i varje öppet fönster; mätcachen berörs inte (en lista är
+// overlay och flyttar ingen layout), så handler-epoken lämnas orörd.
+void App::setScrollbarVisibility(ScrollbarVisibility v)
+{
+    if (scrollbarVis_ == v)
+        return;
+    scrollbarVis_ = v;
+    for (AppWindow* w : windows_)
+        w->invalidate();
 }
 
 void App::setCanvasBinding(const std::string& mode, InputSource s,
@@ -957,6 +974,9 @@ void App::executeClose(AppWindow* w)
     // att kunna återaktivera ägarfönstret efter rivningen (se slutet).
     AppWindow* owner = w->owner_;
 
+    // Tangentbordet lämnar ett flytande fönster som stängs — medan ägaren
+    // ännu är känd och fönstret öppet, så ägarens caret tänds igen.
+    w->setKeysFromOwner(false);
     w->open_         = false;
     w->pendingClose_ = false;
     w->closeReason_  = CloseReason::UserClosing;   // nästa liv börjar om

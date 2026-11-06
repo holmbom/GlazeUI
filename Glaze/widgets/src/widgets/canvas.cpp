@@ -1541,6 +1541,7 @@ void clipSetAll(detail::ClipState& k, std::vector<Polygon> ps,
     k.polygons = std::move(ps);
     k.enabled  = true;
     k.valid.clear();
+    k.keys.clear();
     clipChanged(k, ägare, op, 0, k.polygons.size());
 }
 
@@ -1548,16 +1549,20 @@ void clipReset(detail::ClipState& k)
 {
     k.polygons.clear();
     k.valid.clear();
+    k.keys.clear();
     k.enabled = false;
     k.version = detail::nextSceneId();
+    detail::revalidateClip(k, 0, 0);
 }
 
+// Rymden ingår i innehållet, så det räknas om.
 void clipSetSpace(detail::ClipState& k, ClipSpace s)
 {
     if (k.space == s)
         return;
-    k.space = s;
+    k.space   = s;
     k.version = detail::nextSceneId();
+    detail::revalidateClip(k, 0, 0);
 }
 
 } // namespace
@@ -1613,7 +1618,9 @@ void Canvas::setInvalidClip(InvalidClip mode)
     if (scene_->invalidClip == mode)
         return;
     scene_->invalidClip = mode;
-    // Maskerna, etiketterna och draperingarna nycklas på versionerna.
+    // Etiketterna, draperingarna och 3D-målet nycklas på versionerna. Innehållet
+    // (maskernas nyckel) är de giltiga ytorna och rörs inte: om klippet gäller
+    // avgör `clipApplies` per bild.
     scene_->clip.version = detail::nextSceneId();
     for (const std::shared_ptr<detail::LayerData>& L : scene_->layers)
         L->clip.version = detail::nextSceneId();

@@ -282,30 +282,26 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   gruppen — en identifierare hade blivit gruppnamnet genom `nyckeltext` — annars
   OPAK och etiketten orörd, också i setter-fallbacken (en egen Label-subklass); `applyCall`
   utför `show`/`hide`/`enable`/`disable`/`setIndeterminate(bool)`/
-  `showScrollbars(bool)`. **`applyWindowCall`** (APP_API_2 steg 2) utför de
+  `setScrollbarVisibility(glaze::ScrollbarVisibility::…)`/`clearScrollbarVisibility()`
+  (på widgeten och som nakna fönsteranrop). **`applyWindowCall`** utför de
   NAKNA fönsteranropen på ett `glaze::AppWindow` — `setGradientCorner`/`setGradientAccent`/`setTitle`/
-  `setClientSize`/`setContentSize`/`setMinimumSize`/`setMaximumSize`/`set{Minimum,Maximum,Fixed}ContentSize` (REQ8 21)/
-  `setControlBox`/`setMinimizeBox`/`setMaximizeBox`/`setModal`/`setPopup`/`setPopupTakesKeys` (REQ8 27)/
-  `setTransparent`/`setTopmost`/`setShowInTaskbar` (de två sista attribut som
-  lagras före show — previewns fönster visas aldrig med dem; SYSTEMFÄLTET B8
-  för det senare, grindat i `preview_gate` och `roundtrip_gate`). Ett nakent
-  `hide();` (dold start) känns INTE igen: det bevaras opakt och utförs
-  medvetet inte, för ritbordet ska visa fönstret. Sedan FONSTER_OCH_TIMER
-  (B8) också `setLocation` (två heltal), `setUseWaitCursor` (en bool) och en
-  ENUM-gren med STRIKTA tabeller genom `enumVärde` — `setChrome`
-  (`gfx::Chrome::Native/Custom/None`), `setStartPosition`
-  (`glaze::StartPosition::…`), `setWindowState` (`gfx::WindowState::…`), `setSizeToContent` (`glaze::SizeToContent::…`, REQ3)
-  och `setSizeToContentMode` (`glaze::SizeToContentMode::GrowAndShrink/GrowOnly`, REQ7_LAYOUT),
+  `setClientSize`/`setContentSize`/`setMinimumSize`/`setMaximumSize`/`set{Minimum,Maximum,Fixed}ContentSize`/
+  `setControlBox`/`setMinimizeBox`/`setMaximizeBox`/`setModal`/`setPopup`/`setPopupTakesKeys`/
+  `setTransparent`/`setTopmost`/`setShowInTaskbar` (de två sista lagras före
+  show — previewns fönster visas aldrig med dem). Ett nakent `hide();` (dold
+  start) bevaras opakt och utförs medvetet inte: ritbordet ska visa fönstret.
+  Också `setLocation` (två heltal), `setUseWaitCursor` (en bool) och en
+  ENUM-gren med STRIKTA tabeller genom `enumVärde` — `setChrome`, `setStartPosition`,
+  `setWindowState`, `setSizeToContent` och `setSizeToContentMode` —
   kvalificerat, typkvalificerat eller bart (`using enum`); ett okänt värde är
   opakt. `setChrome(None)` gör previewn SANN: glaze-render ritar utan
-  namnlist. **`setAcceptButton`/`setCancelButton`** (REQ2_DIALOGER) tar en
-  MEDLEM: `nullptr` nollställer, en identifierare som `win.find<glaze::Button>`
-  hittar sätts (`ärIdentifierare`, delad med `argBarn`), allt annat loggas och
-  är opakt — så glaze-render ritar standardknappen. `applyCall` känner
-  `performClick()` på en `Button` och en `ToolButton` (REQ8 9) men UTFÖR den aldrig (previewn kör ingen
-  användarkod). `applyCall` utför `resetCursor()` på varje widget (sättaren
-  `setCursor` är setter-fältet `cursor`, basens som tooltipen).
-  **`applyComponentStmt`** (B7) är samma kontrakt för en ICKE-VISUELL medlem:
+  namnlist. **`setAcceptButton`/`setCancelButton`** tar en MEDLEM: `nullptr`
+  nollställer, en identifierare som `win.find<glaze::Button>` hittar sätts
+  (`ärIdentifierare`, delad med `argBarn`), annars loggat och opakt.
+  `applyCall` känner `performClick()` på `Button`/`ToolButton` men UTFÖR den
+  aldrig (previewn kör ingen användarkod), och utför `resetCursor()` på varje
+  widget (`setCursor` är setter-fältet `cursor`).
+  **`applyComponentStmt`** är samma kontrakt för en ICKE-VISUELL medlem:
   Prop — `name`, ikonens `icon`/`smallIcon` (`parseBildKälla` = `argImg`, en
   regel), ett tr-id genom komponentens `setTextToken`,
   resten genom dess `setProp`; Call — timerns `start`/`stop` och ikonens
@@ -321,22 +317,23 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   KÄLLORDNING utan att var för sig veta vilka satstyper som är widget-riktade. **Okänd nyckel OCH okänt metodnamn är OPAKA** —
   loggas, ignoreras vid ritning, round-trippas ordagrant. ALDRIG
   fail-safe: en okänd metod är samma sak som ett okänt fält (regel 4).
-  **SYSKONANKARNA har en egen gren sedan 2026-08-19**, speglad på
-  anchors-grenen: `anchorLeft`/`anchorTop`/`anchorRight`/`anchorBottom`
-  avkodas med `parseSiblingAnchorText` och sätts DIREKT på fältet, och
-  vägen SLUTAR där — en ogiltig literal faller INTE vidare till `setProp`
-  (vars textform är en annan) utan blir en OPAK rad. Grinden är [tests/preview_gate.cpp](../../../tests/preview_gate.cpp).
-  **MENYRADEN har egna grenar sedan 2026-08-19** (hård regel 8 — allt ska gå
-  i BÅDA vägarna): `addMenu`/`addItem`/`addCheck`/`addRadio`/`addSeparator`/
-  `addSubmenu` UTFÖRS, så previewn visar menyn med sina rubriker i stället
-  för en tom rad. `setHandler` känns igen men utförs INTE — previewn kör
-  aldrig användarkod. Argumentlistan delas av en lokal splitter som
-  respekterar strängliteraler, så en menytext med komma inte klyvs.
-  **POSTENS TILLSTÅND** (TRAD_LISTOR_BILDER, Codex 1): `setItemIcon`/
+  **SYSKONANKARNA** har en egen gren, speglad på anchors-grenen:
+  `anchorLeft`/`anchorTop`/`anchorRight`/`anchorBottom` avkodas med
+  `parseSiblingAnchorText` och sätts DIREKT på fältet, och vägen SLUTAR där —
+  en ogiltig literal blir en OPAK rad, aldrig `setProp` (vars textform är en
+  annan). Grinden är [tests/preview_gate.cpp](../../../tests/preview_gate.cpp).
+  **MENYRADENS** `addMenu`/`addItem`/`addCheck`/`addRadio`/`addSeparator`/
+  `addSubmenu` UTFÖRS (regel 8), så previewn visar menyn med sina rubriker;
+  `setHandler` känns igen men utförs INTE. Argumentlistan delas av en lokal
+  splitter som respekterar strängliteraler, så en menytext med komma inte klyvs.
+  **POSTENS TILLSTÅND**: `setItemIcon`/
   `setItemEnabled`/`setItemChecked(stig, …)` utförs på menyraden, programikonen,
   systemfältsikonen och verktygsknappen genom EN mall, `applyMenuItemState` —
   `{}`-roten bara där den ÄR roten, atomisk, en okänd stig bärarens logg.
-  **KOLLEKTIONSVOKABULÄREN** (REGEL8_PREVIEW): `setRows`/`addRow`/`setRow` (PropertyGrid),
+  **KOLLEKTIONSVOKABULÄREN**: PropertyGrids `setRows`/`addRow`/`setRow` tar
+  RADAGGREGATET (`kRadFält`, 15 fält, positionellt eller designerat genom
+  `parseAggregatLista`; `kind` med enum-prefixet, `toolTip` med `argText`; ett
+  fel ger en atomisk opak rad), och `setRowEnabled`/`setExpanded(int, bool)`,
   `addItem`/`setItem` (ListBox OCH Dropdown — en gren, två typer),
   `setChecked(int,bool)` (ListBox) och `setColor(gfx::Color{…})` (Label);
   knapparnas `setColor(std::optional<gfx::Color>)` (Button/Checkbox/Radio, REQ3)
@@ -544,10 +541,10 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   mätt i `preview_gate` på WIDGETENS tillstånd och inte på modellen:
   `applyCall` får ingen muterbar modell alls, så ett modelltest är grönt per
   konstruktion medan previewn lagt till en halvparsad rad.
-  De två LITERALPARSRARNA (`setRows`-radlistan och `gfx::Color{…}`) är
+  De två LITERALPARSRARNA (radaggregatet och `gfx::Color{…}`) är
   strikta delmängder i samma familj som `parseStringList`/`parseImgCall`.
   `gfx::Color` bär BYTEkanaler, så delmängden är EXAKT specificerad — NOLL
-  TILL FYRA DECIMALA heltal i 0–255 (sedan CANVAS_2D etapp 10; ett
+  TILL FYRA DECIMALA heltal i 0–255 (ett
   avslutande komma efter minst en kanal) och inget annat. Färre än fyra är
   laglig C++ — aggregatet har standardvärden — och de utelämnade kanalerna
   läses ur `gfx::Color{}` självt (r = g = b = 0, a = 255). En allmän floatparser
@@ -988,8 +985,8 @@ roundtrip_gate`) och länkar bara `builder_core` — inget fönster, ingen pump.
   **MENYRADENS INNEHÅLL visas när det står i `.glazeui`** (den PLATTA
   formen, MENYER 2026-08-19) och aldrig när det byggs i appens `onLoad` —
   användarkod parsas inte, och det gäller varje widget, inte menyraden.
-  Samma gäller PropertyGrids rader sedan 2026-08-20: `setRows`/`addRow`/
-  `setRow` i filen UTFÖRS, `grid->setRows(...)` i `onLoad` gör det inte.
+  Samma gäller PropertyGrids rader: `setRows`/`addRow`/`setRow` i filen
+  UTFÖRS, `grid->setRows(...)` i `onLoad` gör det inte.
   ORDNINGEN löses i
   MODELLEN sedan APP_API_2 steg 1 (builtins först i nodlistan) i stället
   för av ett eget pass i varje trädbyggare — en dockad remsa skär i

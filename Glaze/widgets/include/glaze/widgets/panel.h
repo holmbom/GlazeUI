@@ -52,21 +52,15 @@ public:
     // via nyckel/värde-text); resten tar basen.
     bool setProp(const std::string& key, const std::string& value) override;
 
-    // Synliga overlay-rullningslister (opt-in): ritas OVANPÅ barnen i
-    // klippytans kanter när innehållet svämmar över — indikator + dragbar
-    // tumme + rännklick på samma scrollX_/scrollY_ som hjulet. Overlay ⇒
-    // ingen layoutförändring (childArea/klipp orörda); pixlarna delas med
-    // Scrollbar-widgeten (Draw::ScrollMetrics-vägen). OBS: barn
-    // som ligger under remsan vinner hit-testen — layouta innehållet så
-    // att interaktiva barn inte täcker kanten.
-    void showScrollbars(bool on)
-    {
-        if (scrollbars_ != on) {
-            scrollbars_ = on;
-            invalidate();
-        }
-    }
-    bool scrollbarsShown() const { return scrollbars_; }
+    // OVERLAY-RULLNINGSLISTERNA: ritas OVANPÅ barnen i klippytans kanter när
+    // innehållet svämmar över — indikator + dragbar tumme + rännklick på samma
+    // scrollX_/scrollY_ som hjulet. Overlay ⇒ ingen layoutförändring
+    // (childArea/klipp orörda); pixlarna delas med Scrollbar-widgeten
+    // (Draw::ScrollMetrics-vägen). Om de SYNS avgör
+    // `Widget::scrollbarVisibility` (Auto, Visible, Invisible); rullningen
+    // fungerar alltid. OBS: barn som ligger under en synlig remsa vinner
+    // hit-testen — layouta innehållet så att interaktiva barn inte täcker
+    // kanten.
 
     // Scroll-offset i LOGISKA px (som alla widget-mått). Klampas mot
     // innehållets utsträckning vid användning. Panelens yta invalideras —
@@ -115,12 +109,25 @@ protected:
     bool dragScroll(const Ctx& c, float x, float y, bool apply) override;
 
     // Overlay-listerna: ritning ovanpå barnen + remse-interaktion
-    // (tumdrag/rännklick/hover). Aktiva bara med showScrollbars(true)
-    // och faktiskt överflöd.
+    // (tumdrag/rännklick/hover). Aktiva bara när listorna SYNS (läget och, i
+    // Auto, tiden) och innehållet faktiskt svämmar över.
     void drawAfterChildren(const Ctx& c) override;
+
+    // HAR PANELEN RULLNINGSLISTER över huvud taget? En panel har det (true),
+    // och läget avgör om de syns. En `Bar` svarar false: en rad av kontroller
+    // visar sitt överflöd på sitt eget sätt (verktygsfältets "Visa mer"), och en
+    // remsa över raden hade tagit trycken på dess barn och dess grepp.
+    virtual bool hasScrollbars() const { return true; }
     void mouseDown(const Ctx& c, float mx, float my) override;
     void mouseDrag(const Ctx& c, float mx, float my) override;
     void mouseMove(const Ctx& c, float mx, float my) override;
+
+    // Auto-läget (kontraktet står vid `Widget::scrollbarFade`): pekarens
+    // rörelse över ytan och en synlighetsändring räknas som aktivitet, och
+    // timern släcker listorna när tiden gått ut.
+    void         scrollbarPointerMoved() override;
+    std::int64_t scrollbarFade(std::int64_t nowMs) override;
+    void         shownChanged() override;
 
     // Innehållets omslutande utsträckning (fysiska px, relativt OSCROLLAD
     // innehållsyta) — grunden för scrollklampningen och listernas mått.
@@ -132,6 +139,11 @@ protected:
     // egen mouseDown-logik frågar FÖRST (remsorna ligger överst) och
     // lämnar då trycket till Panel::mouseDown.
     bool inScrollStrip(const Ctx& c, float mx, float my) const;
+
+    // Syns listorna just nu? Visible/Invisible ur läget; Auto medan tiden
+    // `barsUntil_` inte gått ut, eller så länge en tumme dras eller pekaren
+    // står över en remsa. (Utan hänsyn till om innehållet svämmar över.)
+    bool barsShown() const;
 
     // Står punkten (fysiska px) inom innehållsytans BREDD och utanför
     // remsorna? Radlistornas träffväg (ListBox, TreeView):
@@ -173,11 +185,21 @@ private:
                       const Draw::ScrollMetrics& sm, bool down,
                       bool hot) const;
 
+    // Dras en tumme eller står pekaren på en remsa?
+    bool holdsBars() const;
+    // Auto: stämpla `barsUntil_` = nu + `hideMs` och be fönstret väcka mig då
+    // (utan ritning — den som anropar ritar redan).
+    void stampBars(int hideMs);
+    // Aktivitet utanför ritningen (rullning, pekaren över en remsa): stämpla
+    // och rita om om listorna just dök upp. Bara läget Auto och i ett fönster.
+    void touchBars();
+
     bool  clip_   = true;
     bool  border_ = false;
     float scrollX_ = 0.0f;
     float scrollY_ = 0.0f;
-    bool  scrollbars_ = false;
+    std::int64_t barsUntil_    = 0;       // Auto: klocktiden listorna syns till
+    bool         overflowSeen_ = false;   // svämmade innehållet över vid senaste ritningen
     int   dragAxis_   = 0;      // 0 = inget, 1 = V, 2 = H (nollas per tryck)
     float dragOff_    = 0.0f;   // greppunkt i tummen (logiska px)
     int   hotAxis_    = 0;      // hovrad remsa — bara ritkosmetik

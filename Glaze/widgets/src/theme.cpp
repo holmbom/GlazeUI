@@ -250,6 +250,18 @@ void deriveStockIcon(Theme::Colors& c)
     c.stockPaper  = hsl(0.0f, 0.0f, mörkt ? kStockPaperDark : kStockPaperLight);
 }
 
+// PANELRUBRIKEN — en sjundedel av vägen från panelens yta mot texten. Ytan
+// och inte `windowBg`: rubriken står PÅ panelen, och fönstrets bakgrund
+// ligger i mörkt läge nästan på panelens ton. Andelen är den minsta som håller
+// raden ≥ 1,3:1 mot panelen i varje palett, och den största som håller
+// `textDim` och `accent` ≥ 3:1 på raden (contrast_gate, `checkPanelHeader`).
+constexpr float kPanelHeader = 0.14f;
+
+void derivePanelHeader(Theme::Colors& c)
+{
+    c.panelHeader = mix(c.panel, c.text, kPanelHeader);
+}
+
 // De HÄRLEDDA grupperna i ETT anrop — allt som beräknas ur en färdig
 // palett i stället för att skrivas ut. Kallas av båda handskrivna
 // paletterna OCH av generatorn, så en ny härledd roll kan aldrig glömmas
@@ -262,6 +274,7 @@ void deriveRoles(Theme::Colors& c)
     deriveDropHint(c);
     deriveCanvasGrid(c);
     deriveStockIcon(c);
+    derivePanelHeader(c);
 }
 
 } // namespace

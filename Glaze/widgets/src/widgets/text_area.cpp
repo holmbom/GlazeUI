@@ -60,7 +60,6 @@ TextArea::TextArea(std::string t)
     setClip(true);
     setBorder(true);        // `border` drar in innerBounds en ramtjocklek —
                             // fältets kant ritas av draw(), inte av Panel
-    showScrollbars(true);   // överflöd ska SYNAS (ListBox-prejudikatet)
 }
 
 // Här och inte i headern: `history_` pekar på en intern typ.

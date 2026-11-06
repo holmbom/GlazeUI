@@ -9,6 +9,7 @@
 
 #include <algorithm>
 
+#include "glaze/app_window.h"
 #include "glaze/draw.h"
 
 #include "../prop_parse.h"
@@ -221,6 +222,7 @@ void Panel::setScroll(float x, float y)
     scrollX_ = std::max(0.0f, x);
     scrollY_ = std::max(0.0f, y);
     invalidate();   // panelens yta — EN damage-rect, aldrig per barn
+    touchBars();
 }
 
 bool Panel::mouseWheel(const Ctx& c, float, float, float wheelX, float wheelY)
@@ -241,6 +243,7 @@ bool Panel::mouseWheel(const Ctx& c, float, float, float wheelX, float wheelY)
     scrollX_ = nx;
     scrollY_ = ny;
     invalidate();       // EN rect — panelens yta
+    touchBars();
     return true;
 }
 
@@ -316,10 +319,101 @@ Draw::ScrollMetrics Panel::scrollMetrics(const Ctx& c, bool vertical) const
         vertical ? in.h : in.w, vertical};
 }
 
+// ------------------------------------------- listornas synlighet och tid
+
+bool Panel::barsShown() const
+{
+    if (!hasScrollbars())
+        return false;
+    switch (scrollbarVisibility()) {
+    case ScrollbarVisibility::Visible:
+        return true;
+    case ScrollbarVisibility::Invisible:
+        return false;
+    case ScrollbarVisibility::Auto:
+    default:
+        return holdsBars() || detail::scrollbarNowMs() < barsUntil_;
+    }
+}
+
+// Tummen som dras och remsan pekaren står på syns oavsett tiden.
+bool Panel::holdsBars() const
+{
+    return (dragAxis_ != 0 && pressed()) || (hotAxis_ != 0 && hovered());
+}
+
+void Panel::stampBars(int hideMs)
+{
+    barsUntil_ = detail::scrollbarNowMs() + hideMs;
+    scrollbarArm(barsUntil_);
+}
+
+void Panel::touchBars()
+{
+    AppWindow* f = appWindow();
+    if (!f || !overflowSeen_ || !hasScrollbars() ||
+        scrollbarVisibility() != ScrollbarVisibility::Auto)
+        return;
+    const bool synliga = detail::scrollbarNowMs() < barsUntil_;
+    stampBars(f->style().scrollbarAutoHideMs);
+    if (!synliga)
+        invalidate();   // listorna dyker upp
+}
+
+void Panel::scrollbarPointerMoved()
+{
+    touchBars();
+}
+
+// Fönstrets timer: listorna släcks när tiden gått ut — utom medan en tumme
+// dras eller pekaren står på en remsa, då väntar de en tidsperiod till.
+std::int64_t Panel::scrollbarFade(std::int64_t nowMs)
+{
+    if (barsUntil_ == 0)
+        return 0;
+    if (nowMs < barsUntil_)
+        return barsUntil_;
+    if (holdsBars()) {
+        AppWindow* f = appWindow();
+        if (!f)
+            return 0;
+        barsUntil_ = nowMs + f->style().scrollbarAutoHideMs;
+        return barsUntil_;
+    }
+    barsUntil_ = 0;
+    invalidate();
+    return 0;
+}
+
+// Visas panelen igen med överflöd räknas det som aktivitet, precis som när
+// överflödet uppstår (se drawAfterChildren).
+void Panel::shownChanged()
+{
+    if (isVisible())
+        touchBars();
+}
+
 void Panel::drawAfterChildren(const Ctx& c)
 {
-    if (!scrollbars_)
+    // ÖVERFLÖDET läses vid varje ritning: att det UPPSTÅR (innehåll som
+    // växer, en panel som visas med innehåll) är aktivitet i läget Auto.
+    const ScrollbarVisibility mode = scrollbarVisibility();
+    if (mode == ScrollbarVisibility::Invisible || !hasScrollbars())
         return;
+    const gfx::Sizef range    = scrollRange(c);
+    const bool       overflow = range.w > 0.0f || range.h > 0.0f;
+    const bool       appeared = overflow && !overflowSeen_;
+    overflowSeen_             = overflow;
+    if (!overflow)
+        return;
+    if (mode == ScrollbarVisibility::Auto) {
+        if (appeared)
+            stampBars(c.style->scrollbarAutoHideMs);
+        if (!barsShown())
+            return;
+        if (barsUntil_ != 0)
+            scrollbarArm(barsUntil_);   // fönstret kan vara ett annat än sist
+    }
 
     // TUMMEN är samma pixlar som Scrollbar-widgetens — kontraktet är
     // "samma färg för samma TILLSTÅND", och rollerna byts i BÅDA filerna i
@@ -398,7 +492,7 @@ gfx::Pointf Panel::localPoint(const Ctx& c, float mx, float my) const
 
 bool Panel::inScrollStrip(const Ctx& c, float mx, float my) const
 {
-    if (!scrollbars_)
+    if (!barsShown())
         return false;
     const gfx::Pointf p = localPoint(c, mx, my);
     return track(c, true).contains(p.x, p.y) ||
@@ -417,7 +511,7 @@ bool Panel::inRowColumn(const Ctx& c, float mx, float my) const
 void Panel::mouseDown(const Ctx& c, float mx, float my)
 {
     dragAxis_ = 0;
-    if (!scrollbars_)
+    if (!barsShown())
         return;
     const gfx::Pointf p = localPoint(c, mx, my);
     const auto&       m = *c.style;
@@ -435,6 +529,7 @@ void Panel::mouseDown(const Ctx& c, float mx, float my)
             // Greppa tummen — dragOff_ är var i tummen greppet togs.
             dragAxis_ = vertical ? 1 : 2;
             dragOff_  = pos - start;
+            touchBars();
         } else {
             // Rännklick: en SIDA i klickets riktning.
             const float page = (pos < start ? -1.0f : 1.0f) * sm.page;
@@ -470,14 +565,18 @@ void Panel::mouseDrag(const Ctx& c, float mx, float my)
 
 void Panel::mouseMove(const Ctx& c, float mx, float my)
 {
-    if (!scrollbars_)
+    if (!barsShown()) {
+        hotAxis_ = 0;
         return;
+    }
     // Bara ritkosmetik (het tumme) — invalidatera ENBART vid ändring
     // (hård regel 1: rörelse utan ändring ritar inget).
     const gfx::Pointf p = localPoint(c, mx, my);
     const int axis = track(c, true).contains(p.x, p.y)    ? 1
                      : track(c, false).contains(p.x, p.y) ? 2
                                                           : 0;
+    if (axis != 0)
+        touchBars();   // pekaren på remsan håller listan kvar en period efter
     if (axis != hotAxis_) {
         hotAxis_ = axis;
         invalidate();

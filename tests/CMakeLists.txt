@@ -826,6 +826,26 @@ target_link_libraries(datagrid_gate PRIVATE glaze)
 add_test(NAME datagrid_gate COMMAND datagrid_gate)
 set_tests_properties(datagrid_gate PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
 
+# propertygrid_gate  EGENSKAPSLISTANS TYPADE CELLER. Headless: läsvägarna
+#                (`isChecked`/`colorValue`/`numberValue`/`hasError`), höjden ur
+#                de synliga raderna i skala 1 och 2 (en satt höjd vinner, en
+#                rubrik fäller raderna under sig), tooltipen per rad (felet
+#                före radens före gridens) och sättarna (index utanför, en
+#                rad som inte är en rubrik). Med ett DOLT fönster, som en
+#                kedja av postade steg: två staplade gridar dock=Top i en
+#                Panel (den andra under den första, också efter en fällning),
+#                kryssrutan (växling, onChange + onCommit en gång var, Space,
+#                Enter/Escape konsumeras, skrivskyddad och inaktiv rad), talet
+#                (klampning, avrundning, samma tal fyrar inget, otolkbar text
+#                ger ett fel som Escape, nästa sparning och setRow tömmer),
+#                färgen (popupen öppen, valet skrivs, tryckregeln och
+#                generationsvakten) och fällning/inaktivering under en
+#                redigering. 77 = ingen display eller ingen popup ⇒ SKIPPED.
+add_executable(propertygrid_gate propertygrid_gate.cpp)
+target_link_libraries(propertygrid_gate PRIVATE glaze)
+add_test(NAME propertygrid_gate COMMAND propertygrid_gate)
+set_tests_properties(propertygrid_gate PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
+
 # commit_gate    COMMIT-HÄNDELSEN, FOKUSHÄNDELSERNA och MARKERINGEN —
 #                och PropertyGrids redigering (en
 #                omräkning i onChange får inte stänga editorn efter första tecknet).
@@ -1069,6 +1089,22 @@ add_executable(wheel_gate wheel_gate.cpp)
 target_link_libraries(wheel_gate PRIVATE glaze)
 add_test(NAME wheel_gate COMMAND wheel_gate)
 set_tests_properties(wheel_gate PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+
+# scrollbar_gate RULLNINGSLISTORNAS SYNLIGHET i ett DOLT fönster mot en klocka
+#                grinden styr: arvet (widget → förfäder → fönster → app), de
+#                tre lägena Auto, Visible och Invisible (remsans pixlar, tryck
+#                och hjul), Auto-lägets tid (rullning, pekarens rörelse över
+#                ett barn, överflöd som uppstår, en panel som visas, hållet på
+#                remsan och en dragen tumme) och fönstrets timer (närmaste
+#                tidpunkten, sätts om, stoppad). Når den interna
+#                `scrollbar_fade.h` för timer-id:t (tooltip_gate-prejudikatet).
+#                77 = ingen display ⇒ SKIPPED.
+add_executable(scrollbar_gate scrollbar_gate.cpp)
+target_link_libraries(scrollbar_gate PRIVATE glaze)
+target_include_directories(scrollbar_gate
+                           PRIVATE ${CMAKE_SOURCE_DIR}/Glaze/widgets/src)
+add_test(NAME scrollbar_gate COMMAND scrollbar_gate)
+set_tests_properties(scrollbar_gate PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 
 # canvas3d_gate  RITYTANS INTERAKTION I 3D.
 #                Headless: orbitens tal och att en kamera utanför spannen inte

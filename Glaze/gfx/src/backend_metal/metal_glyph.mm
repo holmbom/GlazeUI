@@ -53,9 +53,7 @@ struct GlyphOut {
                              // px, .w glorians bredd i em
     uint   flags [[flat]];
     float  vis   [[flat]];   // etikettens synlighet 0–1
-#ifdef GLAZE_POS3
     float2 clipLocal [[flat]];   // ankarets chunk-lokala xy
-#endif
 };
 
 // Världsriktningen v som skärmens riktning vid ankaret (pixelklippet c) —
@@ -112,9 +110,7 @@ vertex GlyphOut glyphVs(GlyphIn i [[stage_in]], constant PaintU& u [[buffer(1)]]
     o.flags = i.flags;
     o.uv    = i.uv;
     o.shape = float4(0.0);
-#ifdef GLAZE_POS3
     o.clipLocal = i.anchor.xy;
-#endif
     // Synligheten: 1 utan bunden synlighet (basen negativ), annars texeln på
     // basen + indexet, rad för rad.
     o.vis = 1.0;
@@ -230,13 +226,9 @@ fragment float4 glyphPs(GlyphOut i [[stage_in]],
         a   = fa + ha;
         rgb = a > 0.0 ? (i.col.rgb * fa + i.halo.rgb * ha) / a : i.col.rgb;
     }
-    // Målarens klipp (kMslSceneClipSrc); Glyph3 klipps på ankaret, så hela
-    // etiketten syns eller inte.
-#ifdef GLAZE_POS3
+    // Målarens klipp (kMslSceneClipSrc); världsmasken läses på ankaret, så
+    // hela etiketten syns eller inte.
     const float klipp = glaze_clip(i.pos.xy, i.clipLocal, GLAZE_CLIP_ARGS);
-#else
-    const float klipp = glaze_clipScreen(i.pos.xy, GLAZE_CLIP_ARGS);
-#endif
     return float4(rgb, a * i.vis * u.paint1.y * clipCoverage(i.pos.xy, cm) *
                            klipp);
 }

@@ -31,15 +31,15 @@ void applyProp(glaze::Widget& w, const Prop& p, const char* origin);
 // som ett okänt fält (regel 4).
 //
 // Kända anrop i dag: `show()`/`hide()`/`enable()`/`disable()`/
-// `resetCursor()` (alla widgets), `setIndeterminate(bool)` (Progress),
-// `showScrollbars(bool)`
-// (Panel), menyradens platta form (`addMenu`/`addItem`/`addCheck`/
+// `resetCursor()`, `setScrollbarVisibility(v)`/`clearScrollbarVisibility()`
+// (alla widgets), `setIndeterminate(bool)` (Progress), menyradens platta form (`addMenu`/`addItem`/`addCheck`/
 // `addRadio`/`addSeparator`/`addSubmenu`) och KOLLEKTIONSVOKABULÄREN:
-// `setRows`/`addRow`/`setRow`
-// (PropertyGrid), `addItem`/`setItem` (ListBox · Dropdown),
-// `setChecked(int,bool)` (ListBox) och `setColor(gfx::Color{…})` (Label).
+// `setRows`/`addRow`/`setRow` med radaggregatet och radens tillstånd
+// `setRowEnabled`/`setExpanded` (PropertyGrid), `addItem`/`setItem`
+// (ListBox · Dropdown), `setChecked(int,bool)` (ListBox) och
+// `setColor(gfx::Color{…})` (Label).
 //
-// De två literalparsrarna (`setRows`-raderna och `gfx::Color`) är
+// De två literalparsrarna (PropertyGrids rader och `gfx::Color`) är
 // STRIKTA delmängder i samma familj som `parseStringList`/`parseImgCall`,
 // och avkodningen är ATOMISK: allt valideras till temporärer innan
 // widgeten muteras, annars logg + oförändrat tillstånd. Menygrenens lena

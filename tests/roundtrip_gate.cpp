@@ -866,8 +866,8 @@ int main()
             bld::readWindow(root() + "tests/fixtures/calls.h");
         const auto panel = r.ok ? anropen(r.model, "panel")
                                 : std::vector<const bld::Stmt*>{};
-        ok(panel.size() == 1 && panel[0]->name == "showScrollbars" &&
-               panel[0]->value == "true",
+        ok(panel.size() == 1 && panel[0]->name == "setScrollbarVisibility" &&
+               panel[0]->value == "glaze::ScrollbarVisibility::Visible",
            "calls: widget-specifikt anrop med argument");
     }
 
@@ -1070,7 +1070,8 @@ int main()
             std::string följd;
             for (const bld::Stmt* s : g)
                 följd += s->name + " ";
-            ok(följd == "setRows addRow setScroll setRow addRow ",
+            ok(följd == "setRows addRow setScroll setRow addRow addRow addRow "
+                        "addRow addRow setExpanded setRowEnabled ",
                "grid: anropen i KÄLLORDNING, varvade med okänd metod (" +
                    följd + ")");
             ok(g.size() >= 1 &&
@@ -1558,8 +1559,9 @@ int main()
             // Gränserna och den låsta storleken i
             // innehållsmått och `setPopupTakesKeys` efter avbrytknappen.
             // Fönstrets `setWheelInvert(…)`
-            // efter `setPopupTakesKeys`.
-            ok(namn.size() == 23 && namn[0] == "setTitle" &&
+            // efter `setPopupTakesKeys`, och `setScrollbarVisibility(…)` direkt
+            // efter det.
+            ok(namn.size() == 24 && namn[0] == "setTitle" &&
                    namn[1] == "setClientSize" && namn[2] == "setContentSize" &&
                    namn[11] == "setTopmost" &&
                    namn[12] == "setShowInTaskbar" &&
@@ -1572,8 +1574,9 @@ int main()
                    namn[19] == "setFixedContentSize" &&
                    namn[20] == "setPopupTakesKeys" &&
                    namn[21] == "setWheelInvert" &&
-                   namn[22] == "setAnimating",
-               "fönsteranrop: tjugotre satser i källordning (" +
+                   namn[22] == "setScrollbarVisibility" &&
+                   namn[23] == "setAnimating",
+               "fönsteranrop: tjugofyra satser i källordning (" +
                    std::to_string(namn.size()) + ")");
 
             // Den låsta storleken läses med sina två heltal ordagrant.
@@ -1627,6 +1630,20 @@ int main()
             ok(hjul && fönsterhjul &&
                    fönsterhjul->value == "glaze::InputDevice::Touchpad, false, true",
                "inmatning: basens och fönstrets setWheelInvert läses ordagrant");
+
+            // RULLNINGSLISTORNAS SYNLIGHET: widgetens `set…` och `clear…` och
+            // fönstrets naka anrop läses ordagrant (enum-argumentet med prefix).
+            bool lista_clear = false;
+            for (const bld::Stmt* s : anropen(r.model, "lista"))
+                lista_clear |= s->name == "clearScrollbarVisibility" &&
+                               s->value.empty();
+            const bld::Stmt* fönsterlist =
+                r.model.lastWindowCall("setScrollbarVisibility");
+            ok(lista_clear && fönsterlist &&
+                   fönsterlist->value ==
+                       "glaze::ScrollbarVisibility::Invisible",
+               "listor: lista.clearScrollbarVisibility() och fönstrets "
+               "setScrollbarVisibility(Invisible) läses ordagrant");
 
             const bld::Stmt* sit = r.model.lastWindowCall("setShowInTaskbar");
             ok(sit && sit->value == "false",

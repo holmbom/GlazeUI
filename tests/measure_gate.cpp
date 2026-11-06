@@ -181,7 +181,8 @@ gfx::Sizef mät(const std::string& typ, float scale, bool explicitMått)
     if (explicitMått) {
         // PASSTHROUGH-VÄGEN: satt storlek vinner i varje implementation, så
         // den här uppsättningen når de containers vars auto-svar är {0,0}
-        // (Panel, ListBox, PropertyGrid) — utan den vore de fallen tomma i
+        // (Panel, ListBox, och PropertyGrid utan rader — med rader är dess
+        // auto-höjd de synliga raderna) — utan den vore de fallen tomma i
         // båda enheterna och grinden hade "bevisat" något om dem den inte
         // mätt.
         w->width  = 120.0f;

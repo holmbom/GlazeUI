@@ -42,7 +42,6 @@ Table::Table()
     setClip(true);          // editorerna (DataGrid) klipps mot raderna
     setBorder(true);        // tabellen ÄR en inramad yta — och `border` är
                             // det som drar in innerBounds en ramtjocklek
-    showScrollbars(true);   // överflöd ska SYNAS (ListBox-prejudikatet)
 }
 
 // --------------------------------------------------------------- raderna

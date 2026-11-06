@@ -66,6 +66,9 @@
 # more") och posten för en inbäddad kontroll utan verktygstips (421,
 # "Kontroll"; kontrollens eget verktygstips är postens text när det finns).
 #
+# Id 430–439 är EGENSKAPSLISTANS: en rads verktygstips när värdet i den inte
+# går att tolka (430, "Ogiltigt värde" — Windows formulärfel "Invalid value").
+#
 # Id 81–83: meddelanderutans "Abort" (81 — att låna `Cancel` är fel på
 # engelska och finska), filstorlekens byte-enhet (82 — "B", men finskans tavu
 # "t": "12 kt", "3,4 Mt") och macOS appmenys "Avsluta "-prefix (83 — med sitt
@@ -100,6 +103,7 @@
 #   nb/fi 420–421: "Vis mer"/"Näytä lisää" (Windows "Näytä
 #         lisää") och "Kontroll"/"Ohjausobjekti" (Microsofts term för en
 #         UI-kontroll) — utan modersmålstalare
+#   nb/fi 430: "Ugyldig verdi"/"Virheellinen arvo" — utan modersmålstalare
 
 default sv
 
@@ -206,6 +210,7 @@ id 405 "Utskriften misslyckades."
 id 406 "Filen gick inte att skriva."
 id 420 "Visa mer"
 id 421 "Kontroll"
+id 430 "Ogiltigt värde"
 
 # ---------------------------------------------------------------- engelska
 lang en English
@@ -310,6 +315,7 @@ id 405 "Printing failed."
 id 406 "The file could not be written."
 id 420 "See more"
 id 421 "Control"
+id 430 "Invalid value"
 
 # ------------------------------------------------- norska (bokmål: nb)
 lang nb Norsk bokmål
@@ -414,6 +420,7 @@ id 405 "Utskriften mislyktes."
 id 406 "Filen kunne ikke skrives."
 id 420 "Vis mer"
 id 421 "Kontroll"
+id 430 "Ugyldig verdi"
 
 # ----------------------------------------------------------------- finska
 lang fi Suomi
@@ -518,3 +525,4 @@ id 405 "Tulostus epäonnistui."
 id 406 "Tiedostoon ei voitu kirjoittaa."
 id 420 "Näytä lisää"
 id 421 "Ohjausobjekti"
+id 430 "Virheellinen arvo"

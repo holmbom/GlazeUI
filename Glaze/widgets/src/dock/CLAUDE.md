@@ -155,7 +155,12 @@ en `unique_ptr` till en framåtdeklarerad typ. Del av GlazeUI — se
     `StartPosition::Default` — inga avrundade logiska px och ingen klämning,
     fönstret som följer pekaren får stå delvis utanför skärmen), och
     `requestSync` frågar värdens `checkCarry` först. `ToolFloatHeader::
-    pressPoint()` är det burna fältets grepp.
+    pressPoint()` är det burna fältets grepp. Eftersom fältets fönster aldrig
+    aktiveras får det sina TANGENTER av ägaren: ett tryck på en widget i
+    fältet som tar fokus (textfält, vallista, talfält) sätter
+    `AppWindow::keysFromOwner_`, och ägaren skickar tangent, släpp och tecken
+    dit genom `openKeyPopup` — tills ett tryck landar i ett annat fönster,
+    fältets fokus försvinner eller fönstret döljs, stängs eller dockas.
   - ETT FLYTANDE OBJEKT SOM DÖR (`~DockPanel`, `~ToolBar` — Codex-
     granskningen av E3 fynd 1) säger det till värden i SAMMA ögonblick
     (`floatingItemDestroyed`): fönstret släpper det (`FloatBody::release`),
@@ -174,7 +179,9 @@ en `unique_ptr` till en framåtdeklarerad typ. Del av GlazeUI — se
   `detail::drawPanelHeader(c, PanelHeader, text)` ritar ytan, rubrikraden,
   hårlinjen, de tända knapparnas plattor, kanten, titeln och knapptecknen i
   de tre familjernas recept (`switch (c.ui)` bor alltså här och inte i de
-  två widgetarna). Widgeten äger GEOMETRIN (sina `*Rect`) och TILLSTÅNDET
+  två widgetarna). Rubrikraden fylls med den härledda rollen
+  `colors.panelHeader` i alla tre UI — kontrasten mot `panel` och texten på
+  den grindas av `contrast_gate`. Widgeten äger GEOMETRIN (sina `*Rect`) och TILLSTÅNDET
   (`hot`/`down` per `detail::HeaderButton`) och skickar dem — ritningen läser
   samma rektar och flaggor som musvägen, så de kan inte glida isär; helpern
   äger bara ritningen. En knapp med TOM rekt finns inte (stängknappen utan
@@ -184,8 +191,8 @@ en `unique_ptr` till en framåtdeklarerad typ. Del av GlazeUI — se
   knappens ruta. `panelGlyphColor` är tecknens vilofärg — och `FloatingPanel`s
   greppets, som är panelens eget och ritas efter rubriken (likaså
   `DockPanel`s fokusring). `ToolFloatHeader` (dock_float.cpp) har ännu sin
-  egen `switch (c.ui)`: den ritar bara raden, utan kant och med en elliderad
-  titel.
+  egen `switch (c.ui)`: den ritar bara raden i `panelHeader`, utan kant och
+  med en elliderad titel.
 
 ## Kontrakten
 

@@ -90,8 +90,9 @@ std::string ToolFloatHeader::title() const
 
 // De fyra tillstånden — panelrubrikens recept (dock_header.cpp),
 // och stängknappen är verktygsknappens platta knapp i varje familj:
-//   vila       rubrikraden (Glaze/Slate `windowBg`, Minimalistic `panel`)
-//              med en hårlinje under, titeln i `text`, korset i `textDim`
+//   vila       rubrikraden i `panelHeader` (i alla tre familjer, så att
+//              fönstrets gradient inte syns genom den) med en hårlinje under,
+//              titeln i `text`, korset i `textDim`
 //   hover      plattan `buttonHover` (familjens form), korset i `text`
 //   tryck      plattan `buttonPress` (Minimalistic: kanten i `accent`)
 //   inaktiv    fältet är inaktiverat — titeln `textDim`, korset `border`,
@@ -118,10 +119,10 @@ void ToolFloatHeader::draw(const Ctx& c)
 
     switch (c.ui) {
     // GLAZE — en YTA med BESTÄMD KANT: rubrikraden i
-    // `windowBg` med fönsterkantens hårlinje `frame` under, och den tända
+    // `panelHeader` med fönsterkantens hårlinje `frame` under, och den tända
     // plattan laminerad med kontrollkanten — som panelrubrikens knappar.
     case UI::Glaze:
-        fillWindowSurface(c, b);
+        Draw::rect(c, b, 0.0f, col.panelHeader);
         linjeUnder(col.frame);
         if (het || nere) {
             Draw::rect(c, pl, m.cornerRadius,
@@ -135,10 +136,10 @@ void ToolFloatHeader::draw(const Ctx& c)
         break;
 
     // MINIMALISTIC — "Outline": ytan är
-    // `panel`, bara hårlinjen under rubriken, och den tända plattan är
+    // `panelHeader` med hårlinjen under rubriken, och den tända plattan är
     // fyllningen innanför en kant (`buttonBorder`, `accent` vid tryck).
     case UI::Minimalistic:
-        Draw::rect(c, b, 0.0f, col.panel);
+        Draw::rect(c, b, 0.0f, col.panelHeader);
         linjeUnder(col.border);
         if (het || nere)
             Draw::rect(c, pl, m.cornerRadius,
@@ -147,11 +148,11 @@ void ToolFloatHeader::draw(const Ctx& c)
                            m.borderWidth});
         break;
 
-    // SLATE — en YTA: rubrikraden i `windowBg` med
+    // SLATE — en YTA: rubrikraden i `panelHeader` med
     // kontrollkanten under, och den tända plattan utan kontur.
     case UI::Slate:
     default:
-        fillWindowSurface(c, b);
+        Draw::rect(c, b, 0.0f, col.panelHeader);
         linjeUnder(col.border);
         if (het || nere)
             Draw::rect(c, pl, m.cornerRadius,

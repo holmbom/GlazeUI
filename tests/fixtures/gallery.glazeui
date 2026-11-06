@@ -383,12 +383,15 @@ void WidgetGallery::initializeComponent()
     grid1.width = 140;
     grid1.height = 92;
     grid1.setBorder(true);
+    grid1.setRows({{.name = "Grupp", .kind = glaze::PropertyGrid::Kind::Header}, {.name = "Synlig", .value = "true", .kind = glaze::PropertyGrid::Kind::Check}, {.name = "Färg", .value = "#3366FF80", .kind = glaze::PropertyGrid::Kind::Color, .allowAlpha = true}, {.name = "Skala", .value = "1.5", .kind = glaze::PropertyGrid::Kind::Number, .min = 0, .max = 10, .decimals = 1, .prefix = "1:", .suffix = "%"}});
 
     grid2.x = 156;
     grid2.y = 28;
     grid2.width = 140;
     grid2.height = 92;
     grid2.setBorder(true);
+    grid2.setRows({{"Namn", "Rad"}, {.name = "Fel", .value = "x", .kind = glaze::PropertyGrid::Kind::Number}, {.name = "Av", .value = "false", .kind = glaze::PropertyGrid::Kind::Check, .enabled = false}, {.name = "Fast", .value = "true", .readOnly = true, .kind = glaze::PropertyGrid::Kind::Check}});
+    grid2.disable();
 
     g8Txt.setText("Raderna är DATA — de sätts i onLoad.");
     g8Txt.setRole(glaze::Label::Role::Dim);

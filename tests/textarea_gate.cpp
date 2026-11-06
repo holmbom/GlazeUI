@@ -517,7 +517,7 @@ struct Fonster : glaze::AppWindow {
         sida.y      = 420;
         sida.width  = 300;
         sida.height = 160;
-        sida.showScrollbars(true);
+        sida.setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);
         inre.x       = 10;
         inre.y       = 10;
         inre.width   = 220;

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -233,6 +234,61 @@ bool Widget::isWheelInverted(InputDevice d, bool horizontal) const
             return (w->wheelInvert_ & (1u << (i + 1))) != 0;
     return detail::appWheelInverted(d, horizontal);   // skapar aldrig App
 }
+
+// RULLNINGSLISTORNAS SYNLIGHET — lagras och ritar om widgeten (listorna är
+// overlay i widgetens och barnens ytor, så EN rect räcker).
+void Widget::setScrollbarVisibility(ScrollbarVisibility v)
+{
+    const auto lagrat = static_cast<std::uint8_t>(1 + static_cast<unsigned>(v));
+    if (scrollbarVis_ == lagrat)
+        return;
+    scrollbarVis_ = lagrat;
+    invalidate();
+}
+
+void Widget::clearScrollbarVisibility()
+{
+    if (scrollbarVis_ == 0)
+        return;
+    scrollbarVis_ = 0;
+    invalidate();
+}
+
+// Egen, förfädernas (till och med fönstrets rot) och sist appens — en popup är
+// ett eget fönster och ärver från appen, precis som hjulets riktning.
+ScrollbarVisibility Widget::scrollbarVisibility() const
+{
+    for (const Widget* w = this; w; w = w->parent())
+        if (w->scrollbarVis_ != 0)
+            return static_cast<ScrollbarVisibility>(w->scrollbarVis_ - 1);
+    return detail::appScrollbarVisibility();   // skapar aldrig App
+}
+
+void Widget::scrollbarArm(std::int64_t deadlineMs)
+{
+    if (AppWindow* f = liveOwner())
+        f->scrollbarArm(deadlineMs);
+}
+
+namespace detail {
+namespace {
+std::int64_t (*g_scrollbarClock)() = nullptr;
+} // namespace
+
+std::int64_t scrollbarNowMs()
+{
+    if (g_scrollbarClock)
+        return g_scrollbarClock();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+void setScrollbarClock(std::int64_t (*clock)())
+{
+    g_scrollbarClock = clock;
+}
+} // namespace detail
 
 // STANDARDKNAPPEN — fönstret avgör om jag rör
 // acceptknappen eller den fokuserade knappen (Widget är friend).

@@ -128,9 +128,16 @@ void DockWindow::initializeComponent()
     egenskaper.setPinned(false);
     egenskaper.width = 240;
 
+    egenskapsPanel.name = "egenskapsPanel";
+    egenskapsPanel.dock = glaze::Dock::Fill;
+
     egenskapsLista.name = "egenskapsLista";
-    egenskapsLista.setRows({{"name", "dokument"}, {"dock", "Fill"}, {"width", "AUTO"}});
-    egenskapsLista.dock = glaze::Dock::Fill;
+    egenskapsLista.setRows({{.name = "Dokument", .kind = glaze::PropertyGrid::Kind::Header}, {"name", "dokument"}, {"dock", "Fill"}, {"width", "AUTO"}, {.name = "locked", .value = "false", .kind = glaze::PropertyGrid::Kind::Check}});
+    egenskapsLista.dock = glaze::Dock::Top;
+
+    utseendeLista.name = "utseendeLista";
+    utseendeLista.setRows({{.name = "Utseende", .kind = glaze::PropertyGrid::Kind::Header}, {.name = "background", .value = "#3366FF80", .kind = glaze::PropertyGrid::Kind::Color, .allowAlpha = true}, {.name = "opacity", .value = "80", .kind = glaze::PropertyGrid::Kind::Number, .min = 0, .max = 100, .decimals = 0, .suffix = "%"}, {.name = "scale", .value = "50", .kind = glaze::PropertyGrid::Kind::Number, .min = 1, .max = 500, .decimals = 0, .prefix = "1:"}});
+    utseendeLista.dock = glaze::Dock::Top;
 
     utdata.name = "utdata";
     utdata.setText(glaze::tr(1705));
@@ -222,7 +229,9 @@ void DockWindow::initializeComponent()
     sok.adopt(sokEtikett);
     sok.adopt(sokFalt);
     dock.adopt(egenskaper);
-    egenskaper.adopt(egenskapsLista);
+    egenskaper.adopt(egenskapsPanel);
+    egenskapsPanel.adopt(egenskapsLista);
+    egenskapsPanel.adopt(utseendeLista);
     dock.adopt(utdata);
     utdata.adopt(utdataText);
     dock.adopt(terminalPanel);

@@ -17,7 +17,7 @@
 //
 // är trädbyggets egna satser. Rubriken är en vanlig setter-rad
 // (`sidaAllmant.setText(glaze::tr(1050));`), och sidan är en Panel: den
-// klipper, scrollar och tar `setBorder`/`showScrollbars` som vilken panel
+// klipper, scrollar och tar `setBorder`/`setScrollbarVisibility` som vilken panel
 // som helst (WinForms TabPage ärver Panel av samma skäl).
 //
 // YTAN ÄR FLIKKONTROLLENS. Sidan ritar ingenting själv — flikkontrollen

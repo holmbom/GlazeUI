@@ -139,9 +139,9 @@ float4 fillPs(FillOut i) : SV_Target
     const float4 col = i.col * paintColor(i.world);
     const float  cov = 1.0 - saturate(i.edge);
     // Rak alfa som UI:t; klippmaskerna och målarens klipp gäller ytan som
-    // allt annat.
+    // allt annat — världsmasken i ytans världspunkt.
     return float4(col.rgb, col.a * cov * gPaint1.y * clipCoverage(i.pos.xy) *
-                               glaze_clipScreen(i.pos.xy));
+                               glaze_clip(i.pos.xy, i.world));
 }
 )hlsl";
 

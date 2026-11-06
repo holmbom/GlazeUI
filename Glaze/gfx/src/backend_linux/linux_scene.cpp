@@ -581,12 +581,8 @@ void main()
         discard;
 #endif
     // Målarens klipp sist (kGlslSceneClipSrc) — utanför kastas fragmentet.
-    // Line3 klipps på linjens punkt (`vPpos`, chunk-lokal).
-#ifdef GLAZE_POS3
+    // Världsmasken läses i linjens punkt (`vPpos`, chunk-lokal).
     float klipp = glaze_clip(vPix, vPpos);
-#else
-    float klipp = glaze_clipScreen(vPix);
-#endif
     frag = vec4(col.rgb, col.a * alpha * uPaint1.y * clipCoverage(vPix) *
                              klipp);
 }

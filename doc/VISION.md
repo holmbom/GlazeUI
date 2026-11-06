@@ -87,7 +87,7 @@ en egen liten insats när den behövs.
 - `Dropdown` ✅ FINNS (GLAZE_ASSETS, 2026-07-20): vallista i ett riktigt
   popup-fönster (sticker ut utanför ägarfönstret, vänder vid skärmkanten)
 - `Scrollbar` ✅ FINNS (GLAZE_ASSETS, 2026-07-20): fristående + Panels
-  inbyggda overlay-lister (`showScrollbars`) — samma painter-väg
+  inbyggda overlay-lister (`setScrollbarVisibility`) — samma painter-väg
 - `PropertyGrid` ✅ FINNS (GLAZE_ASSETS, 2026-07-20): tvåkolumners
   egenskapslista, rader är data, EN hostad editor/picker — driver
   GlazeBuilders egenskapspanel men är generisk

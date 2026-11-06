@@ -28,6 +28,7 @@ void CallsFixture::initializeComponent()
     setFixedContentSize(360, 200);
     setPopupTakesKeys(false);
     setWheelInvert(glaze::InputDevice::Touchpad, false, true);
+    setScrollbarVisibility(glaze::ScrollbarVisibility::Invisible);
     setAnimating(false);
 
     btn.setText("onClick = [this] { fel(); };");
@@ -48,7 +49,7 @@ void CallsFixture::initializeComponent()
     panel.onClick = [this] { medArgument(1); };
     panel.name = "panel";
     panel.setBorder(true);
-    panel.showScrollbars(true);
+    panel.setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);
     panel.setAllowDrop(true);
 
     prog.x = 20;
@@ -79,6 +80,7 @@ void CallsFixture::initializeComponent()
     lista.setTextSize(glaze::mm(2.5));
     lista.setWheelInvert(glaze::InputDevice::Mouse, true, false);
     lista.clearWheelInvert(glaze::InputDevice::Touchpad);
+    lista.clearScrollbarVisibility();
     lista.y = 70;
     lista.width = 140;
     lista.height = 80;
@@ -91,11 +93,17 @@ void CallsFixture::initializeComponent()
     grid.width = 220;
     grid.height = 90;
     grid.setRows({{"Bredd", "120"}, {"Höjd", "80", {}, true, "h"}});
-    grid.addRow("Djup", "40");
+    grid.addRow({"Djup", "40"});
     grid.setScroll(0, 0);
     grid.setNameWidth(140);
-    grid.setRow(0, "Bredd", "160");
-    grid.addRow("Ägare", "system", true);
+    grid.setRow(0, {"Bredd", "160"});
+    grid.addRow({"Ägare", "system", {}, true});
+    grid.addRow({.name = "Grupp", .kind = glaze::PropertyGrid::Kind::Header});
+    grid.addRow({.name = "Synlig", .value = "true", .kind = glaze::PropertyGrid::Kind::Check, .toolTip = "Visa"});
+    grid.addRow({.name = "Färg", .value = "#3366FF80", .kind = glaze::PropertyGrid::Kind::Color, .allowAlpha = true});
+    grid.addRow({"Skala", "1.5", {}, false, "", glaze::PropertyGrid::Kind::Number, 0, 10, 1, "1:", "%"});
+    grid.setExpanded(4, false);
+    grid.setRowEnabled(5, false);
 
     dd.name = "dd";
     dd.x = 260;

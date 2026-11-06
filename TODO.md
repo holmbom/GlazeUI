@@ -51,7 +51,9 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 - 💡 **Händelse när appens tema eller läge byts**
   Bara OS:ets byte ger en händelse (`EventType::SystemThemeChanged`). Ett `onThemeChanged` som fyrar vid `setThemeMode`, vid byte av tema och vid OS-bytet i System-läget, efter att det nya temat gäller.
 - 💡 **`DataGrid`: kryssrutekolumn och redigerare per cell** — [data_grid.h](Glaze/widgets/include/glaze/widgets/data_grid.h)
-  En kolumn med kryssrutor (klick och Space, `onCommit` som de andra), och `setCellEditor`/`setCellChoices` per cell med `Editor::None` för en låst cell; kolumnens redigerare är förval.
+  En kolumn med kryssrutor (klick och Space, `onCommit` som de andra), ritad med radmönstret som ListBox, ListView, TreeView och PropertyGrid redan har; och `setCellEditor`/`setCellChoices` per cell med `Editor::None` för en låst cell, kolumnens redigerare som förval.
+- 💡 **`PropertyGrid` som ett tabbstopp med en aktuell rad** — [property_grid.h](Glaze/widgets/include/glaze/widgets/property_grid.h)
+  Gridden är inget tabbstopp, så Space når bara en kryssruta som just tryckts. En aktuell rad som ListViews: pilarna flyttar den, Space växlar en kryssruta, Enter eller F2 öppnar cellens redigerare.
 - 💡 **Redigerbar kombinationsruta (`ComboBox`)**
   En `Dropdown` där man också kan skriva ett eget värde: `text()`, `setItems`, `onChange` när texten ändras och `onCommit` vid Enter eller fokusförlust; listan filtreras gärna på det som skrivits.
 - 💡 **Linfysik: nedhäng efter temperatur, töjning, vind och is**

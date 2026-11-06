@@ -799,7 +799,9 @@ void drawScreenPass(const PaintContext& f, const SceneData& sc, const Shape& s,
     d.userBytes   = b.userBytes;
     d.textures    = b.textures;
     d.state       = state;
-    f.clip.apply(d.uniforms.clip, false, 0.0, 0.0);   // bara skärmmasken
+    // Passet ritar i skärmrymden: skärmrymdens klipp, med världsklippet
+    // projicerat genom vyn (`ClipScope::onScreen`).
+    f.clip.onScreen(f).apply(d.uniforms.clip, 0.0, 0.0);
     f.c->r->drawMesh(d);
 }
 

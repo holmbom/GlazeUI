@@ -23,6 +23,12 @@
 // och inte en skärm, så den får vara bredare än demons galleri — och en
 // egen kolumn per spår håller samtidiga spår isär.
 //
+// EGENSKAPSGRIDARNA (grupp 8): `grid1` bär de typade raderna — rubrik,
+// kryssruta, färg med alfa och tal med gränser, prefix och suffix, DESIGNERADE
+// i en `setRows`-lista — och `grid2` en vanlig rad, en talrad med text som
+// inte går att tolka (felcellen), en inaktiv kryssruta och en skrivskyddad,
+// allt i en INAKTIVERAD grid, så pixel_gate ritar varje slag i varje palett.
+//
 // SJÄTTE KOLUMNEN (x = 1592): trädet, normalt och
 // inaktiverat — `setNodes` med den rekursiva literalen (en nod med bild,
 // en utfälld gren), `setSelectedPath` och basens drag-egenskaper på det
@@ -142,7 +148,7 @@
 //
 // Tre-fils-modellen: den här filen har EN GlazeBuilder-region (medlemmar),
 // .glazeui bär layouten och .cpp bara handler-kropparna. Tillstånd som
-// inte går att uttrycka som en FÄLTSÄTTNING (disable(), showScrollbars(),
+// inte går att uttrycka som en FÄLTSÄTTNING (disable(), setScrollbarVisibility(),
 // setIndeterminate(), setRows()) sätts i onLoad — startlogikens hem.
 class WidgetGallery : public glaze::AppWindow {
 #pragma region GlazeBuilder

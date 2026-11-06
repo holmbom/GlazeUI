@@ -61,6 +61,8 @@ inte konstantnamnet: `builder_core` kan omöjligt slå upp `glaze::str::Ok`.
   Blocket 420–429 är VERKTYGSFÄLTETS ÖVERFLÖDE (REQ8 9): 420 överflödsknappens
   tooltip "Visa mer" (Windows kommandofälts "See more") och 421 posten för en
   inbäddad kontroll utan eget verktygstips ("Kontroll").
+  Blocket 430–439 är PROPERTYGRIDENS: 430 felets tooltip på en talrad vars
+  text inte gick att tolka ("Ogiltigt värde").
   Granskningen av nb/fi/en
   och källorna står i filens huvud. **`lang_gate` del 4** fäller en NY
   hårdkodad användartext i `Glaze/widgets/` — se grindens huvud för

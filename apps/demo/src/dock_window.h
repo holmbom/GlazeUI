@@ -12,7 +12,9 @@
 // står vid nederkanten. Utforskaren har ett minsta och ett största mått.
 // Egenskaper är ONÅLAD: ett handtag vid vänsterkanten som fäller ut
 // panelen som OVERLAY ovanpå dokumentet — den fälls in när pekaren och fokus
-// lämnat den, och knappnålen i dess rubrik fäster den i stapeln. Ytterst står
+// lämnat den, och knappnålen i dess rubrik fäster den i stapeln. Dess innehåll
+// är två egenskapslistor STAPLADE i en rullande Panel (båda `Dock::Top` med
+// höjden ur raderna), med rubrikrader, kryssruta, färg och tal i `.glazeui`. Ytterst står
 // VERKTYGSFÄLTEN i band: Standard och Redigera i band 0 överst, Felsök i
 // band 1 under dem och Verktyg på högkant vid vänsterkanten — varje fält
 // dras i sitt grepp till ett annat band, en annan plats eller en annan kant —
@@ -74,7 +76,9 @@ private:
     glaze::Label sokEtikett;
     glaze::TextInput sokFalt;
     glaze::DockPanel egenskaper;
+    glaze::Panel egenskapsPanel;
     glaze::PropertyGrid egenskapsLista;
+    glaze::PropertyGrid utseendeLista;
     glaze::DockPanel utdata;
     glaze::Label utdataText;
     glaze::DockPanel terminalPanel;

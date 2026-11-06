@@ -14,6 +14,7 @@
 #include "font_set.h"      // FontSet komplett för fontSet_
 #include "image_cache.h"
 #include "profiler_hooks.h"   // profileraren — innehållet, overlayen, skadan
+#include "scrollbar_fade.h"   // rullningslisternas timer-id
 #include "tooltip.h"   // ToolTipWindow komplett för tipWin_
 #include "window_icon.h"   // programikonens ramar
 #include "window_placement.h"   // startplatsen och logisk ↔ placering
@@ -1948,6 +1949,7 @@ void AppWindow::hide()
     std::vector<KeyTarget> släpp = std::exchange(keyTargets_, {});
     hidden_ = true;
     active_ = false;   // ett dolt fönster är inte aktivt
+    setKeysFromOwner(false);   // och har inte tangentbordet
     win_->setVisible(false);
     // Trädet syns inte längre (`Widget::shownChanged`) — det
     // som bara går medan det syns stannar NU, inte vid nästa ritning (som
@@ -3094,6 +3096,8 @@ void AppWindow::setFocus(Widget* w)
         old->invalidate();
     }
     focusedWidget_ = w;
+    if (!w)
+        setKeysFromOwner(false);   // fokus är borta — tangentbordet också
     if (w) {
         w->focused_ = true;
         if (w->wantsTextInput()) {
@@ -3644,6 +3648,7 @@ void AppWindow::forgetWidgets()
     }
     caretPhase_      = false;
     focusedWidget_   = nullptr;
+    setKeysFromOwner(false);
     pressedWidget_   = nullptr;
     for (ClickTrack& t : clicks_)
         t.widget = nullptr;
@@ -4371,7 +4376,75 @@ AppWindow* AppWindow::openKeyPopup() const
         if (w->popup_ && w->popupTakesKeys_ && w->open_ && !w->pendingClose_ &&
             !w->hidden_)
             return w;
+    // Det flytande fönstret som har tangentbordet (`keysFromOwner_`) — efter
+    // ägarens egen popup, som är modal för tangentbordet.
+    for (AppWindow* w : owned_)
+        if (w->keysFromOwner_ && w->open_ && !w->pendingClose_ && !w->hidden_)
+            return w;
     return nullptr;
+}
+
+// Fönstret är av en sort som ägaren kan förmedla tangenter till: en popup med
+// attributet eller ett `noActivate_`-fönster som inte är en popup. Släppet
+// frågar det, för ett tryck kan ha förmedlats innan flaggan nollades.
+bool AppWindow::takesKeysFromOwner() const
+{
+    return popup_ ? popupTakesKeys_ : noActivate_;
+}
+
+bool AppWindow::keysHeldByFloat() const
+{
+    for (const AppWindow* w : owned_)
+        if (w->keysFromOwner_ && w->open_)
+            return true;
+    return false;
+}
+
+// Careten följer tangentbordet: samma tre rader som fokusförlusten och
+// fokusvinsten kör, för en fokuserad textwidget.
+void AppWindow::setCaretLive(bool live)
+{
+    if (!open_ || !focusedWidget_ || !focusedWidget_->wantsTextInput())
+        return;
+    if (live) {
+        win_->startTimer(kCaretTimerId, kCaretBlinkMs);
+        caretPhase_ = true;
+    } else {
+        win_->stopTimer(kCaretTimerId);
+        caretPhase_ = false;
+    }
+    focusedWidget_->caretBlink(ctxFor(*focusedWidget_), live);
+}
+
+// Ett tryck i det här fönstret tar tangentbordet från varje annat flytande
+// fönster som har det (`keysFromOwner_`) — utom från fönstret självt och de
+// fönster som det äger (en vallistas popup hör till fältet den öppnades i).
+void AppWindow::releaseOtherKeyHolders()
+{
+    if (!App::instance_)
+        return;
+    for (AppWindow* w : App::instance_->windows_) {
+        if (!w->keysFromOwner_)
+            continue;
+        bool eget = false;
+        for (const AppWindow* o = this; o; o = o->owner_)
+            if (o == w) {
+                eget = true;
+                break;
+            }
+        if (!eget)
+            w->setKeysFromOwner(false);
+    }
+}
+
+void AppWindow::setKeysFromOwner(bool on)
+{
+    if (keysFromOwner_ == on)
+        return;
+    keysFromOwner_ = on;
+    setCaretLive(on);
+    if (AppWindow* o = owner_; o && o->open_)
+        o->setCaretLive(!on && o->active_ && !o->keysHeldByFloat());
 }
 
 // Tangenten, släppet och tecknet NED till popupen, med popupens `windowId`
@@ -4412,7 +4485,7 @@ bool AppWindow::forwardToKeyPopup(const gfx::Event& e)
         const bool ägarens = heldRaw(e.key) || hasKeyTarget(e.key);
         bool       tog     = false;
         for (AppWindow* w : owned_)
-            if (w->popup_ && w->popupTakesKeys_ && w->open_ &&
+            if (w->takesKeysFromOwner() && w->open_ &&
                 (w->heldRaw(e.key) || w->hasKeyTarget(e.key))) {
                 const std::weak_ptr<char> liv = lifeToken();
                 skicka(*w);
@@ -4483,6 +4556,8 @@ void AppWindow::handleEvent(const gfx::Event& e)
     // tre plattformar där en `noActivate`-popup aldrig får OS-fokus.
     if (forwardToKeyPopup(e))
         return;
+    if (e.type == gfx::EventType::MouseButtonDown)
+        releaseOtherKeyHolders();
     // Pekarens form ur widgeten som NU står under pekaren — efter en handler
     // som kan ha ändrat trädet räknas den om i stället för att lita på en
     // pekare från före den.
@@ -4705,7 +4780,10 @@ void AppWindow::handleEvent(const gfx::Event& e)
     // (eller väcka appen) i ett inaktivt fönster — timern stoppas och
     // careten släcks, och kommer tillbaka när fönstret får fokus igen.
     case gfx::EventType::WindowFocusGained:
-        if (focusedWidget_ && focusedWidget_->wantsTextInput()) {
+        // …utom när ett ägt flytande fönster har tangentbordet: då är det
+        // dess caret som lever (`keysFromOwner_`).
+        if (focusedWidget_ && focusedWidget_->wantsTextInput() &&
+            !keysHeldByFloat()) {
             win_->startTimer(kCaretTimerId, kCaretBlinkMs);
             caretPhase_ = true;
             const Ctx c = ctxFor(*focusedWidget_);
@@ -4775,6 +4853,8 @@ void AppWindow::handleEvent(const gfx::Event& e)
             toolTipTimer();   // pekaren har VILAT (src/tooltip.cpp)
         } else if (e.timerId == kDragScrollTimerId) {
             dragScrollTick();   // autoskrollen
+        } else if (e.timerId == kScrollbarTimerId) {
+            scrollbarTimer();   // en lista har stått länge nog (scrollbar_fade.cpp)
         }
         break;
 
@@ -4910,6 +4990,9 @@ void AppWindow::handleEvent(const gfx::Event& e)
         // BARA vid faktisk ändring — rörelse utan ändring ritar inget. Målet
         // för ett tryck appen tog frågas inte: det fick rörelsen överst
         // (`appPress`) — EN rörelse per rörelse.
+        // RULLNINGSLISTORNA: rörelsen över en rullbar yta räknas som aktivitet,
+        // också när det är ett barn som ligger under pekaren.
+        scrollbarPointer(over);
         if (over && over->isEnabled() && !holdsTakenPress(over)) {
             const Widget::HandlerGuard vakt(*over);
             const Ctx                  wc = ctxFor(*over);
@@ -5103,6 +5186,12 @@ void AppWindow::handleEvent(const gfx::Event& e)
             if (over->focusable())
                 setFocus(over);   // klick flyttar fokus (WinForms-mönstret)
             over->pressGaveFocus_ = focusedWidget_ != fokusFöre;
+            // Ett fönster som aldrig aktiveras (det flytande verktygsfältet)
+            // får tangentbordet av ett tryck på en widget som TAR fokus; en
+            // verktygsknapp lämnar det där det var (`keysFromOwner_`).
+            if (noActivate_ && !popup_ && focusedWidget_ &&
+                (over->focusable() || focusedWidget_ != fokusFöre))
+                setKeysFromOwner(true);
         }
 
         // APPENS `onMouseDown` före widgetens eget tryck.
