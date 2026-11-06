@@ -279,3 +279,39 @@ fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
   `demo --slate`.
   *Rätt utfall:* glyferna, skylten och bocken ser ut som på Windows, knapparna
   blir mono och tonade när de inaktiveras, och arket skrivs.
+
+- **Klippet läses i världspunkten** (blint skrivet MSL): Fill-, Line-, Glyph-
+  och Image-programmen anropar `glaze_clip(px, världspunkt)` i stället för
+  `glaze_clipScreen` (`metal_fill.mm`, `metal_scene.mm`, `metal_glyph.mm`,
+  `metal_image.mm` — Image har en ny interpolant `world`).
+  *Gör:* kör `scene_pixel_gate`, `scene3d_pixel_gate` (KL4–KL8),
+  `painter_gate` (KL12, KL13), `canvas3d_gate` (KP3D del 5) och
+  `canvas_perf3d` (serien K); `terrain_perf --synlig --klipp --steg 4`.
+  *Rätt utfall:* grindarna gröna med `MTL_DEBUG_LAYER=1`, K-serien 0
+  fyllningar per kameraändring, och ingen rad "en klippyta går inte att fylla".
+
+- **Det flytande verktygsfältets tangentbord** (delad kod, körd bara på
+  Windows): ägaren skickar tangenterna vidare till ett `noActivate`-fönster som
+  ett tryck gett fokus (`keysFromOwner_` i `Glaze/widgets/src/app_window.cpp`).
+  *Gör:* `demo --slate`, lossa fältet "Verktyg", skriv i sökfältet, välj i
+  listan med pilarna, tryck sedan i huvudfönstret och skriv där; kör `dock_gate`
+  (FK1–FK5).
+  *Rätt utfall:* tecknen hamnar där man senast tryckte; en nonactivating panel
+  levererar tangenterna till ägaren och huvudfönstret förblir key.
+
+- **Panelrubriken och PropertyGrids typade rader** (delad kod): rollen
+  `panelHeader` och griden med kryssruta, färg, tal och rubrikrader.
+  *Gör:* `demo --dock` och `demo --slate` i Glaze, Slate och Minimalistic,
+  ljust och mörkt; öppna färgväljaren i en rullad grid.
+  *Rätt utfall:* rubrikraden syns mot panelen, färgpopupen öppnas under cellen
+  och den inaktiva griden står infälld och dämpad.
+
+- **Rullningslisternas synlighet** (delad kod, körd bara på Windows): `Auto`
+  döljer listorna `Style::scrollbarAutoHideMs` (1 s) efter den senaste
+  rullningen eller pekarrörelsen, med fönstrets timer (`scrollbar_fade.cpp`,
+  `Window::startTimer`).
+  *Gör:* `demo --slate`; rulla en lista med styrplattan och med hjulet, rör
+  pekaren över den och låt den vara; kör `scrollbar_gate`.
+  *Rätt utfall:* listorna syns vid rullning och pekarrörelse och är borta en
+  sekund efter, utan att appen ritar mellan; rullningen fungerar också när de är
+  dolda.

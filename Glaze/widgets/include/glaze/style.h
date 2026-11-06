@@ -808,6 +808,13 @@ struct Style {
     float titleMinGap;           // titelns minsta avstånd till grannarna, per sida
     float titleGlyphW;           // en glyfknapps bredd (`ToolButton::setGlyphOnly`);
                                  // höjden är `capsuleH`
+
+    // ---- RULLNINGSLISTERNAS TID (`ScrollbarVisibility::Auto`). Sist i
+    // structen och i `kSlateRegular`, av samma skäl som fälten ovan.
+    int   scrollbarAutoHideMs;   // hur länge listorna står kvar efter den
+                                 // senaste rullningen eller pekarens rörelse
+                                 // över ytan — ett BETEENDEMÅTT, som
+                                 // `toolTipDelayMs`
 };
 
 // ------------------------------------------------------- UI -> dess styles

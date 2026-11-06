@@ -3,8 +3,10 @@
 #include <string>
 
 // INMATNINGENS VOKABULÄR — ren std, inget
-// tillstånd. Två saker använder den:
+// tillstånd. Tre saker använder den:
 //
+//   * RULLNINGSLISTORNAS SYNLIGHET (`ScrollbarVisibility`), som ärvs på samma
+//     tre nivåer som rullningens riktning.
 //   * RULLNINGENS RIKTNING i resten av appen (`Widget::setWheelInvert`,
 //     `AppWindow::setWheelInvert`, `App::setWheelInvert`): `InputDevice`
 //     skiljer musens hjul från styrplattans tvåfingersdrag.
@@ -27,6 +29,17 @@ namespace glaze {
 // tvåfingersdraget, och Magic Mouse som macOS märker likadant — och
 // nypningen och vridningen. Tangentbordet bär pilarna och + och −.
 enum class InputDevice : std::uint8_t { Mouse, Touchpad, Keyboard };
+
+// RULLNINGSLISTORNAS SYNLIGHET (`Widget::setScrollbarVisibility`,
+// `AppWindow::setScrollbarVisibility`, `App::setScrollbarVisibility`). Det
+// gäller bara om listorna SYNS — rullningen (hjul, drag-scroll, tangenter,
+// `setScroll`) fungerar alltid:
+//   Auto       listorna visas när innehållet rullar och när pekaren rör sig
+//              över ytan, och försvinner `Style::scrollbarAutoHideMs` efter
+//              det senaste (förvalet)
+//   Visible    listorna syns alltid när innehållet svämmar över
+//   Invisible  listorna syns aldrig och tar inga tryck
+enum class ScrollbarVisibility : std::uint8_t { Auto, Visible, Invisible };
 
 // En AXEL som kan bindas. Tecknet är källans +:
 enum class InputSource : std::uint8_t {

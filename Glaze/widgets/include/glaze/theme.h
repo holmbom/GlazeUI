@@ -227,6 +227,15 @@ public:
         gfx::Color stockYellow;    // mappar — en YTA, aldrig en linje
         gfx::Color stockPaper;     // papperet — filens sida, diskettens etikett:
                                    // ljust i båda lägena, dämpat i mörkt
+
+        // PANELRUBRIKEN — rubrikraden i en dockningspanel, ett flytande
+        // verktygsfälts rubrik och en `PropertyGrid`s rubrikrader: en ton av
+        // TEXTEN mot panelens yta (`panel`), så raden skiljer sig från panelen
+        // i varje palett och läge och rubriktexten, knapptecknen och
+        // fokusringen ändå syns på den (contrast_gate mäter alla fyra).
+        // HÄRLEDD i `derivePanelHeader()` och därför SIST, utanför de
+        // positionella literalerna.
+        gfx::Color panelHeader;
     };
 
     // Allt en widget behöver vid ritning för ETT läge. Egen nivå (inte

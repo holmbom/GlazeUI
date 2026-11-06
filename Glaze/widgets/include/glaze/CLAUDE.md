@@ -44,7 +44,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   `flushPendingCloses()` så en postad `close()` som HANN köras tas i samma
   varv. Den ENDA glaze-funktion som får kallas från en annan tråd;
   väckningen går via `gfx::postWakeup()`), **`setPostBudget(ms)`/
-  `postBudget()`** (PRESTANDA D2 — appens kö körs FIFO tills budgeten är
+  `postBudget()`** (appens kö körs FIFO tills budgeten är
   slut, förval 4 ms, 0 = obegränsat, negativt loggas; varvets första alltid,
   resten FÖRST i kön till nästa varv, ingen delning av en lång funktion) och
   den interna **`detail::postFrameWork(fn)`** (ramverkets RAMKÖ för nästa
@@ -56,16 +56,14 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   verkställs i pump-SVANSEN efter **onClose-vetorundan** (`confirmClose`:
   barnen djupast först, första `cancel` avbryter hela kaskaden; APPAVSLUTET
   köar bara ägarkedjornas rötter), aldrig mitt i dispatch).
-  **`setAppId(id)`** — appens identitet FÖRE första fönstret (Linux xdg
-  app_id + `WM_CLASS`; tom = programfilens namn), `gfx::setAppId` nåbar utan
-  gfx-headern. **`setShowInDock(show)`/`showInDock()`** — macOS dockikon,
-  likaså FÖRE första fönstret; Windows och Linux lagrar och loggar false.
-  Fönstrets knapp i aktivitetsfältet är en ANNAN fråga (`setShowInTaskbar`).
+  **`setAppId(id)`** och **`setShowInDock(show)`/`showInDock()`** — FÖRE
+  första fönstret (rot-CLAUDE.md, programikonen och systemfältet).
   **`activeWindow()`** — appens AKTIVA fönster (WinForms `Form.ActiveForm`):
   det första öppna med `isActive()`, nullptr utan tangentbordsfokus; en popup
   blir aldrig aktiv, så det är ägaren. Privata `eventSeq_` (`noteEvent`,
-  stegad för varje riktig inmatning, inte för en Wakeup) är `onResize`s kedjespärr. **`setWheelInvert`** och
-  **`setCanvasBinding`** m.fl. (REQ9_INMATNING): rullningens och ritytornas förval — app-global drift, ingen `.glazeui`-form.
+  stegad för varje riktig inmatning, inte för en Wakeup) är `onResize`s kedjespärr. **`setWheelInvert`**,
+  **`setScrollbarVisibility`** och **`setCanvasBinding`** m.fl.: rullningens, rullningslisternas och ritytornas
+  förval — app-global drift, ingen `.glazeui`-form.
 - **`widget.h`** — kontraktet alla widgets delar:
   - `enum class Dock { None, Left, Top, Right, Bottom, Fill }` +
     `struct Anchors { left, top, right, bottom }` och **`struct SiblingAnchor
@@ -85,10 +83,10 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
     float scale; gfx::Rectf area; const Theme::Variant* theme; UI ui;
     const Style* style; ImageCache* images; float pxPerMm;
     CanvasResources* canvas; FontSet* textFonts; gfx::Rectf box; }` — skickas till varje
-    `draw()`. **`pxPerMm`** (CANVAS_2D etapp 2) är fönstrets FYSISKA px per
+    `draw()`. **`pxPerMm`** är fönstrets FYSISKA px per
     mm på skärmen det står på (`AppWindow::display()`, med kalibreringen) —
     ritytans mm-enhet; mm i logiska px är `mm * pxPerMm / scale`, och default
-    det antagna 96 dpi. **`canvas`** (etapp 7) är fönstrets ritytsresurser
+    det antagna 96 dpi. **`canvas`** är fönstrets ritytsresurser
     (intern `src/canvas/resources.h`) — FÅR vara null; ritytan ritar då bara
     sin yta. Rita via `Draw::` mot `c.bounds()` (widget-lokala LOGISKA px,
     origo i eget hörn — `box` är widgetens fysiska rect och sätts av
@@ -98,28 +96,27 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
     `style`. `images` = per-FÖNSTER texturcachen (assets — FÅR vara null,
     ritkoden kollar). **`headingFont`** = ROLLFONTEN: en FÖNSTERresurs (därför
     varken i `Style` eller i widgeten), förskapad EAGER i `reloadFont()` ur den
-    SLUTNA mängden storlekar; FÅR vara null (då `font`). **`textFonts`** (REQ7_MARKDOWN): samma slutna
-    mängd men LAT (`src/font_set.h`); FÅR vara null (då `font`/`headingFont`). **Ny medlem FÖRE `box`** —
-    Ctx brace-initieras i `makeCtx` med `box` sist. Bygg aldrig en Ctx för hand —
-    hämta via `AppWindow::makeCtx()` (protected); en annan yta: kopiera, byt `area`.
+    SLUTNA mängden storlekar; FÅR vara null (då `font`). **`textFonts`**: samma slutna
+    mängd men LAT (`src/font_set.h`); FÅR vara null (då `font`/`headingFont`). Bygg aldrig
+    en Ctx för hand — hämta via `AppWindow::makeCtx()` (protected); en annan yta: kopiera, byt `area`.
   - **`Handler<Args, Sender = Widget>`** — handler-FÄLTETS typ: fullformen
     `(Sender* sender, Args& e)` OCH den PARAMETERLÖSA formen, normaliserad
     vid TILLDELNING och lagrad i en `shared_ptr`; `operator()` håller en
     egen referens under anropet, så en handler som river sin widget kör
     färdigt, och en KOPIA delar det anropsbara (en muterbar lambda: ETT
     tillstånd). Nollställning `= nullptr` (`= {}` och en generisk lambda är
-    tvetydiga — avsiktliga kompileringsfel). **`Sender`** (SYSTEMFÄLTET E6)
+    tvetydiga — avsiktliga kompileringsfel). **`Sender`**
     är regel 6:s "den som avfyrade" som typ: en klass med egna events som
     inte är en widget är sin EGEN sender (`Handler<ClickArgs, TrayIcon>`),
     och varje `Handler<X>` är `Handler<X, Widget>`. Ett fält med POLYMORFA
-    args tar också fullformen med en ÄTTLING (TODO 86 — typen ur anropsoperatorn
+    args tar också fullformen med en ÄTTLING (typen ur anropsoperatorn
     eller den förfallna funktionspekaren, också `noexcept`; `dynamic_cast` vid anropet, fel typ körs inte och loggas en gång).
   - `struct EventArgs {}` + `ClickArgs`/`HoverArgs { entered }`/`ChangeArgs`/
     **`MouseArgs { button, local, mods, handled }`** (polymorf — ritytans
-    `CanvasMouseArgs` ärver; TODO 86)/`CloseArgs { cancel, reason }` (ett
-    `CloseReason`, TODO 72; event-UTDATA; **`enum class DialogResult`** står
+    `CanvasMouseArgs` ärver)/`CloseArgs { cancel, reason }` (ett
+    `CloseReason`; event-UTDATA; **`enum class DialogResult`** står
     här, för en `Button` bär sitt svar)/`MouseDownOutsideArgs { x, y }`/
-    **`ContextMenuArgs { x, y, source }`** (HÖGERklicket, MENYER — fysiska
+    **`ContextMenuArgs { x, y, source }`** (HÖGERklicket — fysiska
     px i FÖNSTERkoordinater, alltså exakt vad `Menu::popupAt` vill ha;
     `source` är widgeten UNDER pekaren och FÅR vara nullptr på tom
     fönsteryta. Routingen är ROUTED LOOKUP och inte bubbling: första
@@ -494,12 +491,11 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   (`glaze::AppWindow::onLoad = [this](...)`) så fönstrets handler får heta
   likadant. Typen är `Handler<Args>`, så de tar BÅDE fullformen och den
   PARAMETERLÖSA. **Attribut** (före show/run): `setModal()`, `setPopup()`
-  (noActivate+ toolWindow; App stänger vid klick utanför/fokusförlust) + **`setPopupTakesKeys()`** (REQ8 27 —
-  ägaren för tangenterna till popupens egen ingång, Escape stänger), `setTransparent()` (per-pixel-alfa, chrome av, alltid full omritning),
-  **`setTopmost()`/`topmost()`** (APP_API_3 A — alltid överst, över andra
-  appars fönster, verksam både före och efter show; gettern svarar med vad som
-  FAKTISKT gäller: **Wayland KAN INTE** och svarar alltid false,
-  Windows/macOS/X11 klarar den — tabellen i `gfx/window.h`),
+  (noActivate+ toolWindow; App stänger vid klick utanför/fokusförlust) + **`setPopupTakesKeys()`** (ägaren för
+  tangenterna till popupens egen ingång, Escape stänger — samma väg tar ett ägt `noActivate`-fönster som ett tryck gett
+  fokus, det flytande verktygsfältet: `keysFromOwner_`, nollat av ett tryck i ett annat fönster, fokus bort, hide/close),
+  `setTransparent()` (per-pixel-alfa, chrome av, alltid full omritning),
+  **`setTopmost()`/`topmost()`** (rot-CLAUDE.md; tabellen i `gfx/window.h`),
   **`setShowInTaskbar()`/`showInTaskbar()`** (SYSTEMFÄLTET B8 — ett RENT
   attribut till `WindowDesc::showInTaskbar`; fasaden har ingen sättare efter
   init, så ett öppet fönster loggar och värdet väntar på nästa öppning),
@@ -660,7 +656,10 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   (dockningens släppindikator: `accentSurface` med alfa 0.25, HÄRLEDD i
   `deriveRoles()` så innehållet under syns; ramen runt den är `accent`) och
   **`canvasGrid`** (ritytans rutnät: en femtedel från `panel` mot `text`,
-  HÄRLEDD; tål att halveras av en hårlinje och tonas av en inaktiverad yta).
+  HÄRLEDD; tål att halveras av en hårlinje och tonas av en inaktiverad yta) och
+  **`panelHeader`** (dockningspanelens, det flytande fältets och PropertyGrids
+  rubrikrad: `panel` mot `text`, HÄRLEDD, ≥ 1,3:1 mot panelen och med text,
+  `textDim` och `accent` läsbara på den — contrast_gate).
   En ny färg i en widget = en ny roll HÄR + värden i BÅDA varianterna.
   **`standardPalette()`** är INTE en roll: färgväljarens förvalda färger
   (`ColorPalette` — färgerna + rutnätets `columns`), INNEHÅLL som är detsamma
@@ -713,34 +712,19 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   och `dropLineW` (målets ram och en lista/ett träds insättningslinje) — INGA
   nya temaroller, återkopplingen ritas i befintliga (`accent`,
   `errorSurface`/`onError`, `accentSurface`/`onAccent`, `panel`/`border`).
-  **Komponenternas block** (namnen i style.h, skälen vid talen i
-  style.cpp): gruppramen (`group*` — en EGEN radie, inte `panelRadius`),
-  talfältet (`spin*`; AUTO-höjden är FÄLTETS, så talfält och textfält står
-  i rad), trädet (`treeIndent`/`treeExpanderW` lika stora, så ett barns pil
-  står under förälderns text; raderna är LISTRADER; `treeDropEdge` är ett
-  BETEENDEMÅTT som `dragThreshold`), tooltipen (`toolTip*` — zonen aldrig
-  0, `src/tooltip.cpp`), tabellen (`tableHeaderH` = `listRowH`,
-  `columnDefaultW`, `columnMinW`, `columnGrip` — beteendemått; raderna
-  LÅNADE: listvyns listrader, datagridens gridrader), delaren och dockningen
-  (`splitter*` DELADE av `Splitter` och `DockHost` via `src/sash.cpp`,
-  `dock*` med `dockDropZone` som beteendemått), flikarna (`tab*`; markören
-  och sidans yta LÅNADE — `rowMarkerW`, `panel`/`border`), filväljaren
-  (`iconStroke`, `fileDlg*`, `fileCol*`, `filePicker*` — Glaze ärver Slates
-  med flit), färg- och datumväljaren (`color*`, `date*`, `cal*` — popupens
-  storlek räknas ur dem FÖRE visningen), det flerradiga fältet (bara
-  AUTO-måtten `textAreaDefaultW` och RADANTALET `textAreaRows`; resten är
-  fältets och Panels), ritytan (`canvasDefaultW/H`, `canvasGridMin`,
-  `canvasGridWidth` 0 = hårlinje, `canvasHitTolerance`/`canvasPanStep`) och
-  programikonen (`appIcon*`; platsen härleds ur `barHeight` + `menuRowH`,
-  plattan i `capsuleHover`/`capsulePress`). **`passwordMask`** (`const
-  char*` — "•" U+2022, ETT glyfsteg per kodpunkt, får aldrig vara tom).
-  Sedan blocken i passens ordning, det senaste SIST: dockningen
-  (`dockHandle*`, `dockSnapZone`, `dockAnim*`/`dockHideDelayMs`,
-  `toolGripW`, `toolArrow*`, `dockDropShare`), FAS1_B_WIDGETS,
-  REQ3_TRAD_LISTOR_FALT (autoskrollens `dragScroll*`, `textAreaTabSpaces` —
-  ett ANTAL), REQ7_MARKDOWN (`subheadingFontSize`, `markdown*`) och REQ8 9
-  (`toolOverflowW`). Ett nytt tal i en widget = ett nytt fält här, aldrig en
-  `constexpr` i widget-filen.
+  **Komponenternas block**: namnen och grupperna står i style.h, skälen vid
+  talen i style.cpp. Det som inte syns där: `treeIndent`/`treeExpanderW` är
+  lika stora (ett barns pil står under förälderns text); BETEENDEMÅTT som
+  `dragThreshold`, `treeDropEdge`, `columnGrip`, `dockDropZone` och tiderna
+  (`toolTipDelayMs`, `dockHideDelayMs`, `scrollbarAutoHideMs` — rullningslisternas
+  Auto-tid) är inga ritmått; tooltipens zon är aldrig 0; `splitter*` delas
+  av `Splitter` och `DockHost` (`src/sash.cpp`); en popups storlek räknas
+  ur `color*`/`date*`/`cal*` FÖRE visningen; Glaze ärver Slates filväljarmått
+  med flit. **`passwordMask`** (`const char*` — "•" U+2022, ETT glyfsteg per
+  kodpunkt, får aldrig vara tom). Nya fält läggs SIST i structen och i
+  `kSlateRegular` (en positionell literal; Glaze och Minimalistic kopierar
+  den). Ett nytt tal i en widget = ett nytt fält här, aldrig en `constexpr`
+  i widget-filen.
 - **`draw.h`** — RITANDET: `struct Draw` (statiska primitiver), `Pen` (kontur;
   width i logiska px, 0 = HÅRLINJE), `Align`, `ImagePos` och `Content` (bild —
   ett `ImageSource` — + text som EN sak, med **`imgEnabled`**, bildens
@@ -908,9 +892,11 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   `setAllowAlpha` och `setTitle` (tom = id 256), `run(ägare)`/`run()` →
   OK/Cancel och färgen skriven bara vid OK — med färgväljarens yta
   (`../../src/color_panel.h`). INGEN widget (meddelanderutans prejudikat).
-- **`input.h`** — INMATNINGENS VOKABULÄR (REQ9_INMATNING), ren std: `InputDevice`, `InputSource` (en axel per källa),
-  `InputAction`, `InputDirection`, `InputBinding`, `deviceOf`. `Widget::setWheelInvert` ärver från förfäderna till fönstrets rot
-  (`AppWindow::setWheelInvert`) och sedan appen; tabellen och uppslaget är interna (`../../src/canvas/input_map.h`).
+- **`input.h`** — INMATNINGENS VOKABULÄR, ren std: `InputDevice`, `InputSource` (en axel per källa),
+  `InputAction`, `InputDirection`, `InputBinding`, `deviceOf` och `ScrollbarVisibility { Auto, Visible, Invisible }`.
+  `Widget::setWheelInvert` och `Widget::setScrollbarVisibility` ärver från förfäderna till fönstrets rot
+  (`AppWindow::set…`) och sedan appen; tabellen och uppslaget är interna (`../../src/canvas/input_map.h`), listornas
+  timer `../../src/scrollbar_fade.cpp` (Panel bär sin egen tid, `Style::scrollbarAutoHideMs`).
 - **`input_box.h`** — **`glaze::inputBox(...)`** (FAS1_B_WIDGETS, VB
   `InputBox`): meddelanderutans form, en FRI FUNKTION (ägd + ägarlös) →
   `std::optional<std::string>` — `nullopt` = Avbryt, en tom text är ett svar. `InputBoxMode::MultiLine` (REQ8 22): fältet blir ett `TextArea`, Enter en ny rad, OK med knappen.
@@ -943,7 +929,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   stängs) och en för pumpen; ETIKETTERNA (`ProfileLabel`/`ProfileScope`/
   `profileCount`, förregistrerade `glaze.hitTest`/`castRay`/`heightAt`) från
   vilken tråd som helst, ett logaritmiskt histogram per etikett (8 fack per
-  fördubbling — percentilen ≤ ~9 % hög). Tilläggen mot planen: `capacity()`,
+  fördubbling — percentilen ≤ ~9 % hög). Dessutom `capacity()`,
   `ProfilePhase::Compile`, `PumpProfile::depth`, `profilePhaseName`/
   `profileCountName`. INGA statiska variabler och inga inline-variabler i
   headern (DELAT LÄGE (1)); registret bor i cpp:n. Utanför regel 8 med flit.

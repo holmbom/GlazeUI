@@ -626,6 +626,12 @@ template <class Args, class Sender>
 class Handler;
 
 namespace detail {
+// RULLNINGSLISTORNAS KLOCKA, i millisekunder (`std::chrono::steady_clock`).
+// `setScrollbarClock` byter den mot en egen — en grind som vill styra tiden;
+// `nullptr` återställer den riktiga. Aldrig en apps väg.
+std::int64_t scrollbarNowMs();
+void         setScrollbarClock(std::int64_t (*clock)());
+
 // Handler-epoken stegas när objektet skapas och när det dör (app.cpp) — ett
 // per körd handler och per körd postad funktion i appens kö.
 struct HandlerCall {
@@ -1189,6 +1195,28 @@ public:
     void clearWheelInvert(InputDevice d);   // ärv igen
     // Den UPPLÖSTA vändningen — egen, förfädernas eller appens.
     bool isWheelInverted(InputDevice d, bool horizontal) const;
+
+    // ------------------------------ RULLNINGSLISTORNAS SYNLIGHET
+    //
+    // Om widgetens och dess barns rullningslister syns: `Auto` (förvalet —
+    // listorna visas när innehållet rullar eller pekaren rör sig över ytan och
+    // försvinner `Style::scrollbarAutoHideMs` efter det senaste), `Visible`
+    // (syns alltid när innehållet svämmar över) eller `Invisible` (syns aldrig
+    // och tar inga tryck). Rullningen fungerar i alla tre — hjul, drag-scroll,
+    // tangenter och `Panel::setScroll` — det är bara listorna som döljs.
+    //
+    // Samma tre nivåer som hjulets riktning: det en widget inte satt ÄRVS från
+    // närmaste förfader som satt något (till och med fönstrets rot —
+    // `AppWindow::setScrollbarVisibility`), annars från appen
+    // (`App::setScrollbarVisibility`). En popup är ett eget fönster och ärver
+    // från appen. Widgeten ritas om (och därmed barnen under den); en `Panel`
+    // vars lista är dold ritar ingen och tar inga tryck på remsan.
+    // I `.glazeui`: `lista.setScrollbarVisibility(
+    // glaze::ScrollbarVisibility::Visible);`.
+    void setScrollbarVisibility(ScrollbarVisibility v);
+    void clearScrollbarVisibility();   // ärv igen
+    // Det som GÄLLER — eget, förfädernas eller appens.
+    ScrollbarVisibility scrollbarVisibility() const;
 
     // ------------------------------------------------ DRAG-AND-DROP
     //
@@ -1886,8 +1914,9 @@ protected:
     //     if (s.w <= 0.0f) s.w = e.w;
     //     if (s.h <= 0.0f) s.h = e.h;
     //
-    // `GroupBox` svarar med sin luft; `Panel`, `ListBox` och `PropertyGrid`
-    // har SKRIVNA, 0×0-beslut. Fönstret som följer sitt innehåll
+    // `GroupBox` svarar med sin luft; `Panel` och `ListBox` har SKRIVNA,
+    // 0×0-beslut, och `PropertyGrid` svarar med de synliga raderna i höjd
+    // (0×0 utan rader). Fönstret som följer sitt innehåll
     // (`AppWindow::setSizeToContent`) räknar sin rot med SAMMA kärna.
     //
     // MED BREDDEN GIVEN — `width` i LOGISKA px är kompositens INNERBREDD,
@@ -2513,6 +2542,21 @@ protected:
     // DataGrid, en rullande panel) har den utan en egen gren.
     virtual bool dragScroll(const Ctx&, float /*x*/, float /*y*/, bool /*apply*/) { return false; }
 
+    // RULLNINGSLISTORNAS TID (`ScrollbarVisibility::Auto`). Fönstret anropar
+    // båda; en widget utan listor låter dem vara.
+    //   scrollbarPointerMoved  pekaren rörde sig över mig eller ett barn (utan
+    //                          knapp) — fönstret frågar widgeten under pekaren
+    //                          och varje förfader
+    //   scrollbarFade          fönstrets timer gick vid `nowMs` (klockan
+    //                          `detail::scrollbarNowMs`): släck det vars tid
+    //                          gått ut och rita om widgeten; svaret är
+    //                          tidpunkten widgeten behöver väckas vid nästa
+    //                          gång, 0 = ingen
+    virtual void         scrollbarPointerMoved() {}
+    virtual std::int64_t scrollbarFade(std::int64_t /*nowMs*/) { return 0; }
+    // Be fönstret väcka widgeten senast `deadlineMs`; no-op utan öppet fönster.
+    void scrollbarArm(std::int64_t deadlineMs);
+
     // Den effekt ett drag ÖVER mig just nu är accepterat med — `None` när
     // inget drag är här eller när det avvisas. Satt av ramverket EFTER
     // appens handler, och widgeten invalideras när den ändras, så `draw()`
@@ -2940,6 +2984,8 @@ private:
     // RULLNINGENS RIKTNING — fyra bitpar, ett per (mus/
     // styrplatta × lodrätt/sidled): "satt" och "vänd". 0 = allt ärvs.
     std::uint8_t wheelInvert_ = 0;
+    // RULLNINGSLISTORNAS SYNLIGHET — 0 = ärv, annars 1 + `ScrollbarVisibility`.
+    std::uint8_t scrollbarVis_ = 0;
 
     bool       allowDrag_  = false;
     bool       allowDrop_  = false;

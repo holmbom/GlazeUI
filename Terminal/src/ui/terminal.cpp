@@ -163,7 +163,6 @@ Terminal::Terminal() : s_(std::make_unique<State>())
                                                 term::Screen::kDefaultRows, s_->scrollback);
     setClip(true);
     setBorder(true);
-    showScrollbars(true);   // historiken ska SYNAS (TextArea/MarkdownView-prejudikatet)
     s_->syncTimer.setSingleShot(true);
     s_->syncTimer.setInterval(term::Screen::kSyncTimeoutMs);
     s_->syncTimer.onTick = [this] {

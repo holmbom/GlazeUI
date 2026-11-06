@@ -61,9 +61,7 @@ flat out vec4 vShape;     // .xy formens halva mått (em), .z storleken i px,
                           // .w glorians bredd i em
 flat out int  vFlags;
 flat out float vVis;      // etikettens synlighet 0–1
-#ifdef GLAZE_POS3
 flat out vec2 vClipLocal;   // ankarets chunk-lokala xy (klippet)
-#endif
 noperspective out vec2 vPix;
 
 // Synligheten: 1 utan bunden synlighet, annars texeln på basen + indexet,
@@ -140,9 +138,7 @@ void main()
     vShape = vec4(0.0);
     vPix   = vec2(0.0);
     vVis   = visibility();
-#ifdef GLAZE_POS3
     vClipLocal = aAnchor.xy;
-#endif
 #ifdef GLAZE_POS3
     vec4 c = uViewProj * vec4(aAnchor, 1.0);
 #else
@@ -214,9 +210,7 @@ flat in vec4 vHalo;
 flat in vec4 vShape;
 flat in int  vFlags;
 flat in float vVis;
-#ifdef GLAZE_POS3
 flat in vec2 vClipLocal;
-#endif
 noperspective in vec2 vPix;
 out vec4 frag;
 
@@ -259,13 +253,9 @@ void main()
         a   = fa + ha;
         rgb = a > 0.0 ? (vCol.rgb * fa + vHalo.rgb * ha) / a : vCol.rgb;
     }
-    // Målarens klipp (kGlslSceneClipSrc); Glyph3 klipps på ankaret, så hela
-    // etiketten syns eller inte.
-#ifdef GLAZE_POS3
+    // Målarens klipp (kGlslSceneClipSrc); världsmasken läses på ankaret, så
+    // hela etiketten syns eller inte.
     float klipp = glaze_clip(vPix, vClipLocal);
-#else
-    float klipp = glaze_clipScreen(vPix);
-#endif
     frag = vec4(rgb, a * vVis * uPaint1.y * clipCoverage(vPix) * klipp);
 }
 )glsl";

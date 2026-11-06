@@ -347,10 +347,12 @@ in vec2 aUv;
 in float aQ;              // hörnets projektiva vikt (1 för en rektangel)
 out vec3 vUvq;            // (u·q, v·q, q), perspektivkorrekt (förvalet)
 out vec3 vClip;           // (x, y, w) i pixelklipp — maskernas läge
+out vec2 vWorld;          // världspunkten (chunk-lokal) — världsmasken
 
 void main()
 {
     vec4 c = uViewProj * vec4(aPos, 0.0, 1.0);
+    vWorld = aPos;
     // Pixelklipp → GL:s klipprymd: x och y som D3D:s, z ur [0, w] till
     // [−w, w]. Linjär i (x, y, z, w) — w går orört till rasteriseringen.
     gl_Position = vec4(c.x * 2.0 / uParams.x - c.w,
@@ -371,6 +373,7 @@ uniform vec4 uParams;
 uniform vec4 uAdjust;   // färgjusteringen: mättnad, kontrast, ljushet, 0
 in vec3 vUvq;
 in vec3 vClip;
+in vec2 vWorld;
 out vec4 frag;
 
 void main()
@@ -387,7 +390,7 @@ void main()
     // bara alfan.
     vec2 pix = vClip.xy / vClip.z;
     t.a *= clamp(uParams.z, 0.0, 1.0) * clipCoverage(pix) *
-           glaze_clipScreen(pix);
+           glaze_clip(pix, vWorld);
     frag = t;
 }
 )glsl";

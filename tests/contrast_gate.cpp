@@ -328,6 +328,81 @@ int checkStatusRoles(bool verbose)
     return fails;
 }
 
+// ---------------------------------------------- PANELRUBRIKEN
+//
+// `panelHeader` är rubrikraden i en dockningspanel, ett flytande verktygsfälts
+// rubrik och en PropertyGrids rubrikrader. Fyra mått, i alla inbyggda teman
+// (rollen är HÄRLEDD och ärvs av de handskrivna paletterna, statusrollernas
+// skäl):
+//
+//   panelHeader/panel   ≥ 1,3   raden är en egen yta och inte panelens
+//   text/panelHeader    ≥ 4,5   rubriktexten
+//   textDim/panelHeader ≥ 3     knapptecknen i vila och den inaktiva titeln
+//   accent/panelHeader  ≥ 3     fokusringen runt rubriken
+int checkPanelHeader(bool verbose)
+{
+    std::printf("\n=== panelrubriken (alla inbyggda teman) ===\n");
+    int   fails = 0;
+    int   n     = 0;
+
+    struct Pair {
+        const char* name;
+        float       req;
+        gfx::Color (*a)(const glaze::Theme::Colors&);
+        gfx::Color (*b)(const glaze::Theme::Colors&);
+    };
+    const Pair pairs[] = {
+        {"header/panel", 1.3f,
+         [](const glaze::Theme::Colors& c) { return c.panelHeader; },
+         [](const glaze::Theme::Colors& c) { return c.panel; }},
+        {"text/header", 4.5f,
+         [](const glaze::Theme::Colors& c) { return c.text; },
+         [](const glaze::Theme::Colors& c) { return c.panelHeader; }},
+        {"textDim/header", 3.0f,
+         [](const glaze::Theme::Colors& c) { return c.textDim; },
+         [](const glaze::Theme::Colors& c) { return c.panelHeader; }},
+        {"accent/header", 3.0f,
+         [](const glaze::Theme::Colors& c) { return c.accent; },
+         [](const glaze::Theme::Colors& c) { return c.panelHeader; }},
+    };
+    float       lo[std::size(pairs)];
+    std::string loWhere[std::size(pairs)];
+    for (float& v : lo)
+        v = 1e9f;
+
+    for (const UiEntry& e : kUIs) {
+        for (int i = 0; i < glaze::themeCount(e.ui); ++i) {
+            const glaze::Theme& t = glaze::themeAt(e.ui, i);
+            for (int mode = 0; mode < 2; ++mode) {
+                const auto& col = mode == 0 ? t.light.colors : t.dark.colors;
+                const std::string where = std::string(e.name) + "/" + t.name +
+                                          (mode == 0 ? "/ljus" : "/mörk");
+                for (std::size_t k = 0; k < std::size(pairs); ++k) {
+                    const Pair& p = pairs[k];
+                    const float v = contrast(p.a(col), p.b(col));
+                    ++n;
+                    if (v < lo[k]) { lo[k] = v; loWhere[k] = where; }
+                    if (v < p.req) {
+                        std::printf("  FEL  %-28s %-16s %5.2f:1  (krav %.1f)\n",
+                                    where.c_str(), p.name, v, p.req);
+                        ++fails;
+                    } else if (verbose) {
+                        std::printf("  ok   %-28s %-16s %5.2f:1\n",
+                                    where.c_str(), p.name, v);
+                    }
+                }
+            }
+        }
+    }
+
+    for (std::size_t k = 0; k < std::size(pairs); ++k)
+        std::printf("  %-16s min %5.2f (%s)\n", pairs[k].name, lo[k],
+                    loWhere[k].c_str());
+    std::printf("  %d mätningar\n", n);
+    std::printf("  => %s\n", fails == 0 ? "GRÖN" : "FÄLLD");
+    return fails;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -345,6 +420,7 @@ int main(int argc, char** argv)
 
     fails += checkNameUniqueness();
     fails += checkStatusRoles(verbose);
+    fails += checkPanelHeader(verbose);
 
     std::printf("\n%s — %d mätningar per familj + namnunikheten, %d fel "
                 "totalt\n",

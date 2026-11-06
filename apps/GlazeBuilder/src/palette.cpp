@@ -37,7 +37,8 @@ const PaletteEntry kPalette[] = {
     {"glaze::Progress",  "Progress",  0.0f,   0.0f},
     // Fler typer, med storlekar enligt axelregeln — tal bara där widgeten
     // med flit inte autosizar:
-    //   PropertyGrid — container som Panel (contentSize 0×0).
+    //   PropertyGrid — bredden som Panel (0); höjden ur raderna, men en TOM
+    //                  grid mäter 0×0 och behöver ett mått för att synas.
     //   Bar/TopBar   — höjden är stilens barHeight (auto), men en TOM bar
     //                  mäter bredden 0 och hade blivit osynlig.
     //   StatusBar    — dockar Bottom och äger sin höjd; bredden är fri.
@@ -50,7 +51,7 @@ const PaletteEntry kPalette[] = {
     {"glaze::Spacer",       "Spacer",        40.0f,  0.0f},
     {"glaze::CaptionButton","CaptionButton", 0.0f,   0.0f},
     // ListBox — TAL på båda axlarna, som Panel och
-    // PropertyGrid: listan autosizar med FLIT inte (skrivet beslut i
+    // en tom PropertyGrid: listan autosizar med FLIT inte (skrivet beslut i
     // listbox.cpp), så utan mått blir en placerad lista osynlig.
     {"glaze::ListBox",      "ListBox",       160.0f, 120.0f},
     // MenuBar — som StatusBar: dockad remsa som äger

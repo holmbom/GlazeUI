@@ -194,7 +194,11 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   `sash::cursor` (↔/↕), och de två räknestegen `paneFromPointer` (pekaren
   → rutans mått, med greppets offset så skiktet inte hoppar) och
   `clampPane` (minimimåtten; den fasta rutans vinner när båda inte ryms).
-- **`ease.h`** (INTERN, E2) — glidningarnas kurva, kamerans och dockningens.
+- **`ease.h`** (INTERN) — glidningarnas kurva, kamerans och dockningens.
+- **`number_text.h`** (INTERN) — talet som text för `SpinBox` och PropertyGrid: `isNumberChar`,
+  `parseUser`, `effective` (klampning, avrundning, −0 → 0), `format` — i "C"-lokalen.
+- **`scrollbar_fade.h/.cpp`** (INTERN) — rullningslisternas Auto-tid: EN timer per fönster (`kScrollbarTimerId`,
+  `scrollbarArm`/`scrollbarTimer`/`scrollbarPointer`); tiderna bär widgetarna, klockan `detail::scrollbarNowMs`.
 - **`text_field.h/.cpp`** (INTERN) — TEXTFÄLTET, delat av `TextInput` och
   `TextArea` (`sash.h`-prejudikatet): `drawSurface` (ytan och kanten per
   familj med `switch (c.ui)` och de fyra tillståndens tabeller; svaret är
@@ -438,22 +442,23 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   kalibrering), font, callbacks, registrering i den lat-skapade App:n;
   åter-show av dolt fönster = `setVisible(true)`), `hide()` (dölj utan
   stängning). **DOLD START** (regeln i rot-CLAUDE.md): `hidden_` →
-  `desc.hidden`, nollad av `App::executeClose`. **DEN FÖRSTA VISNINGEN** (TODO 80): `showOwned` skapar
+  `desc.hidden`, nollad av `App::executeClose`. **DEN FÖRSTA VISNINGEN**: `showOwned` skapar
   fönstret DOLT utom popup/offscreen, fyrar `onLoad` (sedan livstecknet OCH
   fönstrets id) och visar med `revealHidden`, startplatsen omräknad; under
   `firstShowPending_` är plats och läge startvärden och läsarna begäran. Ett
   vetat `close()` ur `onLoad` fortsätter till visningen (`flushPendingCloses`),
   och ett ägt fönster som aktiverades under `onLoad` får aktiveringen tillbaka
   efter ägarens första visning (`loadActivated_`).
-  **SKÄLET** (TODO 72): `requestClose(skäl)` bakom `close()`, `AppQuit`
-  uppgraderar. **APPENS MUS** (TODO 86): `AppPress` per knapp bakom
+  **SKÄLET**: `requestClose(skäl)` bakom `close()`, `AppQuit`
+  uppgraderar. **APPENS MUS**: `AppPress` per knapp bakom
   `mouseTarget`/`appMouseDown`/`appPressStep`/`appMouseUp`/`appMouseCancel`
   (kontrakten i headern); `AppPress::end()` är EN nollställning (pekaren
   tillbaka, `taken` av, `seq` stegad — också för ett tryck vars `onMouseDown`
   kör just nu), som `forgetWidgets`/`detachTree`/`showOwned` kör tyst, och
   hover-kroken hoppar över målet. `showInTaskbar_`, `toolWindow_` och de
   flytande dockningsfönstrens `noActivate_`/`showInactive_` kopieras till
-  `WindowDesc`; `setShowInTaskbar` efter show loggar.
+  `WindowDesc`; `setShowInTaskbar` efter show loggar. Ett `noActivate_`-fönster som ett tryck gett fokus får ägarens
+  tangenter (`keysFromOwner_` i `openKeyPopup`/`forwardToKeyPopup`; nollat av `releaseOtherKeyHolders`, fokus bort, hide).
   **`run()`/`run(owner)`/`runInternal`** (`isModal_` pushar modalstacken;
   `run(owner)` returnerar `result_` ur `closeWithResult`), `close()`
   (uppskjuten), **livscykel-avfyrningarna** (`fireLifecycle`/
@@ -469,8 +474,7 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   behavior-krokarna får sitt Ctx därifrån, aldrig rå `makeCtx`. Ritningen tar
   `frontChildOf(w)` SIST, `widgetAtRec` FÖRST (E2); en TOM rekt (`hasArea`,
   REQ9 6) ritar inte sig själv (inte heller overlay-lagret, men klippen poppas)
-  — barnen ändå; `stepTree` kör `frameStep` före skadan. **TEXT VINNER ÖVER GENVÄGEN** (REQ3_LAYOUT_FONSTER
-  B18-3, Qt:s `ShortcutOverride`): ett `KeyDown` som SKRIVER (bär `e.text`,
+  — barnen ändå; `stepTree` kör `frameStep` före skadan. **TEXT VINNER ÖVER GENVÄGEN**: ett `KeyDown` som SKRIVER (bär `e.text`,
   också i `KeyArgs::text`) i en fokuserad, synlig och aktiverad widget med
   `wantsTextInput()` når varken genvägarna, reserven eller standardknappen —
   AltGr+2 (`@`) kör ingen Ctrl+Alt+2; Ctrl+S, F5, Delete och Enter har ingen
@@ -928,7 +932,7 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   anrop) + de två HANDSKRIVNA paletterna (`glazeDefault()` "Lavender" — varje
   färg grindad, mätvärdet i kommentaren — och `slateDefault()` "Windows", med
   trafikljusen lika i båda lägena; Windows är REFERENSEN och grindas inte). **PALETTGENERATORN**
-  (`Theme::slate(Hue)`/`Theme::minimalistic(Hue)`): `color::hsl` (färghjälparna bor i **`color.cpp`**, publika i glaze/color.h sedan REQ9_TERMINAL) + en
+  (`Theme::slate(Hue)`/`Theme::minimalistic(Hue)`): `color::hsl` (färghjälparna bor i **`color.cpp`**, publika i glaze/color.h) + en
   LJUSHETSTRAPPA (`struct Ladder`, en per familj och läge) som mappar hue →
   hel `Theme`; Neutral är samma funktion med mättnad 0. Trappan skrivs och
   kommenteras, hexvärdena är dess utfall, och `contrast_gate` mäter dem. TVÅ
@@ -939,7 +943,7 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   mappar UI → temalistan (index 0 = default). Nya roller: rot-CLAUDE.md
   (SIST i `Colors`, i båda handskrivna och i generatorn); de HÄRLEDDA räknas
   i **`deriveRoles()`** (kapseln, `fieldReadOnly`, `dropHint` =
-  `accentSurface` med `kDropHintAlpha`) i ETT anrop från alla tre ställena —
+  `accentSurface` med `kDropHintAlpha`, `canvasGrid`, `stock*`, `panelHeader`) i ETT anrop från alla tre ställena —
   en glömd härledd roll blir svart. **`deriveStatus()`**
   (`warningSurface`/`onWarning`/`errorSurface`/`onError`) är den enda som
   INTE läser paletten: FASTA vinklar (amber 44°, röd 358°) vid en ljushet,
@@ -955,12 +959,9 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
 
 ## Lokala konventioner & fallgropar
 
-- **Händelsestyrd rendering** och **lånade barn i rivning** — hård regel 1
-  och fallgropen i rot-CLAUDE.md. För SNÅL damage syns som spökpixlar
-  (`setDebugDamage(true)`).
-- **Arbete för NÄSTA BILD går i ramkön** (`detail::postFrameWork`), inte i
-  `app().post`: appens kö har en budget, och en tick bakom en skur av
-  trådarnas svar ger en bild utan rörelse. Ramkön är bara UI-trådens.
+- För SNÅL damage syns som spökpixlar (`setDebugDamage(true)`).
+- **Arbete för NÄSTA BILD går i ramkön** (`detail::postFrameWork`), aldrig i
+  `app().post` (som har en budget). Ramkön är bara UI-trådens.
 - **En ny profilerarkrok börjar med `if (!profiling()) return;`** — utom
   bildens slut och fönstrets stängning, som städar. Låsordningen är
   registret FÖRE blocket; trådslutet rör inga lås (döda block slås in vid
@@ -978,9 +979,7 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   **(4) DENY ÄR HELA POPUP-HANTERINGEN.** `hasOpenPopup()` REKURSIVT över
   målträdet plus `menuPresentationHostedIn`; nekandet står kvar ett pumpvarv
   efter `close()`, två för en meny (`menu.cpp`). Grind: `tests/unadopt_gate.cpp`.
-- **Ny widget-typ** → mönstret i [../include/glaze/CLAUDE.md](../include/glaze/CLAUDE.md)
-  (kopiera `button.*`), med `src/widgets/<namn>.cpp` i `CMakeLists.txt`.
-  **Och SINA STRÄNGAR I FYRA SPRÅK** (TODO-post 32): varje text widgeten
+- **Ny widget-typ** → [../include/glaze/CLAUDE.md](../include/glaze/CLAUDE.md), och SINA STRÄNGAR I FYRA SPRÅK: varje text widgeten
   själv visar — etikett, tooltip, felmening, månadsnamn — är ett ramverks-id
   i `glaze/strings.h` med en rad per språk (sv · en · nb · fi) i
   `Glaze/language/framework.langtxt`, ompackat och inbäddat enligt filens

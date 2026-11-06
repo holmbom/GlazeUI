@@ -1,34 +1,44 @@
 // PropertyGrid — MÖNSTER: widgeten ritar SIG SJÄLV (hård regel 3) med FÅ
 // RADER: Draw ritar, c.style bär måtten och temat färgerna. Cellgeometrin
-// bor HÄR i LOGISKA px (rowBounds/nameBounds/valueBounds) — EN sanning som
+// bor HÄR i LOGISKA px (rowBounds/valueBounds) — EN sanning som
 // ritningen läser rakt av och som cellträffen/editor-placeringen
 // projicerar till fysiska px (Draw::project). Basen Panel ger klipp,
 // hjulscroll, overlay-listerna och innehållsytan; contentExtent överrids
-// så radhöjden (data, inte barn) styr scrollintervallet.
+// så radhöjden (data, inte barn) styr scrollintervallet. Radens slag
+// (text, kryss, färg, tal, rubrik) bestämmer cellens innehåll (`drawCell`)
+// och vilken editor som öppnas (`openEditor`); beslutens skäl står i headern.
 
 #include "glaze/widgets/property_grid.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <cstdlib>
 
 #include <gfx/platform.h>
 
 #include "glaze/draw.h"
+#include "glaze/strings.h"
+#include "glaze/widgets/color_picker.h"
 #include "glaze/widgets/dropdown.h"
 #include "glaze/widgets/textinput.h"
+
+#include "../color_panel.h"
+#include "../number_text.h"
+#include "../prop_parse.h"
 
 namespace glaze {
 
 // ------------------------------------------------------------- editorn
 //
-// En riktig `TextInput` med två tillägg och inget annat — datagridens
+// En riktig `TextInput` med tre tillägg och inget annat — datagridens
 // `TextEditor`-form. En tangent går till den FOKUSERADE widgeten och
 // bubblar aldrig vidare, så utan subklassen hade Enter och Escape aldrig nått
 // gridden. Enter SPARAR och Escape AVBRYTER — båda konsumeras: de har gjort
 // sitt jobb, och en Enter som därefter nådde menyernas acceleratorer hade gjort
 // två saker. Med Ctrl/Cmd/Alt är tangenten någon annans genväg och går till
-// fältet. Fokusförlusten sparar (postat). Allt annat — caret, markering,
-// klippbord — ärvs orört.
+// fältet. Fokusförlusten sparar (postat). Ett TALFÄLT släpper bara in
+// taltecken. Allt annat — caret, markering, klippbord — ärvs orört.
 //
 // Varför inte fältets eget `onCommit`: dess fokusförlust POSTAS, och mellan
 // posten och pump-svansen kan gridden redan ha öppnat editorn på en annan
@@ -41,9 +51,10 @@ public:
     // En NY RAD börjar: värdet och en TOM ångra-historik (datagridens
     // `TextEditor::börja`). Editorn återanvänds,
     // och `setText`s likhetsvakt hade bevarat förra radens steg när nästa
-    // rad råkar ha samma värde.
-    void börja(const std::string& text)
+    // rad råkar ha samma värde. `tal` = en talrad: bara taltecken tas emot.
+    void börja(const std::string& text, bool tal)
     {
+        numeric_ = tal;
         setText(text);
         resetHistory();
     }
@@ -64,6 +75,21 @@ protected:
         return TextInput::keyDown(k, mods);
     }
 
+    // Ett tecken som inte ingår i ett tal sväljs redan vid tangenttrycket; en
+    // inklistring prövas i stället av tolkningen när raden sparas.
+    bool textInput(const char* utf8) override
+    {
+        if (!numeric_)
+            return TextInput::textInput(utf8);
+        std::string ok;
+        for (const char* p = utf8; *p; ++p)
+            if (numbertext::isNumberChar(*p))
+                ok.push_back(*p);
+        if (ok.empty())
+            return true;
+        return TextInput::textInput(ok.c_str());
+    }
+
     void focusLost() override
     {
         TextInput::focusLost();
@@ -72,6 +98,7 @@ protected:
 
 private:
     PropertyGrid& owner_;
+    bool          numeric_ = false;
 };
 
 // ------------------------------------------------------------- vallistan
@@ -119,12 +146,109 @@ private:
     PropertyGrid& owner_;
 };
 
+// ------------------------------------------------------------- kryssrutan
+//
+// En fokuserbar, genomskinlig barn-widget över värdecellen: kryssrutan ritas
+// av gridens egen cell, och editorn bär bara FOKUSEN — ringen runt rutan och
+// tangenterna. Space växlar (och fyrar, som ett tryck), Enter och Escape
+// stänger och konsumeras — samma regel som vallistan, så dialogens standard-
+// och avbrytknapp aldrig klickas mitt i en cell. Ett tryck på editorn växlar
+// likaså: den täcker värdecellen och tar trycket före gridden. Tangenterna
+// är bara ens om redigeringen pågår: en dold editor som behållit fokus
+// släpper dem vidare.
+class PropertyGrid::CheckEditor final : public Widget {
+public:
+    explicit CheckEditor(PropertyGrid& owner) : owner_(owner) {}
+
+    bool focusable() const override { return true; }
+
+protected:
+    void draw(const Ctx& c) override
+    {
+        if (!focused())
+            return;
+        const auto&      m   = *c.style;
+        const gfx::Rectf box = PropertyGrid::checkBoxRect(c, c.bounds());
+        Draw::frame(c, Draw::inset(box, -m.focusOffset),
+                    m.checkRadius + m.focusOffset,
+                    Pen{c.theme->colors.accent, m.focusWidth});
+    }
+
+    bool keyDown(gfx::Key k, std::uint32_t mods) override
+    {
+        if (!isVisible() || (mods & (gfx::kModCtrl | gfx::kModCmd |
+                                     gfx::kModAlt)) != 0)
+            return false;
+        switch (k) {
+        case gfx::Key::Space:
+            owner_.toggleActive();
+            return true;
+        case gfx::Key::Return:
+        case gfx::Key::Escape:
+            owner_.hideEditors();
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    void mouseDown(const Ctx&, float, float) override
+    {
+        owner_.toggleActive();
+    }
+
+    void focusLost() override
+    {
+        if (isVisible())
+            owner_.hideEditors();
+    }
+
+private:
+    PropertyGrid& owner_;
+};
+
+// ------------------------------------------------------------- färgen
+//
+// En riktig `ColorPicker` över värdecellen, med popupen öppen direkt. Enter och
+// Escape avslutar redigeringen när popupen är stängd (med öppen popup tar
+// popupen tangenterna själv) och konsumeras; fokusförlusten stänger den.
+// Gridden lyssnar bara på `onCommit`. En dold editor som behållit fokus
+// öppnar ingen popup på Space.
+class PropertyGrid::ColorEditor final : public ColorPicker {
+public:
+    explicit ColorEditor(PropertyGrid& owner) : owner_(owner) {}
+
+protected:
+    bool keyDown(gfx::Key k, std::uint32_t mods) override
+    {
+        if (!isVisible())
+            return false;
+        const bool genväg =
+            (mods & (gfx::kModCtrl | gfx::kModCmd | gfx::kModAlt)) != 0;
+        if (!genväg && !isOpen() &&
+            (k == gfx::Key::Return || k == gfx::Key::Escape)) {
+            owner_.hideEditors();
+            return true;
+        }
+        return ColorPicker::keyDown(k, mods);
+    }
+
+    void focusLost() override
+    {
+        ColorPicker::focusLost();
+        if (isVisible())
+            owner_.hideEditors();
+    }
+
+private:
+    PropertyGrid& owner_;
+};
+
 GLAZE_REGISTER_WIDGET("propertygrid", PropertyGrid)
 
-PropertyGrid::PropertyGrid()
+PropertyGrid::PropertyGrid() : sep_(tr(str::DecimalSeparator))
 {
     setClip(true);        // rader och editorer klipps mot innehållsytan
-    showScrollbars(true); // överflöd ska SYNAS
 
     // Fritexten committar vid Enter, klick och fokusförlust (`TextEditor`,
     // `endEdit`) — fältets `onChange` lämnas osatt: att skriva är inte att
@@ -145,15 +269,57 @@ PropertyGrid::PropertyGrid()
         invalidate();   // raden ritas om med nya värdet
         fireChange(active_);
     };
+
+    checkEd_ = add<CheckEditor>(*this);
+    checkEd_->hide();
+
+    // Färgen: bara commiten skrivs till raden — reglagens live-händelser rör
+    // inte värdet (`commitColor`).
+    colorEd_ = add<ColorEditor>(*this);
+    colorEd_->hide();
+    colorEd_->onCommit = [this](Widget*, ChangeArgs&) { commitColor(); };
+}
+
+// ------------------------------------------------------------- raderna
+
+// En INAKTIV grid visas infälld: varje rubrik står stängd (radernas
+// `expanded` rörs inte, så de öppnas igen som de var när gridden aktiveras),
+// och bara rubrikerna — och raderna före den första — syns.
+void PropertyGrid::rebuildVisible()
+{
+    pos_.assign(rows_.size(), -1);
+    visibleCount_ = 0;
+    bool öppen    = true;   // raderna före den första rubriken syns alltid
+    for (std::size_t i = 0; i < rows_.size(); ++i) {
+        const Row& r = rows_[i];
+        if (r.kind == Kind::Header) {
+            pos_[i] = visibleCount_++;
+            öppen   = r.expanded && isEnabled();
+        } else if (öppen) {
+            pos_[i] = visibleCount_++;
+        }
+    }
+}
+
+// AKTIVERINGEN BYTTE: en pågående redigering stängs utan att spara (en
+// inaktiv grid redigeras inte), och de synliga raderna räknas om — infällt
+// som inaktiv, som raderna säger som aktiv.
+void PropertyGrid::enabledChanged()
+{
+    hideEditors();
+    rebuildVisible();
+    invalidate();
 }
 
 void PropertyGrid::setRows(std::vector<Row> rows)
 {
     ++rowsGen_;      // ett postat event beskriver de gamla raderna
     hideEditors();   // AVBRYTER — redigeringen gällde de gamla raderna
-    rows_    = std::move(rows);
+    rows_ = std::move(rows);
     rowGen_.assign(rows_.size(), 0u);
+    pending_.assign(rows_.size(), std::nullopt);
     changed_ = -1;
+    rebuildVisible();
     invalidate();
 }
 
@@ -161,44 +327,134 @@ void PropertyGrid::setRows(std::vector<Row> rows)
 // Ingen `hideEditors()`: att lägga till en rad SIST rör inte den rad som
 // redigeras, och att stänga editorn hade varit en tillståndsförlust som
 // inte hör till operationen.
-void PropertyGrid::addRow(std::string name, std::string value, bool readOnly,
-                          std::string tag)
+void PropertyGrid::addRow(Row row)
 {
-    Row r;
-    r.name     = std::move(name);
-    r.value    = std::move(value);
-    r.readOnly = readOnly;
-    r.tag      = std::move(tag);
-    rows_.push_back(std::move(r));
+    rows_.push_back(std::move(row));
     rowGen_.push_back(0u);
+    pending_.push_back(std::nullopt);
+    rebuildVisible();
     invalidate();
 }
 
-void PropertyGrid::setRow(int index, std::string name, std::string value,
-                          bool readOnly, std::string tag)
+void PropertyGrid::setRow(int index, Row row)
 {
-    if (index < 0 || std::size_t(index) >= rows_.size()) {
+    if (!valid(index)) {
         gfx::log("PropertyGrid(%s): setRow(%d) utanför intervallet (%zu "
                  "rader) — ignoreras", this->name.c_str(), index,
                  rows_.size());
         return;
     }
-    // Raden ERSÄTTS helt: `choices` nollas med, precis som `tag` gör när
-    // svansargumentet utelämnas. Tilldelning, inte uppdatering.
-    Row r;
-    r.name     = std::move(name);
-    r.value    = std::move(value);
-    r.readOnly = readOnly;
-    r.tag      = std::move(tag);
     // Skriver vi under en ÖPPEN editor pekar den på en rad som inte finns
     // längre i samma form — stäng den UTAN att spara, som `setRows` gör. Och
     // en KÖAD sparning av raden (fokusförlustens postade events) beskriver
     // den gamla raden: radens generation räknas upp, så den slopas.
     if (active_ == index)
         hideEditors();
-    rows_[std::size_t(index)] = std::move(r);
+    rows_[std::size_t(index)] = std::move(row);   // tilldelning, inte uppdatering
     ++rowGen_[std::size_t(index)];
+    pending_[std::size_t(index)].reset();
+    rebuildVisible();
     invalidate();
+}
+
+void PropertyGrid::setRowEnabled(int row, bool on)
+{
+    if (!valid(row)) {
+        gfx::log("PropertyGrid(%s): setRowEnabled(%d) utanför intervallet (%zu "
+                 "rader) — ignoreras", this->name.c_str(), row, rows_.size());
+        return;
+    }
+    Row& r = rows_[std::size_t(row)];
+    if (r.enabled == on)
+        return;
+    r.enabled = on;
+    if (!on) {
+        // Raden som redigeras stängs utan att spara, och en köad sparning av
+        // den beskriver en rad som inte längre går att ändra.
+        if (active_ == row)
+            hideEditors();
+        ++rowGen_[std::size_t(row)];
+    }
+    invalidate();
+}
+
+void PropertyGrid::setExpanded(int row, bool on)
+{
+    if (!valid(row)) {
+        gfx::log("PropertyGrid(%s): setExpanded(%d) utanför intervallet (%zu "
+                 "rader) — ignoreras", this->name.c_str(), row, rows_.size());
+        return;
+    }
+    Row& r = rows_[std::size_t(row)];
+    if (r.kind != Kind::Header) {
+        gfx::log("PropertyGrid(%s): setExpanded(%d) på en rad som inte är en "
+                 "rubrik — ignoreras", this->name.c_str(), row);
+        return;
+    }
+    if (r.expanded == on)
+        return;
+    r.expanded = on;
+    rebuildVisible();
+    // Raden som redigeras kan ha blivit dold: då stängs redigeringen UTAN att
+    // spara — den rad användaren skrev i syns inte längre.
+    if (active_ >= 0 && pos_[std::size_t(active_)] < 0)
+        hideEditors();
+    invalidate();
+}
+
+// LÄSVÄGARNA — ur `value`, aldrig ur editorernas tillstånd.
+bool PropertyGrid::isChecked(int row) const
+{
+    return valid(row) && rows_[std::size_t(row)].kind == Kind::Check &&
+           propparse::parseBool(rows_[std::size_t(row)].value);
+}
+
+std::optional<gfx::Color> PropertyGrid::colorValue(int row) const
+{
+    if (!valid(row) || rows_[std::size_t(row)].kind != Kind::Color)
+        return std::nullopt;
+    const Row& r = rows_[std::size_t(row)];
+    gfx::Color c{};
+    if (!propparse::parseHexColor(numbertext::trim(r.value), c, true))
+        return std::nullopt;
+    if (!r.allowAlpha)
+        c = colorpanel::opak(c);   // färgväljarens läsregel
+    return c;
+}
+
+std::optional<double> PropertyGrid::numberValue(int row) const
+{
+    if (!valid(row) || rows_[std::size_t(row)].kind != Kind::Number)
+        return std::nullopt;
+    const Row& r = rows_[std::size_t(row)];
+    double     v = 0.0;
+    if (!numbertext::parseUser(r.value, v))
+        return std::nullopt;
+    return numbertext::effective(v, r.min, r.max, r.decimals);
+}
+
+bool PropertyGrid::hasError(int row) const
+{
+    if (!valid(row))
+        return false;
+    switch (rows_[std::size_t(row)].kind) {
+    case Kind::Number:
+        return pending_[std::size_t(row)].has_value() || !numberValue(row);
+    case Kind::Color:
+        return !colorValue(row);
+    default:
+        return false;
+    }
+}
+
+std::string PropertyGrid::numberDisplay(int row) const
+{
+    if (pending_[std::size_t(row)])
+        return *pending_[std::size_t(row)];
+    const Row& r = rows_[std::size_t(row)];
+    if (const std::optional<double> v = numberValue(row))
+        return numbertext::format(*v, r.decimals, sep_.str());
+    return r.value;
 }
 
 bool PropertyGrid::setProp(const std::string& key, const std::string& value)
@@ -211,23 +467,45 @@ bool PropertyGrid::setProp(const std::string& key, const std::string& value)
 }
 
 // STRUKTURELLA BARN — kontraktet och skälet står i headern.
-// Definierad här och inte där: `TextInput`/`Dropdown` är framåtdeklarerade
+// Definierad här och inte där: editorerna är framåtdeklarerade
 // i headern, och en konvertering till basen kräver en komplett typ.
 bool PropertyGrid::canReleaseChild(const Widget& child) const
 {
     return &child != static_cast<const Widget*>(editor_) &&
-           &child != static_cast<const Widget*>(picker_);
+           &child != static_cast<const Widget*>(picker_) &&
+           &child != static_cast<const Widget*>(checkEd_) &&
+           &child != static_cast<const Widget*>(colorEd_);
+}
+
+// TOOLTIPEN PER RAD — felets text vinner, sedan radens egen, sedan gridens.
+TrText PropertyGrid::toolTipAt(const Ctx& c, float x, float y) const
+{
+    const int i = rowAt(c, x, y);
+    if (i >= 0) {
+        if (hasError(i))
+            return tr(str::PropertyGridInvalid);
+        if (!rows_[std::size_t(i)].toolTip.empty())
+            return rows_[std::size_t(i)].toolTip;
+    }
+    return Widget::toolTipAt(c, x, y);
 }
 
 gfx::Sizef PropertyGrid::contentSize(const Ctx& c) const
 {
     switch (c.ui) {
     case UI::Slate:
-    default:
-        // AXELREGELN: som Panel — griden är en
-        // Panel-ättling och dimensioneras av appen, inte av stilen. Ingen
-        // auto-storlek.
-        return gfx::Sizef{width, height};
+    default: {
+        // AXELREGELN: satt axel vinner. Bredden är appens (en placeringsyta,
+        // som Panel); AUTO-höjden är de synliga raderna × radhöjden plus ramens
+        // indrag — oberoende av bredden, så en dockad Top-remsa mäts utan
+        // `c.area`. Varje ändring av raderna, fällningen eller ramen
+        // invaliderar, annars står mätcachen kvar på gamla höjden.
+        gfx::Sizef s{width, height};
+        if (s.h <= 0.0f)
+            s.h = float(visibleCount_) * c.style->gridRowH +
+                  (isBorder() ? 2.0f * c.style->panelInset : 0.0f);
+        return s;
+    }
     }
 }
 
@@ -241,11 +519,23 @@ float PropertyGrid::nameW(const Ctx& c) const
     return nameWidth_ > 0.0f ? nameWidth_ : c.style->gridNameW;
 }
 
+float PropertyGrid::scrollOffset(const Ctx& c, const gfx::Rectf& in) const
+{
+    const float spelrum =
+        float(visibleCount_) * c.style->gridRowH - in.h;
+    return std::clamp(scrollY(), 0.0f, std::max(0.0f, spelrum));
+}
+
 gfx::Rectf PropertyGrid::rowBounds(const Ctx& c, int row) const
 {
+    if (row < 0 || std::size_t(row) >= pos_.size() || pos_[std::size_t(row)] < 0)
+        return gfx::Rectf{};
     const gfx::Rectf in   = innerBounds(c);
     const float      rowH = c.style->gridRowH;
-    return gfx::Rectf{in.x, in.y - scrollY() + float(row) * rowH, in.w, rowH};
+    return gfx::Rectf{in.x,
+                      in.y - scrollOffset(c, in) +
+                          float(pos_[std::size_t(row)]) * rowH,
+                      in.w, rowH};
 }
 
 gfx::Rectf PropertyGrid::valueBounds(const Ctx& c, int row) const
@@ -257,6 +547,169 @@ gfx::Rectf PropertyGrid::valueBounds(const Ctx& c, int row) const
     return gfx::Rectf{full.x + nw, full.y,
                       std::max(0.0f, full.w - nw - c.style->scrollThick),
                       full.h};
+}
+
+gfx::Rectf PropertyGrid::checkBoxRect(const Ctx& c, const gfx::Rectf& cell)
+{
+    const float s = c.style->checkSize;
+    return gfx::Rectf{cell.x + c.style->gridPadX, cell.y + (cell.h - s) / 2.0f,
+                      s, s};
+}
+
+int PropertyGrid::rowAt(const Ctx& c, float mx, float my) const
+{
+    const gfx::Rectf r = resolve(c);
+    for (int i = 0; i < int(rows_.size()); ++i) {
+        if (pos_[std::size_t(i)] < 0)
+            continue;
+        if (Draw::project(c, r, rowBounds(c, i)).contains(mx, my))
+            return i;
+    }
+    return -1;
+}
+
+// ------------------------------------------------------------ ritningen
+
+// RADEN — en rubrikrad är en fylld remsa i `panelHeader` (alla tre UI) med
+// vinkeln i expanderkolumnen och namnet; en annan rad är namn + värdecell, med
+// den aktiva radens markering per UI. Kolumnskiljaren skärs bara för raderna
+// med två kolumner: en rubrikrad är en enda yta.
+void PropertyGrid::drawRow(const Ctx& c, int i, const gfx::Rectf& r) const
+{
+    const auto& m   = *c.style;
+    const auto& col = c.theme->colors;
+    const Row&  rd  = rows_[std::size_t(i)];
+    const float nw  = nameW(c);
+    const bool  på  = isEnabled() && rd.enabled;   // gridden och raden
+
+    if (rd.kind == Kind::Header) {
+        Draw::rect(c, r, 0.0f, col.panelHeader);
+        const bool  ut    = rd.expanded && isEnabled();   // inaktiv = infälld
+        const float halvW = ut ? m.chevronW : m.chevronH;
+        const float halvH = ut ? m.chevronH : m.chevronW;
+        const gfx::Rectf e{r.x, r.y, m.treeExpanderW, r.h};
+        Draw::chevron(c,
+                      {e.x + e.w / 2.0f - halvW, e.y + e.h / 2.0f - halvH,
+                       2.0f * halvW, 2.0f * halvH},
+                      ut ? Dir::Down : Dir::Right, Pen{col.textDim, 0.0f});
+        Draw::text(c, {r.x + m.treeExpanderW + m.gridPadX, r.y, r.w, r.h},
+                   rd.name, på ? col.text : col.textDim);
+    } else {
+        gfx::Color namn = på ? col.text : col.textDim;
+        if (i == active_) {
+            switch (c.ui) {
+            // GLAZE — den AKTIVA RADENS namncell fylls med `accentSurface` och
+            // namnet skrivs i `onAccent`, samma par som Dropdown-listans
+            // hovrade rad. Först skulle raden bli en laminerad
+            // `buttonHover`-platta; den mäter 1.53:1 mot panelen i ljust läge
+            // — en markering man inte ser är ingen markering. `accentSurface`
+            // mäter 5.67:1 / 3.45:1 och bär sin text (`onAccent`, grindat par).
+            case UI::Glaze:
+                Draw::rect(c, {r.x, r.y, nw, r.h}, 0.0f, col.accentSurface);
+                namn = col.onAccent;
+                break;
+            // MINIMALISTIC — ett accent-STRECK i vänsterkanten (`rowMarkerW`)
+            // och namnet i `accent`: fyllning betyder tillstånd hos
+            // KONTROLLER, och en rad i en lista är ingen kontroll. Samma
+            // markör som Dropdown-listans valda rad.
+            case UI::Minimalistic:
+                Draw::rect(c, {r.x, r.y, m.rowMarkerW, r.h}, 0.0f, col.accent);
+                namn = col.accent;
+                break;
+            // SLATE — namncellen i `buttonHover`.
+            case UI::Slate:
+            default:
+                Draw::rect(c, {r.x, r.y, nw, r.h}, 0.0f, col.buttonHover);
+                break;
+            }
+        }
+        Draw::text(c, {r.x + m.gridPadX, r.y, nw, r.h}, rd.name, namn);
+        drawCell(c, i, r);
+        Draw::line(c, r.x + nw, r.y, r.x + nw, r.y + r.h,
+                   Pen{col.border, 0.0f});   // kolumnskiljaren
+    }
+    Draw::line(c, r.x, r.y + r.h, r.x + r.w, r.y + r.h,
+               Pen{col.border, 0.0f});   // radlinjen
+}
+
+// VÄRDECELLENS innehåll per slag. Ett fel fyller cellen med `errorSurface` och
+// skriver texten i `onError` (det grindade paret; som linje räcker inte
+// `errorSurface` mot mörka ytor). En skrivskyddad eller inaktiv rad — eller
+// en inaktiv grid — skriver sitt värde i `textDim`; en skrivskyddad kryssruta
+// behåller full kontrast, för den läses som ett värde och inte som en
+// avstängd kontroll. Rutan är listornas kryssruta: kontur med `checkRadius`
+// och bock med `checkStroke`.
+void PropertyGrid::drawCell(const Ctx& c, int i, const gfx::Rectf& r) const
+{
+    const auto& m    = *c.style;
+    const auto& col  = c.theme->colors;
+    const Row&  rd   = rows_[std::size_t(i)];
+    const float nw   = nameW(c);
+    const bool  på   = isEnabled() && rd.enabled;   // gridden och raden
+    const gfx::Rectf cell{r.x + nw, r.y, r.w - nw, r.h};
+    const gfx::Color fg = rd.readOnly || !på ? col.textDim : col.text;
+    const bool fel = hasError(i);
+    if (fel)
+        Draw::rect(c, cell, 0.0f, col.errorSurface);
+    const gfx::Color txt = fel ? col.onError : fg;
+
+    switch (rd.kind) {
+    case Kind::Check: {
+        const gfx::Rectf box = checkBoxRect(c, cell);
+        Draw::frame(c, box, m.checkRadius,
+                    Pen{på ? col.buttonBorder : col.border, m.borderWidth});
+        if (isChecked(i))
+            Draw::check(c, box, Pen{på ? col.text : col.textDim, m.checkStroke});
+        break;
+    }
+    case Kind::Color: {
+        const std::optional<gfx::Color> färg = colorValue(i);
+        if (!färg) {
+            Draw::text(c, {cell.x + m.gridPadX, r.y, cell.w, r.h}, rd.value,
+                       txt);
+            break;
+        }
+        // Färgrutan: inaktiv tonas den med ikonernas mått, och med alfa ritas
+        // den över ett rutmönster så att genomskinligheten syns.
+        const gfx::Rectf box = checkBoxRect(c, cell);
+        gfx::Color       fyll = *färg;
+        if (!på)
+            fyll.a = static_cast<std::uint8_t>(
+                std::lround(float(fyll.a) * (1.0f - m.iconFade)));
+        if (rd.allowAlpha)
+            Draw::checker(c, box, m.colorSwatchRadius, m.colorCheckerCell,
+                          col.panel, col.appWorkspace);
+        Draw::rect(c, box, m.colorSwatchRadius, fyll,
+                   Pen{på ? col.buttonBorder : col.border, m.borderWidth});
+        Draw::text(c, {box.x + box.w + m.checkGap, r.y, cell.w, r.h},
+                   propparse::hexColorText(*färg, rd.allowAlpha), txt);
+        break;
+    }
+    case Kind::Number: {
+        // Prefixet vänster, suffixet högerställt, talet emellan — samma tre
+        // ytor som editorn placeras mellan (`openEditor`).
+        const float x0 = cell.x + m.gridPadX;
+        const float pw = rd.prefix.empty() ? 0.0f : Draw::measure(c, rd.prefix).w;
+        const float sw = rd.suffix.empty() ? 0.0f : Draw::measure(c, rd.suffix).w;
+        if (!rd.prefix.empty())
+            Draw::text(c, {x0, r.y, pw, r.h}, rd.prefix, txt);
+        Draw::text(c,
+                   {x0 + pw, r.y,
+                    std::max(0.0f, cell.w - 2.0f * m.gridPadX - pw - sw), r.h},
+                   numberDisplay(i), txt);
+        if (!rd.suffix.empty())
+            Draw::text(c, {cell.x, r.y, cell.w - m.gridPadX, r.h}, rd.suffix,
+                       txt, Align::Right);
+        break;
+    }
+    case Kind::Header:
+        break;
+    case Kind::Text:
+    default:
+        // Värdet ritas alltid — den aktiva cellens editor täcker det.
+        Draw::text(c, {r.x + nw + m.gridPadX, r.y, r.w, r.h}, rd.value, fg);
+        break;
+    }
 }
 
 void PropertyGrid::draw(const Ctx& c)
@@ -272,188 +725,74 @@ void PropertyGrid::draw(const Ctx& c)
     // måste klippas mot samma form av griden själv.
     const float      rIn = innerRadius(c);
 
+    // YTAN per UI. GLAZE och SLATE: namnkolumn på panel-nivån, värdekolumn på
+    // den försänkta arbetsytan; ytterytan rundas EN gång och kolumnplattan
+    // klipps mot samma gemensamma innerform (att runda kolumnerna var för sig
+    // hade rundat den INRE skarven — fel geometri, inte bara fel utseende), och
+    // ramen är panel-familjens kant. Kolumnerna lamineras inte: de är ytor man
+    // läser i, inte kroppar man påverkar. MINIMALISTIC: inga kolumnfyllningar —
+    // "ytor separeras med en LINJE, inte med en fyllning" gäller griden hårdast,
+    // som bara är rader och kolumner — men ytan fylls i panelens färg, annars
+    // låg radernas markering direkt på fönstret.
+    // INAKTIV: värdekolumnen på `fieldReadOnly`, som ett inaktivt fält — annars
+    // såg en inaktiv grid aktiv ut (texten dämpas i `drawRow`/`drawCell`).
     switch (c.ui) {
-    // GLAZE — samma kolumner som Slate (`panel` / `appWorkspace` + kontur),
-    // men den AKTIVA RADENS namncell fylls med `accentSurface` och namnet
-    // skrivs i `onAccent`. Griden ÄR redan
-    // Glaze-receptet — försänkt värdekolumn, upphöjd namnkolumn, bestämd
-    // kant — och det enda som saknades var att den valda raden faktiskt
-    // SYNS. Samma par som Dropdown-listans hovrade rad; de är samma sak
-    // sedd två gånger och ska se lika ut.
-    //
-    // Först skulle raden bli en LAMINERAD `buttonHover`-platta. Det föll på
-    // mätningen: `buttonHover` mot panelen är 2.01:1 rått och **1.53:1
-    // laminerad** i ljust läge — en markering man inte ser är ingen
-    // markering. `accentSurface` mäter 5.67:1 / 3.45:1 mot panelen och bär
-    // dessutom sin text (`onAccent`, 5.67:1 / 4.81:1 — grindat par).
-    // Lamineringen är borta av familjens generella skäl: den kräver en
-    // KONTUR för att inte tvätta bort sin egen separation, och en cell i en
-    // tabell har ingen.
-    //
-    // Kolumnerna lamineras heller inte. De är ytor man läser i, inte kroppar
-    // man påverkar; en laminerad kolumn hade sett ut som en bred knapp.
-    //
-    // De fyra tillstånden (princip 7) — de bor per RAD:
-    //   vila       namnkolumn `panel`, värdekolumn `appWorkspace`,
-    //              gridlinjer `border`
-    //   hover      — (raden markeras inte av musen; ETT aktivt val räcker)
-    //   tryck      aktiv rad: namncellen `accentSurface`, namnet `onAccent`
-    //   fokus      ägs av den hostade editorn
-    //   inaktiv    skrivskyddat värde `textDim`
-    case UI::Glaze:
-        // Ytterytan/ramen rundas EN gång; kolumnplattan klipps mot samma
-        // gemensamma innerform. Att runda kolumnerna var för sig hade
-        // rundat den INRE skarven mellan namn- och värdekolumnen — fel
-        // geometri, inte bara fel utseende.
-        Draw::rect(c, in, rIn, col.appWorkspace);
-        Draw::clip(c, in, rIn);
-        Draw::rect(c, {in.x, in.y, nw, in.h}, 0.0f, col.panel);
-        Draw::endClip(c);
-        Draw::frame(c, b, m.panelRadius, Pen{col.border, m.borderWidth});
-
-        Draw::clip(c, in, rIn);
-        for (int i = 0; i < int(rows_.size()); ++i) {
-            const gfx::Rectf row = rowBounds(c, i);
-            if (row.y + row.h < in.y)
-                continue;
-            if (row.y > in.y + in.h)
-                break;
-            const Row& rd = rows_[std::size_t(i)];
-
-            const bool act = i == active_;
-            if (act)
-                Draw::rect(c, {row.x, row.y, nw, row.h}, 0.0f,
-                           col.accentSurface);
-            Draw::text(c, {row.x + m.gridPadX, row.y, nw, row.h}, rd.name,
-                       act ? col.onAccent : col.text);
-            Draw::text(c, {row.x + nw + m.gridPadX, row.y, row.w, row.h},
-                       rd.value, rd.readOnly ? col.textDim : col.text);
-            Draw::line(c, row.x, row.y + row.h, row.x + row.w, row.y + row.h,
-                       Pen{col.border, 0.0f});
-        }
-        Draw::line(c, in.x + nw, in.y, in.x + nw, in.y + in.h,
-                   Pen{col.border, 0.0f});
-        Draw::endClip(c);
-        break;
-
-    // MINIMALISTIC — INGA KOLUMNFYLLNINGAR.
-    // "Ytor separeras med en LINJE, inte med en fyllning" gäller griden
-    // hårdast av alla: den är ju bara rader och kolumner, och en tabell som
-    // bygger sin struktur på två bakgrundsfärger är precis vad familjen
-    // valde bort. Kvar står radlinjerna, kolumnskiljaren och ramen.
-    //
-    // Den aktiva raden markeras med ett accent-STRECK i vänsterkanten
-    // (`rowMarkerW`) i stället för med en fylld namncell. Regeln "fyllning
-    // betyder tillstånd" gäller KONTROLLER — en rad i en lista är ingen
-    // kontroll, och att fylla den hade gjort griden till ett fält av
-    // plattor. Samma markör som Dropdown-listans valda rad; de två är samma
-    // sak sedd två gånger och delar därför mått.
-    //
-    // De fyra tillstånden (princip 7) — per RAD:
-    //   vila       ingen fyllning, radlinjer `border`
-    //   hover      —
-    //   tryck      aktiv rad: `accent`-markör i vänsterkanten, namnet i
-    //              `accent`
-    //   fokus      ägs av den hostade editorn
-    //   inaktiv    skrivskyddat värde `textDim`
     case UI::Minimalistic:
-        // YTAN FYLLS — se panel.cpp. Rutnätet är en container
-        // av samma slag som Panel och ska ha samma bakgrund; utan den låg
-        // radernas markering och kolumnlinje direkt på fönstret.
         Draw::rect(c, b, m.panelRadius, col.panel);
         Draw::frame(c, b, m.panelRadius, Pen{col.border, m.borderWidth});
-
-        Draw::clip(c, in, rIn);
-        for (int i = 0; i < int(rows_.size()); ++i) {
-            const gfx::Rectf row = rowBounds(c, i);
-            if (row.y + row.h < in.y)
-                continue;
-            if (row.y > in.y + in.h)
-                break;
-            const Row& rd  = rows_[std::size_t(i)];
-            const bool act = i == active_;
-
-            if (act)
-                Draw::rect(c, {row.x, row.y, m.rowMarkerW, row.h}, 0.0f,
-                           col.accent);
-            Draw::text(c, {row.x + m.gridPadX, row.y, nw, row.h}, rd.name,
-                       act ? col.accent : col.text);
-            Draw::text(c, {row.x + nw + m.gridPadX, row.y, row.w, row.h},
-                       rd.value, rd.readOnly ? col.textDim : col.text);
-            Draw::line(c, row.x, row.y + row.h, row.x + row.w, row.y + row.h,
-                       Pen{col.border, 0.0f});
-        }
-        Draw::line(c, in.x + nw, in.y, in.x + nw, in.y + in.h,
-                   Pen{col.border, 0.0f});
-        Draw::endClip(c);
         break;
-
-    // SLATE — det medvetna UNDANTAGET i taxonomin:
-    // griden tillhör FLERA klasser samtidigt. Den ÄR en yta (ram + två
-    // kolumnbakgrunder), den bär ett SPÅR (värdekolumnen på `appWorkspace`),
-    // en PLATTA (den aktiva radens namncell) och två hostade FÄLT
-    // (TextInput/Dropdown). Taxonomin beskriver alltså dess DELAR, inte
-    // widgeten. Dess overlay-remsor är Panels.
-    //
-    // Radierna kommer ur `Style::panelRadius`. Editorerna placeras
-    // rakt över värdecellen och hade läckt ut i ett rundat hörn. De är
-    // BARN, så trädvandringens rundade klipp täcker dem; radernas
-    // egen ritning klipps mot samma innerform (`rIn`) av griden själv.
-    //
-    // De fyra tillstånden (princip 7) — de bor per RAD, inte på widgeten:
-    //   vila       namnkolumn `panel`, värdekolumn `appWorkspace`,
-    //              gridlinjer `border`
-    //   hover      — (raden markeras inte av musen; ETT aktivt val räcker)
-    //   tryck      aktiv rad: namncellen `buttonHover`
-    //   fokus      ägs av den hostade editorn, inte av griden
-    //   inaktiv    skrivskyddat värde `textDim`
+    case UI::Glaze:
     case UI::Slate:
     default:
-        // Ytan: namnkolumn på panel-nivån, värdekolumn på den försänkta
-        // arbetsytan; ram runt hela (panel-familjens kant). Rundningen:
-        // se Glaze-grenen ovan — ytterytan EN gång, kolumnplattan klippt.
-        Draw::rect(c, in, rIn, col.appWorkspace);
+        Draw::rect(c, in, rIn, isEnabled() ? col.appWorkspace : col.fieldReadOnly);
         Draw::clip(c, in, rIn);
         Draw::rect(c, {in.x, in.y, nw, in.h}, 0.0f, col.panel);
         Draw::endClip(c);
         Draw::frame(c, b, m.panelRadius, Pen{col.border, m.borderWidth});
-
-        Draw::clip(c, in, rIn);
-        for (int i = 0; i < int(rows_.size()); ++i) {
-            const gfx::Rectf row = rowBounds(c, i);
-            if (row.y + row.h < in.y)
-                continue;                    // ovanför synfältet
-            if (row.y > in.y + in.h)
-                break;                       // nedanför — resten också
-            const Row& rd = rows_[std::size_t(i)];
-
-            if (i == active_)                // aktiv rad markeras i namnet
-                Draw::rect(c, {row.x, row.y, nw, row.h}, 0.0f,
-                           col.buttonHover);
-            Draw::text(c, {row.x + m.gridPadX, row.y, nw, row.h}, rd.name,
-                       col.text);
-            // Värdet ritas alltid — den aktiva cellens editor täcker det.
-            Draw::text(c, {row.x + nw + m.gridPadX, row.y, row.w, row.h},
-                       rd.value, rd.readOnly ? col.textDim : col.text);
-            // Radlinjen (subtil gridlinje).
-            Draw::line(c, row.x, row.y + row.h, row.x + row.w, row.y + row.h,
-                       Pen{col.border, 0.0f});
-        }
-        Draw::line(c, in.x + nw, in.y, in.x + nw, in.y + in.h,
-                   Pen{col.border, 0.0f});   // kolumnskiljaren
-        Draw::endClip(c);
         break;
     }
+
+    // De fyra tillstånden (princip 7) — de bor per RAD, inte på widgeten:
+    //   vila       gridlinjer `border`
+    //   hover      — (raden markeras inte av musen; ETT aktivt val räcker)
+    //   tryck      aktiv rad: markeringen per UI (`drawRow`)
+    //   fokus      ägs av den hostade editorn, inte av griden
+    //   inaktiv    skrivskyddat värde och inaktiv rad `textDim`
+    Draw::clip(c, in, rIn);
+    const float rowH = m.gridRowH;
+    for (int i = 0; i < int(rows_.size()); ++i) {
+        if (pos_[std::size_t(i)] < 0)
+            continue;
+        const gfx::Rectf row = rowBounds(c, i);
+        if (row.y + row.h < in.y)
+            continue;                    // ovanför synfältet
+        if (row.y > in.y + in.h)
+            break;                       // nedanför — resten också
+        drawRow(c, i, row);
+    }
+    // Kolumnskiljaren under den sista raden, ner till kanten.
+    const float slut = in.y - scrollOffset(c, in) + float(visibleCount_) * rowH;
+    if (slut < in.y + in.h)
+        Draw::line(c, in.x + nw, std::max(slut, in.y), in.x + nw, in.y + in.h,
+                   Pen{col.border, 0.0f});
+    Draw::endClip(c);
 }
 
 gfx::Sizef PropertyGrid::contentExtent(const Ctx& c) const
 {
     // FYSISKA px (Panels kontrakt) — radhöjden är logisk, som allt annat.
     const gfx::Sizef base  = Panel::contentExtent(c);
-    const float      rowsH = float(rows_.size()) * c.style->gridRowH * c.scale;
+    const float      rowsH =
+        float(visibleCount_) * c.style->gridRowH * c.scale;
     return gfx::Sizef{base.w, std::max(base.h, rowsH)};
 }
 
+// ------------------------------------------------------------ beteendet
+
+// ORDNINGEN i ett tryck: remsan → en öppen färgpopup → den pågående
+// redigeringen → rubrikraden → en rad som inte går att ändra → kryssrutan →
+// färgen → text, vallista och tal. Tillståndet ändras alltid FÖRE editorn
+// öppnas och händelserna fyras SIST.
 void PropertyGrid::mouseDown(const Ctx& c, float mx, float my)
 {
     // Remsorna ligger överst — tumdrag/rännklick går till Panel.
@@ -462,6 +801,14 @@ void PropertyGrid::mouseDown(const Ctx& c, float mx, float my)
         return;
     }
     Panel::mouseDown(c, mx, my);   // nollar drag-läget
+
+    // ETT TRYCK MEDAN FÄRGPOPUPEN ÄR ÖPPEN STÄNGER BARA POPUPEN: dess commit
+    // postas, och en ny editor på en annan färgrad hade hunnit sätta sin färg
+    // i den gemensamma väljaren före den.
+    if (colorEd_->isVisible() && colorEd_->isOpen()) {
+        hideEditors();
+        return;
+    }
 
     // ETT KLICK I GRIDDEN SPARAR FÖRST — datagridens ordning: den
     // pågående redigeringen avslutas och dess events fyras DIREKT (vi står i
@@ -476,62 +823,119 @@ void PropertyGrid::mouseDown(const Ctx& c, float mx, float my)
 
     // Cellträff via SAMMA geometri som ritningen, bara projicerad till
     // musens fysiska rymd (aldrig dubblerade mått) — mot raderna som de är
-    // EFTER sparningen. Klick på en redigerbar värdecell öppnar editorn;
-    // allt annat stänger.
-    const gfx::Rectf r = resolve(c);
-    for (int i = 0; i < int(rows_.size()); ++i) {
-        if (!Draw::project(c, r, rowBounds(c, i)).contains(mx, my))
-            continue;
-        const Row& rd = rows_[std::size_t(i)];
-        if (!rd.readOnly &&
-            Draw::project(c, r, valueBounds(c, i)).contains(mx, my))
-            openEditor(c, i);
-        else
-            hideEditors();
+    // EFTER sparningen.
+    const int i = rowAt(c, mx, my);
+    if (i < 0) {
+        hideEditors();
         return;
     }
-    hideEditors();
+    const Row& rd = rows_[std::size_t(i)];
+    if (rd.kind == Kind::Header) {
+        hideEditors();
+        if (rd.enabled)
+            setExpanded(i, !rd.expanded);
+        return;
+    }
+    const gfx::Rectf r = resolve(c);
+    if (rd.readOnly || !rd.enabled ||
+        !Draw::project(c, r, valueBounds(c, i)).contains(mx, my)) {
+        hideEditors();
+        return;
+    }
+    if (rd.kind == Kind::Check) {
+        rows_[std::size_t(i)].value = isChecked(i) ? "false" : "true";
+        changed_                    = i;
+        openEditor(c, i);   // fokuserbäraren på cellen
+        fireChange(i);      // händelserna sist
+        return;
+    }
+    openEditor(c, i);
 }
 
+// Raden redigeras i en av fyra editorer; de andra stängs först. Editorns
+// plats är radens plats bland de synliga och namnkolumnens bredd, i LOGISKA px
+// relativt childArea — barnen resolvar mot den (scrollad), så editorn följer
+// scrollen utan extra kod.
 void PropertyGrid::openEditor(const Ctx& c, int row)
 {
     const Row& r = rows_[std::size_t(row)];
+    hideEditors();
     active_ = row;
 
-    // Cellen i LOGISKA px relativt childArea — barnen resolvar mot den
-    // (scrollad), så editorn följer scrollen utan extra kod. Cellens
-    // logiska rect är widget-lokal; childArea är widgetens innerBounds
-    // minus scroll, alltså skiljer bara panelramen och scrolloffseten.
     const gfx::Rectf cell = valueBounds(c, row);
-    const gfx::Rectf in   = innerBounds(c);
-    const float x = cell.x - in.x + scrollX();
-    const float y = cell.y - in.y + scrollY();
+    float            x    = nameW(c);
+    const float      y    = float(pos_[std::size_t(row)]) * c.style->gridRowH;
+    float            w    = cell.w;
 
-    Widget* ed = r.choices.empty() ? static_cast<Widget*>(editor_)
-                                   : static_cast<Widget*>(picker_);
-    Widget* other = r.choices.empty() ? static_cast<Widget*>(picker_)
-                                      : static_cast<Widget*>(editor_);
-    other->hide();
+    Widget* ed = nullptr;
+    switch (r.kind) {
+    case Kind::Check:
+        ed = checkEd_;
+        break;
+    case Kind::Color:
+        ed = colorEd_;
+        break;
+    case Kind::Number: {
+        // Fältet står MELLAN prefixet och suffixet, som ritningen ställer dem.
+        const float pad = c.style->gridPadX;
+        const float pw  = r.prefix.empty() ? 0.0f
+                                           : pad + Draw::measure(c, r.prefix).w;
+        const float sw  = r.suffix.empty() ? 0.0f
+                                           : pad + Draw::measure(c, r.suffix).w;
+        x += pw;
+        w = std::max(0.0f, cell.w - pw - sw);
+        ed = editor_;
+        break;
+    }
+    case Kind::Header:
+        active_ = -1;   // en rubrik redigeras aldrig
+        return;
+    case Kind::Text:
+    default:
+        ed = r.choices.empty() ? static_cast<Widget*>(editor_)
+                               : static_cast<Widget*>(picker_);
+        break;
+    }
     ed->x      = x;
     ed->y      = y;
-    ed->width  = cell.w;
+    ed->width  = w;
     ed->height = cell.h;
 
-    if (r.choices.empty()) {
-        editor_->börja(r.value);
-    } else {
-        picker_->setItems(r.choices);
-        const auto it =
-            std::find(r.choices.begin(), r.choices.end(), r.value);
-        picker_->setSelectedIndex(
-            it == r.choices.end() ? -1 : int(it - r.choices.begin()));
+    switch (r.kind) {
+    case Kind::Check:
+        break;
+    case Kind::Color: {
+        colorEd_->setAllowAlpha(r.allowAlpha);
+        colorEd_->setColor(colorValue(row).value_or(gfx::Color{}));
+        colorRow_     = row;
+        colorRowsGen_ = rowsGen_;
+        colorRowGen_  = rowGen_[std::size_t(row)];
+        break;
+    }
+    case Kind::Number:
+        editor_->börja(numberDisplay(row), true);
+        break;
+    default:
+        if (r.choices.empty()) {
+            editor_->börja(r.value, false);
+        } else {
+            picker_->setItems(r.choices);
+            const auto it =
+                std::find(r.choices.begin(), r.choices.end(), r.value);
+            picker_->setSelectedIndex(
+                it == r.choices.end() ? -1 : int(it - r.choices.begin()));
+        }
+        break;
     }
     ed->show();
     ed->focus();
-    if (r.choices.empty())
+    if (r.kind == Kind::Color)
+        colorEd_->open();   // klicket ÄR intentionen — öppna popupen direkt
+    else if (r.kind == Kind::Number ||
+             (r.kind == Kind::Text && r.choices.empty()))
         editor_->selectAll();   // det man skriver ERSÄTTER värdet
-    else
-        picker_->open();   // klicket ÄR intentionen — öppna listan direkt
+    else if (r.kind == Kind::Text)
+        picker_->open();   // öppna listan direkt
     invalidate();
 }
 
@@ -539,10 +943,16 @@ void PropertyGrid::hideEditors()
 {
     if (picker_)
         picker_->close();
+    if (colorEd_)
+        colorEd_->close();
     if (editor_)
         editor_->hide();
     if (picker_)
         picker_->hide();
+    if (checkEd_)
+        checkEd_->hide();
+    if (colorEd_)
+        colorEd_->hide();
     active_ = -1;
     invalidate();
 }
@@ -554,9 +964,13 @@ void PropertyGrid::hideEditors()
 //   2. värdet skrivs och eventen fyras SIST, när allt är städat: en handler
 //      får göra vad som helst, även bygga om raderna. Ur en `focusLost`
 //      POSTAS de i stället (`postEvent`), och slopas om raderna bytts.
-// Bara fritexten avslutas här — vallistan sparar vid valet. En text som inte
-// ändrade värdet sparar ingenting och fyrar inget. Svarar om gridden går att
-// röra efteråt (en direkt avfyrning kör handlers som får riva den).
+// Bara fritexten och talet avslutas här — vallistan sparar vid valet, kryssen
+// vid trycket och färgen vid sin commit. En text som inte ändrade värdet
+// sparar ingenting och fyrar inget; ett tal jämförs efter klampning och
+// avrundning, så "12,50" mot det sparade "12.5" är samma tal. En otolkbar
+// talrad sparar ingenting heller — den skrivna texten blir radens FEL tills
+// den ersätts; Escape tar bort felet. Svarar om gridden går att röra efteråt
+// (en direkt avfyrning kör handlers som får riva den).
 bool PropertyGrid::endEdit(bool spara, bool postad)
 {
     if (active_ < 0 || !editor_->isVisible())
@@ -564,11 +978,36 @@ bool PropertyGrid::endEdit(bool spara, bool postad)
     const int         r  = active_;
     const std::string ny = editor_->text();
     hideEditors();
-    if (!spara || std::size_t(r) >= rows_.size() ||
-        ny == rows_[std::size_t(r)].value)
+    if (std::size_t(r) >= rows_.size())
         return true;
-    rows_[std::size_t(r)].value = ny;
-    changed_                    = r;
+    Row& rd = rows_[std::size_t(r)];
+    if (!spara) {
+        if (pending_[std::size_t(r)]) {
+            pending_[std::size_t(r)].reset();
+            invalidate();
+        }
+        return true;
+    }
+    if (rd.kind == Kind::Number) {
+        double v = 0.0;
+        if (!numbertext::parseUser(ny, v)) {
+            pending_[std::size_t(r)] = ny;
+            invalidate();
+            return true;
+        }
+        const double eff = numbertext::effective(v, rd.min, rd.max, rd.decimals);
+        const std::optional<double> förut = numberValue(r);
+        pending_[std::size_t(r)].reset();
+        invalidate();
+        if (förut && *förut == eff)
+            return true;
+        rd.value = numbertext::format(eff, rd.decimals, ".");
+    } else {
+        if (ny == rd.value)
+            return true;
+        rd.value = ny;
+    }
+    changed_ = r;
     invalidate();
     if (!postad)
         return fireChange(r);
@@ -585,10 +1024,46 @@ bool PropertyGrid::endEdit(bool spara, bool postad)
     return true;
 }
 
+// KRYSSRUTANS växling i en öppen redigering — trycket på editorn och Space.
+// Värdet skrivs FÖRE eventen, och svaret är `fireChange`s.
+bool PropertyGrid::toggleActive()
+{
+    const int r = active_;
+    if (!valid(r) || rows_[std::size_t(r)].kind != Kind::Check)
+        return true;
+    rows_[std::size_t(r)].value = isChecked(r) ? "false" : "true";
+    changed_                    = r;
+    invalidate();
+    return fireChange(r);
+}
+
+// FÄRGVÄLJARENS commit → raden. Generationsvakten: en postad commit (hexfältet,
+// stängningen) gäller bara om raderna och just den raden är desamma som när
+// popupen öppnades. En effektivt oförändrad färg (`#3366ff` mot `#3366FF`)
+// skriver och fyrar ingenting.
+void PropertyGrid::commitColor()
+{
+    const int r = colorRow_;
+    if (!valid(r) || colorRowsGen_ != rowsGen_ ||
+        colorRowGen_ != rowGen_[std::size_t(r)])
+        return;
+    Row&             rd = rows_[std::size_t(r)];
+    const gfx::Color nu = colorEd_->color();
+    const std::optional<gfx::Color> förut = colorValue(r);
+    if (förut && *förut == nu)
+        return;
+    rd.value = propparse::hexColorText(nu, rd.allowAlpha);
+    changed_ = r;
+    invalidate();
+    fireChange(r);
+}
+
 // `commitEdit` (widget.h) är Enter utan tangenten.
 void PropertyGrid::commitEdit()
 {
     endEdit(true, false);
+    if (colorEd_->isVisible())
+        colorEd_->commitEdit();
 }
 
 // `onChange` och sedan `onCommit` — en sparning är en avslutad handling. Raden

@@ -29,7 +29,8 @@
 //               (`addItem("Exportera", "PDF")`)
 //   prog        `setIndeterminate(true)` — anrop MED argument
 //   btn         `disable()` — anrop på en vanlig widget
-//   panel       `showScrollbars(true)` — widget-specifikt anrop
+//   panel       `setScrollbarVisibility(glaze::ScrollbarVisibility::Visible)`
+//               — widget-specifikt anrop med en enum som argument
 //   NAKNA      fönsteranropen: `setContentSize`,
 //   FÖNSTER-   `setMinimumSize`/`setMaximumSize`, `setControlBox`/
 //   ANROP      `setMinimizeBox`/`setMaximizeBox`, `setModal`/`setPopup`/
@@ -78,11 +79,16 @@
 //              till bara för refererade noder
 //   KOLLEKTIONS-  `grid`/`dd`/`lista` bär
 //   VOKABULÄREN   hela den gemensamma formen `addX` · `setX(index, …)` ·
-//                 `setXs(lista)`. `grid.setRows({{…}})` är den enda satsen
+//                 `setXs(lista)`. `grid.setRows({{…}})` är en av satserna
 //                 i grammatiken vars argument är en NÄSTLAD structlista, och
 //                 den ska både round-trippa ordagrant och KOMPILERA — andra
-//                 raden bär dessutom `choices`, `readOnly` och `tag`, alltså
-//                 hela `Row`-aggregatet. Satserna är MEDVETET varvade med
+//                 raden bär dessutom `choices`, `readOnly` och `tag`, och
+//                 `addRow({…})`/`setRow(i, {…})` tar samma `Row`-aggregat
+//                 positionellt eller DESIGNERAT (`.name = …, .kind =
+//                 glaze::PropertyGrid::Kind::Check, .toolTip = …`) — rubrik,
+//                 kryssruta, färg med alfa och tal med gränser, prefix och
+//                 suffix — och `setExpanded(i, på)`/`setRowEnabled(i, på)`
+//                 är tillståndssatserna. Satserna är MEDVETET varvade med
 //                 en OKÄND metod (`grid.setScroll(0, 0)` — riktig
 //                 Panel-metod som `applyCall` inte känner) och med en Prop
 //                 (`setNameWidth`), så byte-identiteten grindar den
@@ -235,6 +241,9 @@
 //               läge, `removeBinding`, käll- och handlingsvändningarna och
 //               deras `clear…`. Basens `setWheelInvert`/`clearWheelInvert` på
 //               `lista` och fönstrets `setWheelInvert` naket.
+//               RULLNINGSLISTORNAS SYNLIGHET: `lista.clearScrollbarVisibility()`
+//               och fönstrets nakna `setScrollbarVisibility(glaze::
+//               ScrollbarVisibility::Invisible)`.
 //               TEXT- OCH MARKÖRMÅTT: TextStyle med taket (`maxLines`, `maxHeight`),
 //               golvet och taket (`minSize`, `maxSize`) och zoomen (`minZoom`,
 //               `maxZoom`) designerade SIST i deklarationsordning, MarkerStyle

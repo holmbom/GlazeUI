@@ -88,6 +88,9 @@ const InputMap& canvasInput();
 // Appens rullningsriktning (`App::wheelInverted`) som läsfråga på samma sätt —
 // false utan App. `Widget::isWheelInverted` frågar hit.
 bool appWheelInverted(InputDevice d, bool horizontal);
+// Appens rullningslistor (`App::scrollbarVisibility`) på samma sätt — `Auto`
+// utan App. `Widget::scrollbarVisibility` frågar hit.
+ScrollbarVisibility appScrollbarVisibility();
 
 } // namespace detail
 
@@ -203,6 +206,15 @@ public:
     // läser den.
     void setWheelInvert(InputDevice d, bool vertical, bool horizontal);
     bool wheelInverted(InputDevice d, bool horizontal) const;
+
+    // RULLNINGSLISTORNAS SYNLIGHET I HELA APPEN — förvalet varje widget ärver
+    // när varken den eller en förfader (fönstrets rot inräknad) satt något
+    // (`Widget::setScrollbarVisibility`); `Auto` till en början. Alla öppna
+    // fönster ritas om. App-global DRIFT och inget fönsters tillstånd, så den
+    // har INGEN `.glazeui`-form (`setWheelInvert`s prejudikat) — appen sätter
+    // sitt sparade val i `main` eller `onLoad`.
+    void                setScrollbarVisibility(ScrollbarVisibility v);
+    ScrollbarVisibility scrollbarVisibility() const { return scrollbarVis_; }
 
     // RITYTANS BINDNINGAR FÖR HELA APPEN — tabellen
     // varje rityta ärver från, rad för rad: en rityta som satt en rad med
@@ -329,6 +341,7 @@ private:
     friend void detail::postFrameWork(std::function<void()> fn);
     friend const detail::InputMap& detail::canvasInput();
     friend bool detail::appWheelInverted(InputDevice d, bool horizontal);
+    friend ScrollbarVisibility detail::appScrollbarVisibility();
 
     // Fönstren och plattformen — destruktorns arbete, och i DELAT läge
     // programfilens ankares (`detail::shutdownApp`). Idempotent: andra
@@ -504,6 +517,8 @@ private:
     // tillstånd i en header).
     bool                              wheel_[2][2] = {};
     std::unique_ptr<detail::InputMap> canvasInput_;
+
+    ScrollbarVisibility scrollbarVis_ = ScrollbarVisibility::Auto;
 
     static App* instance_;   // = singletonen — AppWindow når den utan att skapa
 };

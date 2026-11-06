@@ -75,9 +75,7 @@ struct GlyphOut
     nointerpolation float4 shape : TEXCOORD1;
     nointerpolation uint   flags : TEXCOORD2;
     nointerpolation float  vis   : TEXCOORD3;   // etikettens synlighet 0–1
-#ifdef GLAZE_POS3
     nointerpolation float2 clipLocal : TEXCOORD4;   // ankarets chunk-lokala xy
-#endif
 };
 
 // Etiketternas synlighet — vertexstegets t1.
@@ -168,9 +166,7 @@ GlyphOut glyphVs(GlyphIn i)
     o.uv    = i.uv;
     o.shape = float4(0.0, 0.0, 0.0, 0.0);
     o.vis   = glyphVisibility(i.label);
-#ifdef GLAZE_POS3
     o.clipLocal = i.anchor.xy;
-#endif
     const float4 c = glyphToClip(i.anchor);
     if (c.z < 0.0 || c.w <= 1e-6 || o.vis <= 0.0) {
         // Ankaret bakom närplanet, eller etiketten dold av kollisionen:
@@ -279,13 +275,9 @@ float4 glyphPs(GlyphOut i) : SV_Target
         a   = fa + ha;
         rgb = a > 0.0 ? (i.col.rgb * fa + i.halo.rgb * ha) / a : i.col.rgb;
     }
-    // Målarens klipp (kHlslSceneClipSrc); Glyph3 klipps på ankaret, så hela
-    // etiketten syns eller inte.
-#ifdef GLAZE_POS3
+    // Målarens klipp (kHlslSceneClipSrc); världsmasken läses på ankaret, så
+    // hela etiketten syns eller inte.
     const float klipp = glaze_clip(i.pos.xy, i.clipLocal);
-#else
-    const float klipp = glaze_clipScreen(i.pos.xy);
-#endif
     return float4(rgb, a * i.vis * gPaint1.y * clipCoverage(i.pos.xy) * klipp);
 }
 )hlsl";

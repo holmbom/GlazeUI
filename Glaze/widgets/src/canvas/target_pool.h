@@ -14,6 +14,10 @@
 
 namespace glaze::detail {
 
+// Hur många bilder ett mål (och klippmaskernas minne, clip.h) sparas utan att
+// användas innan det släpps.
+inline constexpr std::uint64_t kKeptFrames = 2;
+
 class TargetPool {
 public:
     struct Slot {
@@ -69,11 +73,21 @@ public:
     void trim(std::uint64_t serial)
     {
         std::erase_if(slots_, [serial](const std::unique_ptr<Slot>& s) {
-            return s->used + 2 < serial;
+            return s->used + kKeptFrames < serial;
         });
     }
 
     std::size_t size() const { return slots_.size(); }
+
+    // Summan w × h över målen som finns skapade.
+    std::uint64_t pixels() const
+    {
+        std::uint64_t n = 0;
+        for (const std::unique_ptr<Slot>& s : slots_)
+            if (s->target)
+                n += static_cast<std::uint64_t>(s->w) * static_cast<std::uint64_t>(s->h);
+        return n;
+    }
 
 private:
     std::vector<std::unique_ptr<Slot>> slots_;

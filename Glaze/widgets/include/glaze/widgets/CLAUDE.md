@@ -11,12 +11,8 @@ paraplyet och listar dem alla. **Typnamnen är oföränderliga**
 (`glaze::Button` …) — genererad committad kod och `cpp_reader`-grammatiken
 beror på dem (hård regel 4).
 
-## Tredelningen (samma i varje fil)
-
-**Alla mått i den här katalogen är LOGISKA px — även mätvägen**
-(MÄTKONTRAKTET): konsumenten (`Widget::resolve`, `Bar::placeChild`) skalar
-en gång, när svaret möter `c.area`, och mallen (axelregeln nedan) har ingen
-skalfaktor: `gfx::Sizef s{width, height};`. Grind: `tests/measure_gate.cpp`.
+Alla mått i den här katalogen är LOGISKA px — även mätvägen (rot-CLAUDE.md,
+regel 3); grind `tests/measure_gate.cpp`.
 
 ## TEXTEN är ett TOKEN — `TrText`
 
@@ -606,7 +602,12 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   SANNINGEN som ritningen och remsgeometrin räknar i) och
   **`innerRect(Ctx)`** (dess FYSISKA projektion — klipp/childArea/hit-test
   och subklassernas geometri), `scrollRange(Ctx)` (spelrummet per axel),
-  **`showScrollbars`** — overlay-lister OVANPÅ barnen vid överflöd; deras
+  overlay-lister OVANPÅ barnen vid överflöd, synliga enligt det ärvda
+  `Widget::scrollbarVisibility()` (Auto: efter rullning, pekarens rörelse
+  eller nytt överflöd, släckta `Style::scrollbarAutoHideMs` efter — fönstrets
+  timer, `../../src/scrollbar_fade.cpp`; Visible; Invisible — rullningen
+  fungerar alltid, en dold remsa tar inga tryck) — utom när den virtuella
+  `hasScrollbars()` svarar false (`Bar`: en rad har inga lister); deras
   tumme ritas av privata `overlayThumb()` PER UI och är ett KONTRAKT med
   `Scrollbar` (samma färg för samma tillstånd).
   `contentExtent` är virtuell (PropertyGrids rader är data). **`scrollViewport`**
@@ -727,32 +728,32 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   autostorlek (Panel-beslutet), flikarna står alltid överst, inga ikoner i flikarna, ingen
   omordning med musen, ingen tooltip på själva fliken.
 - **`property_grid.h`** — `PropertyGrid : Panel`: tvåkolumners egenskaps-
-  lista (namn läs-bar | värde). Rader är DATA (`Row` {name, value,
-  choices, readOnly, tag — OPAK}); EN hostad editor (privata `TextEditor :
-  TextInput`) + EN vallista (`ChoiceEditor : Dropdown`) flyttas till aktiv cell. `rows()` är en
-  LÄSVÄG (0.1.2): raderna ändras bara via `setRows`/`addRow`/`setRow`.
-  **REDIGERINGEN COMMITTAR som DataGrids** (0.1.2):
-  editorn öppnas med ALLT markerat; Enter, Tab/fokus bort (postat, slopas
-  efter `setRows` och `setRow` på raden) och ett klick i gridden sparar —
-  klicket på en annan rad sparar FÖRST, direkt, och öppnar sedan den nya, så
-  en omräknande handler är klar innan nästa editor finns; Escape avbryter.
-  `onChange` + `onCommit` EN gång var, bara vid ett ändrat värde; läs
-  `changedRow()` ur sender. Vallistan sparar vid valet (+ `onCommit`), och
-  Enter/Escape avslutar den i ett steg — konsumerade, aldrig dialogens.
-  `setRows`, och `setRow` på den redigerade raden, AVBRYTER. Skriven gräns:
-  gridden är inget tabbstopp, så fokus står kvar i den DOLDA editorn när den
-  stängs.
-  `nameWidth` logiska px (0 = stilens `gridNameW`). Privat cellgeometri
-  (`nameW`/`rowBounds`/`valueBounds`) i LOGISKA px; cellträffen
-  PROJICERAR dem. GENERISK: choices utifrån, inga builder-typer.
-  **STYCKEFORMEN + `setProp`** (REGEL8_PREVIEW):
-  `addRow(name, value = "", readOnly = false, tag = "")` ·
-  `setRow(index, …)` · `setRows(vec)` — `addX`/`setX(index, …)`/
-  `setXs(lista)`, samma vokabulär som `ListBox`/`Dropdown`s
-  `addItem`/`setItem`/`setItems`. **`setRow` ERSÄTTER hela raden**, också
-  utelämnade fält (`Items[i] = …`). Index utanför intervallet ⇒ logg + no-op. `choices` uttrycks i
-  `setRows`-literalen och har medvetet ingen egen metod. `setProp`:
-  nameWidth (basens nycklar tar `Panel`).
+  lista (namn | värde). Rader är DATA (`Row` — 15 fält i den designerade
+  init-ordningen: name, value (alltid TEXT), choices, readOnly, tag (OPAK),
+  `Kind {Text, Check, Color, Number, Header}`, min/max/decimals/prefix/suffix
+  för Number, allowAlpha för Color, toolTip, enabled (inaktiv NU), expanded
+  för Header). En hostad editor per slag flyttas till aktiv cell
+  (`TextEditor : TextInput` för text och tal, `ChoiceEditor : Dropdown`,
+  `CheckEditor` som fokusbärare, `ColorEditor : ColorPicker`). `rows()` är
+  en LÄSVÄG: raderna ändras bara via `setRows`/`addRow(Row)`/`setRow(i,
+  Row)`/`setRowEnabled`/`setExpanded`. Läsvägarna `isChecked`/`colorValue`/
+  `numberValue` (klampat, avrundat)/`hasError`; talen i kanonisk punktform,
+  visade med språkets decimaltecken (`../../src/number_text.h`, delad med
+  SpinBox). **REDIGERINGEN COMMITTAR som DataGrids**: Enter, Tab/fokus bort
+  (postat, slopas efter `setRows`, `setRow` eller `setRowEnabled(false)` på
+  raden) och ett klick i gridden sparar — klicket på en annan rad sparar
+  FÖRST, direkt; Escape avbryter. `onChange` + `onCommit` EN gång var, bara
+  vid ett EFFEKTIVT ändrat värde; läs `changedRow()` ur sender. En
+  kryssruta växlar vid trycket, en färg sparas vid väljarens commit (ett tryck
+  i gridden med öppen popup stänger bara den), ett otolkbart tal blir radens
+  FEL (`pending_`, verktygstipset str 430). En rubrik fäller raderna till
+  nästa rubrik; en INAKTIV grid visas infälld och dämpad (`enabledChanged`,
+  `expanded` orört). HÖJDEN ur de synliga raderna (staplade gridar). Skriven
+  gräns: gridden är inget tabbstopp. `nameWidth` logiska px (0 = stilens
+  `gridNameW`). Privat cellgeometri i LOGISKA px; cellträffen PROJICERAR
+  den. **STYCKEFORMEN**: `addRow(Row)` · `setRow(index, Row)` ·
+  `setRows(vec)` — samma vokabulär som `ListBox`/`Dropdown`s; `setRow`
+  ERSÄTTER hela raden. Index utanför ⇒ logg + no-op. `setProp`: nameWidth.
 - **`scrollbar.h`** — `Scrollbar`: fristående rullningslist.
   `orientation`, `min`/`max`/`value`/`page` (valfria enheter), `onChange`
   (live) + `onCommit` (0.1.2 — släppet efter tumdrag/rännklick, varje
@@ -809,7 +810,9 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   SKILD från Dock. **`childGap(c)`** (protected virtual, post 11) är luckan
   MELLAN två SYNLIGA barn i logiska px — 0 för en vanlig bar, `toolGap` för
   `ToolBar`; luckorna räknas in i flexens FASTA summa, och **`inFlow(barn)`** (REQ8 9) är vilka
-  barn flexen packar (förval de synliga). Privat `innerEdge()`
+  barn flexen packar (förval de synliga). `hasScrollbars()` är false: en rad
+  visar sitt överflöd på eget sätt, och en remsa hade tagit barnens och
+  greppets tryck (scrollbar_gate G). Privat `innerEdge()`
   ritar alla tre familjernas hårlinje mot INNEHÅLLET (`dock` avgör sidan;
   ingen när den virtuella `drawsInnerEdge()` svarar false) i rollen `frame`,
   och `isVertical()` är VIRTUELL; privat `fillBody()` ritar YTAN och rundar
@@ -940,41 +943,41 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   Bilderna är `ImageSource`: en Bitmap ritas genom `glyphResampled` och når
   OS-ikonen ur sina levande pixlar efter ett nytt `setIcon(sammaBild)`; en
   RenderTexture ritas men blir ingen OS-ikon. Posttillstånden som MenuBar.
-- **`canvas.h`** — `Canvas : Widget`, RITYTAN i 2D och 3D (TODO 27 och 50; planerna i ../canvas/CLAUDE.md) — EN
+- **`canvas.h`** — `Canvas : Widget`, RITYTAN i 2D och 3D — EN
   scen med kamera. Ytan är ett FÄLT, lika i alla tre ritningar (bakgrunden, kanten OVANPÅ scenen, fokusringen;
   inaktiverad tonar den innehållet med 1 − `Style::iconFade`), AUTO-måtten `canvasDefaultW/H`. API:t och dess
   kontrakt — kamerorna, lagren och formerna i kollektionsvokabulären, eventen, gesterna och orbiten, träffprovet
   och plockningen, 3D-målet, del-vyerna, de egna programmen, `renderToBitmap` och `setProp`-nycklarna — står i
-  HEADERN. Pekaren (FONSTER_OCH_TIMER E5): hårkorset över en yta med gester, den STÄNGDA HANDEN medan den
-  panoreras, fyrpilen medan den vrids. **MUSEN** (TODO 86): `CanvasMouseArgs : MouseArgs`, och `onMouseDown`/
-  `onMouseUp`/`onMouseCancel` är BASENS (fönstret fyrar dem; ritytans egna fält och högerkrokarna är rivna) —
+  HEADERN. Pekaren: hårkorset över en yta med gester, den STÄNGDA HANDEN medan den
+  panoreras, fyrpilen medan den vrids. **MUSEN**: `CanvasMouseArgs : MouseArgs`, och `onMouseDown`/
+  `onMouseUp`/`onMouseCancel` är BASENS (fönstret fyrar dem) —
   `onMouseMove`/`onMouseWheel`/`onDoubleClick` är ritytans. `onResize` är också basens (det synliga utsnittet
-  läses i handlern). **MINNET** (REQ3): `setMemoryBudget(byte)` (0 = `App::canvasMemoryBudget()`) — bilderna,
+  läses i handlern). **MINNET**: `setMemoryBudget(byte)` (0 = `App::canvasMemoryBudget()`) — bilderna,
   render-texturerna och draperingarna ritytan ritade SENAST vräks per rityta, så två ytor i ett fönster vräker
-  inte varandras; setProp `memoryBudget`. **TEXTENS MÅTT I LAYOUTEN** (REQ7 4): `measureText(c, …)` med krokens
+  inte varandras; setProp `memoryBudget`. **TEXTENS MÅTT I LAYOUTEN**: `measureText(c, …)` med krokens
   Ctx i en egen ritytas `heightForWidth`/`contentSize` — formen utan Ctx frågar layouten och svarar därifrån
-  `nullopt` med en logg. **DE FÖRANKRADE BARNEN** (REQ8 14): `setChildAnchor(barn, punkt, ankare)` — ritytan
+  `nullopt` med en logg. **DE FÖRANKRADE BARNEN**: `setChildAnchor(barn, punkt, ankare)` — ritytan
   placerar BARA de förankrade (`placesChild`, widget.h) ur kameran, i SAMMA bildruta som scenen; får stå före
-  `adopt` (pekare + livstecken). **MÅLARENS PLATS** (REQ8 2): `onPaintLayer` i lagren med `setLayerPainter`, med
-  lagrets djup; **PLATT** (REQ8 4): `setFlat`. **KLIPPET**: `setClipSpace` (World = prisma,
+  `adopt` (pekare + livstecken). **MÅLARENS PLATS**: `onPaintLayer` i lagren med `setLayerPainter`, med
+  lagrets djup; **PLATT**: `setFlat`. **KLIPPET**: `setClipSpace` (World = prisma,
   Screen = lokala px), `addClip`/`setClip`/`setClips`/`resetClip`/`clipEnabled`/`clips` för ritytan och
   `setLayerClipSpace`/`addLayerClip`/… för varje lager — polygoner med hål, en samling är en union, lagrets klipp
   snittas med ritytans, `setClips({})` döljer allt och `resetClip()` tar bort klippet; `hitTest` träffar inte det som
   klippts bort, `moveLayer` tar klippet med sig och `setLayer(s)` släcker det; `renderToBitmap` och
-  `Painter::drawCanvas` ritar med. Maskerna: ../../../src/canvas/ (clip.h). **DE LÖPANDE HÄNDELSERNA RITAR OM RITYTAN, INTE FÖNSTRET**
-  (PRESTANDA D1, ett medvetet brott mot widget.h:s "efter en handler ritas hela fönstret om"): efter `onTick`,
+  `Painter::drawCanvas` ritar med; lager med samma yta delar mask. Maskerna: ../../../src/canvas/ (clip.h). **DE LÖPANDE HÄNDELSERNA RITAR OM RITYTAN, INTE FÖNSTRET**
+  (ett medvetet brott mot widget.h:s "efter en handler ritas hela fönstret om"): efter `onTick`,
   `onGesture` och `onCameraChange` från drag, hjul, gest, tröghet och snäpp ritas ritytan och dess 3D-mål om, inte
   resten och inte en annan ritytas mål — en annan widget ändras genom sin sättare; diskreta händelser (klick,
   dubbelklick, tangent) ritar om fönstret. Ticken och kamerans händelse ur ritningen går i App:s RAMKÖ, före appens
-  poster och utan budget (`detail::postFrameWork`). **SNAP PER LAGER** (PRESTANDA C5): `setLayerSnap(lager, på)`/
+  poster och utan budget (`detail::postFrameWork`). **SNAP PER LAGER**: `setLayerSnap(lager, på)`/
   `layerSnap` — av ger inga Vertex/Edge-träffar ur lagret i `hitTest(lokal, HitOptions)`, ytan står kvar; förval
-  på, följer `moveLayer`, `setLayer(s)` slår på, ritar inte om. **BINDNINGARNA** (REQ9_INMATNING): `setInputMode`
+  på, följer `moveLayer`, `setLayer(s)` slår på, ritar inte om. **BINDNINGARNA**: `setInputMode`
   (setProp `inputMode`), `setBinding`/`removeBinding`/`clearBindings`/`bindings`/`effectiveBinding` och källans och
-  handlingens vändning — vokabulären i `../input.h`, appens tabell ärvs rad för rad, och `OrbitPan`/`setOrbitPan` är
-  RIVNA (flygläget är två rader). Ritytan svarar `followsWheelDirection() == false`: den får det råa hjulet.
+  handlingens vändning — vokabulären i `../input.h`, appens tabell ärvs rad för rad (flygläget är två rader).
+  Ritytan svarar `followsWheelDirection() == false`: den får det råa hjulet.
   Typerna: [../canvas/CLAUDE.md](../canvas/CLAUDE.md); motorn:
   [../../../src/canvas/](../../../src/canvas/CLAUDE.md); koden: [../../../src/widgets/](../../../src/widgets/CLAUDE.md).
-- **`floating_panel.h`** — `FloatingPanel : Panel`, DEN FLYTTBARA PANELEN (REQ8 14): dockningspanelens rubrik
+- **`floating_panel.h`** — `FloatingPanel : Panel`, DEN FLYTTBARA PANELEN: dockningspanelens rubrik
   (text, valfri stängknapp, samma `dock*`-mått och ytor) och ett GREPP i en remsa längst ned (`floatingPanelGrip`
   — barnen klipps ovanför, så en Fill-kropp aldrig tar greppet). Draget flyttar i förälderns logiska px per axel
   (x/y, right/bottom eller syskonens luft), greppet ändrar width/height med övre vänstra hörnet stilla; på en
@@ -982,10 +985,8 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
 
 ## Vid ändring
 
-- **Ny inbyggd widget** = ny header HÄR + cpp i `../../../src/widgets/` +
-  rad i paraplyet `../glaze.h` + rad i `../../../CMakeLists.txt`
-  (`src/widgets/<namn>.cpp`) + `GLAZE_REGISTER_WIDGET` i cpp:n. Kopiera
-  `button.h`/`button.cpp` — de är mallen.
+- **Ny inbyggd widget**: ../CLAUDE.md ("Vid ändring"); mallen är
+  `button.h`/`button.cpp`.
 - Nya MÅTT, FÄRGER och rit-PRIMITIVER: hård regel 3 i rot-CLAUDE.md
   (`Style`, `Theme::Colors` — BÅDA varianterna i `theme.cpp` — och `Draw`).
 - Widget-headers får INTE inkludera varandra i onödan; `panel.h`/

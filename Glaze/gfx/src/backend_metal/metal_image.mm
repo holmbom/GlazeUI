@@ -533,6 +533,8 @@ struct ImageOut {
     // rasteriseringen, och divisionen med q i fragmentet gör en fyrhörning
     // exakt projektiv.
     float3 uvq;
+    // Världspunkten (chunk-lokal) för världsmasken — perspektivkorrekt.
+    float2 world;
 };
 
 vertex ImageOut imageVs(ImageIn i [[stage_in]], constant ImageU& u [[buffer(1)]])
@@ -545,7 +547,8 @@ vertex ImageOut imageVs(ImageIn i [[stage_in]], constant ImageU& u [[buffer(1)]]
     const int flags = int(u.params.w + 0.5);
     // Speglingen FÖRE multiplikationen med q — v' är bildens koordinat.
     const float v = (flags & 2) != 0 ? 1.0 - i.uv.y : i.uv.y;
-    o.uvq = float3(i.uv.x * i.q, v * i.q, i.q);
+    o.uvq   = float3(i.uv.x * i.q, v * i.q, i.q);
+    o.world = i.pos;
     return o;
 }
 
@@ -567,7 +570,7 @@ fragment float4 imagePs(ImageOut i [[stage_in]],
     // Rak alfa som UI:t; opaciteten, klippmaskerna och målarens klipp rör
     // bara alfan.
     t.a *= saturate(u.params.z) * clipCoverage(i.pos.xy, cm) *
-           glaze_clipScreen(i.pos.xy, GLAZE_CLIP_ARGS);
+           glaze_clip(i.pos.xy, i.world, GLAZE_CLIP_ARGS);
     return t;
 }
 )msl";

@@ -54,8 +54,8 @@ gfx::Color panelGlyphColor(const Ctx& c, bool enabled)
 // i varje familj (tool_button.cpp): en rubrikknapp ÄR en platt knapp i en
 // remsa, och två sorters platta knappar i samma fönster hade varit en för
 // mycket.
-//   vila       yta `panel`, rubrikrad + hårlinje, knapptecken `textDim`,
-//              ingen platta
+//   vila       yta `panel`, rubrikraden i `panelHeader` + hårlinje,
+//              knapptecken `textDim`, ingen platta
 //   hover      plattan `buttonHover` (familjens form) och tecknet i `text`
 //   tryck      plattan `buttonPress` (också ▾ medan menyn är öppen)
 //   inaktiv    rubrik och tecken dimmas (`textDim`/`border`), inga plattor
@@ -84,11 +84,11 @@ void drawPanelHeader(const Ctx& c, const PanelHeader& p,
     // GLAZE — en YTA med BESTÄMD KANT: panelen ramas
     // in i fönsterkantens roll `frame` (den står mot ett skikt eller en
     // fönsterkant, inte mot en kontroll — fritt stående eller dockad) och
-    // rubrikraden är `windowBg` mot `panel`. Den tända plattan LAMINERAS och
-    // får kontrollkanten, som en tänd verktygsknapp.
+    // rubrikraden är `panelHeader` mot `panel`. Den tända plattan LAMINERAS
+    // och får kontrollkanten, som en tänd verktygsknapp.
     case UI::Glaze:
         Draw::rect(c, b, 0.0f, col.panel);
-        Draw::rect(c, h, 0.0f, col.windowBg);
+        Draw::rect(c, h, 0.0f, col.panelHeader);
         linjeUnder(col.frame);
         for (const HeaderButton& k : p.buttons) {
             if (!lit(k))
@@ -104,13 +104,13 @@ void drawPanelHeader(const Ctx& c, const PanelHeader& p,
         break;
 
     // MINIMALISTIC — "Outline": ytan är
-    // `panel` (familjen fyller sina paneler), rubrikraden
-    // får INGEN egen fyllning — bara hårlinjen under — och den tända plattan
-    // är fyllningen innanför en kant: `buttonBorder` vid hover, `accent` vid
-    // tryck (verktygsknappens recept). En fritt stående panel får dessutom
-    // kanten `border` runt om.
+    // `panel` (familjen fyller sina paneler), rubrikraden är `panelHeader`
+    // med hårlinjen under, och den tända plattan är fyllningen innanför en
+    // kant: `buttonBorder` vid hover, `accent` vid tryck (verktygsknappens
+    // recept). En fritt stående panel får dessutom kanten `border` runt om.
     case UI::Minimalistic:
         Draw::rect(c, b, 0.0f, col.panel);
+        Draw::rect(c, h, 0.0f, col.panelHeader);
         linjeUnder(col.border);
         for (const HeaderButton& k : p.buttons)
             if (lit(k))
@@ -122,13 +122,13 @@ void drawPanelHeader(const Ctx& c, const PanelHeader& p,
         break;
 
     // SLATE — en YTA: `panel` med rubrikraden i
-    // `windowBg` och en hårlinje i kontrollkanten under den; den tända
+    // `panelHeader` och en hårlinje i kontrollkanten under den; den tända
     // plattan är verktygsknappens, utan kontur. En fritt stående panel står
     // på en annan yta och får fältets kant runt om.
     case UI::Slate:
     default:
         Draw::rect(c, b, 0.0f, col.panel);
-        Draw::rect(c, h, 0.0f, col.windowBg);
+        Draw::rect(c, h, 0.0f, col.panelHeader);
         linjeUnder(col.border);
         for (const HeaderButton& k : p.buttons)
             if (lit(k))

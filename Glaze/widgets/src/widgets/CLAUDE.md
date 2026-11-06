@@ -50,9 +50,10 @@ Rotens hårda regel 3 (UI/Theme/Style/Draw). Konsekvenser som gäller VARJE fil 
   `c.font->measure`/`c.font->height()` direkt: fonten talar FYSISKA px och
   `Draw` är bryggan som delar med skalan.
   Behövs en ny defaultlängd blir den ett `Style`-fält.
-  **De fyra som med FLIT inte autosizar** har skrivna, daterade BESLUT i
-  sin egen cpp — läs dem innan du "fixar" dem: `Panel` och `PropertyGrid`
-  är placeringsytor som appen dimensionerar (0×0), `Bar` får ingen
+  **De som med FLIT inte autosizar** har skrivna BESLUT i
+  sin egen cpp — läs dem innan du "fixar" dem: `Panel` är en
+  placeringsyta som appen dimensionerar (0×0; `PropertyGrid` bara i bredd —
+  höjden är de synliga raderna), `Bar` får ingen
   auto-BREDD (den är alltid dockad eller flexad) och `Spacer` har ingen
   override alls (`width = 0` betyder redan "ren grow-vikt" — noll är
   meningsbärande där). **AUTOSTORLEK UR BARNEN** är `Widget::childrenExtent(c)`,
@@ -158,13 +159,18 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   vertical)` i logiska px matar BÅDE greppet (`localPoint` gör musen
   logisk) och `overlayThumb()` — den privata metod som ritar tummen PER UI
   och är ett KONTRAKT med `scrollbar.cpp`; samma pixlar som
-  Scrollbar-widgeten.
+  Scrollbar-widgeten. **SYNLIGHETEN** (`barsShown`, det ärvda
+  `scrollbarVisibility()`): Visible alltid, Invisible aldrig (och
+  `inScrollStrip` falskt), Auto medan `barsUntil_` inte passerat eller en
+  tumme dras/pekaren står på en remsa — `touchBars` stämplar vid rullning
+  (`setScroll`, hjulet), pekarens rörelse och en visning, `drawAfterChildren`
+  när överflödet uppstår (`overflowSeen_`), och `scrollbarFade` släcker.
   **RULLNINGSYTAN är en krok** (`scrollViewport`, default `innerBounds`):
   `scrollRange`, `track` och `scrollMetrics` räknar mot den, och
   `scrollRange` projicerar den till fysiska px FÖRST — som `innerRect`.
   `childArea`/`clipRect` rörs inte (subklassens beslut; `Table` — raderna
-  under huvudet). **AUTOSKROLLEN** (`dragScroll`, REQ3_TRAD_LISTOR_FALT B4 —
-  kontraktet vid `Widget::dragScroll`): zonen `dragScrollZone` mot
+  under huvudet). **AUTOSKROLLEN** (`dragScroll` — kontraktet vid
+  `Widget::dragScroll`): zonen `dragScrollZone` mot
   RULLNINGSYTANS kant, steget `dragScrollStep`, bara åt ett håll med spelrum
   kvar (en lista vid sitt slut svarar nej och kedjan går vidare), scrollen läst
   KLAMPAD. **`inRowColumn`** (skyddad, ListBox och TreeView delar den):
@@ -344,10 +350,10 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   handen, tooltipen och `linkAt`; klicket är en knapps, url:en kopieras FÖRE handlern, som körs DIREKT under en
   `HandlerGuard` (`fireEvent` kopierar args). Det väntande ankaret löses i `draw()`. `contentWidth`/`autoHeight` delas
   av mätningen och ritningen och läser aldrig `resolve`. Grind: `markdown_gate`.
-- **`spin_box.cpp`** — TALFÄLTET (post 12), den första riktiga
+- **`spin_box.cpp`** — TALFÄLTET, den första riktiga
   kompositen. Fältet är `SpinBox::Field`, en `TextInput` med TRE tillägg
   och inget annat (Up/Down stegar, bara taltecken tas emot, Enter — som
-  sedan svarar false, B8 — och fokusförlust COMMITTAR texten — `commitText(postad)`: tolka,
+  sedan svarar false — och fokusförlust COMMITTAR texten — `commitText(postad)`: tolka,
   klampa, skriv om, och `fireChange` = `onChange` + `onCommit` direkt eller
   via `postEvent`). Fältets `onChange` är OSATT — att skriva ändrar inte
   värdet — och `stepFromUser` utgår från en tolkbar skriven text. `focusLost`
@@ -606,7 +612,7 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   hit-test, klampning och scroll bor i listbox.cpp. **`addItem`/`setItem`
   ligger däremot HÄR** — de måste STÄNGA en öppen popup (den har en egen kopia
   av raderna), och `ListWindow` är ofullständig i headern. Popup-specifikt:
-  `setBorder(false)`, `showScrollbars(false)`, `ownsSurface() = true` och de
+  `setBorder(false)` (rullningslisten följer det ärvda läget), `ownsSurface() = true` och de
   tre mus/hjul-krokarna. `ListWindow` (Chrome::None + popup): OBJEKTET
   återanvänds, OS-fönstret återskapas per öppning, placering via
   `setPopupAnchor` + `setClientSize` — flip/klamp bor i BACKENDEN. `open_`
@@ -623,36 +629,30 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   `textRect` — från `fieldPadX` till `fieldPadX` före pilens ruta — med
   `align_`. **TEXTSTORLEKEN** (REQ8 26) i fältet (`textCtx`) och i popupens rader (`setTextSize` vid öppningen; höjden ur `rowHeight`).
 - **`property_grid.cpp`** — kolumnbakgrunder, rader och gridlinjer +
-  cellgeometrin (`nameW`/`rowBounds`/`valueBounds`, logiska px, scroll-
-  förskjutna) som ritning, cellträff (via `Draw::project`) och
-  editor-placering delar. EN hostad editor + EN vallista (ägda barn,
-  flyttas till aktiv cell i childArea-logiska px ⇒ följer scrollen). Vallistan
-  är `ChoiceEditor : Dropdown` (datagridens form):
-  Enter — med listans val när den är öppen, under en `HandlerGuard` — och
-  Escape avslutar redigeringen (`hideEditors`) och konsumeras, öppen som
-  stängd, så en STÄNGD lista aldrig släpper dem till dialogens knappar.
-  **COMMITEN är datagridens form** (0.1.2): `TextEditor : TextInput` lämnar
-  Enter (spara) och Escape (avbryt) till `endEdit(spara, postad)` och
-  meddelar fokusförlusten (postad); `mouseDown` anropar `endEdit(true,
-  false)` FÖRE cellträffen, så en handler som bygger om raderna har kört
-  innan nästa editor öppnas — och träffen görs mot raderna EFTER den.
-  ORDNINGEN i `endEdit`: läs rad + text, `hideEditors()` (aktiv = −1), skriv
-  värdet, fyra/posta sist — `endEdit` svarar som `firePair`, och `mouseDown`
-  slutar på false. Ett postat event slopas av `rowsGen_` (`setRows`) och av
-  radens `rowGen_[r]` (`setRow` på just raden) — parallell med `rows_`,
-  som bara ändras i `setRows`/`addRow`/`setRow` (`rows()` är const).
-  `fireChange` sätter `changed_` igen före `onCommit`. Fältets eget
-  `onCommit` används INTE: dess fokus-commit hade kunnat landa senare.
-  `openEditor` markerar allt. `contentExtent`-override: max(barnen,
-  rader × radhöjden). Glaze markerar aktiv rad med `accentSurface` +
-  `onAccent`, Minimalistic tar bort BÅDA kolumnfyllningarna och markerar med
-  `rowMarkerW`-strecket.
-  **`setProp` (nameWidth) och STYCKEFORMEN `addRow`/`setRow`**
-  (REGEL8_PREVIEW — settertabellens nyckel har en widget-ände, så previewn
-  utför raden). `Panel::setProp` anropas SIST — konventionen. `addRow` gör
-  `push_back` + `invalidate()`; `setRow` ERSÄTTER hela raden (utelämnade
-  fält nollas — tilldelningssemantik) och stänger en editor som stod öppen
-  på just den raden; index utanför intervallet ⇒ `gfx::log` + no-op.
+  cellgeometrin (`nameW`/`rowBounds`/`valueBounds` över de SYNLIGA raderna —
+  `pos_`, `rebuildVisible`, scrollen klampad i `scrollOffset`) som ritning
+  (`drawRow`/`drawCell` per slag), cellträff och editor-placering delar.
+  FYRA editorer (ägda barn i childArea-logiska px ⇒ följer scrollen):
+  `TextEditor : TextInput` (fritext och tal — `numeric_` släpper bara
+  taltecken), `ChoiceEditor : Dropdown` (Enter med listans val, Escape —
+  konsumerade), `CheckEditor` (genomskinlig fokusbärare: Space växlar,
+  Enter/Escape stänger) och `ColorEditor : ColorPicker` (popupen öppen direkt;
+  `commitColor` med generationsvakten `colorRow_`/`colorRowsGen_`/
+  `colorRowGen_`, ett tryck med öppen popup stänger bara den).
+  **COMMITEN är datagridens form**: `mouseDown` anropar `endEdit(true,
+  false)` FÖRE cellträffen; ORDNINGEN i `endEdit`: läs rad + text,
+  `hideEditors()`, skriv värdet (talet tolkat, klampat och avrundat med
+  `../number_text.h`; otolkbart ⇒ `pending_[r]`, radens fel), fyra/posta
+  sist. Ett postat event slopas av `rowsGen_` (`setRows`) och av
+  `rowGen_[r]` (`setRow`, `setRowEnabled(false)`). Ett effektivt oförändrat
+  värde fyrar inget. `fireChange` sätter `changed_` igen före `onCommit`.
+  `enabledChanged` stänger redigeringen och fäller in en inaktiv grid
+  (`rebuildVisible` läser `isEnabled()`), som ritas med `textDim` och
+  värdekolumnen på `fieldReadOnly`. Glaze markerar aktiv rad med
+  `accentSurface` + `onAccent`, Minimalistic med `rowMarkerW`-strecket.
+  **`setProp` (nameWidth) och STYCKEFORMEN** `addRow(Row)`/`setRow(i, Row)`/
+  `setRowEnabled`/`setExpanded` — index utanför ⇒ `gfx::log` + no-op;
+  `Panel::setProp` anropas SIST.
 - **`separator.cpp` / `picture.cpp`** — de två ritnings-ENDA nivå
   1-komponenterna. Separatorns `draw()` är EN `Draw::line` mitt i ytan — i en
   `Bar` TVÄRS baren (`drawnVertical`) och tunn på båda axlarna (D15);
@@ -983,7 +983,7 @@ ordagrant.
   ritas efteråt. Backends nollställer maskerna vid varje `beginFrame` — ett
   skyddsnät, inte en ursäkt.
 - **En container som ritar sin yta RUNDAD måste override:a
-  `clipRadius()`** (RUNDAT_BARNKLIPP) — annars läcker barnen ut i hörnen.
+  `clipRadius()`** — annars läcker barnen ut i hörnen.
   Radien ska vara KONCENTRISK mot den ritade ytan: mät ytans radie minus det
   indrag `clipRect` gör, som `Panel::innerRadius` gör. Radier hör i övrigt
   hemma i `Style` som alla andra mått — inga tal i widget-filen (regel 3).

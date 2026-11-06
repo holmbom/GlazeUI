@@ -36,7 +36,6 @@ ListBox::ListBox()
     setClip(true);          // raderna klipps mot innehållsytan
     setBorder(true);        // listan ÄR en inramad yta — och `border` är
                             // det som drar in innerBounds en ramtjocklek
-    showScrollbars(true);   // överflöd ska SYNAS (PropertyGrid-prejudikatet)
 }
 
 // ------------------------------------------------------------ tillstånd

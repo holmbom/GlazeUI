@@ -3274,39 +3274,39 @@ void fallPropertyGridStyckeform()
         return;
     auto* g = gridAv(w);
 
-    // TVÅ argument: readOnly false, tom tag, tomma choices.
-    bld::applyCall(*w, {"addRow", "\"Bredd\", \"120\""}, "preview_gate");
+    // TVÅ fält: readOnly false, tom tag, tomma choices.
+    bld::applyCall(*w, {"addRow", "{\"Bredd\", \"120\"}"}, "preview_gate");
     check(g->rows().size() == 1 && g->rows()[0].name == "Bredd" &&
               g->rows()[0].value == "120" && !g->rows()[0].readOnly &&
               g->rows()[0].tag.empty() && g->rows()[0].choices.empty(),
-          "addRow: två argument ⇒ readOnly false, tom tag",
+          "addRow: två fält ⇒ readOnly false, tom tag",
           std::to_string(g->rows().size()));
 
-    // TRE och FYRA argument — de defaultade svansarna.
-    bld::applyCall(*w, {"addRow", "\"Ägare\", \"system\", true"},
+    // FEM fält — readOnly och tag står efter choices.
+    bld::applyCall(*w, {"addRow", "{\"Ägare\", \"system\", {}, true}"},
                    "preview_gate");
-    bld::applyCall(*w, {"addRow", "\"Id\", \"7\", false, \"nyckel\""},
+    bld::applyCall(*w, {"addRow", "{\"Id\", \"7\", {}, false, \"nyckel\"}"},
                    "preview_gate");
     check(g->rows().size() == 3 && g->rows()[1].readOnly &&
               !g->rows()[2].readOnly && g->rows()[2].tag == "nyckel",
-          "addRow: tre- och fyraargumentsvarianterna",
+          "addRow: fyra- och femfältsvarianterna",
           std::to_string(g->rows().size()));
 
-    // ETT argument — värdet tar sitt default.
-    bld::applyCall(*w, {"addRow", "\"Ensam\""}, "preview_gate");
+    // ETT fält — värdet tar sitt default.
+    bld::applyCall(*w, {"addRow", "{\"Ensam\"}"}, "preview_gate");
     check(g->rows().size() == 4 && g->rows()[3].value.empty(),
-          "addRow: ett argument ⇒ tomt värde", "");
+          "addRow: ett fält ⇒ tomt värde", "");
 
     // ESCAPE i radnamnet går genom SAMMA strikta parser som all annan
     // strängliteral (`parseCppString`).
-    bld::applyCall(*w, {"addRow", "\"Rad\\tett\", \"x\""}, "preview_gate");
+    bld::applyCall(*w, {"addRow", "{\"Rad\\tett\", \"x\"}"}, "preview_gate");
     check(g->rows().size() == 5 && g->rows()[4].name == "Rad\tett",
           "addRow: escapen avkodas i radnamnet",
           g->rows().size() == 5 ? g->rows()[4].name : std::string());
 
     // setRow ERSÄTTER hela raden — tag och readOnly nollas när de
     // utelämnas. Tilldelningssemantik, inte partiell uppdatering.
-    bld::applyCall(*w, {"setRow", "2, \"Id\", \"9\""}, "preview_gate");
+    bld::applyCall(*w, {"setRow", "2, {\"Id\", \"9\"}"}, "preview_gate");
     check(g->rows()[2].value == "9" && g->rows()[2].tag.empty() &&
               !g->rows()[2].readOnly,
           "setRow: ersätter HELA raden (utelämnad tag nollas)",
@@ -3315,8 +3315,8 @@ void fallPropertyGridStyckeform()
     // INDEX UTANFÖR INTERVALLET ⇒ logg + no-op. Aldrig fail-safe, aldrig
     // tyst tillväxt.
     const std::size_t före = g->rows().size();
-    bld::applyCall(*w, {"setRow", "99, \"X\", \"Y\""}, "preview_gate");
-    bld::applyCall(*w, {"setRow", "-1, \"X\", \"Y\""}, "preview_gate");
+    bld::applyCall(*w, {"setRow", "99, {\"X\", \"Y\"}"}, "preview_gate");
+    bld::applyCall(*w, {"setRow", "-1, {\"X\", \"Y\"}"}, "preview_gate");
     check(g->rows().size() == före,
           "setRow: index utanför intervallet ⇒ no-op, listan orörd",
           std::to_string(g->rows().size()));
@@ -3326,7 +3326,7 @@ void fallPropertyGridStyckeform()
     // 8-brott: appen ersätter raden, previewn lämnar den orörd.
     // Parsern har ingen siffergräns som
     // avvisar giltiga tioställiga `int`.
-    check(bld::applyCall(*w, {"setRow", "+0, \"Plus\", \"Ok\""},
+    check(bld::applyCall(*w, {"setRow", "+0, {\"Plus\", \"Ok\"}"},
                          "preview_gate") &&
               g->rows()[0].name == "Plus" && g->rows()[0].value == "Ok",
           "setRow: LEDANDE + accepteras — laglig C++ ⇒ utförd rad",
@@ -3335,11 +3335,180 @@ void fallPropertyGridStyckeform()
     // skulle avvisa. Talet PARSAS (raden känns igen ⇒ `true`, inte opak) och
     // faller sedan på intervallkontrollen ⇒ no-op. Skillnaden mot en opak
     // rad är hela poängen: en opak rad betyder "vi förstod den inte".
-    check(bld::applyCall(*w, {"setRow", "2147483647, \"X\", \"Y\""},
+    check(bld::applyCall(*w, {"setRow", "2147483647, {\"X\", \"Y\"}"},
                          "preview_gate") &&
               g->rows().size() == före && g->rows()[0].name == "Plus",
           "setRow: tioställigt INT_MAX parsas ⇒ känd rad, out-of-range no-op",
           std::to_string(g->rows().size()));
+}
+
+// DE TYPADE RADERNA och tillståndssättarna — `Row`-aggregatet i alla former
+// C++ tar. Det som mäts är WIDGETENS rader: koden och `.glazeui` ska ge exakt
+// samma tillstånd, fält för fält.
+bool radLika(const glaze::PropertyGrid::Row& a, const glaze::PropertyGrid::Row& b)
+{
+    return a.name == b.name && a.value == b.value && a.choices == b.choices &&
+           a.readOnly == b.readOnly && a.tag == b.tag && a.kind == b.kind &&
+           a.min == b.min && a.max == b.max && a.decimals == b.decimals &&
+           a.prefix == b.prefix && a.suffix == b.suffix &&
+           a.allowAlpha == b.allowAlpha && a.toolTip == b.toolTip &&
+           a.enabled == b.enabled && a.expanded == b.expanded;
+}
+
+bool radlistaLika(const std::vector<glaze::PropertyGrid::Row>& a,
+                  const std::vector<glaze::PropertyGrid::Row>& b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (std::size_t i = 0; i < a.size(); ++i)
+        if (!radLika(a[i], b[i]))
+            return false;
+    return true;
+}
+
+void fallPropertyGridTypade()
+{
+    using K = glaze::PropertyGrid::Kind;
+    using R = glaze::PropertyGrid::Row;
+    auto w = build("glaze::PropertyGrid", {});
+    if (!w)
+        return;
+    auto* g = gridAv(w);
+
+    // ALLA FEMTON fält, designerade i deklarationsordning, via setRows.
+    const R allt{.name = "Skala", .value = "1.5", .choices = {"a", "b"},
+                 .readOnly = true, .tag = "t", .kind = K::Number, .min = -5,
+                 .max = 10.5, .decimals = 2, .prefix = "1:", .suffix = "%",
+                 .allowAlpha = true,
+                 .toolTip = glaze::tr(glaze::str::DecimalSeparator),
+                 .enabled = false, .expanded = false};
+    check(bld::applyCall(
+              *w,
+              {"setRows",
+               "{{.name = \"Skala\", .value = \"1.5\", .choices = {\"a\", "
+               "\"b\"}, .readOnly = true, .tag = \"t\", .kind = "
+               "glaze::PropertyGrid::Kind::Number, .min = -5, .max = 10.5, "
+               ".decimals = 2, .prefix = \"1:\", .suffix = \"%\", .allowAlpha "
+               "= true, .toolTip = glaze::tr(24), .enabled = false, "
+               ".expanded = false}}"},
+              "preview_gate") &&
+              g->rows().size() == 1 && radLika(g->rows()[0], allt),
+          "typade rader: alla femton fält designerade ⇒ samma rad som koden",
+          std::to_string(g->rows().size()));
+
+    // Verktygstipset bevarar TOKENET (id), inte den upplösta texten.
+    check(g->rows().size() == 1 &&
+              g->rows()[0].toolTip.id() == glaze::str::DecimalSeparator,
+          "typade rader: glaze::tr(N) bevaras som token i toolTip", "");
+
+    // FEM fält positionellt, och slaget som det sjätte.
+    bld::applyCall(*w,
+                   {"setRows",
+                    "{{\"A\", \"1\", {\"x\"}, true, \"t\"}, {\"B\", \"true\", "
+                    "{}, false, \"\", glaze::PropertyGrid::Kind::Check}}"},
+                   "preview_gate");
+    const std::vector<R> positionellt{
+        R{"A", "1", {"x"}, true, "t"},
+        R{"B", "true", {}, false, "", K::Check}};
+    check(radlistaLika(g->rows(), positionellt),
+          "typade rader: fem fält positionellt, och slaget som sjätte fält",
+          std::to_string(g->rows().size()));
+
+    // Den typade listan med typnamnet, och utelämnade fält mellan de angivna.
+    bld::applyCall(*w,
+                   {"setRows",
+                    "std::vector<glaze::PropertyGrid::Row>{glaze::PropertyGrid"
+                    "::Row{.name = \"F\", .kind = "
+                    "glaze::PropertyGrid::Kind::Color, .allowAlpha = true}}"},
+                   "preview_gate");
+    check(g->rows().size() == 1 && g->rows()[0].kind == K::Color &&
+              g->rows()[0].allowAlpha && g->rows()[0].value.empty(),
+          "typade rader: typnamnet runt listan och raden, utelämnade fält "
+          "tar sina default", std::to_string(g->rows().size()));
+
+    // addRow, setRow, setExpanded och setRowEnabled UTFÖRS — och ger samma
+    // rader som setRows med samma innehåll.
+    bld::applyCall(*w, {"setRows", "{}"}, "preview_gate");
+    check(bld::applyCall(*w,
+                         {"addRow", "{.name = \"Grupp\", .kind = "
+                                    "glaze::PropertyGrid::Kind::Header}"},
+                         "preview_gate") &&
+              bld::applyCall(*w,
+                             {"addRow", "{.name = \"Synlig\", .value = "
+                                        "\"true\", .kind = "
+                                        "glaze::PropertyGrid::Kind::Check}"},
+                             "preview_gate") &&
+              bld::applyCall(*w,
+                             {"addRow", "{\"Bredd\", \"120\", {}, false, "
+                                        "\"\", glaze::PropertyGrid::Kind::"
+                                        "Number, 0, 500, 1, \"1:\", \"mm\"}"},
+                             "preview_gate"),
+          "typade rader: addRow tar aggregatet i båda formerna", "");
+    check(bld::applyCall(*w,
+                         {"setRow", "1, {.name = \"Synlig\", .value = "
+                                    "\"false\", .kind = "
+                                    "glaze::PropertyGrid::Kind::Check, "
+                                    ".toolTip = \"Visa\"}"},
+                         "preview_gate") &&
+              g->rows().size() == 3 && g->rows()[1].value == "false" &&
+              g->rows()[1].toolTip.str() == "Visa",
+          "typade rader: setRow(i, {…}) ersätter raden", "");
+    check(bld::applyCall(*w, {"setExpanded", "0, false"}, "preview_gate") &&
+              !g->rows()[0].expanded &&
+              bld::applyCall(*w, {"setRowEnabled", "2, false"},
+                             "preview_gate") &&
+              !g->rows()[2].enabled,
+          "typade rader: setExpanded och setRowEnabled utförs", "");
+    const std::vector<R> kod{
+        R{.name = "Grupp", .kind = K::Header, .expanded = false},
+        R{.name = "Synlig", .value = "false", .kind = K::Check,
+          .toolTip = "Visa"},
+        R{"Bredd", "120", {}, false, "", K::Number, 0, 500, 1, "1:", "mm",
+          false, {}, false}};
+    check(radlistaLika(g->rows(), kod),
+          "typade rader: addRow/setRow/setExpanded/setRowEnabled ger exakt "
+          "raderna koden ger", std::to_string(g->rows().size()));
+
+    // Index utanför intervallet och ett setExpanded på en vanlig rad är
+    // KÄNDA anrop med widgetens eget logg + no-op.
+    check(bld::applyCall(*w, {"setExpanded", "99, true"}, "preview_gate") &&
+              bld::applyCall(*w, {"setRowEnabled", "-1, true"}, "preview_gate") &&
+              bld::applyCall(*w, {"setExpanded", "1, false"}, "preview_gate") &&
+              radlistaLika(g->rows(), kod),
+          "typade rader: index utanför och setExpanded på en vanlig rad ⇒ "
+          "no-op, raderna orörda", "");
+
+    // OPAKA — gridden ORÖRD: designerare i fel ordning, ett okänt fält, ett
+    // slag utan prefix eller med ett okänt namn, ett tal som sträng, en
+    // blandning av positionellt och designerat, för många fält, och
+    // tillståndssättarna med fel argument.
+    const char* trasiga[][2] = {
+        {"addRow", "{.value = \"1\", .name = \"A\"}"},
+        {"addRow", "{.namn = \"A\"}"},
+        {"addRow", "{.name = \"A\", .kind = Kind::Check}"},
+        {"addRow", "{.name = \"A\", .kind = glaze::PropertyGrid::Kind::Nope}"},
+        {"addRow", "{.name = \"A\", .min = \"0\"}"},
+        {"addRow", "{.name = \"A\", .decimals = 1.5}"},
+        {"addRow", "{\"A\", .value = \"1\"}"},
+        {"addRow", "{.name = \"A\", .name = \"B\"}"},
+        {"addRow", "{\"A\", \"1\", {}, false, \"\", "
+                   "glaze::PropertyGrid::Kind::Text, 0, 1, 0, \"\", \"\", "
+                   "false, \"\", true, true, 1}"},
+        {"addRow", "\"A\", \"1\""},
+        {"setRow", "\"1\", {\"A\"}"},
+        {"setRow", "1"},
+        {"setExpanded", "0, kanske"},
+        {"setExpanded", "\"0\", true"},
+        {"setRowEnabled", "0"},
+        {"setRowEnabled", "0, 1"},
+    };
+    for (const auto& f : trasiga) {
+        const bool utfördes = bld::applyCall(*w, {f[0], f[1]}, "preview_gate");
+        check(!utfördes && radlistaLika(g->rows(), kod),
+              std::string("typade rader: ") + f[0] + "(" + f[1] +
+                  ") ⇒ opak, rows() EXAKT oförändrad",
+              std::to_string(g->rows().size()) + " rader");
+    }
 }
 
 // MISSLYCKAD PARSNING — och det som mäts är WIDGETENS TILLSTÅND, inte
@@ -3360,13 +3529,14 @@ void fallStyckeformAtomisk()
     struct Fall { const char* metod; const char* args; const char* vad; };
     const Fall fall[] = {
         {"addRow", "",                       "inga argument"},
-        {"addRow", "\"A\", \"1\", \"2\", \"3\", \"4\"", "för många argument"},
-        {"addRow", "\"A\\x41\", \"1\"",      "ogiltig strängescape"},
-        {"addRow", "A, \"1\"",               "ociterat namn"},
-        {"addRow", "\"A\", \"1\", kanske",   "ogiltig bool"},
-        {"setRow", "\"0\", \"A\", \"1\"",    "index som sträng"},
-        {"setRow", "0.5, \"A\", \"1\"",      "index som flyttal"},
-        {"setRow", "0",                      "index utan namn"},
+        {"addRow", "{\"A\", \"1\"}, {\"B\"}", "för många argument"},
+        {"addRow", "{\"A\\x41\", \"1\"}",    "ogiltig strängescape"},
+        {"addRow", "{A, \"1\"}",             "ociterat namn"},
+        {"addRow", "{\"A\", \"1\", {}, kanske}", "ogiltig bool"},
+        {"addRow", "\"A\", \"1\"",           "separata strängar i stället för en rad"},
+        {"setRow", "\"0\", {\"A\", \"1\"}",  "index som sträng"},
+        {"setRow", "0.5, {\"A\", \"1\"}",    "index som flyttal"},
+        {"setRow", "0",                      "index utan rad"},
     };
     for (const Fall& f : fall) {
         const bool utfördes = bld::applyCall(*w, {f.metod, f.args},
@@ -3422,7 +3592,7 @@ void fallSetRowsParser()
     bld::applyCall(*w, {"setRows", "{{\"Kvar\", \"9\"}}"}, "preview_gate");
     const char* trasiga[] = {
         "{{\"A\", \"1\"}",                  // obalanserad klammer
-        "{{\"A\", \"1\"}, {\"B\"}, }",      // tomt sista element
+        "{{\"A\", \"1\"}, {\"B\", 2}}",     // värdet ett tal, inte en sträng
         "{{A, \"1\"}}",                     // ociterat namn
         "{{\"A\", \"1\", {}, kanske}}",     // ogiltig bool
         "{{\"A\", \"1\", \"x\"}}",          // choices som sträng
@@ -8614,6 +8784,104 @@ void fallTextstorlek()
           "textSize: parseLength (egenskapspanelens grind)", "");
 }
 
+// RULLNINGSLISTORNAS SYNLIGHET — previewn UTFÖR formerna: widgetens
+// `setScrollbarVisibility(v)` i de tre skrivsätten (kvalificerat, med det
+// halva prefixet och det nakna namnet) och `clearScrollbarVisibility()`,
+// fönstrets nakna anrop på rotens vägnar, och calls-fixturens tre satser. Ett
+// okänt läge eller ett argument till `clear…` är OPAKT och lämnar läget orört.
+// Läses ur `scrollbarVisibility()` — det som GÄLLER, så ett `clear` syns som
+// arvet från fönstret.
+// SABOTAGEN som ska fälla den: grenen i `applyCall` borttagen (anropet blir
+// opakt, läget orört), `parseSynlighet` utan det kvalificerade prefixet,
+// grenen i `applyWindowCall` borttagen (fönstrets rot orörd), `clear…`-
+// grenen som anropar `setScrollbarVisibility`.
+void fallScrollbarSynlighet()
+{
+    const char* o = "preview_gate";
+    using glaze::ScrollbarVisibility;
+    auto w = build("glaze::ListBox", {});
+    if (!w)
+        return;
+    check(w->scrollbarVisibility() == ScrollbarVisibility::Auto,
+          "scrollbarVisibility: förvalet är Auto");
+    check(bld::applyCall(*w,
+                         {"setScrollbarVisibility", "glaze::ScrollbarVisibility::Visible"},
+                         o) &&
+              w->scrollbarVisibility() == ScrollbarVisibility::Visible,
+          "scrollbarVisibility: lista.setScrollbarVisibility(glaze::…::Visible) utförs");
+    check(bld::applyCall(*w, {"setScrollbarVisibility", "ScrollbarVisibility::Invisible"},
+                         o) &&
+              w->scrollbarVisibility() == ScrollbarVisibility::Invisible,
+          "scrollbarVisibility: det halva prefixet utförs");
+    check(bld::applyCall(*w, {"setScrollbarVisibility", "Auto"}, o) &&
+              w->scrollbarVisibility() == ScrollbarVisibility::Auto,
+          "scrollbarVisibility: det nakna namnet utförs");
+    bld::applyCall(*w, {"setScrollbarVisibility", "glaze::ScrollbarVisibility::Visible"}, o);
+    check(!bld::applyCall(*w, {"setScrollbarVisibility", "glaze::ScrollbarVisibility::Alltid"},
+                          o) &&
+              w->scrollbarVisibility() == ScrollbarVisibility::Visible,
+          "scrollbarVisibility: ett okänt läge är opakt och lämnar läget orört");
+    check(!bld::applyCall(*w, {"clearScrollbarVisibility", "true"}, o) &&
+              w->scrollbarVisibility() == ScrollbarVisibility::Visible,
+          "scrollbarVisibility: ett argument till clear… är opakt");
+    check(bld::applyCall(*w, {"clearScrollbarVisibility", ""}, o) &&
+              w->scrollbarVisibility() == ScrollbarVisibility::Auto,
+          "scrollbarVisibility: lista.clearScrollbarVisibility() ärver igen");
+
+    // Fönstrets nakna anrop sätter rotens läge — en widget i fönstret ärver det.
+    glaze::AppWindow fönster("scrollbar_preview", 200, 100);
+    glaze::Panel     panel;
+    fönster.root().adopt(panel);
+    check(bld::applyWindowCall(
+              fönster,
+              {"setScrollbarVisibility", "glaze::ScrollbarVisibility::Invisible"}, o) &&
+              panel.scrollbarVisibility() == ScrollbarVisibility::Invisible,
+          "scrollbarVisibility: fönstrets setScrollbarVisibility(Invisible) når "
+          "widgetarna");
+    check(!bld::applyWindowCall(fönster, {"setScrollbarVisibility", "Alltid"}, o) &&
+              panel.scrollbarVisibility() == ScrollbarVisibility::Invisible,
+          "scrollbarVisibility: fönstrets okända läge är opakt");
+    check(bld::applyWindowCall(fönster, {"clearScrollbarVisibility", ""}, o) &&
+              panel.scrollbarVisibility() == ScrollbarVisibility::Auto,
+          "scrollbarVisibility: fönstrets clearScrollbarVisibility() ärver appens");
+
+    // CALLS-FIXTUREN: panelens läge, listans clear och fönstrets nakna anrop.
+    bld::ReadResult r = bld::readWindow(std::string(GLAZE_TEST_ROOT) +
+                                        "/tests/fixtures/calls.h");
+    check(r.ok, "scrollbarVisibility: calls-fixturen läses (" + r.error + ")");
+    if (!r.ok)
+        return;
+    auto p = build("glaze::Panel", {});
+    auto l = build("glaze::ListBox", {});
+    if (!p || !l)
+        return;
+    l->setScrollbarVisibility(ScrollbarVisibility::Invisible);
+    int  satser = 0;
+    bool fel    = false;
+    for (const bld::Stmt& s : r.model.stmts) {
+        if (s.kind == bld::Stmt::Kind::Call && s.target == "panel" &&
+            s.name == "setScrollbarVisibility") {
+            ++satser;
+            fel = fel || !bld::applyCall(*p, {s.name, s.value}, o);
+        } else if (s.kind == bld::Stmt::Kind::Call && s.target == "lista" &&
+                   s.name == "clearScrollbarVisibility") {
+            ++satser;
+            fel = fel || !bld::applyCall(*l, {s.name, s.value}, o);
+        } else if (s.kind == bld::Stmt::Kind::WindowCall &&
+                   s.name == "setScrollbarVisibility") {
+            ++satser;
+            fel = fel || !bld::applyWindowCall(fönster, {s.name, s.value}, o);
+        }
+    }
+    check(satser == 3 && !fel &&
+              p->scrollbarVisibility() == ScrollbarVisibility::Visible &&
+              l->scrollbarVisibility() == ScrollbarVisibility::Auto &&
+              panel.scrollbarVisibility() == ScrollbarVisibility::Invisible,
+          "scrollbarVisibility: fixturens tre satser UTFÖRS och ger panelens Visible, "
+          "listans ärvda Auto och fönstrets Invisible",
+          std::to_string(satser));
+}
+
 int main(int argc, char** argv)
 {
     g_verbose = argc > 1 && std::strcmp(argv[1], "-v") == 0;
@@ -8685,6 +8953,7 @@ int main(int argc, char** argv)
     fallInmatningEvents();
     fallAppMusEvents();
     fallPropertyGridStyckeform();
+    fallPropertyGridTypade();
     fallStyckeformAtomisk();
     fallSetRowsParser();
     fallListStyckeform();
@@ -8703,6 +8972,7 @@ int main(int argc, char** argv)
     fallReq7();
     fallMarkdown();   // efter fallProgramikon: toolbar/info ur demons assets
     fallTextstorlek();
+    fallScrollbarSynlighet();
     fallTerminal();      // bara med sidopaketet
 
     std::printf("\n%s — %d fall, %d fel\n",

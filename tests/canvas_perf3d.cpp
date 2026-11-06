@@ -98,6 +98,16 @@
 //   M12 200 meshar bakom kameran och en i bild, SIST i lagret, med budgeten
 //      för en enda mesh: den synliga ritas i den första bilden, och de
 //      osynliga laddas upp en per bild i de följande
+//   K KLIPPMASKERNA — 16 lager (--full 64) med samma världsklipp (en yta med
+//      hål): 30 kameraändringar (+2° per steg) och en stilla bild, i
+//      3D-målet (Camera3D, lutning 45°) och i en lutad, vriden kartkamera.
+//      Fyllningarna (`ClipMasks::fills`) per kameraändring är 0 i båda: alla
+//      lager delar EN världsmask, dess gitter följer inte vyn (en orbit och en
+//      vridning byter varken markskalans tvåpotens eller klippets låda), och
+//      inget ritas i skärmrymden, så ingen skärmmask byggs. Den stilla bilden
+//      fyller inte heller, och poolen håller högst två maskmål. Utskrivet per bild
+//      med -v: fyllningar, maskmål, maskernas px, renderarens skapade mål
+//      (`targetsCreated`) och tiden; genomströmningen per serie
 //
 // TIDERNA — MÄTTA OCH UTSKRIVNA, INTE GRINDADE: uppbyggnaden (meshar,
 // former), residensen (frames och tid tills allt är uppe), kameraändringens
@@ -159,6 +169,7 @@
 #include <gfx/geom3d.h>
 #include <glaze/glaze.h>
 
+#include "canvas/clip.h"        // intern — klippmaskerna (K)
 #include "canvas/drape.h"       // intern — terrängens draperingar
 #include "canvas/instances.h"   // intern — instansernas celler (T)
 #include "canvas/mesh_data.h"   // intern — punktmolnets chunkar (P)
@@ -668,6 +679,58 @@ double genomström(Bänk& b, const std::function<glaze::Camera3D(int)>& kam)
     const auto t0 = Klocka::now();
     for (int i = 0; i < 30; ++i) {
         b.yta().setCamera(kam(i));
+        b.rita();
+    }
+    b.vänta();
+    return msSedan(t0) / 30.0;
+}
+
+// K: en serie kameraändringar med klippmaskernas räknare per bild — `ändra(i)`
+// sätter kameran för steg i. Fyllningarna (`ClipMasks::fills`) räknas per
+// bild, maskmålen och deras px efter bilden, och målen renderaren skapat.
+struct KlippUt {
+    std::uint64_t minFyll = ~std::uint64_t{0}, maxFyll = 0;
+    std::uint64_t maxMasker = 0, maxPixlar = 0, mål = 0;
+    Tider         t;
+};
+
+KlippUt klippSerie(Bänk& b, const char* namn, int antal,
+                   const std::function<void(int)>& ändra)
+{
+    KlippUt                         ut;
+    const glaze::detail::ClipMasks& pool = b.res->clips();
+    for (int i = 0; i < antal; ++i) {
+        ändra(i);
+        b.vänta();
+        b.rr().resetStats();
+        const std::uint64_t f0 = pool.fills();
+        ut.t.ms.push_back(b.rita());
+        const std::uint64_t d = pool.fills() - f0;
+        ut.minFyll   = std::min(ut.minFyll, d);
+        ut.maxFyll   = std::max(ut.maxFyll, d);
+        ut.maxMasker = std::max<std::uint64_t>(ut.maxMasker, pool.masks());
+        ut.maxPixlar = std::max(ut.maxPixlar, pool.maskPixels());
+        ut.mål += b.rr().stats().targetsCreated;
+        if (g_verbose)
+            std::printf("  bild %-6s %2d: %llu fyllningar · %zu maskmål · %.1f Mpx · %u "
+                        "nya mål · %.2f ms\n",
+                        namn, i, static_cast<unsigned long long>(d), pool.masks(),
+                        pool.maskPixels() / 1.0e6, b.rr().stats().targetsCreated,
+                        ut.t.ms.back());
+    }
+    return ut;
+}
+
+// Genomströmningen för K: 30 ändringar i följd (steg från `första`) och en
+// läsning som väntar in GPU:n.
+double klippGenom(Bänk& b, int första, const std::function<void(int)>& ändra)
+{
+    ändra(första - 1);
+    b.rita();
+    b.vänta();
+    const auto t0 = Klocka::now();
+    for (int i = 0; i < 30; ++i) {
+        ändra(första + i);
         b.rita();
     }
     b.vänta();
@@ -1640,6 +1703,99 @@ int main(int argc, char** argv)
               std::to_string(bilder) + " bilder, största " + std::to_string(störst) +
                   " byte");
         k.setLayerVisible(lagerOrdning, false);
+    }
+
+    // =========================================================== KLIPPMASKERNA
+    // K 16 lager (--full 64) i ClipSpace::World, vart och ett med en markyta
+    // och SAMMA världsklipp med ett hål (`setLayerClips`) — lika innehåll är
+    // lika mask. 30 kameraändringar (azimut/bäring +2° per steg) och sedan en
+    // stilla bild, i 3D-målet med en Camera3D i lutning 45° och i en lutad,
+    // vriden kartkamera. Fyllningarna per kameraändring är DETERMINISTISKA:
+    // 0 i båda (en världsmask för alla lager, på ett gitter som inte följer
+    // vyn — en lutad kartkamera ritar i 3D-målet som en Camera3D), 0 i den
+    // stilla bilden, och poolen håller högst två maskmål. Tiderna, maskmålen
+    // och px skrivs ut men grindas inte.
+    {
+        // Maskmålen som mest: EN mask för det enda unika klippet, och den förra
+        // kamerans tills poolen släpper den efter två bilder.
+        constexpr std::uint64_t kMaskmålSomMest = 2;
+        for (int i = 0; i < k.layerCount(); ++i)
+            k.setLayerVisible(i, false);
+        const int antalLager = full ? 64 : 16;
+        glaze::Polygon klipp;
+        klipp.outer = {{kX0 - 120.0, kY0 - 120.0}, {kX0 + 120.0, kY0 - 120.0},
+                       {kX0 + 120.0, kY0 + 120.0}, {kX0 - 120.0, kY0 + 120.0}};
+        klipp.holes = {{{kX0 - 40.0, kY0 - 40.0}, {kX0 + 40.0, kY0 - 40.0},
+                        {kX0 + 40.0, kY0 + 40.0}, {kX0 - 40.0, kY0 + 40.0}}};
+        const double rad = 300.0 / antalLager;
+        for (int i = 0; i < antalLager; ++i) {
+            const int lager = k.addLayer("klippat");
+            k.setLayerPlacement(lager, glaze::LayerPlacement::World);
+            k.addShape(lager,
+                       glaze::Shape::rect(
+                           {kX0 - 150.0, kY0 - 150.0 + rad * i, 300.0, rad * 0.8},
+                           gfx::Color{static_cast<std::uint8_t>(60 + 3 * (i % 60)),
+                                      120, 200, 255}));
+            k.setLayerClips(lager, {klipp});
+        }
+        std::printf("  scen K: %d lager med samma världsklipp (en yta med hål)\n",
+                    antalLager);
+
+        // 3D: Camera3D i lutning 45°.
+        const auto kam3 = [&](int i) {
+            return glaze::Camera3D{.target    = {kX0, kY0, 0.0},
+                                   .distance  = 400.0,
+                                   .azimuth   = static_cast<float>(10 + 2 * (i + 1)),
+                                   .elevation = 45.0f};
+        };
+        const auto ändra3 = [&](int i) { k.setCamera(kam3(i)); };
+        ändra3(-1);
+        b.residens(tRes, resByte);
+        const KlippUt u3 = klippSerie(b, "3D", 30, ändra3);
+        const std::uint64_t f3 = b.res->clips().fills();
+        b.frame();
+        const std::uint64_t still3 = b.res->clips().fills() - f3;
+        check(u3.maxFyll == 0 && still3 == 0,
+              "K 3D: en kameraändring fyller ingen mask (en världsmask för alla lager, "
+              "på ett gitter som inte följer vyn), en stilla bild inte heller",
+              std::to_string(u3.minFyll) + "–" + std::to_string(u3.maxFyll) +
+                  " per ändring, " + std::to_string(still3) + " stilla");
+        check(u3.maxMasker <= kMaskmålSomMest,
+              "K 3D: poolen håller högst två maskmål",
+              std::to_string(u3.maxMasker) + " maskmål");
+        std::printf("  mått K 3D: %llu maskmål som mest, %.1f Mpx som mest, %llu "
+                    "mål skapade\n",
+                    static_cast<unsigned long long>(u3.maxMasker), u3.maxPixlar / 1.0e6,
+                    static_cast<unsigned long long>(u3.mål));
+        skrivTider("klipp 3D", u3.t, klippGenom(b, 30, ändra3));
+
+        // 2D: en lutad, vriden kartkamera — `setCamera(Camera)` tar tillbaka
+        // kartkameran från 3D-kameran, annars ändrar sättarna nedan en kamera
+        // som inte ritar.
+        k.setCamera(k.camera());
+        k.setCenter(kX0, kY0);
+        k.setZoom(2.0);
+        k.setPitch(45.0f);
+        const auto ändra2 = [&](int i) { k.setBearing(static_cast<float>(2 * (i + 1))); };
+        ändra2(-1);
+        b.residens(tRes, resByte);
+        const KlippUt u2 = klippSerie(b, "2D", 30, ändra2);
+        const std::uint64_t f2 = b.res->clips().fills();
+        b.frame();
+        const std::uint64_t still2 = b.res->clips().fills() - f2;
+        check(u2.maxFyll == 0 && still2 == 0,
+              "K 2D lutad och vriden: en kameraändring fyller ingen mask (i 3D-målet, "
+              "en världsmask för alla lager), en stilla bild inte heller",
+              std::to_string(u2.minFyll) + "–" + std::to_string(u2.maxFyll) +
+                  " per ändring, " + std::to_string(still2) + " stilla");
+        check(u2.maxMasker <= kMaskmålSomMest,
+              "K 2D: poolen håller högst två maskmål",
+              std::to_string(u2.maxMasker) + " maskmål");
+        std::printf("  mått K 2D: %llu maskmål som mest, %.1f Mpx som mest, %llu "
+                    "mål skapade\n",
+                    static_cast<unsigned long long>(u2.maxMasker), u2.maxPixlar / 1.0e6,
+                    static_cast<unsigned long long>(u2.mål));
+        skrivTider("klipp 2D", u2.t, klippGenom(b, 30, ändra2));
     }
 
     std::printf(g_fel ? "=== canvas_perf3d: %d FEL av %d ===\n"

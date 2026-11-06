@@ -308,8 +308,9 @@ struct ShapeSlot {
 // ETT KLIPP SOM DATA — ritytans (`SceneData::clip`) och varje lagers
 // (`LayerData::clip`). `enabled` false = inget klipp (förvalet och
 // `resetClip`); true med tomma `polygons` = allt bortklippt (`setClips({})`).
-// `version` stegas av VARJE sättare som ändrar något av fälten — maskernas,
+// `version` stegas av VARJE sättare som ändrar något av fälten — etiketternas,
 // draperingens och 3D-målets nycklar läser den, aldrig ytorna själva.
+// `content` är klippets innehåll — maskernas nyckel.
 struct ClipState {
     ClipSpace                 space   = ClipSpace::World;
     bool                      enabled = false;
@@ -317,9 +318,22 @@ struct ClipState {
     // Går ytan att fylla? En per yta, räknad av sättaren (clip.h
     // `clipPolygonValid`) — maskerna, etiketterna och träffprovet läser den.
     std::vector<std::uint8_t> valid;
-    // VERSIONEN ur scenens löpnummer, ny vid varje ändring: lika version är
-    // lika ytor i hela processen, och maskens nyckel bär den i stället för
+    // Ytans nyckel (clip.h `polygonKey`), en per yta och parallell med
+    // `polygons`, räknad av sättaren tillsammans med `valid`.
+    std::vector<std::uint64_t> keys;
+    // INNEHÅLLET: en hash över rymden, antalet RITADE ytor och deras `keys`
+    // (clip.h `revalidateClip`). Lika innehåll är lika mask, oavsett vilket
+    // lager klippet sitter på, och maskens nyckel bär det i stället för
     // hörnen (clip.h `refineClip`).
+    std::uint64_t             content = 0;
+    // YTORNA SOM ÄGT VÄRDE (clip.h `ClipSnapshot`) — polygonerna och deras
+    // giltighet, kopierade av sättaren (`revalidateClip`). Maskerna och
+    // klippets kedja i 3D-målet läser dem, så en ritning ser samma ytor också
+    // om appen ändrar klippet under den.
+    std::shared_ptr<const ClipSnapshot> snapshot;
+    // VERSIONEN ur scenens löpnummer, ny vid varje ändring: lika version är
+    // lika klipp i hela processen. Den är stämpeln för etiketterna,
+    // draperingen och 3D-målet, som läser den i stället för ytorna.
     std::uint64_t             version = nextSceneId();
 };
 

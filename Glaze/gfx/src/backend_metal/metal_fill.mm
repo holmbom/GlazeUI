@@ -162,7 +162,7 @@ fragment float4 fillPs(FillOut i [[stage_in]],
     const float  cov = 1.0 - saturate(i.edge);
     return float4(col.rgb, col.a * cov * u.paint1.y *
                                clipCoverage(i.pos.xy, cm) *
-                               glaze_clipScreen(i.pos.xy, GLAZE_CLIP_ARGS));
+                               glaze_clip(i.pos.xy, i.world, GLAZE_CLIP_ARGS));
 }
 )msl";
 

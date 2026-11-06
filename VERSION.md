@@ -21,6 +21,17 @@ versionen sätts.
 
 ## Nästa
 
+## 0.8.0
+
+- **New** — `PropertyGrid` har typade celler: `Row::kind` är `Text` (med `choices` en vallista), `Check` (klick och Space), `Color` (färgväljarens popup, `allowAlpha`), `Number` (`min`/`max`, `decimals`, `prefix`/`suffix`; utanför gränserna klampas, otolkbar text visas som fel på raden med en tooltip) eller `Header` (en fällbar rubrikrad, `setExpanded`). Varje rad har en egen `toolTip` och `enabled` (`setRowEnabled`), och läsvägarna är `isChecked`, `colorValue`, `numberValue` och `hasError`. Allt går att uttrycka i `.glazeui`.
+- **New** — `PropertyGrid` får en höjd ur sina synliga rader när ingen är satt, så flera listor kan staplas i en rullande yta. En inaktiverad grid fäller ihop sig och ritas inaktiv.
+- **New** — rullningslisternas synlighet, `ScrollbarVisibility`: `Auto` (förval — listorna visas när innehållet rullar eller pekaren rör sig över ytan och försvinner efter 1 s, `Style::scrollbarAutoHideMs`), `Visible` och `Invisible`. Satt på en widget, ett fönster eller appen och ärvt nedåt; rullningen fungerar alltid.
+- **New** — panelernas rubrikrad har tydlig kontrast mot panelen i alla tre UI, med den härledda rollen `Theme::Colors::panelHeader`.
+- **Fix** — ett flytande verktygsfält tog inte emot tangenter: ett textfält, en vallista eller ett talfält i fältet går nu att skriva i när fältet är lossat.
+- **Fix** — ritytans lager med samma klipp delar nu EN mask, också i lutad 3D. Tidigare byggdes en mask per lager och kamerarörelse, vilket gav stora minnes- och tidskostnader.
+- **Fix** — ett klipphål som korsade kamerans främre plan i 3D kunde ritas fel och loggades varje bild.
+- **Brytande** — `PropertyGrid::addRow(Row)` och `setRow(int, Row)` tar radaggregatet i stället för namn, värde och vallista som egna argument; `{"Bredd", "120"}` är den korta formen. `Panel::showScrollbars`/`scrollbarsShown` är borta och ersatta av `setScrollbarVisibility`.
+
 ## 0.7.0
 
 - **New** — standardikonerna är omgjorda: fästa mot pixelrutnätet i varje storlek, i färg med ytor, toner, gradient och fasad kant, i upp till fyra lager där varje lager får sin kontrast mot det under, och Mono är samma bild nedtonad. Papperets färg är rollen `Theme::Colors::stockPaper`.

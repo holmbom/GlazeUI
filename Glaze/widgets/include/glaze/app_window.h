@@ -612,6 +612,21 @@ public:
     }
     void clearWheelInvert(InputDevice d) { root_.clearWheelInvert(d); }
 
+    // RULLNINGSLISTORNAS SYNLIGHET I FÖNSTRET — sätts på fönstrets rot, så
+    // varje widget i fönstret som inte satt något själv ärver den
+    // (`Widget::setScrollbarVisibility`); `clear` ärver appens igen. En popup
+    // som fönstret öppnar är ett eget fönster och ärver från appen. Fönstret
+    // ritas om. I `.glazeui` ett naket fönsteranrop:
+    // `setScrollbarVisibility(glaze::ScrollbarVisibility::Invisible);`.
+    void setScrollbarVisibility(ScrollbarVisibility v)
+    {
+        root_.setScrollbarVisibility(v);
+    }
+    void clearScrollbarVisibility() { root_.clearScrollbarVisibility(); }
+    // Tidpunkten (`detail::scrollbarNowMs`) då fönstrets lista-timer går, 0 =
+    // ingen timer är satt — till för grindar.
+    std::int64_t scrollbarTimerAt() const { return scrollbarArmedAt_; }
+
     // Popup-attributet (beteende är attribut, inte
     // subklasser). Ett popup-fönster visas utan att ta fokus (noActivate +
     // toolWindow) och STÄNGS AV APP när ett tryck landar i ett annat
@@ -1463,6 +1478,24 @@ private:
     void    toolTipChanged(Widget& w);         // Widget::setToolTip
     void    toolTipClosed();                   // popupens onClose
 
+    // ------------------------------------------ RULLNINGSLISTORNAS TID
+    // Listorna i läget `Auto` försvinner av sig själva: varje widget bär sin
+    // egen sista tidpunkt (`Widget::scrollbarFade`) och fönstret har EN timer
+    // (`kScrollbarTimerId`) som går vid närmaste. Ingen ritloop (regel 1) —
+    // timern är satt bara medan någon lista väntar. Implementationen i
+    // src/scrollbar_fade.cpp.
+    //   scrollbarArm     en widget vill bli väckt senast `deadlineMs` (klockan
+    //                    `detail::scrollbarNowMs`); timern flyttas bara
+    //                    FRAMÅT i tiden mot en redan satt, tidigare
+    //   scrollbarTimer   timern gick: widgetarna vars tid gått ut ritas om och
+    //                    timern sätts om till nästa tidpunkt, annars stoppas
+    //   scrollbarPointer pekaren rörde sig över `over` — den och förfäderna
+    //                    räknar det som rullningsaktivitet
+    void scrollbarArm(std::int64_t deadlineMs);
+    void scrollbarTimer();
+    void scrollbarPointer(Widget* over);
+    std::int64_t scrollbarArmedAt_ = 0;   // tidpunkten timern är satt till
+
     // ------------------------------------------------------ träd-vandring
     // EN sanning om geometrin: ritning, hit-test, damage och
     // ctxFor gör SAMMA Ctx-vandring — containerns childArea byter area,
@@ -2020,8 +2053,30 @@ private:
     // öppnades upprepas i popupen men släpps hos båda — tryckets post finns
     // här. true = ägaren rör inget mer (eventet var popupens, eller en
     // handler i popupen rev ägaren).
+    //
+    // Samma väg bär det flytande fönstret som har tangentbordet
+    // (`keysFromOwner_`): `openKeyPopup` svarar med det när ingen popup med
+    // attributet är öppen — ägarens egen popup går före, för den är modal för
+    // tangentbordet — och fönstret skickar i sin tur vidare till sina egna
+    // öppna popuper genom samma ingång. `takesKeysFromOwner` är
+    // SLÄPPETS fråga: fönstret är av den sort som kan ha fått ett tryck
+    // förmedlat, öppen eller inte som mottagare nu.
     AppWindow* openKeyPopup() const;
     bool       forwardToKeyPopup(const gfx::Event& e);
+    bool       takesKeysFromOwner() const;
+    // Håller något av de ägda fönstren tangentbordet (`keysFromOwner_`)?
+    bool       keysHeldByFloat() const;
+    // Sätter `keysFromOwner_` och flyttar caretens liv därefter: fönstrets
+    // egen tänds eller släcks, ägarens gör motsatsen — och tänds igen bara när
+    // ägaren är aktiv och inget annat ägt fönster har tangentbordet.
+    void       setKeysFromOwner(bool on);
+    // Ett tryck här tar tangentbordet från varje annat ägt flytande fönster
+    // utom det själv och de fönster det äger (`handleEvent`, `MouseButtonDown`).
+    void       releaseOtherKeyHolders();
+    // Careten i den fokuserade textwidgeten: timern och fasen, som
+    // `WindowFocusGained`/`WindowFocusLost` gör det. Rör ingenting när fönstret
+    // är stängt eller ingen textwidget har fokus.
+    void       setCaretLive(bool live);
     std::bitset<static_cast<std::size_t>(gfx::kLastKey) + 1> keysToPopup_;
 
     // `isPreciseWheel()`/`wheelPhase()` — ur senaste hjulet.
@@ -2061,6 +2116,20 @@ private:
 
     bool        popup_       = false;   // noActivate + stäng vid klick utanför
     bool        popupTakesKeys_ = false;   // ägaren skickar tangenterna hit
+    // TANGENTBORDET I ETT FÖNSTER SOM ALDRIG AKTIVERAS — gäller ett ägt
+    // `noActivate_`-fönster som inte är en popup (det flytande verktygsfältet).
+    // OS:et levererar tangenterna till det AKTIVA fönstret, ägaren, så ett
+    // sådant fönster får dem bara genom ägarens förmedling (`openKeyPopup`),
+    // på samma väg som en popup med `popupTakesKeys_`. Flaggan sätts av ett
+    // vänsterryck i fönstret som ger en fokuserbar widget fokus (ett fält, en
+    // vallista, ett talfält); ett tryck på en widget som inte tar fokus
+    // (en verktygsknapp) lämnar den som den var. Den nollas av ett tryck i ett
+    // annat fönster än fönstret själv och de fönster det äger
+    // (`releaseOtherKeyHolders`), av att fönstrets fokus försvinner, av `hide()` och av stängningen.
+    // Medan den gäller är ägarens caret släckt, som vid en fokusförlust, och
+    // fönstrets egen blinkar (`setCaretLive`). Ändras bara genom
+    // `setKeysFromOwner`.
+    bool        keysFromOwner_ = false;
     // ALLTID ÖVERST — BEGÄRAN. `showOwned` kopierar den till
     // `WindowDesc`, sättaren efter show går direkt till OS-fönstret, och
     // gettern läser fönstret när det är öppet (det är där degraderingen

@@ -28,7 +28,9 @@
 //   KP  KLIPPET I 3D-MÅLET (`setClips`, `setLayerClips`): ett satt eller
 //       ändrat klipp ritar om 3D-målet EN gång, ett oförändrat inte
 //       (`targetRenders`); `hitTest(lokal, HitOptions)` träffar inte det som
-//       klippts bort; `moveLayer` tar lagrets klipp med sig.
+//       klippts bort; `moveLayer` tar lagrets klipp med sig; åtta World-lager
+//       med samma klipp i en lutad kamera delar EN världsmask, som en orbit
+//       inte bygger om.
 //   P   PANORERINGEN i FLYGLÄGET — de
 //       bindningar som motsvarar ett flygläge (tests/orbit_fly.h), med
 //       samma referens: i SIDLED följer målplanets punkt pekaren, och fram/bak
@@ -1180,6 +1182,54 @@ void Värd::klipp3D()
           "KP3D moveLayer tar lagrets klipp med sig");
     yta.setLayer(överst, "Ny");
     check(!yta.layerClipEnabled(överst), "KP3D setLayer tar bort lagrets klipp");
+
+    // (5) Åtta World-lager med SAMMA klipp i en lutad Camera3D delar EN
+    // världsmask — en fyllning, inte åtta — och den byggs inte om av en orbit:
+    // gittret följer inte vyn, och 2D-programmen läser världsmasken i sin
+    // världspunkt i stället för en projicerad skärmmask. Varje kameraändring
+    // och en stilla bild fyller alltså ingenting. Sabotage som SKA fälla:
+    // `ClipState::version` som maskens källa i `prepareClips` (åtta
+    // fyllningar), vyn i världsmaskens nyckel eller gitter (en per ändring),
+    // `out.flat` som den projicerade skärmmasken i `refineClip` (en per
+    // ändring).
+    {
+        nollställ(kamera({0.0, 0.0, 0.0}, 30.0, 0.0f, 45.0f));
+        yta.resetClip();   // bara lagrens klipp — ritytans hade gett en mask till
+        yta.setShapes({});
+        yta.setLayers({"L0", "L1", "L2", "L3", "L4", "L5", "L6", "L7"});
+        for (int i = 0; i < 8; ++i) {
+            yta.setLayerPlacement(i, glaze::LayerPlacement::World);
+            yta.addShape(i, glaze::Shape::rect({-100, -100, 200, 200},
+                                               gfx::Color{255, 0, 0, 255}));
+            yta.setLayerClips(i, {yta2(-5, -5, 5, 5)});
+        }
+        const auto fyllningar = [&]() -> std::uint64_t {
+            const glaze::Ctx c = yta.behaviorCtx();
+            return c.canvas ? c.canvas->clips().fills() : 0;
+        };
+        const std::uint64_t före = fyllningar();
+        rita();
+        const std::uint64_t först = fyllningar() - före;
+        glaze::Camera3D k = yta.camera3D();
+        bool            ingen = true;
+        std::string     fick;
+        for (int steg = 0; steg < 6; ++steg) {
+            k.azimuth += 2.0f;
+            yta.setCamera(k);
+            const std::uint64_t f0 = fyllningar();
+            rita();
+            const std::uint64_t d = fyllningar() - f0;
+            ingen                 = ingen && d == 0;
+            fick += (steg ? ", " : "") + std::to_string(d);
+        }
+        const std::uint64_t f1 = fyllningar();
+        rita();
+        check(först == 1 && ingen && fyllningar() == f1,
+              "KP3D åtta World-lager med samma klipp: EN fyllning, och varken en "
+              "kameraändring eller en stilla bild fyller om",
+              "först " + std::to_string(först) + ", per ändring " + fick +
+                  ", stilla " + std::to_string(fyllningar() - f1));
+    }
     yta.resetClip();
     yta.setLayers({""});
 }

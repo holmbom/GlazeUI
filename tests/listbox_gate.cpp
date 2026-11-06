@@ -559,10 +559,14 @@ void fallVariabelGeometri()
                   "Q1: rowAt ger radens index");
             const float utanför = -0.5f;   // vänster om innehållsytan
             const float remsa   = w.uni.width - c.style->scrollThick / 2.0f;
+            // Remsan mäts SYNLIG — en dold remsa tar inga tryck, och raden
+            // under den träffas.
+            w.uni.setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);
             check(w.uni.rowAt(utanför, mitt(1).y) == -1 &&
                       w.uni.rowAt(remsa, mitt(1).y) == -1,
                   "Q1: utanför i x och i remsan — −1",
                   std::to_string(w.uni.rowAt(remsa, mitt(1).y)));
+            w.uni.clearScrollbarVisibility();
             const gfx::Pointf p0 = mitt(0);
             w.uni.setScroll(0.0f, c.style->listRowH);
             check(w.uni.rowAt(p0.x, p0.y) == 1,

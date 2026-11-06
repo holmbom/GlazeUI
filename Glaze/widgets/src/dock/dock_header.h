@@ -45,7 +45,8 @@ struct HeaderButton {
 
 struct PanelHeader {
     gfx::Rectf bounds{};   // panelens hela yta (`c.bounds()`)
-    gfx::Rectf header{};   // rubrikraden — dess underkant bär hårlinjen
+    gfx::Rectf header{};   // rubrikraden, fylld med `panelHeader` — dess
+                           // underkant bär hårlinjen
     gfx::Rectf title{};    // titelns yta; klipps, och tom i den stående remsan
     gfx::Color titleColor{};   // widgetens `textColor(c)`
     // Inaktiv: tecknen dimmas (`panelGlyphColor`). Plattorna släcks av
@@ -63,7 +64,8 @@ struct PanelHeader {
     std::span<const HeaderButton> buttons{};
 };
 
-// RUBRIKEN i den form `c.ui` bestämmer: panelens yta och rubrikrad, hårlinjen,
+// RUBRIKEN i den form `c.ui` bestämmer: panelens yta och rubrikraden i
+// `panelHeader` (i alla tre familjer), hårlinjen,
 // de tända knapparnas plattor, kanten, titeln `text` och knapptecknen.
 void drawPanelHeader(const Ctx& c, const PanelHeader& p,
                      const std::string& text);

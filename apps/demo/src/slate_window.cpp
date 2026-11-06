@@ -683,7 +683,6 @@ void SlateWindow::byggSida()
 {
     sida_       = dock_->add<glaze::Panel>();   // huvudytan
     sida_->name = "sida";
-    sida_->showScrollbars(true);
 
     radKnapparOchVal();
     radInmatning();
@@ -1034,15 +1033,29 @@ void SlateWindow::radListor()
     }
     {
         Stapel s = cell(*r, "egensk", "PropertyGrid", 0.8f);
+        using Slag = glaze::PropertyGrid::Kind;
         std::vector<glaze::PropertyGrid::Row> rader;
+        rader.push_back({.name = "Layout", .kind = Slag::Header});
         rader.push_back({"name", "okBtn", {}, true, ""});
         rader.push_back({"text", "Tryck här", {}, false, ""});
         rader.push_back({"dock", "None",
                          {"None", "Left", "Top", "Right", "Bottom", "Fill"},
                          false, ""});
-        rader.push_back({"width", "120", {}, false, ""});
-        rader.push_back({"height", "30", {}, false, ""});
-        rader.push_back({"visible", "true", {"true", "false"}, false, ""});
+        rader.push_back({.name = "width", .value = "120", .kind = Slag::Number,
+                         .min = 0, .max = 4000, .decimals = 0, .suffix = "px"});
+        rader.push_back({.name = "height", .value = "30", .kind = Slag::Number,
+                         .min = 0, .max = 4000, .decimals = 0, .suffix = "px"});
+        rader.push_back({.name = "Utseende", .kind = Slag::Header});
+        rader.push_back({.name = "visible", .value = "true", .kind = Slag::Check});
+        rader.push_back({.name = "färg", .value = "#3366FFCC", .kind = Slag::Color,
+                         .allowAlpha = true});
+        rader.push_back({.name = "opacitet", .value = "80", .kind = Slag::Number,
+                         .min = 0, .max = 100, .decimals = 0, .suffix = "%"});
+        rader.push_back({.name = "skala", .value = "500", .kind = Slag::Number,
+                         .min = 1, .decimals = 0, .prefix = "1:"});
+        rader.push_back({.name = "låst", .value = "false", .kind = Slag::Check,
+                         .toolTip = glaze::TrText("Går inte att ändra just nu"),
+                         .enabled = false});
         auto* g   = s.bred<glaze::PropertyGrid>(10);
         g->height = 230;
         g->setRows(rader);
@@ -1176,7 +1189,7 @@ void SlateWindow::radRemsorOchYtor()
 
         auto* p = s.fyll<glaze::Panel>(10);
         p->setBorder(true);
-        p->showScrollbars(true);
+        p->setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);
         for (int n = 0; n < 6; ++n) {
             auto* b = p->add<glaze::Button>("Knapp i en panel " +
                                             std::to_string(n + 1));

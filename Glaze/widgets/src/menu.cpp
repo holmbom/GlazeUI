@@ -647,10 +647,10 @@ public:
     MenuRows(MenuPresentation& pres, int level) : pres_(&pres), level_(level)
     {
         // Popupen ÄR fönstret: raderna ligger kant i kant, ramen ritas av
-        // ListBox ovanpå. Remsorna är av — kapningen vid `menuMaxRows`
-        // gör listan kort, och en synlig tumme i en meny vore nytt.
+        // ListBox ovanpå. Kapningen vid `menuMaxRows` gör listan kort; en
+        // längre meny rullar, och rullningslisten följer läget som ärvs
+        // (förvalet Auto), så det syns att det finns fler poster.
         setBorder(false);
-        showScrollbars(false);
     }
 
     void setRows(std::vector<SnapRow> r)

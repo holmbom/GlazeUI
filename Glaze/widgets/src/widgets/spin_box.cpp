@@ -9,7 +9,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iomanip>
 #include <locale>
 #include <sstream>
 
@@ -19,61 +18,18 @@
 #include "glaze/strings.h"
 #include "glaze/widgets/textinput.h"
 
+#include "../number_text.h"
+
 namespace glaze {
 
 namespace {
 
-// Tecken som kan ingå i ett skrivet tal. Allt annat sväljs redan vid
-// tangenttrycket — en bokstav i ett talfält är aldrig vad användaren menar.
-bool taltecken(char ch)
-{
-    return (ch >= '0' && ch <= '9') || ch == '+' || ch == '-' || ch == ',' ||
-           ch == '.';
-}
-
-std::string trimma(const std::string& s)
-{
-    const std::size_t a = s.find_first_not_of(" \t");
-    const std::size_t b = s.find_last_not_of(" \t");
-    return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
-}
-
-// ANVÄNDARENS TEXT → tal. Generös där det är ofarligt och strikt där det
-// inte är det: valfritt tecken, siffror, och HÖGST ETT decimaltecken — "," ELLER
-// "." oavsett språk, för numerisk tangentbords decimaltangent ger det
-// layouten säger och användaren ska inte behöva tänka på det. Två
-// avskiljare ("1,000.5") är TVETYDIGT — tusentalsgrupp eller fel? — och
-// tolkas inte alls; inte heller exponenter, som ingen skriver i ett talfält.
-// Tolkningen sker i "C"-lokalen (`std::locale::classic`), så en app som
-// anropat `setlocale` kan inte ändra vad ett tal betyder.
-bool tolkaText(const std::string& in, double& ut)
-{
-    std::string s = trimma(in);
-    if (s.empty())
-        return false;
-    std::size_t i = (s[0] == '+' || s[0] == '-') ? 1u : 0u;
-    int siffror = 0, avskiljare = 0;
-    for (std::size_t k = i; k < s.size(); ++k) {
-        if (s[k] >= '0' && s[k] <= '9') {
-            ++siffror;
-        } else if (s[k] == ',' || s[k] == '.') {
-            ++avskiljare;
-            s[k] = '.';
-        } else {
-            return false;
-        }
-    }
-    if (siffror == 0 || avskiljare > 1)
-        return false;
-    std::istringstream is(s);
-    is.imbue(std::locale::classic());
-    double v = 0.0;
-    is >> v;
-    if (is.fail() || !std::isfinite(v))
-        return false;
-    ut = v;
-    return true;
-}
+// Tecknen i ett skrivet tal, användarens text → tal, klampningen och
+// formateringen bor i den delade `../number_text.h` — egenskapslistans
+// talrader läser samma regler.
+using numbertext::isNumberChar;
+using numbertext::parseUser;
+using numbertext::trim;
 
 // EN C++-LITERAL → tal (`setProp`, alltså `.glazeui`-vägen). En ANNAN
 // tolkning än användarens text, med flit: raden i filen är C++ som
@@ -82,7 +38,7 @@ bool tolkaText(const std::string& in, double& ut)
 // opaka, ett regel 8-brott. Komma är aldrig decimaltecken i C++.
 bool tolkaLiteral(const std::string& in, double& ut)
 {
-    std::string s = trimma(in);
+    std::string s = trim(in);
     if (!s.empty() && (s.back() == 'f' || s.back() == 'F' ||
                        s.back() == 'l' || s.back() == 'L'))
         s.pop_back();
@@ -145,7 +101,7 @@ protected:
     {
         std::string ok;
         for (const char* p = utf8; *p; ++p)
-            if (taltecken(*p))
+            if (isNumberChar(*p))
                 ok.push_back(*p);
         if (ok.empty())
             return true;   // sväljs — tecknet hör inte hemma i ett tal
@@ -183,14 +139,7 @@ SpinBox::SpinBox() : sep_(tr(str::DecimalSeparator))
 // Aldrig −0: "−0,0" är ingen siffra någon vill se.
 double SpinBox::effective(double v) const
 {
-    const double lo = min_;
-    const double hi = std::max(min_, max_);
-    if (!std::isfinite(v))
-        v = lo;
-    v                 = std::clamp(v, lo, hi);
-    const double skal = std::pow(10.0, decimals_);
-    v                 = std::clamp(std::round(v * skal) / skal, lo, hi);
-    return v == 0.0 ? 0.0 : v;
+    return numbertext::effective(v, min_, max_, decimals_);
 }
 
 double SpinBox::effectiveStep() const
@@ -267,14 +216,7 @@ void SpinBox::setSelection(int begin, int end)
 // varje plattform, oavsett vad appen gjort med `setlocale`.
 std::string SpinBox::format(double v) const
 {
-    std::ostringstream os;
-    os.imbue(std::locale::classic());
-    os << std::fixed << std::setprecision(decimals_) << v;
-    std::string       s     = os.str();
-    const std::size_t punkt = s.find('.');
-    if (punkt != std::string::npos)
-        s.replace(punkt, 1, sep_.str());
-    return s;
+    return numbertext::format(v, decimals_, sep_.str());
 }
 
 void SpinBox::syncText()
@@ -296,7 +238,7 @@ bool SpinBox::stepFromUser(int n)
     const double före    = value();
     double       bas     = före;
     double       skrivet = 0.0;
-    if (tolkaText(field_->text(), skrivet))
+    if (parseUser(field_->text(), skrivet))
         bas = effective(skrivet);
     value_ = effective(bas + static_cast<double>(n) * effectiveStep());
     syncText();
@@ -320,7 +262,7 @@ bool SpinBox::commitText(bool postad)
 {
     const double före = value();
     double       v    = 0.0;
-    if (tolkaText(field_->text(), v))
+    if (parseUser(field_->text(), v))
         value_ = effective(v);
     syncText();   // fältet invaliderar sig självt om texten skrivs om
     if (value() == före)

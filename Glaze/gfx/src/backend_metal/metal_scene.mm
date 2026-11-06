@@ -579,12 +579,8 @@ fragment float4 linePs(LineOut i [[stage_in]],
         discard_fragment();
 #endif
     // Målarens klipp sist (kMslSceneClipSrc) — utanför kastas fragmentet.
-    // Line3 klipps på linjens punkt (`ppos`, chunk-lokal).
-#ifdef GLAZE_POS3
+    // Världsmasken läses i linjens punkt (`ppos`, chunk-lokal).
     const float klipp = glaze_clip(i.pos.xy, i.ppos, GLAZE_CLIP_ARGS);
-#else
-    const float klipp = glaze_clipScreen(i.pos.xy, GLAZE_CLIP_ARGS);
-#endif
     return float4(col.rgb, col.a * alpha * u.paint1.y *
                                clipCoverage(i.pos.xy, cm) * klipp);
 }

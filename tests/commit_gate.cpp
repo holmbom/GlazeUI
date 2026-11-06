@@ -537,7 +537,17 @@ void fallProgrammatiskt()
     lv.addRow({"r"});
     lv.setSelectedIndex(0);
     pg.setRows({{"Bredd", "1"}});
-    pg.setRow(0, "Bredd", "2");
+    pg.setRow(0, {"Bredd", "2"});
+    // De typade raderna och de två tillståndssättarna är programmatiska de med.
+    pg.addRow({.name = "Synlig", .value = "true",
+               .kind = glaze::PropertyGrid::Kind::Check});
+    pg.addRow({.name = "Färg", .value = "#3366FF",
+               .kind = glaze::PropertyGrid::Kind::Color});
+    pg.addRow({.name = "Skala", .value = "1.5",
+               .kind = glaze::PropertyGrid::Kind::Number, .min = 0, .max = 10});
+    pg.addRow({.name = "Grupp", .kind = glaze::PropertyGrid::Kind::Header});
+    pg.setRowEnabled(1, false);
+    pg.setExpanded(4, false);
     dg.addColumn("A", 50);
     dg.addRow({"c"});
     dg.setCell(0, 0, "d");
@@ -1784,7 +1794,7 @@ void fallMedFonster()
             w.klick(w.värdecell(2));
             w.skriv("55");
             w.klick(w.knapp);   // fokus bort: värdet skrivet, eventen köade
-            w.grid.setRow(2, "Djup", "99");
+            w.grid.setRow(2, {"Djup", "99"});
             break;
         }
         case 35: {
@@ -1797,7 +1807,7 @@ void fallMedFonster()
             w.klick(w.värdecell(1));
             w.skriv("66");
             w.klick(w.knapp);
-            w.grid.setRow(0, "Bredd", "11");
+            w.grid.setRow(0, {"Bredd", "11"});
             break;
         }
         case 36: {
@@ -2184,8 +2194,8 @@ void fallMedFonster()
                 // P12: en tom grid, addRow och setRow på den nya raden — med
                 // en köad sparning emellan finns generationen redan.
                 glaze::PropertyGrid tom;
-                tom.addRow("Ny", "1");
-                tom.setRow(0, "Ny", "2");
+                tom.addRow({"Ny", "1"});
+                tom.setRow(0, {"Ny", "2"});
                 check(tom.rows().size() == 1 && tom.rows()[0].value == "2",
                       "P12: addRow på en tom grid och setRow på raden — "
                       "radlistan och generationerna följs åt");

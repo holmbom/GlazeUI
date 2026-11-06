@@ -203,6 +203,11 @@
 //                sig, och (Windows) ✕, dubbelklick och tangent i luckan före
 //                synken, levererade medan fönstret levde · FT12 värden rivs
 //                först. Detaljerna står vid `fallFlytFalt`.
+//   FÄLTETS       FK1–FK5 ett flytande verktygsfält med ett textfält, en
+//   TANGENTER     verktygsknapp och en vallista tar emot tangentbordet av ett
+//                tryck på en widget som tar fokus — tangenterna kommer med
+//                ÄGARENS `windowId`, som OS:et levererar dem. Detaljerna står
+//                vid `fallFältTangenter`.
 //
 // SABOTAGEN den ska fälla (prövas ett i taget mot ett rent original):
 //   * `showsChildren` ignoreras i `AppWindow::collectFocusable` (F1, F2: den
@@ -5836,6 +5841,197 @@ void fallFlytFalt()
     }
 }
 
+// ================================== FK — TANGENTBORDET I ETT FLYTANDE FÄLT
+//
+// Ett flytande verktygsfälts fönster aktiveras aldrig, så OS:et levererar
+// tangenterna till ÄGAREN — här skickas de därför med ägarens `windowId`, och
+// trycken med fältfönstrets (genom `handleEvent`, som i dnd_gate). Ägaren har
+// ett textfält i fokus; fältet har ett textfält, en verktygsknapp och en
+// vallista.
+//   FK1 ett tryck på fältets textfält ⇒ tecknet hamnar i det, inte i ägarens
+//   FK5 en tangent som trycktes medan fältet hade tangentbordet släpps dit
+//       också när ett tryck i ägaren hunnit ta tangentbordet — ett `onKeyUp`
+//       i fältets textfält och inget i ägarens
+//   FK2 ett tryck i ägaren ⇒ tecknet går till ägarens textfält
+//   FK3 ett tryck på verktygsknappen lämnar tangentbordet där det var — hos
+//       ägaren när den hade det, hos fältet när det hade det
+//   FK4 ett tryck på vallistan öppnar den, och pil ner + Enter med ägarens
+//       `windowId` väljer andra raden
+//
+// Ägarens `handleEvent` är protected och fältfönstrets typ är intern, så
+// fältfönstrets nås genom en pekare till medlem genom en härledd klass.
+struct Åtkomst : glaze::AppWindow {
+    static void skicka(glaze::AppWindow& w, const gfx::Event& e)
+    {
+        (w.*(&Åtkomst::handleEvent))(e);
+    }
+};
+
+struct TangentRigg : glaze::AppWindow {
+    glaze::DockHost   host;
+    glaze::ToolBar    fält;
+    glaze::TextInput  fältText;
+    glaze::ToolButton knapp{"Fet"};
+    glaze::Dropdown   val;
+    glaze::Panel      mitt;
+    glaze::TextInput  ägarText;
+
+    TangentRigg() : glaze::AppWindow("dock_gate fälttangenter", 640, 420)
+    {
+        host.name     = "host";
+        host.dock     = glaze::Dock::Fill;
+        fält.name     = "falt";
+        fält.setText("Fält");
+        fältText.width = 120;
+        val.width      = 100;
+        val.addItem("A");
+        val.addItem("B");
+        val.addItem("C");
+        val.setSelectedIndex(0);
+        ägarText.width = 200;
+        ägarText.x     = 20;
+        ägarText.y     = 20;
+        root().adopt(host);
+        host.adopt(fält);
+        fält.adopt(fältText);
+        fält.adopt(knapp);
+        fält.adopt(val);
+        host.adopt(mitt);
+        mitt.adopt(ägarText);
+    }
+
+    // Mitten av `w` i dess eget fönster, i fönstrets fysiska px.
+    static gfx::Pointf mitten(glaze::Widget& w)
+    {
+        const gfx::Rectf r = w.resolve(w.behaviorCtx());
+        return {r.x + r.w / 2.0f, r.y + r.h / 2.0f};
+    }
+    // Ett tryck och ett släpp på `w`, genom fönstret `f`:s ingång.
+    static void tryck(glaze::AppWindow& f, glaze::Widget& w)
+    {
+        const gfx::Pointf p = mitten(w);
+        gfx::Event        e;
+        e.windowId = f.window().id();
+        e.mouseX   = p.x;
+        e.mouseY   = p.y;
+        e.button   = gfx::MouseButton::Left;
+        e.type     = gfx::EventType::MouseButtonDown;
+        Åtkomst::skicka(f, e);
+        e.type = gfx::EventType::MouseButtonUp;
+        Åtkomst::skicka(f, e);
+    }
+    // En tangent, ett släpp eller ett tecken med ÄGARENS windowId.
+    void tangent(gfx::EventType t, gfx::Key k)
+    {
+        gfx::Event e;
+        e.type     = t;
+        e.windowId = window().id();
+        e.key      = k;
+        Åtkomst::skicka(*this, e);
+    }
+    void tecken(const char* s)
+    {
+        gfx::Event e;
+        e.type     = gfx::EventType::TextInput;
+        e.windowId = window().id();
+        std::snprintf(e.text, sizeof e.text, "%s", s);
+        Åtkomst::skicka(*this, e);
+    }
+};
+
+void fallFältTangenter()
+{
+    std::printf("\n=== FÄLTETS TANGENTER ===\n");
+    TangentRigg w;
+    bool        kordes = false;
+    int         upFält = 0, upÄgare = 0;
+    w.fältText.onKeyUp = [&](glaze::Widget*, glaze::KeyArgs&) { ++upFält; };
+    w.ägarText.onKeyUp = [&](glaze::Widget*, glaze::KeyArgs&) { ++upÄgare; };
+
+    glaze::app().post([&] {
+        kordes = true;
+        w.fält.setFloating(true);
+        vänta([&] {
+            glaze::AppWindow* f = w.fält.appWindow();
+            return w.fält.parent() != &w.host && f && f != &w && !f->isHidden();
+        }, 2000, [&](bool) {
+            glaze::AppWindow* const fw = w.fält.appWindow();
+            check(w.fält.parent() != &w.host && fw && fw != &w && !fw->isHidden(),
+                  "FK: (förutsättning) fältet flyter i ett synligt fönster");
+            if (!fw || fw == &w) {
+                w.close();
+                return;
+            }
+            w.ägarText.focus();
+
+            // FK1 — textfältet i fältet får tangentbordet.
+            TangentRigg::tryck(*fw, w.fältText);
+            w.tecken("x");
+            check(w.fältText.text() == "x" && w.ägarText.text().empty(),
+                  "FK1: ett tryck på fältets textfält ger fältet tangentbordet "
+                  "— tecknet hamnar där och inte hos ägaren",
+                  "fält \"" + w.fältText.text() + "\", ägare \"" +
+                      w.ägarText.text() + "\"");
+
+            // FK5 — en tangent tryckt medan fältet hade tangentbordet släpps
+            // dit, också när ett tryck i ägaren hunnit ta det.
+            w.tangent(gfx::EventType::KeyDown, gfx::Key::Left);
+            TangentRigg::tryck(w, w.ägarText);
+            w.tangent(gfx::EventType::KeyUp, gfx::Key::Left);
+            check(upFält == 1 && upÄgare == 0,
+                  "FK5: släppet av en tangent som trycktes i fältet går till "
+                  "fältet — ingen onKeyUp hos ägaren",
+                  "fält " + std::to_string(upFält) + ", ägare " +
+                      std::to_string(upÄgare));
+
+            // FK2 — trycket i ägaren gav tangentbordet tillbaka.
+            w.tecken("y");
+            check(w.ägarText.text() == "y" && w.fältText.text() == "x",
+                  "FK2: ett tryck i ägaren — tecknet går till ägarens textfält",
+                  "fält \"" + w.fältText.text() + "\", ägare \"" +
+                      w.ägarText.text() + "\"");
+
+            // FK3a — en verktygsknapp tar inte tangentbordet från ägaren.
+            TangentRigg::tryck(*fw, w.knapp);
+            w.tecken("z");
+            check(w.ägarText.text() == "yz" && w.fältText.text() == "x",
+                  "FK3: ett tryck på verktygsknappen lämnar tangentbordet hos "
+                  "ägaren",
+                  "fält \"" + w.fältText.text() + "\", ägare \"" +
+                      w.ägarText.text() + "\"");
+
+            // FK3b — …och tar det inte från fältet.
+            TangentRigg::tryck(*fw, w.fältText);
+            TangentRigg::tryck(*fw, w.knapp);
+            w.tecken("w");
+            check(w.fältText.text().find('w') != std::string::npos &&
+                      w.ägarText.text() == "yz",
+                  "FK3: ett tryck på verktygsknappen lämnar tangentbordet hos "
+                  "fältet när det hade det",
+                  "fält \"" + w.fältText.text() + "\", ägare \"" +
+                      w.ägarText.text() + "\"");
+
+            // FK4 — vallistan: öppnas av trycket, pilen och Enter väljer.
+            TangentRigg::tryck(*fw, w.val);
+            check(w.val.isOpen(), "FK4: (förutsättning) trycket öppnar listan");
+            w.tangent(gfx::EventType::KeyDown, gfx::Key::Down);
+            w.tangent(gfx::EventType::KeyUp, gfx::Key::Down);
+            w.tangent(gfx::EventType::KeyDown, gfx::Key::Return);
+            w.tangent(gfx::EventType::KeyUp, gfx::Key::Return);
+            check(w.val.selectedIndex() == 1,
+                  "FK4: pil ner och Enter med ägarens windowId väljer andra "
+                  "raden i fältets vallista",
+                  std::to_string(w.val.selectedIndex()));
+            w.close();
+        });
+    });
+    w.run();
+    if (!kordes) {
+        std::printf("  --   FK: inget fönster kunde skapas (ingen display)\n");
+        ++g_skips;
+    }
+}
+
 // ============================================ TE — VERKTYGSFÄLTETS KANTER
 //
 // `ToolBar::setAllowedEdges` genom greppdraget i
@@ -6297,7 +6493,8 @@ int main(int argc, char** argv)
     fallFlytRivning();
     fallReservvagen();
     fallFlytFalt();
-    fallKanter();   // TE
+    fallFältTangenter();   // FK
+    fallKanter();          // TE
 #ifdef GLAZE_BACKEND_D3D11
     fallFältÖverPanel();   // FT13
 #endif

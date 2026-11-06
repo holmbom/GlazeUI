@@ -1,16 +1,12 @@
 # CLAUDE.md — Glaze/widgets/src/canvas
 
-Implementationen av RITYTANS typer och motor (CANVAS_2D, TODO 27) och dess
-3D (CANVAS_3D, TODO 50 — samma scen och samma lager) — headrarna och
-kontrakten står i [../../include/glaze/canvas/](../../include/glaze/canvas/CLAUDE.md),
-widgeten i [../widgets/canvas.cpp](../widgets/canvas.cpp). Del av GlazeUI — se
-[root /CLAUDE.md](../../../../CLAUDE.md) för lagerbilden och de hårda reglerna.
-Bildkällornas texturer bor INTE här utan i [../image_cache.cpp](../image_cache.cpp)
-(se [../CLAUDE.md](../CLAUDE.md)).
-
-Här FÅR `c.r` stå: scenens GPU-arbete (`drawMesh`, `uploadTransient`,
-buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
-`grep "constexpr float k\|c\.r->" Glaze/widgets/src/widgets` = 0).
+Implementationen av RITYTANS typer och motor och dess 3D (samma scen och
+samma lager) — headrarna och kontrakten står i
+[../../include/glaze/canvas/](../../include/glaze/canvas/CLAUDE.md), widgeten i
+[../widgets/canvas.cpp](../widgets/canvas.cpp). Bildkällornas texturer bor i
+[../image_cache.cpp](../image_cache.cpp). Här FÅR `c.r` stå: scenens
+GPU-arbete (`drawMesh`, `uploadTransient`, buffertarna) bor här så att
+widget-filen kan hålla sig fri från den.
 
 ## Filer
 
@@ -21,7 +17,7 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   bilden tömmer loggen och en full logg ger upp sin äldre halva) och
   `RenderTextureData` (id, mått, målningen, rensfärgen, filtret och
   `version`, som paint/repaint stegar). Bara src/canvas/*.cpp och
-  src/image_cache.cpp drar in den. REQ3_RITYTAN 9: `keepPixels`/`released`/
+  src/image_cache.cpp drar in den. `keepPixels`/`released`/
   `releaseQueued`/`missLogged` och SLÄPPKÖN `queuePixelRelease` (bilden och
   den uppladdade versionen) + `releaseQueuedPixels` (App:s pump efter ritloopen).
 - **`bitmap.cpp`** — `glaze::Bitmap`: konstruktorerna (storleksvakten mot
@@ -33,34 +29,32 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
 - **`render_texture.cpp`** — `glaze::RenderTexture`: måtten, `paint`
   (lagrar funktion + rensfärg, stegar versionen), `repaint` och filtret.
   Ingen renderer — målningen sker i fönstrets cache.
-- **`shape.cpp`** (etapp 7) — `Shape`s fabriker, `Paint` (jämförelsen — en
+- **`shape.cpp`** — `Shape`s fabriker, `Paint` (jämförelsen — en
   körnings nyckel jämför gradienten på VÄRDE) och `ImageSource` (`sameImage`
-  via `friend` till handtagen; sedan TRAD_LISTOR_BILDER tar Bitmap- och
-  RenderTexture-konstruktorerna en SNAPSHOT av `d_->version` — `image_data.h`
-  — som `operator==` jämför, och `sizeClass()` är `assetSizeClass` för en
-  asset, 0 annars). Cirklar, ellipser och bågar plattas till 128
-  punkter per varv (zoomen är okänd när formen byggs; felet ≈ 0,0003 · r).
-  **CANVAS_TEXT_OCH_BILD:** etiketten i delar lagrar `spans_` (sist i
+  via `friend` till handtagen; Bitmap- och RenderTexture-konstruktorerna tar
+  en SNAPSHOT av `d_->version` — `image_data.h` — som `operator==` jämför,
+  och `sizeClass()` är `assetSizeClass` för en asset, 0 annars). Cirklar,
+  ellipser och bågar plattas till 128 punkter per varv (zoomen är okänd när
+  formen byggs; felet ≈ 0,0003 · r). Etiketten i delar lagrar `spans_` (sist i
   klassen) och lämnar `text_` tom; bilden på fyra hörn lagrar hörnen i
   RINGORDNING i `points_` och LÅDAN kring dem i `rect_` (gallringen och
   rutnätet läser den), och fabriken prövar fyrhörningen med
   `gfx::quadWeights` och loggar en ogiltig EN gång per process (atomic —
   fabrikerna går i vilken tråd som helst). Vikterna lagras inte: byggaren
-  räknar dem ur hörnen den får.
-  **FÖREMÅLEN (CANVAS_3D etapp 4–6):** `meshOf` (gfx/geom3d-geometri →
+  räknar dem ur hörnen den får. **FÖREMÅLEN:** `meshOf` (gfx/geom3d-geometri →
   `Mesh` med origot i lådans mitt), ENHETSMESHARNA `unitBox`/`unitSphere`
   (statiska, initierade en gång) och `unitCylinder(sidor)` (en cache bakom
   ett lås — fabrikerna går i vilken tråd som helst), `polygon3` (öron-
   klippningen i ringens plan; linjär gradient → skalär t + ramp, radiell →
   första stoppet + en logg per process), `instances` (prototypens låda i
   instansens ram → `buildInstanceSet`) och läsvägen.
-- **`path.cpp`** (etapp 7) — `Path`: segmenten och `flatten()` (De
+- **`path.cpp`** — `Path`: segmenten och `flatten()` (De
   Casteljau tills kontrollpunkterna ligger inom 1/1000 av kurvans
   kontrollpolygon, högst 2¹² segment; Quad som Cubic).
-- **`build.h/.cpp`** (etapp 7) — INTERN: en FORM till byggarnas geometri,
+- **`build.h/.cpp`** — INTERN: en FORM till byggarnas geometri,
   DELAD av lagren och målaren. `partKeys` (formens delar i ritordning med
   deras `RunKey` — en yta är Fill och sedan Line; en bildmarkör bär sin bild
-  i nyckeln, och text och markörer sitt golv och tak, REQ3 8), `shapeBounds`,
+  i nyckeln, och text och markörer sitt golv och tak), `shapeBounds`,
   **`glyphLimits`/`clampGlyphPx`/`glyphReachEm`** (golvet och taket i fysiska
   px — uniformerna, placeringen, träffprovet, gallringen och mätningen) och
   **`visibleAtZoom`** (textens och markörens zoomintervall, scene.h `zoomInRange`),
@@ -69,54 +63,53 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   bredden, √2 × för en fyrkantig ände), **`strokeKey`** (spetsgränsen och
   strecken via `gfx::makeDash` — för många längder loggas EN gång och ritas
   heldragna) och **`strokeUniforms`** (strecken i skärmrymd; world ⇒ 1),
-  `buildFillPart` (ett `gfx::buildPolygon` per DEL i samma chunklista — en del är ytterringen och dess hål), `imageUniforms` (färgjusteringen, REQ8 3),
+  `buildFillPart` (ett `gfx::buildPolygon` per DEL i samma chunklista — en del är ytterringen och dess hål), `imageUniforms` (färgjusteringen),
   `imageCorners`/`buildImageQuad` (rättvänd efter y-riktningen), och
   Glyph-delarnas `GlyphUnits`/`toUnit` (alla mått i storlekens enhet),
-  `textLayout`/`markerLayout` och `glyphReach`. **CANVAS_TEXT_OCH_BILD:**
+  `textLayout`/`markerLayout` och `glyphReach`.
   `imageCornersOf(form)` (rektangelns hörn, eller de fyra fria hörnen i
   z-ordning {p0, p1, p3, p2} — lagren, målaren och scene.cpp:s 3D-väg läser
   den), `imageQuadOk` (en rektangel alltid, fyra hörn bara strikt konvexa —
   `partKeys` ger ingen Image-del annars, och träffprovet frågar samma), och
   `buildImageQuad` räknar de PROJEKTIVA vikterna ur hörnen SOM DE RITAS
-  (efter målarens transform; ingen yta ⇒ ettor); `splitImageQuads` (REQ8 5)
+  (efter målarens transform; ingen yta ⇒ ettor); `splitImageQuads`
   delar dem på en bilds RUTOR genom plattans homografi (döda hoppas över). `fontKey` är 1 + familj
   (Mono 2, annars 1) och `fontFamilyOf` vägen tillbaka — stilen står inte i
   nyckeln, så vanliga och feta etiketter delar körning. `textParts` gör
   etiketten till `gfx::StyledText`-delar (en vanlig text är en del, en etikett
   i delar en per `TextSpan` med de osatta fälten ur stilen); strängarna LÅNAS
-  ur formens `TrText`. **`measureLabel`** (REQ2_RITYTAN): textblocket utan
+  ur formens `TrText`. **`measureLabel`**: textblocket utan
   platta, luft, ankare och förskjutning genom `gfx::measureText` — samma
   layout som bygget, inget laddas upp — omräknat från storlekens enhet till
   den begärda med tätheterna i `GlyphUnits`; målaren (`measureParts`, px) och
   `Canvas::measureText` mäter med den, så de två aldrig går isär.
-  **`measureNeedsWorld(stil, ut)`** (REQ7 4): sant när `ut`, storleken,
+  **`measureNeedsWorld(stil, ut)`**: sant när `ut`, storleken,
   brytbredden, `maxHeight`, golvet eller taket är World och > 0 (inte glorian
   — mätningen läser den inte); `Canvas::measureWith` svarar då nullopt utan
   täthet. `Xform` är målarens affina transform
-  (lagren bygger med identiteten). **I RYMDEN (CANVAS_3D etapp 3):**
+  (lagren bygger med identiteten). **I RYMDEN:**
   `partKeys` ger Line3 och Glyph3 för formerna i rymden, `buildLine3Part`
   (Line3-chunkarna ur `Stroke`, samma översättning som 2D-konturen),
   `shapeZRange` (formens z-spann — 0 för en plan form), `glyphReach` också
   för en `GlyphChunk3`, och `Xform::apply3` — ett EGET namn, för `{x, y}`
   initierar också en `Point3` och en överlagring blev tvetydig.
-  **Etapp 4–6:** `partKeys` ger `PartKind::Mesh` för mesh, yta i rymden och
+  `partKeys` ger `PartKind::Mesh` för mesh, yta i rymden och
   instanser (nyckeln är bara slaget — varje föremål är sitt eget anrop) och
   `Points` för punkterna; ytan i rymden också Line3 för sin SLUTNA kontur
   (`buildLine3Part` sluter den för `Area3`). **`objectBox(form)`** —
   föremålets låda i världen med datan NU (meshens låda genom placeringen,
   mängdens, molnets; en skärmkonstant mesh svarar med sitt origo) —
   används av `shapeBounds`/`shapeZRange`, `sceneBox` och 2D-vägens 3D-vy.
-  **Etapp 8–9:** helskärmspasset är `PartKind::Pass` (programmet Custom,
+  Helskärmspasset är `PartKind::Pass` (programmet Custom,
   ingen låda), och `RunKey::ground` skiljer LIGGANDE text och markörer
   (`Alignment::Ground`) från de stående — en egen körning, för på terräng
   draperas den ena och den andra står vid markhöjd.
-- **`scene.h/.cpp`** (etapp 7) — INTERN: LAGREN. ORDNINGEN är lagrets plats
-  i `SceneData::layers`, och `Canvas::moveLayer` (REQ2_RITYTAN) roterar bara
+- **`scene.h/.cpp`** — INTERN: LAGREN. ORDNINGEN är lagrets plats
+  i `SceneData::layers`, och `Canvas::moveLayer` roterar bara
   vektorn: körningarna, chunkarna och fönstrets GPU-kopia (nycklad på id)
-  står kvar. Det som beror på PLATSEN räknas om varje ritning —
-  `LayerFrame::placement[li]`, etiketternas `LabelSource::layer`
-  (placeringens "överst vinner") och draperingens innehållsnyckel — medan
-  terrängens regionnyckel är ordningsoberoende (drape.cpp). REQ3_RITYTAN:
+  står kvar. Det som beror på PLATSEN räknas om varje ritning (fallgropen
+  "Platsberoende" nedan), medan terrängens regionnyckel är
+  ordningsoberoende (drape.cpp).
   `RunKey::minSize`/`maxSize` (glyfslagen), `SceneData::memoryBudget`, RAII
   `ImageAccount` (ritytans konto i bildcachen under drawScene/drawOverlay/
   renderToBitmap) och `zoomInRange` (lagrens OCH etiketternas regel). `SceneData` →
@@ -135,10 +128,10 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   upp; över `kCompactDeadShare` = 25 % märks lagret och byggs om före nästa
   ritning), `replaceShapeAt` (på plats när delarna har samma nycklar och
   exakt lika många vertex, annars ombyggnad) och `rebuildLayer`. Ritningen:
-  `prepareLayers` + `drawGround`/`drawWorld` (förr `drawLayers`, se
-  "I RYMDEN" nedan; dolt lager hoppas över; ett lager utanför sitt zoomintervall
+  `prepareLayers` + `drawGround`/`drawWorld` ("I RYMDEN" nedan; dolt lager
+  hoppas över; ett lager utanför sitt zoomintervall
   hålls ändå RESIDENT — varje chunk synkas FÖRE gallringen, så en panorering
-  eller zoom ritar och laddar aldrig upp; sedan etapp 9 ett FÖRPASS som
+  eller zoom ritar och laddar aldrig upp; ett FÖRPASS som
   bygger varje Glyph-körning för fönstret och samlar de RITADE i ritordning
   åt etiketternas placering (`labels.h`), som körs före den första
   Glyph-körningen — svaret true betyder att en toning pågår och ritytan
@@ -148,13 +141,13 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   ×1/2/5/10 under `canvasGridMin`) och `pxPerUnit` (px = skalan, mm =
   `Ctx::pxPerMm`, world = kamerans skala i mitten). `PaintContext` är en
   ritnings delade läge — också målarens. **`LayerData::shapesVersion`**
-  (etapp 8) stegas av VARJE ändring av formerna — `appendShape`,
+  stegas av VARJE ändring av formerna — `appendShape`,
   `removeShapeAt`, `replaceShapeAt`, `rebuildLayer` och widgetens
   `setShapes` — och träffprovets rutnät (`LayerData::hit`) gäller bara för
   den version det byggdes ur; `rebuildLayer` räknar profilerarens
-  LayerRebuilds. **PRESTANDA C2/C3/C6:** `KeyHash` (FNV-1a — cachenycklarna),
+  LayerRebuilds. `KeyHash` (FNV-1a — cachenycklarna),
   `LayerData::textVersion` (stegad av `touchText`, språkbytet — som INTE
-  stegar `shapesVersion`), `LayerData::snap` (C5), `ShapeEntry::version`
+  stegar `shapesVersion`), `LayerData::snap`, `ShapeEntry::version`
   (stegad av `replaceShapeAt`) och **`objectBox(entry)`** — föremålets låda
   CACHAD i posten med formens och meshens version (`mutable`, UI-trådens;
   scenens låda, terrängens rutnät, draperingarna och pick3d:s skymmare
@@ -164,13 +157,13 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   lagren SJÄLV (id, synlighet i vyn, `shapesVersion`) plus
   `meshGeneration()` — för `removeView`/`setViews` numrerar om utan att
   stega `layerSetVersion`. `writeInPlace` växer Glyph-körningens ankarlåda
-  (`growRunBox`) — en text flyttad med `setShape` hamnade förut utanför.
+  (`growRunBox`), så en text flyttad med `setShape` ligger kvar i den.
   UPPLADDNINGEN SYNLIGT FÖRST: **`prepareUploads(f, scen)`** samlar föremålen
   (`queueObjects`) och bildkörningarna med en synlig chunk (`chunkVisible`,
   ritningens gallring) närmast först, sedan resten med det som blir kvar av
   framens budget; 3D-målets `prepareLayers` kör den, 2D-vägen efter sin
   ritning. Chunkarna har ingen budget och synkas alla.
-  **I RYMDEN (CANVAS_3D etapp 3):** `PartKind {Image, Fill, Line, Line3,
+  **I RYMDEN:** `PartKind {Image, Fill, Line, Line3,
   Glyph, Glyph3}` (`isLineKind`/`isGlyphKind`), `ChunkData` med origo och
   låda också i z och `lines3`, `RunData::box`, och `LayerData` med
   `placement`, `state` och `shapes3D` (antalet former i rymden — Auto blir
@@ -181,7 +174,7 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   avgjorda placering, `groundDrawn`, etiketterna); **`drawGround(f, scen, lf,
   GroundPart::Geometry | Labels | All, målare)`** och **`drawWorld(f, scen, lf,
   målare)`** ritar (World med lagrets renderläge — `gfxState(s, etikett)`: en
-  etikett skriver aldrig djup; `målare`, REQ8 2 `LayerPaint`, är lagrens
+  etikett skriver aldrig djup; `målare`, `LayerPaint`, är lagrens
   `onPaintLayer` efter deras former, i World med lagrets renderläge — aldrig i
   Labels eller Drape). 2D-vägen ritar `drawGround(All)` i dagens ordning (samma
   pixlar); i 3D-målet sker förberedelsen före `pushTarget` (`residentFirst`).
@@ -189,7 +182,7 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   projektionen: satt går `chunkMatrix(f, ox, oy, oz)` och gallringen
   (`boxVisible`, lådans åtta hörn) genom 3D-vyn. `sceneBox` (de synliga
   lagrens låda — 3D-vyns klipplan) och `prepareGrid` (rutnätets mesh före
-  målet). **VYERNA (etapp 10):** `kMainView` (0 — ritytan själv; del-vyerna
+  målet). **VYERNA:** `kMainView` (0 — ritytan själv; del-vyerna
   är 1, 2 …), `LayerData::views` (sorterad och unik, `{0}` från start) och
   `layerInView`; `PaintContext::view` (vyn som ritas) och `labelSlot`
   (etikettplaceringens plats — vyns nummer, eller `kBitmapLabels` = −1 för
@@ -200,9 +193,9 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   över lagren utanför vyn (huvudvyns har gjort dem residenta). `sceneBox(scen,
   vy)` räknar bara vyns lager, så en navigeringskub vid origo aldrig drar ut
   en SWEREF-kartas djupintervall. `gfxState` (lagrets renderläge i fasadens
-  form, etiketterna utan skrivning) och `validRenderState` står i headern
-  sedan etapp 10 — målaren och `Canvas::setLayerRenderState` delar dem.
-  **FÖREMÅLEN (CANVAS_3D etapp 4–6):** `PartKind {Image, Fill, Mesh, Points,
+  form, etiketterna utan skrivning) och `validRenderState` står i headern —
+  målaren och `Canvas::setLayerRenderState` delar dem.
+  **FÖREMÅLEN:** `PartKind {Image, Fill, Mesh, Points,
   Line, Line3, Glyph, Glyph3}` — det ogenomskinliga före linjerna i ByKind
   (`isObjectKind`); en Mesh- eller Points-körning bär FORMERNA i
   `RunData::objects` (som Glyph-körningen sina), och sceneBox räknar deras
@@ -214,15 +207,15 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   över föremålen — `setShape` på ett föremål är alltid på plats.
   `prepareRun` lämnar föremålens körningar till `prepareUploads`,
   `drawGround`/`drawWorld` till `drawObjects` (scene3d.h);
-  `PaintContext::lighting` bär ritytans ljus. **EGNA PROGRAM (etapp 8):**
+  `PaintContext::lighting` bär ritytans ljus. **EGNA PROGRAM:**
   `SceneData::programs` — `ProgramSlot` (programmet, en VERSION ur
   `nextSceneId` som varje `setProgram` byter, och en `life`-token som
   fönstrens kompilering lever på) — `findProgram(scen, namn)` och
   `fallbackLogged` (namnen vars reserv redan loggats; `mutable`, för
   ritningen ser scenen som const). `PartKind::Pass` står FÖRST i ByKind,
   `LayerData::passes` räknar passen och `hasScreenPass` tar ritytan till
-  3D-målet; **`drawPasses`** ritar dem i 3D-målets steg 1. **TERRÄNGEN
-  (etapp 9):** `prepareLayers` sätter `LayerFrame::terrain`
+  3D-målet; **`drawPasses`** ritar dem i 3D-målets steg 1. **TERRÄNGEN:**
+  `prepareLayers` sätter `LayerFrame::terrain`
   (drape.h) och lämnar de LIGGANDE textkörningarna på terräng utanför
   etikettplaceringen (de draperas); `glyphEnv` ger körningarna i ett
   Ground-lager terrängen (`onTerrain`), så de stående etiketterna byggs vid
@@ -231,30 +224,30 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   ingen 2D-geometri — den finns bara i draperingen; **`drawTerrain`** ritar
   Terrain-lagren (draperade) i steg 2, och `drawWorld` hoppar över dem.
   `layerDrawn` står i headern (draperingen och träffprovet frågar den).
-  **MARKENS INNEHÅLL (spår G):** `paintsGround(form)` — allt utom ett pass
+  **MARKENS INNEHÅLL:** `paintsGround(form)` — allt utom ett pass
   och en STÅENDE etikett eller markör — räknas i `LayerData::groundShapes`
   på samma fem ställen som `shapes3D`, och `paintsGround(lager)` är
   markdjupets villkor i `prepareLayers` (`LayerFrame::groundDrawn`) OCH i
   träffprovet (canvas.cpp): ett tomt Ground-lager gör ingen mark.
-- **`resources.h/.cpp`** (etapp 7) — INTERN: `CanvasResources`, ritytans
+- **`resources.h/.cpp`** — INTERN: `CanvasResources`, ritytans
   GPU-resurser per FÖNSTER (`Ctx::canvas`). `sync(chunk)` (buffertar med
   kapacitet i tvåpotenser ≥ 4 KiB; loggen ⇒ bara ändringarna, annars allt),
   `glyphs(run, env)` (Glyph-körningens text byggd mot fönstrets atlas —
   grupperad som chunkarna, en etikett = ett `label`-index i bygget, med
   `LabelInfo` för kollisionen — vinkeln där som `cosA`/`sinA`, räknade en
-  gång i bygget (etapp 11) — och sedan etapp 8–9 `shape`/`sub`, formens
+  gång i bygget — och `shape`/`sub`, formens
   plats i körningens `glyphShapes` och markörens punkt, så träffprovet hittar
   tillbaka till formen; byggets `serial` är ett löpnummer: ett nytt bygge är
   nya etiketter; ombyggd när körningen, tätheten eller atlasepoken ändrats),
   **`findGlyphs(run)`** (bygget SOM DET RITADES, bara om det byggdes ur
   körningens nuvarande version — BYGGER ALDRIG: träffprovet frågar utanför
   en frame, där en atlas inte får laddas upp), `setPageRender` (en sidas text i egna byggen, så att skärmens etikettträffar står orörda), `atlas(familj)` (EN
-  `gfx::SdfAtlas` per familj sedan CANVAS_TEXT_OCH_BILD, med alla stilarna
+  `gfx::SdfAtlas` per familj, med alla stilarna
   i sig; nyckeln är byggarens `fontKey`),
   `ramp(stopp)` (LRU, tak 256), `grid(färg, bredd)`, **ETIKETTERNA**
-  (etapp 9: `LabelState` per rityta — placeringens indata (kameran,
+  (`LabelState` per rityta — placeringens indata (kameran,
   tätheten, körningarna som `LabelRun` med bas och löpnummer), ordningen
-  (`order`, etapp 11), målet och det
+  (`order`), målet och det
   bilden bär (tonas mot målet) och synlighetsbilden, R8 med
   `kLabelTexWidth` = 256 texlar per rad; `labelState`/`findLabelState`,
   `uploadLabels(s, lo, hi)` — EXAKT `hi − lo` byte: en bit av första raden,
@@ -262,38 +255,38 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   och laddas upp hel — och `dropLabels`) och `trim()` (döda
   chunkar/körningar och rivna ritytors placering, atlaserna över 32 sidor
   töms, och det som ersattes mitt i förra framen — `retired*` — släpps först
-  här). **3D-MÅLEN (CANVAS_3D etapp 3):** `target3D(scen, vy, w, h, prov)` —
+  här). **3D-MÅLEN:** `target3D(scen, vy, w, h, prov)` —
   ett mål per (scen-id, vy) med djup och MSAA, ersatt när måtten eller
   provtagningen ändras (det gamla i `retiredTargets_`), med cachens nyckel
   (`stamp`, rutan, skalan, mm-tätheten, `drawn`); räknaren
   `targetRenders()`/`noteTargetRender()` (grindarna läser den — varje vys
   mål räknas) och `groundPlane()` (markdjupets kvadrat). Glyph3:s
   byggen bär origo och z-spann (`GlyphGpu`), och `LabelInfo::z` ankarets
-  höjd. **Etapp 10:** ETIKETTPLACERINGEN är per (rityta, PLATS) —
+  höjd. ETIKETTPLACERINGEN är per (rityta, PLATS) —
   `labelState(scen, plats)`/`findLabelState(id, plats)`, platsen förvald 0 —
   så varje del-vy och bilden placerar med sin kamera utan att röra skärmens;
-  `dropViews(scen-id, förstaVy)` (ersätter `dropTargets`) släpper målen för
+  `dropViews(scen-id, förstaVy)` släpper målen för
   vyerna från `förstaVy` och del-vyernas placeringar — 2D-vägen anropar den
   med 0, 3D-målet varje ritning med antalet vyer + 1 (en borttagen vy).
   Huvudvyns placering (2D-vägens också) och bildens står kvar.
-  **Etapp 4–6:** `objects()` — föremålens residens (residency.h), ägd här,
-  trimmad i `trim()` och riven med resten. **Etapp 8:** de EGNA PROGRAMMEN
+  `objects()` — föremålens residens (residency.h), ägd här,
+  trimmad i `trim()` och riven med resten. De EGNA PROGRAMMEN
   per fönster och VERSION — `program(slot)` (nullptr för ett ogiltigt; det
   sparas också, så felet kompileras en gång), `programError(slot)` och
   `programCount()`; `Program` → `gfx::ProgramDesc` med GlazeUser i hela
   float4 (`uniformFloats` uppåt till 16 byte); en post släpps i `trim()` när
   dess `life` gått ut (programmet bortplockat eller ersatt, ritytan riven).
-  **Etapp 9:** `drapes()` — draperingsmålen (drape.h), ägda och trimmade
+  `drapes()` — draperingsmålen (drape.h), ägda och trimmade
   här; `GlyphEnv::terrain`/`terrainKey` — en körning på terräng byggs
   med ankarnas markhöjd (`terrainHeight`, EN gång per punkt) i
   Glyph3-chunkar (`GlyphGpu::program`), och REGIONEN under körningens
-  ankarlåda (`terrainRegionKey`, PRESTANDA C3) står i byggets nyckel — en ny
+  ankarlåda (`terrainRegionKey`) står i byggets nyckel — en ny
   platta bygger om bara körningarna den når. **`atlasEpoch()`** (publik för
   markstämpeln) stegas när atlaserna töms; `glyphs()` räknar profilerarens
   GlyphBuilds (TargetRenders räknas i target3d.cpp).
-- **`target3d.h/.cpp`** (CANVAS_3D etapp 3) — INTERN: RITYTANS 3D-MÅL.
+- **`target3d.h/.cpp`** — INTERN: RITYTANS 3D-MÅL.
   `drawTarget3D(fönstrets läge, målets läge, scen, Target3DArgs)`: FÖRBERED
-  utanför målet (planens §3.12 — chunkarna, bilderna, texten, etiketterna
+  utanför målet (chunkarna, bilderna, texten, etiketterna
   med 3D-vyn, rutnätet, markplanet), RITA i målet bara när cachen är
   inaktuell — rutnätet och Ground-lagrens geometri, MARKDJUPET (ett plan
   z = 0 kring ögat, 2 × far, som bara skriver djup med Always och en
@@ -302,16 +295,16 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   `paintsGround` — lager 0 finns alltid och är tomt —, och utan terräng;
   det som STÅR på marken, de skärmvända primitiverna, skärs aldrig av det:
   deras hörn tar planets djup genom ankaret, förspelets `glaze_standingZ` —
-  högst ¼ av djupet, inget nära ögat (REQ9 7) — och Points `pointZ` med taket
+  högst ¼ av djupet, inget nära ögat — och Points `pointZ` med taket
   fyra radier (`kPointStandK`), gfx/scene.h `MeshProgram`), World-lagren med sitt
   renderläge, Ground-etiketterna ÖVERST och `onPaint` — och KOMPOSITEN varje
   gång: målets bild 1:1 under ritytans rundade klipp med tonen som opacitet
   (`drawImage` av-premultiplicerar målets bild). CACHEN är
   `Widget::damageStamp()` + rutan, skalan och mm-tätheten. MÅLETS PIXLAR
   börjar på rutans heltalshörn (`targetBox`), så kompositen är en ren kopia
-  av det 2D-vägen hade ritat. `defaultMultisample()` (4×, planens beslut 4)
+  av det 2D-vägen hade ritat. `defaultMultisample()` (4×)
   och `validMultisample` (1, 2, 4, 8); talen står i filens anonyma
-  namnrymd. **BILDRUTANS ORDNING sedan etapp 8–9** (planens §3.2): steg 1
+  namnrymd. **BILDRUTANS ORDNING:** steg 1
   helskärmspassen (`drawPasses`, utan djup); steg 2 rutnätet, TERRÄNGEN
   draperad (`drawTerrain` — draperingarna förbereds före målet,
   `prepareDrapes`) och Ground-lagrens geometri (utan terräng); steg 3
@@ -323,16 +316,15 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   **`Target3DState`** (etiketterna tonar, draperingar väntar) — båda gör att
   ritytan invaliderar sig själv. PROFILERARENS faser mäts i `renderView`:
   CanvasPrepare, CanvasDrapes, CanvasDraw (minus `onPaint`) och CanvasPaint.
-  **ETAPP 10 — DEL-VYERNA OCH BILDEN:**
-  en vy i sitt mål är `renderView` (förberedelsen utanför målet och
+  **DEL-VYERNA OCH BILDEN:** en vy i sitt mål är `renderView` (förberedelsen utanför målet och
   bildrutans ordning i det; rutnätet och `onPaint` bara för huvudvyn och
   bilden) med ritläget ur `cameraContext` (3D-vyn, kamerans kartskugga,
   vyn och etikettplatsen — och ur ritytans ritläge det som är ritytans:
   resurserna, meshernas LJUS och y-riktningen; ett nytt fält i
   `PaintContext` som är ritytans måste föras över där, annars ritar vyerna
   och bilden utan det). `drawTarget3D` ritar huvudmålet och sedan varje
-  del-vy i ETT EGET MÅL (`target3D(scen, vy, …)` — eget djup och MSAA,
-  planens §3.9) med vyns ruta ∩ ritytans i hela px (`Pixels`), samma cache
+  del-vy i ETT EGET MÅL (`target3D(scen, vy, …)` — eget djup och MSAA)
+  med vyns ruta ∩ ritytans i hela px (`Pixels`), samma cache
   per mål med vyns ruta, och kompositar huvudmålet och vyerna i
   nummerordning. `mainView3D` (huvudvyns 3D-vy — 3D-kameran eller
   kartkamerans `toView3D`; canvas.cpp:s `projection` går genom den),
@@ -341,7 +333,7 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   upp-axel rakt av, kartkamerans genom camera_math `orientedAs`), `viewAt`
   (den översta vyn under en fysisk punkt) och `viewView3D` (klipplanen ur
   vyns lager) är EN definition för ritningen och träffprovets routning
-  (canvas.cpp `viewUnder`/`viewProjection`, åt etapp 7). `renderBitmap3D`
+  (canvas.cpp `viewUnder`/`viewProjection`). `renderBitmap3D`
   (renderToBitmap): `beginOffscreen` → ett eget mål w × h med ritytans
   ritläge (fönstrets Ctx med rutan från (0, 0)), rensat till ritytans
   bakgrund → `renderView` med
@@ -490,13 +482,10 @@ buffertarna) bor här så att widget-filen kan hålla sig fri från den (grinden
   bilden på de fyra hörnen under klippet; false för en tom rektangel, en
   ogiltig kamera och `SceneData::painting` (anrop ur ritytans egen ritning).
 - **`clip.h/.cpp`** — INTERN: KLIPPET SOM MASKER. `ClipMasks` (per fönster,
-  `CanvasResources::clips()`, målen i `TargetPool` — target_pool.h, delad med `pageTarget`): nyckeln (klippets process-unika version, kamerans eller vyns parametrar, rutnätet, förälderns nyckel) räknas FÖRST och `find` ger masken ur minnet — ytorna projiceras bara vid en miss;
-  återanvänds två framer, liksom ytornas giltighet (`valid`, `gfx::clipPolygonOk`); `validPolygons` hoppar över ogiltiga utan kopia.
-  `refineClip` → `ClipScope{flat, tall}` (2D-programmen resp. det med höjd;
-  `ClipLook::apply` binder skärmmask + världsmask, `worldUv` i double);
-  `prepareClips` bygger ritytans och lagrens (`LayerFrame::clips`) före målet.
-  World med RAK 2D-kamera (tilt 0, bäring 0°/180°) → VÄRLDSMASK bunden som skärmmask (`planLook`, täthet 2^⌈log₂ skala⌉ — en panorering fyller inte om), annars (vriden, lutad, en förälders skärmmask, för stor låda) skärmmask homogent mot ögat; i 3D-målet också världsmask på markytans
-  gitter (`worldLimit`). `clipContains`/`clipTouches` är träffprovets; punkt-i-ring är `ring.h`s `inRing`, delad med hit_index.
+  `CanvasResources::clips()`, målen i `TargetPool` — target_pool.h, delad med `pageTarget`, släppta efter `kKeptFrames`): nyckeln (klippets INNEHÅLL — `ClipState::content`, en hash över rymden och de ritade ytornas `keys`, räknad av sättaren i `revalidateClip`, så lager med samma yta delar mask —, kamerans eller gittrets parametrar, förälderns nyckel) räknas FÖRST och `find` ger masken ur minnet — ytorna projiceras bara vid en miss;
+  liksom ytornas giltighet (`valid`, `gfx::clipPolygonOk`); `validPolygons` hoppar över ogiltiga utan kopia. `unfilled()` räknar ytor som inte gick att fylla (grindarna).
+  `refineClip(f, förälder, rymd, ClipSnapshot, källa)` → `ClipScope{flat, tall, chain}`; `ClipSnapshot` är ytorna som ägt värde (`ClipState::snapshot`, målarens `save`), så kedjan läser samma ytor genom hela ritningen. `ClipLook::apply` binder skärmmask + världsmask (`worldUv` i double), och `prepareClips` bygger ritytans och lagrens (`LayerFrame::clips`) före målet.
+  2D: World med RAK kamera → VÄRLDSMASK bunden som skärmmask (`planLook`), annars skärmmask homogent mot ögat (`projectedAreas` — hålen klipps `kHoleFloorFactor` längre från ögat än ytterringen, så de aldrig når dess kant). 3D-MÅLET: `flat` = `tall` — alla program läser världsmasken i sin världspunkt; `worldGrid` ger ett gitter som INTE följer vyn (klippets låda i markskalans tvåpotens, annars det synliga utvidgat till budgeten i rutor om `kWorldTile`, och det senaste gittret står kvar inom en oktav, `ClipMasks::lastGrid`). `ClipScope::onScreen(f)` är skärmrymdens klipp (målarens `screenSpace`, passen) — kedjan (`ClipStep`) projicerad först när något ritas där. Måtten avrundas till en STORLEKSKLASS (`sizeClass`/`sizeClassStep`, grindarna läser regeln). `clipContains`/`clipTouches` är träffprovets; punkt-i-ring är `ring.h`s `inRing`, delad med hit_index.
 - **`placement.h/.cpp`** (etapp 9, E9) — INTERN: ETIKETTPLACERINGENS
   algoritm, en REN funktion utan renderer, kamera eller widget:
   `detail::placeLabels(span<const LabelBox>, screen)` → en flagga per

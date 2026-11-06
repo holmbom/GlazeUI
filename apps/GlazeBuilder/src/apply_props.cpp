@@ -424,8 +424,8 @@ namespace {
 
 // Argumentets råa uttryckstext → bool. Grammatiken lagrar argument
 // ordagrant, så "true"/"false" är precis det som står i filen; tomt
-// argument tolkas som `true` (`showScrollbars()` finns inte, men en
-// handskriven rad ska inte tyst bli `false`).
+// argument tolkas som `true` (`setIndeterminate()` finns inte utan argument,
+// men en handskriven rad ska inte tyst bli `false`).
 bool argBool(const std::string& args, bool& out)
 {
     if (args.empty()) { out = true;  return true; }
@@ -604,54 +604,6 @@ bool skalaKlammer(const std::string& v, std::string& inre)
     if (t.size() < 2 || t.front() != '{' || t.back() != '}')
         return false;
     inre = t.substr(1, t.size() - 2);
-    return true;
-}
-
-// `{{"Bredd", "120"}, {"Höjd", "80"}}` → PropertyGrid-rader.
-//
-// STRIKT delmängd, samma familj som `parseStringList`/`parseImgCall`:
-// aggregatets fältordning är `Row`s egen (name, value, choices, readOnly,
-// tag), varje sträng måste vara EN literal och varje bool exakt
-// `true`/`false`. `{}` är en TOM lista och inte ett fel. ATOMISKT: `ut`
-// fylls först när HELA literalen gått igenom.
-bool parseRowsLiteral(const std::string& v,
-                      std::vector<glaze::PropertyGrid::Row>& ut)
-{
-    std::string inre;
-    if (!skalaKlammer(v, inre))
-        return false;
-    std::vector<std::string> radtexter;
-    if (!delaKlammer(inre, radtexter))
-        return false;
-
-    std::vector<glaze::PropertyGrid::Row> rader;
-    rader.reserve(radtexter.size());
-    for (const std::string& rt : radtexter) {
-        std::string radInre;
-        if (!skalaKlammer(rt, radInre))
-            return false;
-        std::vector<std::string> fält;
-        if (!delaKlammer(radInre, fält) || fält.size() > 5)
-            return false;
-        glaze::PropertyGrid::Row r;
-        if (fält.size() > 0 && !bld::parseCppString(trimma(fält[0]), r.name))
-            return false;
-        if (fält.size() > 1 && !bld::parseCppString(trimma(fält[1]), r.value))
-            return false;
-        if (fält.size() > 2 &&
-            !bld::parseStringList(trimma(fält[2]), r.choices))
-            return false;
-        if (fält.size() > 3) {
-            const std::string t = trimma(fält[3]);
-            if (t == "true")       r.readOnly = true;
-            else if (t == "false") r.readOnly = false;
-            else                   return false;
-        }
-        if (fält.size() > 4 && !bld::parseCppString(trimma(fält[4]), r.tag))
-            return false;
-        rader.push_back(std::move(r));
-    }
-    ut = std::move(rader);
     return true;
 }
 
@@ -890,7 +842,7 @@ bool parseAggregatLista(const std::string& v,
 // samma form REKURSIVT, bilden `argImg`s två former, flaggorna `true`/`false`
 // och färgen `gfx::Color{…}`, `std::nullopt` eller `{}` — en bar
 // `{200, 0, 0}` kompilerar inte till en `std::optional` och är opak. Samma
-// familj och samma ATOMICITET som `parseRowsLiteral`: `ut` fylls först när
+// familj och samma ATOMICITET som `parsePropertyRows`: `ut` fylls först när
 // HELA literalen gått igenom.
 bool parseTreeLiteral(const std::string& v, std::vector<glaze::TreeNode>& ut)
 {
@@ -1103,13 +1055,87 @@ bool argDecimal(const std::vector<std::string>& a, std::size_t i, double& ut)
     return i < a.size() && decimalt(a[i], ut);
 }
 
+// EGENSKAPSGRIDENS RADSLAG: exakt `glaze::PropertyGrid::Kind::Text|Check|Color|
+// Number|Header` — prefixet krävs av samma skäl som kolumntypens.
+bool argRadSlag(const std::vector<std::string>& a, std::size_t i,
+                glaze::PropertyGrid::Kind& ut)
+{
+    if (i >= a.size())
+        return false;
+    const std::string t = trimma(a[i]);
+    static const std::string kPrefix = "glaze::PropertyGrid::Kind::";
+    if (t.rfind(kPrefix, 0) != 0)
+        return false;
+    const std::string svans = t.substr(kPrefix.size());
+    if (svans == "Text")        ut = glaze::PropertyGrid::Kind::Text;
+    else if (svans == "Check")  ut = glaze::PropertyGrid::Kind::Check;
+    else if (svans == "Color")  ut = glaze::PropertyGrid::Kind::Color;
+    else if (svans == "Number") ut = glaze::PropertyGrid::Kind::Number;
+    else if (svans == "Header") ut = glaze::PropertyGrid::Kind::Header;
+    else                        return false;
+    return true;
+}
+
+// EGENSKAPSGRIDENS RAD — aggregatet `glaze::PropertyGrid::Row` i den form C++
+// tar: typnamnet eller bara `{…}`, POSITIONELLT eller DESIGNERAT med de femton
+// namnen i DEKLARATIONSORDNING (`{.name = "Synlig", .value = "true", .kind =
+// glaze::PropertyGrid::Kind::Check}`, `aggregatFält`: fel ordning, ett okänt
+// eller upprepat namn och en blandning kompilerar inte i C++20 och avvisas
+// likadant). Texterna är strängliteraler (verktygstipset också
+// `glaze::tr(N)`, tokenet bevaras), `choices` en strikt stränglista, flaggorna
+// `true`/`false`, gränserna decimaltal, `decimals` ett heltal och `kind`
+// enumet med sitt prefix. `{}` är en tom rad. ATOMISKT: `ut` fylls först när
+// hela literalen gått igenom — samma fältlambda delas av raden och listan.
+const char* const kRadFält[] = {"name",     "value",    "choices", "readOnly",
+                                "tag",      "kind",     "min",     "max",
+                                "decimals", "prefix",   "suffix",  "allowAlpha",
+                                "toolTip",  "enabled",  "expanded"};
+
+bool radFält(glaze::PropertyGrid::Row& r, std::size_t k, const std::string& val)
+{
+    switch (k) {
+    case 0:  return argStr({val}, 0, r.name);
+    case 1:  return argStr({val}, 0, r.value);
+    case 2:  return bld::parseStringList(trimma(val), r.choices);
+    case 3:  return argFlagga({val}, 0, r.readOnly);
+    case 4:  return argStr({val}, 0, r.tag);
+    case 5:  return argRadSlag({val}, 0, r.kind);
+    case 6:  return argDecimal({val}, 0, r.min);
+    case 7:  return argDecimal({val}, 0, r.max);
+    case 8:  return argInt({val}, 0, r.decimals);
+    case 9:  return argStr({val}, 0, r.prefix);
+    case 10: return argStr({val}, 0, r.suffix);
+    case 11: return argFlagga({val}, 0, r.allowAlpha);
+    case 12: return argText({val}, 0, r.toolTip);
+    case 13: return argFlagga({val}, 0, r.enabled);
+    default: return argFlagga({val}, 0, r.expanded);
+    }
+}
+
+bool parsePropertyRow(const std::string& v, glaze::PropertyGrid::Row& ut)
+{
+    return parseAggregat(v, {"glaze::PropertyGrid::Row"}, kRadFält, false, ut,
+                         radFält);
+}
+
+// `{{"Bredd", "120"}, {.name = "Synlig", .value = "true", .kind = …}}` →
+// PropertyGrid-rader — `setRows`-listan, element för element som `addRow`s
+// aggregat. `{}` är en tom lista. ATOMISKT, `parseTreeLiteral`s familj.
+bool parsePropertyRows(const std::string& v,
+                       std::vector<glaze::PropertyGrid::Row>& ut)
+{
+    return parseAggregatLista(v, {"std::vector<glaze::PropertyGrid::Row>"},
+                              {"glaze::PropertyGrid::Row"}, kRadFält, false, ut,
+                              radFält);
+}
+
 // `{{"Namn", 160}, {"Storlek", 70, glaze::Align::Right}}` → kolumnerna.
 // Aggregatet `glaze::ColumnPanel::Column` (tabellens och trädets —
 // `glaze::Table::Column` är samma typ) i FÄLTORDNING (rubrik, bredd,
 // justering, rubrikens justering) med 1–4 fält, precis som C++
 // tillåter. Rubriken är en strängliteral ELLER `glaze::tr(N)` (tokenet
 // bevaras; `\n` i literalen är en radbrytning i rubriken). ATOMISKT: `ut`
-// fylls först när hela literalen gått igenom — `parseRowsLiteral`s familj.
+// fylls först när hela literalen gått igenom — `parsePropertyRows`s familj.
 bool parseColumnsLiteral(const std::string& v,
                          std::vector<glaze::ColumnPanel::Column>& ut)
 {
@@ -3170,6 +3196,35 @@ bool parseEnhet(const std::string& v, glaze::InputDevice& ut)
                      ut);
 }
 
+// RULLNINGSLISTORNAS SYNLIGHET (glaze/input.h) — samma strikta former som
+// enheten ovan.
+bool parseSynlighet(const std::string& v, glaze::ScrollbarVisibility& ut)
+{
+    using V = glaze::ScrollbarVisibility;
+    return enumVärde(v, {"glaze::ScrollbarVisibility::", "ScrollbarVisibility::", ""},
+                     {std::pair{"Auto", V::Auto}, std::pair{"Visible", V::Visible},
+                      std::pair{"Invisible", V::Invisible}},
+                     ut);
+}
+
+// `setScrollbarVisibility(v)` och `clearScrollbarVisibility()` — EN tolkning
+// för widgeten och för fönstrets rot, vars sättare har samma namn och form.
+// false = inte ett giltigt anrop; anroparen loggar.
+template <class Mål>
+bool applySynlighet(Mål& mål, const Call& call)
+{
+    glaze::ScrollbarVisibility v{};
+    if (call.method == "clearScrollbarVisibility" && trimma(call.args).empty()) {
+        mål.clearScrollbarVisibility();
+        return true;
+    }
+    if (call.method == "setScrollbarVisibility" && parseSynlighet(call.args, v)) {
+        mål.setScrollbarVisibility(v);
+        return true;
+    }
+    return false;
+}
+
 bool parseKälla(const std::string& v, glaze::InputSource& ut)
 {
     using S = glaze::InputSource;
@@ -3278,6 +3333,18 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
                  w.name.c_str(), call.method.c_str());
         return false;
     }
+    // RULLNINGSLISTORNAS SYNLIGHET — på varje widget:
+    // `lista.setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);` och
+    // `lista.clearScrollbarVisibility();`. Lagras, och previewn ritar listorna
+    // enligt läget.
+    if (call.method == "setScrollbarVisibility" ||
+        call.method == "clearScrollbarVisibility") {
+        if (applySynlighet(w, call))
+            return true;
+        gfx::log("%s(%s): opak %s-rad (argumenten avkodas inte)", origin,
+                 w.name.c_str(), call.method.c_str());
+        return false;
+    }
 
 #ifdef GLAZE_PREVIEW_TERMINAL
     // TERMINALEN — sidopaketets anrop med flera argument,
@@ -3290,12 +3357,6 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
     if (call.method == "setIndeterminate" && argBool(call.args, b)) {
         if (auto* p = dynamic_cast<glaze::Progress*>(&w)) {
             p->setIndeterminate(b);
-            return true;
-        }
-    }
-    if (call.method == "showScrollbars" && argBool(call.args, b)) {
-        if (auto* p = dynamic_cast<glaze::Panel*>(&w)) {
-            p->showScrollbars(b);
             return true;
         }
     }
@@ -3420,7 +3481,7 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
     if (auto* pg = dynamic_cast<glaze::PropertyGrid*>(&w)) {
         if (call.method == "setRows") {
             std::vector<glaze::PropertyGrid::Row> rader;
-            if (parseRowsLiteral(call.args, rader)) {
+            if (parsePropertyRows(call.args, rader)) {
                 pg->setRows(std::move(rader));
                 return true;
             }
@@ -3428,30 +3489,38 @@ bool applyCall(glaze::Widget& w, const Call& call, const char* origin)
                      "inte)", origin, w.name.c_str());
             return false;
         }
-        if (call.method == "addRow" || call.method == "setRow") {
-            const bool               sätt = call.method == "setRow";
-            const std::size_t        bas  = sätt ? 1u : 0u;
-            std::vector<std::string> a    = delaArgument(call.args);
-            int         index = 0;
-            std::string namn, värde, tag;
-            bool        readOnly = false;
-            const bool  ok =
-                a.size() >= bas + 1 && a.size() <= bas + 4 &&
-                (!sätt || argInt(a, 0, index)) && argStr(a, bas, namn) &&
-                (a.size() <= bas + 1 || argStr(a, bas + 1, värde)) &&
-                (a.size() <= bas + 2 || argFlagga(a, bas + 2, readOnly)) &&
-                (a.size() <= bas + 3 || argStr(a, bas + 3, tag));
+        // `addRow(rad)` och `setRow(index, rad)` tar aggregatet, och de två
+        // tillståndssättarna `setRowEnabled(index, på)` / `setExpanded(index,
+        // på)` ett index och en flagga.
+        const std::string& mm = call.method;
+        if (mm == "addRow" || mm == "setRow" || mm == "setRowEnabled" ||
+            mm == "setExpanded") {
+            std::vector<std::string> a = delaArgument(call.args);
+            const bool               indexerad = mm != "addRow";
+            int                      index = 0;
+            bool                     på = false;
+            glaze::PropertyGrid::Row rad;
+            bool                     ok = a.size() == (indexerad ? 2u : 1u) &&
+                                          (!indexerad || argInt(a, 0, index));
+            if (ok && (mm == "setRowEnabled" || mm == "setExpanded"))
+                ok = argFlagga(a, 1, på);
+            else if (ok)
+                ok = parsePropertyRow(a[indexerad ? 1 : 0], rad);
             if (!ok) {
                 gfx::log("%s(%s): opak %s-rad (argumenten avkodas inte, "
-                         "ritas inte)", origin, w.name.c_str(),
-                         call.method.c_str());
+                         "gridden lämnas ORÖRD)", origin, w.name.c_str(),
+                         mm.c_str());
                 return false;
             }
             // Index utanför intervallet är widgetens eget logg + no-op.
-            if (sätt)
-                pg->setRow(index, namn, värde, readOnly, tag);
+            if (mm == "addRow")
+                pg->addRow(std::move(rad));
+            else if (mm == "setRow")
+                pg->setRow(index, std::move(rad));
+            else if (mm == "setRowEnabled")
+                pg->setRowEnabled(index, på);
             else
-                pg->addRow(namn, värde, readOnly, tag);
+                pg->setExpanded(index, på);
             return true;
         }
     }
@@ -4986,6 +5055,13 @@ bool applyWindowCall(glaze::AppWindow& w, const Call& call,
             return true;
         }
     }
+
+    // RULLNINGSLISTORNAS SYNLIGHET I FÖNSTRET — på fönstrets rot:
+    // `setScrollbarVisibility(glaze::ScrollbarVisibility::Invisible);`.
+    if ((call.method == "setScrollbarVisibility" ||
+         call.method == "clearScrollbarVisibility") &&
+        applySynlighet(w, call))
+        return true;
 
     // EN MEDLEM SOM ARGUMENT — fönstrets standard- och
     // avbrytknapp: `setAcceptButton(okBtn);`. Identifieraren slås upp med

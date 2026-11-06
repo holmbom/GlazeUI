@@ -450,6 +450,12 @@ constexpr Style kSlateRegular{
     /* titleMinGap */ 24.0f,
     /* titleGlyphW */ 28.0f,        // ikonen 16 med luft: smalare än fönster-
                                     // knappens fack (`capsuleSeg` 34)
+
+    // ---- Rullningslisternas tid. SIST i tabellen, som fältet.
+    /* scrollbarAutoHideMs */ 1000, // en sekund efter den senaste rullningen
+                                    // eller pekarens rörelse; pekaren på
+                                    // remsan håller den kvar. Glaze och
+                                    // Minimalistic ärver det
 };
 
 // De fyra `*DefaultLen` är AVSIKTLIGT samma tal (200 logiska px). En remsa

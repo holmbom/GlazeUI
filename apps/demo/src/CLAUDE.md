@@ -160,7 +160,7 @@ tre-fils-modellen och de hårda reglerna.
   ett bättre bevis än en mening.
   **VAD OMSKRIVNINGEN AVSLÖJADE**, och som är skälet att skriva ner den:
   den genererade vägens `onLoad` bar ~30 rader `disable()` plus
-  `showScrollbars`, `setIndeterminate`, `setChecked(rad, på)` och
+  `setScrollbarVisibility`, `setIndeterminate`, `setChecked(rad, på)` och
   `setRows()` — allt sådant som inte går att uttrycka som en FÄLTSÄTTNING.
   (Alla är numera METODANROPSSATSER som previewn UTFÖR — `setChecked`/
   `setRows`/`addRow` sedan 2026-08-20, resten sedan 2026-08-13 — så gränsen
@@ -181,8 +181,8 @@ tre-fils-modellen och de hårda reglerna.
   644 / 960, 304 breda) och den högsta gruppen (g3, 484). Flikkontrollen är
   SPÄND mellan fönstrets överkant och stängknappens överkant (`anchorBottom`
   mot knappen, som därför skapas FÖRST — ett syskonankare pekar bara bakåt),
-  och varje sida har `showScrollbars(true)` (`sida()`), så en för låg sida
-  RULLAR i stället för att klippas. Måtten `setContentSize(1302, 610)` +
+  och varje sida är en rullande panel (`sida()`, listerna i förvalet Auto), så
+  en för låg sida RULLAR i stället för att klippas. Måtten `setContentSize(1302, 610)` +
   `setMinimumSize(1302, 690)` är räknade i ctorn ur flikraden, knappen och
   g3 (högst i Glaze). Flikarna och deras grupper:
     **Grundläggande** — 1 Label/Button/Link/Separator · 2 Checkbox/Radio ·
@@ -233,7 +233,7 @@ tre-fils-modellen och de hårda reglerna.
       träd med `handled` — webbadressen och `#kod` går till förvalet. Till höger
       en AUTO-hög vy sträckt mellan dokumentet och kanten, och en dämpad rad
       syskonankrad under den som följer när fönstret görs smalare).
-    **Paneler och remsor** — 6 Panel med `showScrollbars(true)` OCH barn
+    **Paneler och remsor** — 6 Panel med listerna `Visible` OCH barn
       som svämmar över i BÅDA axlarna (utan överflöd ritas remsorna aldrig)
       + en inaktiverad panel · 8 Bar/Spacer/CaptionButton/TopBar/StatusBar
       (`statusD` NOLLAR sin `dock` — ctorn sätter `Bottom`, och dockad hade

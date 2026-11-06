@@ -2089,12 +2089,15 @@ void fallMedFonster()
               "F3: spelrummet = raderna − ytan UNDER huvudet",
               std::to_string(l.scrollRange(lc).h) + " mot " +
                   std::to_string(väntat));
+        // Remsans geometri mäts med en SYNLIG remsa (en dold tar inga tryck).
         const gfx::Rectf in = w.inre();
+        l.setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);
         check(!l.inScrollStrip(lc, in.x + in.w - 2.0f,
                                in.y + w.huvudH() / 2.0f) &&
                   l.inScrollStrip(lc, in.x + in.w - 2.0f,
                                   in.y + w.huvudH() + w.radH()),
               "F3: den lodräta remsan börjar UNDER huvudet");
+        l.clearScrollbarVisibility();
 
         // ---- F4. SLÄPP över en ANNAN rubrik sorterar inte (dra bort =
         //          ångra, en knapps semantik).

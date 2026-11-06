@@ -1158,7 +1158,7 @@ struct Fonster : glaze::AppWindow {
         rull.y          = 140;
         rull.width      = 300;
         rull.height     = 150;
-        rull.showScrollbars(true);
+        rull.setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);
         vyA.anchors = glaze::Anchors{true, true, true, false};
         vyA.x       = 0;
         vyA.y       = 0;

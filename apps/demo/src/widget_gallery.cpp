@@ -89,14 +89,12 @@ glaze::Panel* WidgetGallery::grupp(glaze::Widget* sida, std::uint32_t rubrik,
 }
 
 // En FLIK: sidan är ett ÄGT barn till galleriets flikkontroll och fliktiteln
-// sidans `text` — ett id, så rubriken följer språket. Remsorna visas: blir
-// sidan högre än ytan (ett litet fönster, en tät stil) rullar den, i stället
-// för att innehållet klipps bort.
+// sidans `text` — ett id, så rubriken följer språket. Blir sidan högre än ytan
+// (ett litet fönster, en tät stil) rullar den, och remsorna visas när den gör
+// det, i stället för att innehållet klipps bort.
 glaze::TabPage* WidgetGallery::sida(std::uint32_t titel)
 {
-    auto* s = flikar_->add<glaze::TabPage>(glaze::tr(titel));
-    s->showScrollbars(true);
-    return s;
+    return flikar_->add<glaze::TabPage>(glaze::tr(titel));
 }
 
 glaze::TabPage* WidgetGallery::nySida(glaze::TabControl* tc,
@@ -575,8 +573,9 @@ WidgetGallery::WidgetGallery()
     {
         auto* g = grupp(sYtor, demo::str::G6, "g6", 12, 12, 304, 212);
 
-        // Remsorna är opt-in OCH kräver innehåll som svämmar över, annars
-        // ritas de aldrig. Fem barn i en liten ruta ger båda riktningarna.
+        // Remsorna kräver innehåll som svämmar över, annars ritas de aldrig;
+        // `Visible` håller dem uppe så de syns utan att rullas. Fem barn i en
+        // liten ruta ger båda riktningarna.
         auto* ps      = g->add<glaze::Panel>();
         ps->x         = 8;
         ps->anchorTop = {"g6Sep", 10};
@@ -584,7 +583,7 @@ WidgetGallery::WidgetGallery()
         ps->height    = 130;
         ps->name      = "panScroll";
         ps->setBorder(true);
-        ps->showScrollbars(true);
+        ps->setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);
 
         std::string over;
         for (int i = 0; i < 4; ++i) {
@@ -612,7 +611,7 @@ WidgetGallery::WidgetGallery()
         pd->height     = 130;
         pd->name       = "panDis";
         pd->setBorder(true);
-        pd->showScrollbars(true);
+        pd->setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);
         pd->disable();
 
         over.clear();
@@ -646,11 +645,20 @@ WidgetGallery::WidgetGallery()
                          {"None", "Left", "Top", "Right", "Bottom", "Fill"},
                          false, ""});
         rader.push_back({"width", "120", {}, false, ""});
+        // De typade slagen: en rubrikrad som fäller raderna under sig, en
+        // kryssruta, en färg med alfa och ett tal med gränser och suffix.
+        using Kind = glaze::PropertyGrid::Kind;
+        rader.push_back({.name = "Appearance", .kind = Kind::Header});
+        rader.push_back({.name = "visible", .value = "true", .kind = Kind::Check});
+        rader.push_back({.name = "color", .value = "#3366FF80",
+                         .kind = Kind::Color, .allowAlpha = true});
+        rader.push_back({.name = "opacity", .value = "80", .kind = Kind::Number,
+                         .min = 0, .max = 100, .decimals = 0, .suffix = "%"});
 
         auto* grid1      = g->add<glaze::PropertyGrid>();
         grid1->x         = 8;
         grid1->anchorTop = {"g7Sep", 10};
-        grid1->height    = 72;
+        grid1->height    = 112;
         grid1->anchors   = {true, true, true, false};
         grid1->right     = 8;
         grid1->name      = "grid1";
@@ -663,7 +671,7 @@ WidgetGallery::WidgetGallery()
         auto* grid2      = g->add<glaze::PropertyGrid>();
         grid2->x         = 8;
         grid2->anchorTop = {"grid1", 10};
-        grid2->height    = 72;
+        grid2->height    = 44;
         grid2->anchors   = {true, true, true, false};
         grid2->right     = 8;
         grid2->name      = "grid2";

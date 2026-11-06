@@ -29,7 +29,7 @@
 // fönster som faktiskt gör det är ett bättre bevis än en mening.
 //
 // VAD HANDKODNING VISAR: en genererad väg skulle behöva rader i `onLoad`
-// för `disable()`, `showScrollbars`, `setIndeterminate`, `setChecked(rad,
+// för `disable()`, `setScrollbarVisibility`, `setIndeterminate`, `setChecked(rad,
 // på)` och `setRows()` — allt sådant som inte går att uttrycka som en
 // FÄLTSÄTTNING. De är METODANROPSSATSER som previewn UTFÖR, så gränsen går
 // vid loopar och lambdor, inte vid tillstånd. Handkodat sätts varje

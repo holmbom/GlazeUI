@@ -141,7 +141,6 @@ TreeView::TreeView()
 {
     setClip(true);          // raderna klipps mot innehållsytan
     setBorder(true);        // trädet ÄR en inramad yta, som listan
-    showScrollbars(true);   // överflöd ska SYNAS (ListBox-prejudikatet)
 }
 
 // ---------------------------------------------------------------- noderna

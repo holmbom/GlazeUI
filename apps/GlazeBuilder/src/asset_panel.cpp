@@ -103,7 +103,6 @@ AssetWindow::AssetWindow(bld::AssetDoc& doc, std::function<void()> onChanged)
     rader_->right   = 16;
     rader_->setBorder(true);
     rader_->setClip(true);
-    rader_->showScrollbars(true);
 
     // Formuläret: ny lista + lägg till PNG (via sökväg) + export + spara.
     auto* l1 = add<glaze::Label>("Ny lista (namn · storleksklass):");

@@ -2293,7 +2293,7 @@ vantar.width = 240;
 **Alias:** scrollbar, rullningslist, scroll, rullning, hscrollbar, vscrollbar, scrollbalk, page, tumme, thumb, orientation, wxscrollbar, qscrollbar
 **Include:** `#include <glaze/glaze.h>` · **CMake:** `glaze` · **Källa:** [header](Glaze/widgets/include/glaze/widgets/scrollbar.h), [CLAUDE.md](Glaze/widgets/include/glaze/widgets/CLAUDE.md)
 
-En fristående rullningslist för egen rullning (tumdrag, rännklick sidvis, hjul). Den vanliga vägen är annars `Panel::showScrollbars(true)` eller de rullande widgetarna (`ListBox`, `TextArea`, tabellerna), som har egna remsor. Registreringsnamn `scrollbar`.
+En fristående rullningslist för egen rullning (tumdrag, rännklick sidvis, hjul). Den vanliga vägen är annars en `Panel` (rullningslisternas synlighet styrs med `setScrollbarVisibility`, se `widget-panel`) eller de rullande widgetarna (`ListBox`, `TextArea`, tabellerna), som har egna remsor. Registreringsnamn `scrollbar`.
 
 ### API
 - `enum class Orientation { Horizontal, Vertical }` · `void setOrientation(Orientation o)` / `Orientation orientation() const` — förval lodrät.
@@ -2468,10 +2468,10 @@ skiljelinje.setVertical(true);
 
 <!-- END:widget-separator -->
 
-<!-- BEGIN:widget-panel | panel container behållare yta frame ram border scroll rullning scrollable showscrollbars clip klipp barn children wxpanel qframe add adopt -->
+<!-- BEGIN:widget-panel | panel container behållare yta frame ram border scroll rullning scrollable scrollbarvisibility rullningslist autohide clip klipp barn children wxpanel qframe add adopt -->
 ## Panel — containern (`widget-panel`)
 
-**Alias:** panel, container, behållare, yta, frame, ram, border, scroll, rullning, scrollable, showscrollbars, clip, klipp, barn, children, wxpanel, qframe, add, adopt
+**Alias:** panel, container, behållare, yta, frame, ram, border, scroll, rullning, scrollable, scrollbarvisibility, rullningslist, autohide, clip, klipp, barn, children, wxpanel, qframe, add, adopt
 **Include:** `#include <glaze/glaze.h>` · **CMake:** `glaze` · **Källa:** [header](Glaze/widgets/include/glaze/widgets/panel.h), [CLAUDE.md](Glaze/widgets/include/glaze/widgets/CLAUDE.md)
 
 Container-primitivet: barnen placeras FÖRÄLDER-RELATIVT (x/y/dock/anchors räknas mot panelens innehållsyta), klipps (på från start) och rullas med hjulet när innehållet är större än ytan. `setBorder(true)` ritar yta och ram; utan är panelen en osynlig placeringsyta. Barn läggs till med `adopt(värdemedlem)` (genererad kod) eller `add<T>(…)` (ägt barn). Registreringsnamn `panel`.
@@ -2479,7 +2479,12 @@ Container-primitivet: barnen placeras FÖRÄLDER-RELATIVT (x/y/dock/anchors räk
 ### API
 - `void setBorder(bool on)` / `bool isBorder() const` — förval av.
 - `void setClip(bool on)` — klipp barnen (förval på); läses med `clipsChildren()`.
-- `void showScrollbars(bool on)` / `bool scrollbarsShown() const` — synliga overlay-lister vid överflöd.
+- `void setScrollbarVisibility(glaze::ScrollbarVisibility v)` / `void clearScrollbarVisibility()` / `ScrollbarVisibility scrollbarVisibility() const` (ärvt från `Widget`) — om rullningslisterna SYNS. Rullningen (hjul, drag, tangenter, `setScroll`) fungerar alltid:
+  - `Auto` (förval) — listorna visas när innehållet rullar och när pekaren rör sig över ytan, och försvinner `Style::scrollbarAutoHideMs` (1 s) efter det senaste;
+  - `Visible` — listorna syns alltid när innehållet svämmar över;
+  - `Invisible` — listorna syns aldrig och tar inga tryck.
+
+  Värdet ÄRVS: en widget som inte satt något frågar sina förfäder upp till fönstrets rot (`AppWindow::setScrollbarVisibility`) och sedan appen (`glaze::app().setScrollbarVisibility`). Det gäller varje rullande yta — `Panel`, `TabPage`, `ListBox`, `ListView`/`DataGrid`, `TreeView`, `TextArea`, `PropertyGrid`, `MarkdownView` — och popupernas listor, som ärver appens.
 - `void setScroll(float x, float y)` / `float scrollX() const` / `float scrollY() const` — logiska px.
 - `template <class T, class... Args> T* add(Args&&... args)` — skapa och äg ett barn (ärvt från `Widget`).
 - `Widget* adopt(Widget& w)` · `bool unadopt(Widget& w)` — låna in respektive släpp ett barn (ärvt).
@@ -2491,7 +2496,7 @@ public:
     Alternativ() : glaze::AppWindow("Alternativ", 420, 300)
     {
         ram.setBorder(true);            // utan: en osynlig placeringsyta
-        ram.showScrollbars(true);       // synliga lister vid överflöd
+        ram.setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);   // listerna syns alltid
         ram.anchors = {true, true, true, true};   // sträckt åt alla håll
         ram.x = 12;
         ram.y = 12;
@@ -2526,7 +2531,7 @@ ram.y = 12;
 ram.right = 12;
 ram.bottom = 12;
 ram.setBorder(true);
-ram.showScrollbars(true);
+ram.setScrollbarVisibility(glaze::ScrollbarVisibility::Visible);
 root().adopt(ram);
 ram.adopt(alt1);
 ram.adopt(alt2);
@@ -2687,7 +2692,7 @@ En rad flikar överst och den valda sidans innehåll under. Sidorna är `TabPage
 - `void setClosable(bool on)` / `bool isClosable() const` — ett ✕ per flik.
 - `Handler<ChangeArgs> onChange` — användaren bytte flik.
 - `Handler<TabCloseArgs> onTabClose` — `struct TabCloseArgs : EventArgs { int index = -1; }`.
-- `TabPage`: `explicit TabPage(TrText t = {})` · `void setText(TrText t)` · `const std::string& text() const` — en `Panel` (`setBorder`, `showScrollbars` …).
+- `TabPage`: `explicit TabPage(TrText t = {})` · `void setText(TrText t)` · `const std::string& text() const` — en `Panel` (`setBorder`, `setScrollbarVisibility` …).
 
 ### Exempel
 ```cpp
@@ -2826,7 +2831,7 @@ delare.adopt(innehall);
 **Alias:** dockhost, dockpanel, dockning, docking, dock, paneler, panels, aui, wxauimanager, layout, perspective, spara-layout, verktygsfönster, tool-window, flikar, tabs, stapel, stack, handtag, handle, auto-hide, huvudyta, band, verktygsfält, toolbar-band, grepp, knappnål, pin, pinned, overlay, dölj-automatiskt, glidning, animation, snapp, snap, flytande, floating, float, flytande-verktygsfält, floating-toolbar, levande-drag, lossning, tear-off, platshållare, placeholder, allowededges, tillåtna-kanter
 **Include:** `#include <glaze/glaze.h>` · **CMake:** `glaze` · **Källa:** [header](Glaze/widgets/include/glaze/widgets/dock_host.h), [header](Glaze/widgets/include/glaze/widgets/dock_panel.h), [CLAUDE.md](Glaze/widgets/include/glaze/widgets/CLAUDE.md)
 
-`DockPanel` är en panel med rubrik — titel, menyknapp ▾, KNAPPNÅL och stängknapp; `dock` väljer kanten och `width`/`height` tjockleken. `DockHost` ordnar panelerna i REMSOR längs sina kanter, i FLIKGRUPPER och STAPLAR i remsorna, och ger allt annat HUVUDYTAN (mitten). En infälld panel blir ett HANDTAG på kanten, och ett klick fäller ut den igen. KNAPPNÅLEN är Visual Studios Auto Hide: en onålad panel är ett handtag som fäller ut panelen som en OVERLAY ovanpå huvudytan — den trycker inte undan något, och den fälls in igen när både pekaren och fokus lämnat den. Panelerna GLIDER ut och in. Användaren drar i skikten (de SNAPPAR mot minsta, största och förvalda måttet, och under det minsta fälls panelen in), och ett drag i en rubrik eller flik är VS:s LEVANDE DRAG: panelen LOSSNAR vid tröskeln till ett eget fönster som följer pekaren, PLATSHÅLLAREN visar exakt var den hamnar (mitt på en panel = flik, vid dess kant = stapel eller ny remsa, vid värdens kant = ny remsa), och släppt någon annanstans flyter den där — och hela läget sparas som sträng. VERKTYGSFÄLT (`ToolBar`) som är värdens barn står i BAND ytterst längs kanterna (VS och Office); deras GREPP lossar fältet på samma sätt, och platshållaren visar ett annat band, en annan plats eller en annan kant. En panel kan också FLYTA med ett dubbelklick på rubriken eller ▾ ▸ Flytande, och ett verktygsfält med ett dubbelklick på greppet (i sitt fönster har det en rubrik med titel och ✕ och aktiveras aldrig); ett flytande objekts rubrik dras likadant tillbaka. Registreringsnamn `dockhost` och `dockpanel`.
+`DockPanel` är en panel med rubrik — titel, menyknapp ▾, KNAPPNÅL och stängknapp, på en rubrikrad i temats `panelHeader` som skiljer sig från panelens yta i alla tre UI; `dock` väljer kanten och `width`/`height` tjockleken. `DockHost` ordnar panelerna i REMSOR längs sina kanter, i FLIKGRUPPER och STAPLAR i remsorna, och ger allt annat HUVUDYTAN (mitten). En infälld panel blir ett HANDTAG på kanten, och ett klick fäller ut den igen. KNAPPNÅLEN är Visual Studios Auto Hide: en onålad panel är ett handtag som fäller ut panelen som en OVERLAY ovanpå huvudytan — den trycker inte undan något, och den fälls in igen när både pekaren och fokus lämnat den. Panelerna GLIDER ut och in. Användaren drar i skikten (de SNAPPAR mot minsta, största och förvalda måttet, och under det minsta fälls panelen in), och ett drag i en rubrik eller flik är VS:s LEVANDE DRAG: panelen LOSSNAR vid tröskeln till ett eget fönster som följer pekaren, PLATSHÅLLAREN visar exakt var den hamnar (mitt på en panel = flik, vid dess kant = stapel eller ny remsa, vid värdens kant = ny remsa), och släppt någon annanstans flyter den där — och hela läget sparas som sträng. VERKTYGSFÄLT (`ToolBar`) som är värdens barn står i BAND ytterst längs kanterna (VS och Office); deras GREPP lossar fältet på samma sätt, och platshållaren visar ett annat band, en annan plats eller en annan kant. En panel kan också FLYTA med ett dubbelklick på rubriken eller ▾ ▸ Flytande, och ett verktygsfält med ett dubbelklick på greppet (i sitt fönster har det en rubrik med titel och ✕ och aktiveras aldrig); ett flytande objekts rubrik dras likadant tillbaka. Registreringsnamn `dockhost` och `dockpanel`.
 
 ### API
 - `DockHost`: `std::string layout() const` · `bool setLayout(const std::string& s)` (false + logg om strängen avvisades, inget ändrat) · `void dockPanel(DockPanel& p, Dock edge)` (ytterst vid kanten) · `void dockPanel(DockPanel& p, DockPanel& target, Dock where)` (`Dock::Fill` = flik, en kant = bredvid; en FLYTANDE panel dockas tillbaka) · `static bool isFloatDragSupported()` (false på Wayland och headless — inget levande drag där, bara platshållaren) · `Handler<ChangeArgs> onChange`.
@@ -2953,7 +2958,7 @@ utforskare.activate();
 ### API
 - `ToolBar()` — `dock = Dock::Top`; höjd, luft och lucka ur stilen. `dock` Left/Right = STÅENDE (`bool isVertical() const`). Längden är innehållets när `width` (liggande) eller `height` (stående) är 0.
 - `void setBand(int b)` / `int band() const` — bandet vid kanten i en `DockHost` (0 = yttersta; ett band utanför antalet blir ett nytt innersta). Värden skriver tillbaka det efter användarens drag.
-- FLYTANDE (i en `DockHost`): `void setFloating(bool on)` / `bool isFloating() const` (eget fönster: en rubrik med titeln och ✕ över fältet, fast storlek) · `void setFloatable(bool on)` / `bool isFloatable() const` (användarens vägar — dubbelklicket på greppet och draget som lossar det; utan dem visar greppdraget bara platshållaren medan fältet står kvar. Appen kan alltid) · `void setFloatingPosition(float x, float y)` / `gfx::Pointf floatingPosition() const` (fönstrets plats i LOGISKA px, `AppWindow::setLocation`s rymd) · `void setText(TrText t)` / `const std::string& text() const` / `const TrText& textToken() const` (titeln i rubriken; tom = ramverkets "Verktygsfält"). Ett flytande fält LIGGER (`isVertical()` false); `dock` och `band()` är minnet för var det dockas tillbaka.
+- FLYTANDE (i en `DockHost`): `void setFloating(bool on)` / `bool isFloating() const` (eget fönster: en rubrik med titeln och ✕ över fältet, fast storlek) · `void setFloatable(bool on)` / `bool isFloatable() const` (användarens vägar — dubbelklicket på greppet och draget som lossar det; utan dem visar greppdraget bara platshållaren medan fältet står kvar. Appen kan alltid) · `void setFloatingPosition(float x, float y)` / `gfx::Pointf floatingPosition() const` (fönstrets plats i LOGISKA px, `AppWindow::setLocation`s rymd) · `void setText(TrText t)` / `const std::string& text() const` / `const TrText& textToken() const` (titeln i rubriken; tom = ramverkets "Verktygsfält"). Ett flytande fält LIGGER (`isVertical()` false); `dock` och `band()` är minnet för var det dockas tillbaka. Dess fönster aktiveras aldrig — ett klick på en verktygsknapp lämnar tangentbordet där det var —, men ett tryck på en inmatning som tar fokus (ett `TextInput`, en `Dropdown`, en `SpinBox` …) ger fältet TANGENTBORDET, också dess listor, tills ett tryck landar i ett annat av appens fönster eller fältet döljs, stängs eller dockas.
 - `ToolButton`: `explicit ToolButton(TrText t = {})` · `void setText(TrText t)` · `void setImg(ImageSource img)` (en asset eller en `glaze::Bitmap` — en inaktiv ikon tonas lika) · `void setImagePos(ImagePos p)`
 - `void setCheckable(bool on)` / `bool isCheckable() const` · `void setChecked(bool on)` / `bool isChecked() const`
 - `Handler<ChangeArgs> onChange` · `Handler<ChangeArgs> onCommit` — användaren växlade (båda fyras FÖRE `onClick`, i den ordningen) · `Handler<ClickArgs> onClick`.
@@ -3459,75 +3464,92 @@ prof.setSortAscending(false);
 
 <!-- END:widget-tree-view -->
 
-<!-- BEGIN:widget-property-grid | propertygrid egenskaper egenskapslista properties propertyeditor inspector wxpropertygrid namn-värde key-value rows changedrow namewidth oncommit commit redigering -->
+<!-- BEGIN:widget-property-grid | propertygrid egenskaper egenskapslista properties propertyeditor inspector wxpropertygrid namn-värde key-value rows changedrow namewidth oncommit commit redigering typade-celler kind check kryssruta färg color tal number min max prefix suffix enhet header rubrikrad fällbar expanded setexpanded setrowenabled inaktiv rad tooltip haserror -->
 ## PropertyGrid — egenskapslistan (`widget-property-grid`)
 
-**Alias:** propertygrid, egenskaper, egenskapslista, properties, propertyeditor, inspector, wxpropertygrid, namn-värde, key-value, rows, changedrow, namewidth, oncommit, commit, redigering
+**Alias:** propertygrid, egenskaper, egenskapslista, properties, propertyeditor, inspector, wxpropertygrid, namn-värde, key-value, rows, changedrow, namewidth, oncommit, commit, redigering, typade celler, kind, check, kryssruta, färg, color, tal, number, min, max, prefix, suffix, enhet, header, rubrikrad, fällbar, expanded, setExpanded, setRowEnabled, inaktiv rad, tooltip, hasError
 **Include:** `#include <glaze/glaze.h>` · **CMake:** `glaze` · **Källa:** [header](Glaze/widgets/include/glaze/widgets/property_grid.h), [CLAUDE.md](Glaze/widgets/include/glaze/widgets/CLAUDE.md)
 
-Två kolumner à la Visual Studio: namnet (alltid läsbart) och värdet (fritext eller vallista per rad). Raderna är DATA (`Row`), och EN textruta och EN vallista flyttas till cellen som redigeras. Redigeringen COMMITTAR, som `DataGrid`s: ett klick på ett värde öppnar editorn med texten markerad; Enter, Tab, ett klick på en annan rad eller att fokus går någon annanstans sparar — radens `value` skrivs och `onChange` + `onCommit` fyras en gång var, bara om värdet ändrades — och Escape ångrar. En vallista sparar vid valet, och Enter (med listans val om den är öppen) och Escape avslutar den. Registreringsnamn `propertygrid`.
+Två kolumner à la Visual Studio: namnet och värdet. Raderna är DATA (`Row`), och varje rad har ett SLAG: fritext eller vallista (`Text`), kryssruta (`Check`), färg (`Color`), tal med gränser (`Number`) eller en fällbar rubrikrad (`Header`). En editor per slag flyttas till cellen som redigeras. Redigeringen COMMITTAR, som `DataGrid`s: ett klick på ett värde öppnar editorn; Enter, Tab, ett klick på en annan rad eller att fokus går någon annanstans sparar — radens `value` skrivs och `onChange` + `onCommit` fyras en gång var, bara om värdet ändrades — och Escape ångrar. Registreringsnamn `propertygrid`.
 
 ### API
-- `struct Row { std::string name; std::string value; std::vector<std::string> choices; bool readOnly = false; std::string tag; }` — tom `choices` = fritext; `tag` är din opaka nyckel.
-- `void setRows(std::vector<Row> rows)` · `const std::vector<Row>& rows() const`
-- `void addRow(std::string name, std::string value = "", bool readOnly = false, std::string tag = "")`
-- `void setRow(int index, std::string name, std::string value = "", bool readOnly = false, std::string tag = "")` — ERSÄTTER hela raden.
-- `void setNameWidth(float w)` / `float nameWidth() const` — logiska px, 0 = stilens `gridNameW`.
-- `int changedRow() const` — läs i `onChange`/`onCommit` · `int activeRow() const` · `Handler<ChangeArgs> onChange` · `Handler<ChangeArgs> onCommit` (samma sparade värde, direkt efter `onChange`)
+- `enum class Kind { Text, Check, Color, Number, Header }`
+- `struct Row` — fälten i den ordning en designerad initiering skriver dem:
+  `name`, `value` (alltid TEXT), `choices` (Text: tom = fritext, annars vallista), `readOnly` (aldrig redigerbar), `tag` (din opaka nyckel), `kind`, `min`/`max` och `decimals` (Number; −1 = kortaste formen), `prefix`/`suffix` (Number: text före och efter talet, t.ex. `"1:"`, `"mm"`), `allowAlpha` (Color), `toolTip` (radens; tom = gridens), `enabled` (false = syns men går inte att ändra NU), `expanded` (Header).
+- `void setRows(std::vector<Row>)` · `void addRow(Row)` · `void setRow(int index, Row)` — `setRow` ERSÄTTER hela raden · `const std::vector<Row>& rows() const`
+- `void setRowEnabled(int row, bool)` · `void setExpanded(int row, bool)` (bara en rubrikrad) — tillstånd per rad, index utanför ⇒ logg och ingenting.
+- Läsvägarna: `bool isChecked(int row)` · `std::optional<gfx::Color> colorValue(int row)` · `std::optional<double> numberValue(int row)` (klampat och avrundat) · `bool hasError(int row)`.
+- `void setNameWidth(float)` / `nameWidth()` — logiska px, 0 = stilens `gridNameW`.
+- `int changedRow() const` — läs i `onChange`/`onCommit` · `int activeRow() const` · `Handler<ChangeArgs> onChange` · `Handler<ChangeArgs> onCommit`.
+
+**Textformerna i `value`:** Check `"true"`/`"false"`; Color `#RRGGBB`, med `allowAlpha` `#RRGGBBAA`; Number den kanoniska formen med PUNKT (`"12.5"`) — visningen använder språkets decimaltecken och användaren får skriva `,` eller `.`. `.glazeui` skriver därför samma värde på alla språk.
+
+**Per slag:**
+- **Check:** ett tryck i värdecellen växlar värdet och fyrar händelserna; Space växlar igen, Enter och Escape avslutar.
+- **Color:** ett tryck öppnar färgväljaren direkt; valet sparas när väljaren committar. Ett tryck i gridden medan väljaren är öppen stänger bara den.
+- **Number:** fältet tar bara taltecken. Ett tal utanför `min`/`max` KLAMPAS och avrundas till `decimals`; ett tal som inte går att tolka är ett FEL: värdet står kvar, inget fyras, cellen visar texten på felets yta och verktygstipset säger "Ogiltigt värde" (`hasError(i)`). Escape, nästa giltiga sparning och `setRow`/`setRows` tar bort felet.
+- **Header:** ett tryck fäller in och ut raderna fram till nästa rubrik; raderna före den första rubriken syns alltid. Ingen händelse — läs `rows()[i].expanded`.
+
+**Höjden:** utan satt `height` är gridden de SYNLIGA raderna × radhöjden (plus ramens indrag), så flera gridar kan staplas med `dock = Top` i en rullande `Panel` och följa varje fällning. En satt höjd vinner, och raderna rullar.
+
+**Inaktiv grid** (`disable()`): den syns vara inaktiv — dämpad text och dämpade tecken, värdekolumnen på den skrivskyddade fältytan — och visas INFÄLLD, med bara rubrikerna. Radernas `expanded` ändras inte, så den öppnas som förut när den aktiveras.
 
 ### Exempel
 ```cpp
 class Egenskaper : public glaze::AppWindow {
 public:
-    Egenskaper() : glaze::AppWindow("Egenskaper", 360, 260)
+    Egenskaper() : glaze::AppWindow("Egenskaper", 360, 300)
     {
-        grid.dock = glaze::Dock::Fill;    // ingen autostorlek
+        using K = glaze::PropertyGrid::Kind;
+        grid.dock = glaze::Dock::Fill;
         grid.setNameWidth(120);
-        grid.setRows({{"Bredd", "120"},
+        grid.setRows({{.name = "Layout", .kind = K::Header},
+                      {"Namn", "Skylt 4"},
                       {"Justering", "Vänster", {"Vänster", "Mitten", "Höger"}},
-                      {"Id", "A-17", {}, true}});   // choices, readOnly
-        grid.addRow("Höjd", "80");
-        grid.addRow("Senast ändrad", "", true);   // rad 4, skrivskyddad
-        grid.onChange = [this](glaze::Widget* s, glaze::ChangeArgs&) {
-            auto*       g   = static_cast<glaze::PropertyGrid*>(s);
-            const auto& rad = g->rows()[static_cast<std::size_t>(g->changedRow())];
-            setTitle(rad.name + " = " + rad.value);
-        };
-        // Klar: räkna om och skriv tillbaka. Editorn är redan stängd, så
-        // `setRow` och `setRows` här river ingen redigering.
+                      {.name = "Bredd", .value = "120", .kind = K::Number,
+                       .min = 0, .max = 4000, .decimals = 0, .suffix = "mm"},
+                      {.name = "Utseende", .kind = K::Header},
+                      {.name = "Synlig", .value = "true", .kind = K::Check},
+                      {.name = "Färg", .value = "#3366FFCC", .kind = K::Color,
+                       .allowAlpha = true},
+                      {.name = "Skala", .value = "500", .kind = K::Number, .min = 1,
+                       .decimals = 0, .prefix = "1:"}});
         grid.onCommit = [this] {
-            const auto& rad = grid.rows()[static_cast<std::size_t>(grid.changedRow())];
-            grid.setRow(4, "Senast ändrad", rad.name, true);
+            const int i = grid.changedRow();
+            if (grid.rows()[std::size_t(i)].name == "Bredd")
+                bredd_ = grid.numberValue(i).value_or(bredd_);
         };
-
         root().adopt(grid);
     }
 
 private:
     glaze::PropertyGrid grid;
+    double              bredd_ = 120.0;
 };
 ```
 
 ### .glazeui
 ```cpp
-grid.setRows({{"Bredd", "120"}, {"Justering", "Vänster", {"Vänster", "Mitten", "Höger"}}, {"Id", "A-17", {}, true}});
-grid.addRow("Höjd", "80");
-grid.setRow(0, "Bredd", "160");
+grid.setRows({{"Namn", "Skylt 4"}, {.name = "Synlig", .value = "true", .kind = glaze::PropertyGrid::Kind::Check}});
+grid.addRow({.name = "Skala", .value = "500", .kind = glaze::PropertyGrid::Kind::Number, .min = 1, .decimals = 0, .prefix = "1:"});
+grid.setRow(0, {"Namn", "Skylt 5"});
+grid.setExpanded(3, false);
+grid.setRowEnabled(1, false);
 grid.setNameWidth(120);
-grid.onChange = [this](glaze::Widget* s, glaze::ChangeArgs& e) { gridChanged(s, e); };
 grid.onCommit = [this] { gridKlar(); };
 ```
+Previewn läser raderna positionellt eller designerat (fälten i deklarationsordning, `kind` med hela prefixet `glaze::PropertyGrid::Kind::`, `toolTip` som en sträng eller `glaze::tr(N)`).
 
 ### Fallgropar
-- `setRows`, och `setRow` på raden som redigeras, AVBRYTER redigeringen utan att spara. Det är ofarligt i `onChange`/`onCommit` — där är editorn redan stängd — men en timer eller ett nätsvar som bygger om raderna mitt i en redigering kastar det användaren skrivit. `addRow` avbryter inte.
-- Fokusförlustens `onChange`/`onCommit` postas till pumpens svans och slopas om raderna bytts (`setRows`) eller just den raden ersatts (`setRow`) innan — de beskrev en rad som inte längre finns i den formen. Enter och klicket på en annan rad fyrar direkt, så en handler som bygger om raderna är klar innan nästa rad öppnas.
-- `changedRow()` i `onCommit` är den sparade radens index också om `onChange` byggt om raderna — samma rad om ombyggnaden behöll ordningen, annars en annan eller ingen; läs `rows()` med en gränskontroll i en sådan handler.
-- Gridden är inget tabbstopp: efter Enter eller Escape står fokus kvar i den dolda editorn, och nästa Tab börjar från fönstrets första stopp. Ett klick på en värdecell tar upp redigeringen igen.
-- I en dialog avslutar Enter och Escape redigeringen först — både fritexten och vallistan tar dem — och först NÄSTA Enter eller Escape når dialogens standard- respektive avbrytknapp (`app-window`).
-- Ett klick på en `ToolButton`, ett menyval och en accelerator tar inte fokus — editorn står öppen och `rows()` bär det förra värdet tills handlern anropar `commitEdits()` (eller `commitEdit()` här), som sparar och stänger editorn som Enter (`events`).
-- `setRow` ersätter HELA raden — en utelämnad `tag` eller `choices` blir tom.
-- `choices` går bara att uttrycka i `setRows`-literalen; det finns ingen egen metod.
-- Ingen autostorlek (0 × 0 utan mått). `rows()` är en LÄSVÄG: raderna ändras bara med `setRows`, `addRow` och `setRow`, så gridden ser varje ändring (omritningen, den öppna editorn och en köad sparning av en rad som byts).
+- `setRows`, och `setRow` på raden som redigeras, AVBRYTER redigeringen utan att spara — likaså `setRowEnabled(rad, false)` och en `setExpanded` som döljer raden. Det är ofarligt i `onChange`/`onCommit`, där editorn redan är stängd. `addRow` avbryter inte.
+- Fokusförlustens `onChange`/`onCommit` postas till pumpens svans och slopas om raderna bytts eller just den raden ersatts eller inaktiverats innan dess. Enter och klicket på en annan rad fyrar direkt.
+- `changedRow()` i `onCommit` är den sparade radens index också om `onChange` byggt om raderna; läs `rows()` med en gränskontroll i en sådan handler.
+- En spärr för "Spara" läser felen: anropa `commitEdits()` och fråga `hasError(i)` — ett otolkbart tal fyrar ingenting.
+- Gridden är inget tabbstopp: efter Enter eller Escape står fokus kvar i den dolda editorn, och Space når bara en kryssruta som just tryckts.
+- I en dialog avslutar Enter och Escape redigeringen först, och först NÄSTA Enter eller Escape når dialogens standard- respektive avbrytknapp (`app-window`).
+- Ett klick på en `ToolButton`, ett menyval och en accelerator tar inte fokus — editorn står öppen tills handlern anropar `commitEdits()` (eller `commitEdit()` här).
+- `setRow` ersätter HELA raden — ett utelämnat fält får sitt förval.
+- `rows()` är en LÄSVÄG: raderna ändras bara med `setRows`, `addRow`, `setRow`, `setRowEnabled` och `setExpanded`.
 
 <!-- END:widget-property-grid -->
 
@@ -4340,7 +4362,7 @@ Tooltipen är en egenskap på BASEN, ingen egen komponent: varje widget kan ha e
 ### API
 - `void setToolTip(TrText t);` · `const std::string& toolTip() const` · `const TrText& toolTipToken() const` — tom text = ingen tooltip.
 - `Widget* toolTipWidget() const` (AppWindow) — vems tooltip som visas just nu, annars `nullptr`.
-- `virtual TrText toolTipAt(const Ctx& c, float x, float y) const` — tooltip PER DEL för en egen widget vars delar är data (handtag, rader): basen svarar med `toolTipToken()`, en override med delens text under pekaren (fysiska px, widgetens behavior-Ctx). Källan är widget OCH text — två delar är två källor.
+- `virtual TrText toolTipAt(const Ctx& c, float x, float y) const` — tooltip PER DEL för en egen widget vars delar är data (handtag, rader): basen svarar med `toolTipToken()`, en override med delens text under pekaren (fysiska px, widgetens behavior-Ctx). Källan är widget OCH text — två delar är två källor. `PropertyGrid` är ett exempel: varje rad har sin `toolTip`, och ett ogiltigt värde visar felets text före radens.
 - `Style::toolTipDelayMs` · `Style::toolTipReshowMs` — fördröjningen och den kortare väntan när pekaren går direkt till nästa; stilens tal, inte per widget.
 
 ### Exempel
@@ -4736,7 +4758,9 @@ karta.resetLayerClip(1);
 En yta skrivs `{ytterring, {hål…}}`, med eller utan typnamnet `glaze::Polygon` — ange alltid båda fälten (`{}` för inga hål) — och rymden med prefixet `glaze::ClipSpace::`. Klippet, `moveLayer` och `setLayerPainter` är TILLSTÅND och utförs i previewn (handlingarna som `easeTo` gör det inte); det `onPaintLayer` ritar kör previewn aldrig.
 
 ### Fallgropar
-- Ett WORLD-klipp i 2D med rak kamera (tilt 0, bäring 0° eller 180°) är en VÄRLDSMASK: en panorering bygger ingen ny mask. Vid vriden eller lutad kamera, eller när ytan är för stor för masken, används skärmmasken, som byggs om när kameran rör sig. Kanten blir aldrig grövre än skärmmaskens.
+- Klippet ritas som MASKER, och LAGER MED SAMMA KLIPPYTA DELAR MASK — samma polygon på hundra lager kostar en mask, inte hundra. Lika yta betyder lika hörn och lika rymd, oavsett vilket lager eller vilken sättare.
+- Ett WORLD-klipp i 2D med rak kamera (tilt 0, bäring 0° eller 180°) är en VÄRLDSMASK: en panorering bygger ingen ny mask. Vid vriden kamera, eller när ytan är för stor för masken, används skärmmasken, som byggs om när kameran rör sig. Kanten blir aldrig grövre än skärmmaskens.
+- I 3D-MÅLET (en `Camera3D`, ett World-lager, en lutad kartkamera med World-lager) läser ALLT som ritas i världen världsmasken i sin punkt — ytor, linjer, bilder, etiketter (på ankaret), meshar och punkter. Maskens gitter följer inte kameran: en orbit, en vridning eller en panorering bygger ingen ny mask, bara ett nytt tätheststeg (en zoom ungefär en fördubbling) eller en kamera som lämnar det täckta området gör det. Det som ritas i skärmrymden (målarens `screenSpace`, helskärmspassen) får klippet projicerat till en skärmmask, byggd först när något ritas där och om vid varje kamerarörelse.
 - Index utanför ⇒ `gfx::log` och ingenting händer — listan växer aldrig tyst.
 - `Strict` med tusentals former som byter slag (yta + kontur, väg + namn) blir tusentals rit-anrop; ett stort kartlager vill ha `ByKind`.
 - Lagrets placering i 3D (`setLayerPlacement`) står i `canvas-3d`.
@@ -5787,6 +5811,7 @@ Nycklar: `ui=Glaze|Slate|Minimalistic`, `theme=<familj>(<Namn>)`, `style=<index>
 - Förvalet är `UI::Glaze` med "Lavender" och läget `System`, som följer OS:ets ljus/mörkt även i drift.
 - Namn får sammanfalla mellan UI:n och betyda olika saker ("Regular" finns tre gånger, "Neutral" två) — identifiera ett tema med UI + namn, och jämför `Style::name` med `std::string_view` (det är en `const char*`).
 - Egna färger i en app: ändra rollerna i `Theme::Colors` (`setColorsLight`/`setColorsDark`), aldrig hårdkodade färger i en widget. De inbyggda paletterna är kontrastgrindade; dina egna är det inte.
+- Några roller HÄRLEDS ur en färdig palett i stället för att skrivas ut — bland dem `panelHeader`, rubrikraden i dockningspanelerna, ett flytande verktygsfälts rubrik och en `PropertyGrid`s rubrikrader (en ton av `text` mot `panel`, så raden syns mot panelen i varje tema). Utgå från ett temas färger (`win.theme().light.colors`) och ändra det du vill; en `Colors` byggd från noll har dessa roller genomskinliga.
 - Designraden styr bara previewn. Ska appen se likadan ut i drift anropar den `setUI`/`setTheme` själv, t.ex. i `onLoad`.
 <!-- END:appearance -->
 

@@ -6,7 +6,7 @@
 //
 // Kör:  ./build/tests/terrain_perf [--synlig] [--hp] [--gpu ID] [--gpus]
 //                                  [--skärm N] [--objekt N] [--mål Hz]
-//                                  [--steg N] [-v]
+//                                  [--steg N] [--klipp] [-v]
 //   --synlig    riktiga fönster med vsync (annars dolda, som i ctest)
 //   --hp        gfx::setGpuPreference(HighPerformance) före första fönstret
 //   --gpu ID    gfx::setGpuAdapter(ID) före första fönstret — ett id ur
@@ -16,6 +16,9 @@
 //   --objekt N  ledningarna på kartan (förval 20)
 //   --mål Hz    exit 1 när ett rörelsestegs p95-intervall är över 1000/Hz
 //   --steg N    bara steg N (1–27): kartans start, förutsättningarna och steget
+//   --klipp     varje objektlager och vektorlager klipps mot SAMMA världspolygon
+//               (en rektangel med hål, `setLayerClips`) — mäter klippmaskerna i
+//               kartappens verkliga scen; utan flaggan är scenen oförändrad
 //   -v          processens minne i varje tick — stegets topp, och de 40
 //               första skrivna (selens `sampla`; utan -v mäts det inte, så
 //               att DXGI-frågan inte hamnar i varje bild)
@@ -158,6 +161,9 @@
 using namespace perf;
 
 namespace {
+
+// `--klipp`: kartans objekt- och vektorlager klipps mot en världspolygon.
+bool g_klipp = false;
 
 // ================================================================= VÄRLDEN
 //
@@ -610,6 +616,8 @@ public:
                                                                     static_cast<int>(k)};
             byggObjektet(static_cast<int>(k));
         }
+        if (g_klipp)
+            klippaLagren();
 
         // Hillshadens ljus: från nordväst, 45° upp.
         glaze::Lighting ljus;
@@ -638,6 +646,33 @@ public:
                     "former — byggd på %.0f ms\n",
                     objekt_.size(), stolpar, karta.layerCount(), kVektorLager, kVektorFormer,
                     msSedan(t0));
+    }
+
+    // `--klipp`: varje objektlager och vektorlager klipps mot SAMMA
+    // världspolygon — en rektangel med ett hål kring scenens mitt.
+    void klippaLagren()
+    {
+        glaze::Polygon klipp;
+        klipp.outer = {{kX0 - 1500.0, kY0 - 1500.0}, {kX0 + 1500.0, kY0 - 1500.0},
+                       {kX0 + 1500.0, kY0 + 1500.0}, {kX0 - 1500.0, kY0 + 1500.0}};
+        klipp.holes = {{{kX0 - 400.0, kY0 - 400.0}, {kX0 + 400.0, kY0 - 400.0},
+                        {kX0 + 400.0, kY0 + 400.0}, {kX0 - 400.0, kY0 + 400.0}}};
+        int antal = 0;
+        const auto sätt = [&](int l) {
+            karta.setLayerClips(l, {klipp});
+            ++antal;
+        };
+        for (int l = 0; l < kVektorLager; ++l) {
+            sätt(gloria_[l]);
+            sätt(vektor_[l]);
+        }
+        for (const ObjektLager& o : lagren_) {
+            sätt(o.band);
+            sätt(o.objekt);
+            sätt(o.efter);
+            sätt(o.rymd);
+        }
+        std::printf("  --klipp: %d lager klippta mot samma världspolygon\n", antal);
     }
 
     // ------------------------------------------------------------ kameran
@@ -2697,6 +2732,8 @@ int main(int argc, char** argv)
             g_synlig = true;
         else if (std::strcmp(argv[i], "--hp") == 0)
             hp = true;
+        else if (std::strcmp(argv[i], "--klipp") == 0)
+            g_klipp = true;
         else if (std::strcmp(argv[i], "--skärm") == 0 && i + 1 < argc)
             skärm = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--objekt") == 0 && i + 1 < argc)
