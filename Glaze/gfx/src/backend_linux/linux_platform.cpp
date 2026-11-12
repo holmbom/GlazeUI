@@ -293,13 +293,22 @@ void postWakeup()
 //
 // xdg-desktop-portalens Settings-gränssnitt bär både ljus/mörkt
 // (org.freedesktop.appearance/color-scheme) och GNOME:s textskalning
-// (org.gnome.desktop.interface/text-scaling-factor). systemTheme() läser
-// färskt per anrop (fasadens kontrakt); textskalningen cachas och
+// (org.gnome.desktop.interface/text-scaling-factor). Båda cachas och
 // uppdateras via SettingChanged-signalen (D-Bus-fd:n i samma epoll).
 
 namespace {
 
 float g_textScale = 1.0f;
+
+// SYSTEMETS TEMA — läst EN gång (ett blockerande portal-anrop) och sedan
+// hållet levande av SettingChanged. Fasaden lovar ett färskt svar per anrop,
+// och glaze frågar vid VARJE `makeCtx` (`Theme::resolve`) — flera gånger per
+// bild och händelse. Ett portal-anrop per fråga är en D-Bus-rundresa i
+// UI-tråden: uppmätt en tredjedel av huvudtrådens tid i en panorerad karta
+// (terrain_perf steg 5, stackprov). Signalen bär det nya värdet, så cachen
+// är lika färsk som en ny fråga.
+bool        g_themeRead = false;
+SystemTheme g_theme     = SystemTheme::Light;
 
 // Läs ut värdet ur portalens svar: ReadOne ger v, Read ger v(v).
 bool variantToUint(DBusMessageIter* it, std::uint32_t& out)
@@ -395,8 +404,16 @@ DBusHandlerResult dbusFilter(DBusConnection*, DBusMessage* msg, void*)
         if (ns && key) {
             if (std::strcmp(ns, "org.freedesktop.appearance") == 0 &&
                 std::strcmp(key, "color-scheme") == 0) {
-                // Värdet läses via systemTheme() vid nästa repaint —
-                // eventet är bara invalidate-signalen (som D3D11).
+                // Signalen bär värdet (0 = ingen preferens, 1 = mörkt,
+                // 2 = ljust). Går det inte att läsa glöms cachen, och nästa
+                // systemTheme() frågar portalen.
+                std::uint32_t v = 0;
+                if (dbus_message_iter_next(&it) && variantToUint(&it, v)) {
+                    g_theme = (v == 1) ? SystemTheme::Dark : SystemTheme::Light;
+                    g_themeRead = true;
+                } else {
+                    g_themeRead = false;
+                }
                 broadcastEvent(EventType::SystemThemeChanged);
             } else if (std::strcmp(ns, "org.gnome.desktop.interface") == 0 &&
                        std::strcmp(key, "text-scaling-factor") == 0) {
@@ -512,6 +529,11 @@ SystemTheme systemTheme()
 {
     // Portalens color-scheme: 0 = ingen preferens, 1 = mörkt, 2 = ljust.
     // Okänt/ingen buss → Light (samma fallback som övriga backends).
+    // Läst en gång, sedan ur cachen (se g_theme): SettingChanged håller den
+    // färsk. Utan buss finns ingen signal heller — Light, utan nya försök
+    // per anrop (dbusConn cachar sitt misslyckande).
+    if (g_themeRead)
+        return g_theme;
     DBusConnection* c = dbusConn();
     if (!c)
         return SystemTheme::Light;
@@ -524,6 +546,8 @@ SystemTheme systemTheme()
             theme = (v == 1) ? SystemTheme::Dark : SystemTheme::Light;
         dbus_message_unref(reply);
     }
+    g_theme     = theme;
+    g_themeRead = true;
     return theme;
 }
 

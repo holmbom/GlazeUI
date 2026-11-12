@@ -21,6 +21,10 @@ versionen sätts.
 
 ## Nästa
 
+## 0.9.2
+
+- **Fix** — Linux: en app gick segt, mest märkbart i en karta under rörelse. Systemets tema (ljust eller mörkt) frågades med ett blockerande D-Bus-anrop varje gång ett rit- eller händelsesammanhang byggdes; det läses nu en gång och följer sedan skrivbordets ändringssignal. Panoreringen i `terrain_perf` gick från cirka 26 till 10 ms mellan bilderna.
+
 ## 0.9.1
 
 - **Fix** — Wayland: efter att appen kopierat eller klippt ut text fungerade bara den första inklistringen i appen själv; varje senare gav ingen text och frös fönstret en kvarts sekund.
