@@ -313,7 +313,11 @@ DISPLAY → surfacelös headless).
   giltig input-serial (serial 0 nekas — annars kortsluter clipboardText
   till fel sträng; följden att ett DOLT fönster i en grind aldrig äger
   urklippet är därför avsiktlig, och `textarea_gate` hoppar över sina
-  urklippsfall här); DnD-offers förstörs direkt i enter (ingen DnD); dtorn
+  urklippsfall här). Ägandet släpps BARA av källans `cancelled`, aldrig av
+  `selection(nil)`: när vi byter urklipp river vi den förra källan, och
+  GNOME skickar nil FÖRE den nya källans erbjudande — nollat där läste varje
+  inklistring vår egen källa genom röret (250 ms väntan, tom text);
+  DnD-offers förstörs direkt i enter (ingen DnD); dtorn
   river offer/seat-enheter (release)/outputs/globals i omvänd bindordning.
 - **SKÄRMENS mm på Linux** (CANVAS_2D etapp 2) — fyra av de sex
   implementationerna: **Wayland** sparar varje outputs `geometry` (mm, 0 =
