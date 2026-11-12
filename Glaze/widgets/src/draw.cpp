@@ -731,9 +731,17 @@ void Draw::textWrapped(const Ctx& c, const gfx::Rectf& r, const std::string& s,
 // framför ellipsen är fontens `fitWidth` — samma råvara som radbrytningen,
 // och den svarar alltid på en TECKENGRÄNS. Fonten talar fysiskt, så
 // bredden skalas dit precis som i `wrapLines`.
+//
+// "RYMS" HAR EN HÅRSMÅN. En yta som anroparen räknat TILLBAKA ur ett mått
+// byggt på textens bredd (flikens `2 × pad + text` blir rubrikytan
+// `flik − pad − pad`) kan landa några flyttalssteg under bredden, och en
+// strikt jämförelse kortar då en text som ryms — olika flikar beroende på
+// breddens decimaler. Hårsmånen är en hundradels FYSISK pixel: långt över
+// avrundningsfelet och långt under det som syns.
 std::string Draw::elide(const Ctx& c, const std::string& s, float maxW)
 {
-    if (Draw::measure(c, s).w <= maxW)
+    constexpr float kHårsmånPx = 0.01f;   // fysiska px — numerik, inget mått
+    if (Draw::measure(c, s).w <= maxW + kHårsmånPx / c.scale)
         return s;
     const float rum = maxW - Draw::measure(c, ellips()).w;
     if (rum < 0.0f)
