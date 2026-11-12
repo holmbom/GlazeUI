@@ -21,6 +21,10 @@ versionen sätts.
 
 ## Nästa
 
+## 0.9.4
+
+- **Fix** — X11: fönstren hade en svart ram och svarta rundade hörn (och ett transparent fönster var svart). Den genomskinliga grafikkonfigurationen valdes utan hänsyn till fönstertypens djup; nu väljs en med 32 bitars djup.
+
 ## 0.9.3
 
 - **Fix** — en text som ryms kortades ibland med "…" — till exempel vissa flikrubriker i `TabControl`, olika flikar beroende på textens bredd. Ytan räknades tillbaka ur textens bredd och hamnade några flyttalssteg under den; `Draw::elide` jämför nu med en hårsmån på en hundradels fysisk pixel, för alla som kortar text.

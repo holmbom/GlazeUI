@@ -317,8 +317,40 @@ bool X11Display::connect()
                            EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
                            EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
                            EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE};
-    if (eglChooseConfig(egl_, argb, &cfg32_, 1, &n) != EGL_TRUE || n < 1)
-        cfg32_ = nullptr;   // transparent degraderar till opakt (loggas)
+    // ARGB-KONFIGEN VÄLJS PÅ SIN VISUAL, inte på att den kommer först.
+    // `eglChooseConfig` sorterar inte efter X-visualens djup, och Mesa
+    // svarar först med en RGBA8-konfig vars nativa visual är 24 bitar djup:
+    // alfan finns i bufferten men når aldrig kompositören, så allt som ska
+    // vara genomskinligt — storleksmarginalen runt fönstret, de bortklippta
+    // rundade hörnen, ett transparent fönster — blir SVART (uppmätt på
+    // XWayland under GNOME 48). Den första konfigen med en 32 bitar djup
+    // visual är den riktiga; finns ingen degraderar det som förut.
+    cfg32_ = nullptr;   // transparent degraderar till opakt (loggas)
+    EGLint antal = 0;
+    if (eglChooseConfig(egl_, argb, nullptr, 0, &antal) == EGL_TRUE &&
+        antal > 0) {
+        std::vector<EGLConfig> alla(static_cast<std::size_t>(antal));
+        if (eglChooseConfig(egl_, argb, alla.data(), antal, &antal) ==
+            EGL_TRUE) {
+            for (EGLint i = 0; i < antal && !cfg32_; ++i) {
+                EGLint vid = 0;
+                if (eglGetConfigAttrib(egl_, alla[static_cast<std::size_t>(i)],
+                                       EGL_NATIVE_VISUAL_ID,
+                                       &vid) != EGL_TRUE ||
+                    vid == 0)
+                    continue;
+                XVisualInfo tmpl{};
+                tmpl.visualid = static_cast<VisualID>(vid);
+                int          cnt = 0;
+                XVisualInfo* vi =
+                    XGetVisualInfo(dpy_, VisualIDMask, &tmpl, &cnt);
+                if (vi && cnt > 0 && vi[0].depth == 32)
+                    cfg32_ = alla[static_cast<std::size_t>(i)];
+                if (vi)
+                    XFree(vi);
+            }
+        }
+    }
     return true;
 }
 
