@@ -27,7 +27,10 @@ DISPLAY → surfacelös headless).
   som får göras från en främmande tråd, för event-kön är en olåst
   `std::deque` som ägs av UI-tråden; läsningen och `pushEvent(Wakeup)` sker
   i `onReady`, alltså på UI-tråden inne i `pumpOnce`. Räknaren summerar N
-  skrivningar till ETT vaknande), portal-`systemTheme()` +
+  skrivningar till ETT vaknande), portal-`systemTheme()` (läst EN gång och
+  sedan cachad — `g_theme`, uppdaterad ur `SettingChanged`s värde; glaze
+  frågar vid varje `makeCtx`, och ett portal-anrop per fråga tog en tredjedel
+  av UI-trådens tid i en panorerad karta) +
   textskalningen (`SettingChanged` → `onTextScaleChanged()` per fönster +
   broadcast), **`isInProgramFile(adress)`** (DELAT_BIBLIOTEK R3, BLINT —
   `dl_iterate_phdr`: adressen i ett av HUVUDPROGRAMMETS laddade segment, det
