@@ -556,7 +556,11 @@ placering).
   pekarväg (kärnan, XI2, inträdet, skrollvalutorerna, nypningen) — trycket
   med golv, inte trunkering. `hasArgbConfig()` ersatte en kontroll som
   aldrig kunde slå till (`eglConfig(true)` faller tillbaka och är aldrig
-  nullptr).
+  nullptr). **ARGB-konfigen väljs på sin VISUAL**
+  (`X11Display` init): den första av `eglChooseConfig`s svar vars nativa
+  visual är 32 bitar djup — Mesa svarar först med en RGBA8-konfig på en
+  24-bitars visual, där alfan aldrig når kompositören och marginalen och de
+  rundade hörnen blir svarta.
 - **INGEN MARGINAL**: popuper, Native/None, ett fast fönster (Wayland alltid;
   X11 när det STARTAR fast — ett som blir fast i drift behåller den, inert),
   maximerat (båda), helskärm och tiled (Wayland),

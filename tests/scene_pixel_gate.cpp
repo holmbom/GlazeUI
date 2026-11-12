@@ -5715,9 +5715,11 @@ void fallM3()
         return;
     // Mellanfärger längs raden y = 100 (triangelns vänstra kant): pixlar som
     // varken är vita eller blå.
+    // VARJE FYSISK pixel i raden: bandet är en pixel brett, och ett steg per
+    // LOGISK pixel hoppar över det vid skala 2 (X11 med Xft.dpi 192).
     int mellan = 0;
-    for (int lx = 20; lx <= 160; ++lx) {
-        const std::uint8_t* q = b.at(r.x(lx), r.y(100));
+    for (int px = r.x(20); px <= r.x(160); ++px) {
+        const std::uint8_t* q = b.at(px, r.y(100));
         if (!ärFärg(q, kVit, 3) && !ärFärg(q, kBlåM, 3))
             ++mellan;
     }
