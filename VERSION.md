@@ -21,6 +21,10 @@ versionen sätts.
 
 ## Nästa
 
+## 0.9.3
+
+- **Fix** — en text som ryms kortades ibland med "…" — till exempel vissa flikrubriker i `TabControl`, olika flikar beroende på textens bredd. Ytan räknades tillbaka ur textens bredd och hamnade några flyttalssteg under den; `Draw::elide` jämför nu med en hårsmån på en hundradels fysisk pixel, för alla som kortar text.
+
 ## 0.9.2
 
 - **Fix** — Linux: en app gick segt, mest märkbart i en karta under rörelse. Systemets tema (ljust eller mörkt) frågades med ett blockerande D-Bus-anrop varje gång ett rit- eller händelsesammanhang byggdes; det läses nu en gång och följer sedan skrivbordets ändringssignal. Panoreringen i `terrain_perf` gick från cirka 26 till 10 ms mellan bilderna.

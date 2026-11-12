@@ -283,6 +283,13 @@ void fallKortning()
     check(exakt.toolTipAt(c, 0.0f, 0.0f).empty() &&
               glaze::Draw::elide(c, text, 80.0f) == text,
           "L3: exakt lika bred som texten — ingen tooltip (elide, inte measure)");
+    // HÅRSMÅNEN: en yta räknad tillbaka ur textens bredd (flikens
+    // `2 × pad + text` − pad − pad) kan landa några flyttalssteg under den —
+    // texten ryms ändå. En yta som är en halv pixel för smal kortar som förut.
+    check(glaze::Draw::elide(c, text, 80.0f - 1.0e-4f) == text,
+          "L3: en yta några flyttalssteg under bredden kortar inte");
+    check(glaze::Draw::elide(c, text, 79.5f) != text,
+          "L3: en halv pixel för smal yta kortar");
     smal.setToolTip("Eget tips");
     const glaze::TrText tipEget = smal.toolTipAt(c, 0.0f, 0.0f);
     check(tipEget.str() == "Eget tips", "L3: en egen tooltip vinner");
