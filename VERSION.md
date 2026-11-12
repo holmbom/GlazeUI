@@ -21,6 +21,11 @@ versionen sätts.
 
 ## Nästa
 
+## 0.9.1
+
+- **Fix** — Wayland: efter att appen kopierat eller klippt ut text fungerade bara den första inklistringen i appen själv; varje senare gav ingen text och frös fönstret en kvarts sekund.
+- **Fix** — grindarna på Linux: `dll_gate` läser `readelf` i "C"-lokalen (en svensk lokal gav tomma svar), `gradient_gate` mäter innanför fönstrets rundade hörn, och `tooltip_gate` hoppar över fallen på den riktiga timern där kompositören avfärdar en popup under ett dolt fönster (Wayland).
+
 ## 0.9.0
 
 - **New** — `DataGrid` har `PropertyGrid`s typade celler och fler: `Editor` är `Text`, `Choice` (med ikoner per val, `choiceIcons`), `Check`, `Color` (`allowAlpha`), `Number` (`min`/`max`, `decimals`, `prefix`/`suffix`, `allowEmpty`/`emptyText`; utanför gränserna klampas, otolkbar text visas som fel i cellen med en tooltip), `Button` (`onCellClick`) och `None`. Kolumnens redigerare sätts med `setColumnEditor(kolumn, EditorSpec)`, och en cell kan ha en egen (`setCellEditor`/`clearCellEditor`), vara inaktiv (`setCellEnabled`) och ha en tooltip (`setCellToolTip`). Läsvägarna är `isChecked`, `colorValue`, `numberValue` och `hasError` per cell.

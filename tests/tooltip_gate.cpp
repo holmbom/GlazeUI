@@ -361,6 +361,43 @@ void fallMedFonster()
             glaze::app().post([&] { steg[i++](); });
     };
 
+    // ---- 0. WAYLAND: LEVER EN POPUP UNDER ETT DOLT FÖNSTER? En xdg_popup vars
+    //          förälder aldrig mappats avfärdas av kompositören (`popup_done`)
+    //          några millisekunder efter att den skapats. De syntetiska fallen
+    //          mäter i samma anrop och märker ingenting, men fallen på den
+    //          RIKTIGA timern (18, 19, 22) mäter efter en väntan och hade fällts
+    //          av kompositören, inte av koden. Provet visar en tooltip, väntar
+    //          lika länge som fall 22 och ser om den står kvar; gör den inte det
+    //          hoppas de tre fallen över med en skriven rad (exit 77). Bara på
+    //          Wayland — där, och bara där, är `gfx::screens()` tom på Linux.
+    bool popupLever = true;
+#ifdef __linux__
+    if (gfx::screens().empty()) {
+        steg.push_back([&] {
+            kordes = true;
+            w.flytta(w.mitt(w.knappA));
+            w.vila();
+            w.efterVantan = [&] {
+                popupLever = w.popup() != nullptr;
+                if (!popupLever) {
+                    std::printf("  --   fallen på den riktiga timern (18, 19, 22) "
+                                "hoppas över: kompositören avfärdar en popup "
+                                "under ett dolt fönster (Wayland)\n");
+                    ++g_skips;
+                }
+                w.flytta(w.mitt(w.etikett));   // kall igen inför fall 1
+                nästa();
+            };
+            const glaze::Style& s = w.style();
+            w.window().startTimer(
+                kVantTimer, static_cast<std::uint32_t>(
+                                (s.toolTipReshowMs + s.toolTipDelayMs) / 2));
+        });
+        // Ett eget varv: provets popup stängs i pump-svansen.
+        steg.push_back([&] { nästa(); });
+    }
+#endif
+
     // ---- 1. VILA visar tooltipen — men inte förrän fördröjningen löst ut.
     steg.push_back([&] {
         kordes = true;
@@ -641,6 +678,11 @@ void fallMedFonster()
     //          fördröjningen.
     steg.push_back([&] {
         w.flytta(w.handtag(0));
+        if (!popupLever) {   // steg 0
+            w.flytta(w.mitt(w.etikett));
+            nästa();
+            return;
+        }
         w.efterVantan = [&] {
             check(w.toolTipWidget() == &w.dockVärd && w.popup() &&
                       w.popup()->body().text() == "Panel ett",
@@ -751,6 +793,11 @@ void fallMedFonster()
     steg.push_back([&] {
         w.flytta(w.mitt(w.knappB));
         check(w.toolTipWidget() == nullptr, "18: inget direkt");
+        if (!popupLever) {   // steg 0
+            w.flytta(w.mitt(w.etikett));
+            nästa();
+            return;
+        }
         w.efterVantan = [&] {
             check(w.toolTipWidget() == &w.knappB,
                   "18: den RIKTIGA timern visade tooltipen efter vila",

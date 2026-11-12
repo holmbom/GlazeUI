@@ -1490,9 +1490,14 @@ void WaylandDisplay::selectionOffered(wl_data_offer* offer)
         if (auto* od =
                 static_cast<OfferData*>(wl_data_offer_get_user_data(offer)))
             selectionHasUtf8_ = !od->mime.empty();
-    } else {
-        weOwnSelection_ = false;   // klippbordet tömt av någon annan
     }
+    // ÄGANDET rörs inte här. `selection(nil)` kommer också när VI byter
+    // urklipp: `setClipboardText` river den förra källan, kompositören tömmer
+    // urklippet och skickar nil, och först därefter erbjudandet för den nya
+    // källan. Nollades ägandet på nil läste nästa inklistring vår egen källa
+    // genom röret — en väntan på 250 ms i den enkeltrådade pumpen och en tom
+    // text (uppmätt på GNOME: bara den första inklistringen fungerade). Att
+    // någon annan tagit över säger källans `cancelled`, och bara den.
 }
 
 std::string WaylandDisplay::clipboardText()

@@ -192,7 +192,9 @@ bool kör(const std::vector<std::string>& args, std::vector<std::string>& rader)
     rad += L"\"";
     FILE* rör = _wpopen(rad.c_str(), L"rt");
 #else
-    std::string rad;
+    // "C"-lokalen: readelf ÖVERSÄTTER sina rubriker ("COMDAT gruppsektionen",
+    // "Fil:" på svenska), och tolken läser de engelska.
+    std::string rad = "LC_ALL=C ";
     for (const std::string& a : args) {
         rad += '\'';
         for (char c : a)

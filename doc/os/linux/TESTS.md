@@ -504,26 +504,12 @@ Koden: `cmake/GlazeShared.cmake`, `Glaze/gfx/CMakeLists.txt` (common_gfx som
 OBJECT, PIC), `Glaze/widgets/CMakeLists.txt`, `Glaze/widgets/src/app_anchor.cpp`
 + `gfx::isInProgramFile` i `linux_platform.cpp` (`dl_iterate_phdr`, ALDRIG
 kompilerad), `Threads/src/ui_anchor.cpp`, `tests/dll_gate.cpp` (ELF-vägen:
-`readelf -g -W`, ALDRIG körd) och `tests/shared_gate*.cpp`.
+`readelf -g -W`) och `tests/shared_gate*.cpp`.
 
-- [ ] **`build-shared` bygger och sviten är grön.** *Vad man gör:* `cmake -S . -B
-  build-shared -G Ninja -DCMAKE_BUILD_TYPE=Debug -DGLAZE_SHARED=ON
-  -DGLAZE_TESTS=ON && cmake --build build-shared && ctest --test-dir
-  build-shared --output-on-failure`. *Rätt utfall:* 0 varningar (ingen
-  "relocation … recompile with -fPIC" — common_gfx och de statiska
-  formatbiblioteken är PIC), ctest grön inklusive `shared_gate` (pluginen
-  laddas med `dlopen(RTLD_NOW | RTLD_LOCAL)`). D0 mäter ankaret bara där
-  `--as-needed` är förval (Ubuntu); på Debian är den grön också utan.
 - [ ] **Byggträdets RUNPATH.** *Vad man gör:* `ldd build-shared/apps/demo/demo`.
   *Rätt utfall:* `libglaze.so` ur `build-shared/Glaze/widgets/`, inget "not
   found"; demon kör på Wayland OCH X11 (`GLAZE_LINUX_DRIVER=x11` väljer X11),
   och avslutas rent.
-- [ ] **`dll_gate` i den statiska sviten.** *Vad man gör:* `ctest --test-dir
-  build-test -R dll_gate --output-on-failure`. *Rätt utfall:* grön; del A:s
-  kontroll hittar exakt räknare()::n, delad, perTråd, Medlem::antal, karta
-  och ägd (`.bss.`/`.data.`/`.tbss.` i COMDAT-grupper, åäö avkodade ur
-  readelf:s `<C3><A4>`), del B H1 1 · H2 4 · H3 3, och 0 fynd i de riktiga
-  arkiven och headrarna.
 
 ## Levande drag och flytande dockpaneler — X11 och Wayland, BLINT skrivet (TODO 77/81, DOCKNING E3 + DOCKNING_DRAG E5, 2026-10-13)
 
@@ -1406,9 +1392,9 @@ vWorld.xy)`; `kPointsGlsl*`: `vClipPx` (noperspective) och `vAnchor`),
 - **Fönstrets gradient** (blint skrivet): `GlRenderer::fillQuadCorners`
   (`linux_renderer.cpp`), det delade rutnätet `Renderer::fillRectCorners` och
   klippet mot det RUNDADE fönstret i `AppWindow::drawWindowGradient`.
-  *Gör:* kör `gradient_gate` och `demo --login` på Wayland och X11, och växla
+  *Gör:* kör `demo --login` på X11 (Wayland är testat), och växla
   läge med knappen uppe till höger.
-  *Rätt utfall:* grinden grön; gradienten följer fönstrets rundade hörn, inga
+  *Rätt utfall:* gradienten följer fönstrets rundade hörn, inga
   veck eller skarvar och inga glipor vid hörnen.
 
 - **Menyer och glyfknappar i namnlisten** (delad kod, blint på Linux):

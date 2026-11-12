@@ -26,6 +26,7 @@
 // MÄTER INTE: gradienten på Metal och Linux (doc/os), rundade fönster (Linux)
 // och dockningens remsor.
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -188,6 +189,19 @@ struct Bild {
     }
 };
 
+// Provpunktens avstånd från sidokanten, tre rader över nederkanten. Ett
+// RUNDAT fönster (Linux) har hörnen bortklippta — genomskinligt 0,0,0 — så
+// punkten flyttas in förbi bågen på den raden; utan radie (Windows, macOS)
+// är svaret 2, som förut.
+int inåt(Fönster& f)
+{
+    const float r = f.cornerRadius();
+    if (r <= 3.0f)
+        return 2;
+    const float d = r - 3.0f;   // radens avstånd från bågens medelpunkt
+    return static_cast<int>(std::ceil(r - std::sqrt(r * r - d * d))) + 2;
+}
+
 bool rendera(Fönster& f, Bild& b)
 {
     f.window().renderFrame();
@@ -215,8 +229,8 @@ int fallBild()
         check(false, "B1 captureFrame lyckades");
         return 0;
     }
-    const gfx::Color vänster = b.at(2, b.h - 3);
-    const gfx::Color höger   = b.at(b.w - 3, b.h - 3);
+    const gfx::Color vänster = b.at(inåt(f), b.h - 3);
+    const gfx::Color höger   = b.at(b.w - 1 - inåt(f), b.h - 3);
     check(vänster.r > 230 && vänster.g < 40, "B1 det röda hörnet syns", text(vänster));
     check(höger.r > 240 && höger.g > 240, "B1 det vita hörnet syns", text(höger));
 
@@ -226,7 +240,7 @@ int fallBild()
         check(false, "B1 captureFrame lyckades (statusrad)");
         return 0;
     }
-    const gfx::Color rad = b.at(2, b.h - 3);
+    const gfx::Color rad = b.at(inåt(f), b.h - 3);
     check(rad.r > 230 && rad.g < 40, "B1 statusraden släpper igenom gradienten",
           text(rad));
 
@@ -249,7 +263,7 @@ int fallBild()
         return 0;
     }
     const gfx::Color bg = f.theme().dark.colors.windowBg;
-    const gfx::Color m1 = b.at(2, b.h - 3);
+    const gfx::Color m1 = b.at(inåt(f), b.h - 3);
     check(nära(m1.r, bg.r, 4) && nära(m1.g, bg.g, 4),
           "B2 mörkt hörn som inte är satt: bakgrunden, inte det ljusa", text(m1));
 
@@ -260,7 +274,7 @@ int fallBild()
         check(false, "B2 captureFrame lyckades (mörkt hörn)");
         return 0;
     }
-    const gfx::Color m2 = b.at(2, b.h - 3);
+    const gfx::Color m2 = b.at(inåt(f), b.h - 3);
     check(m2.g > 100 && m2.r < 60, "B2 mörkt läge tar de mörka hörnen", text(m2));
     return 0;
 }
