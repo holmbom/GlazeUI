@@ -121,7 +121,7 @@ ImageSource::ImageSource(AssetHandle h) : kind_(Kind::Asset), asset_(h) {}
 ImageSource::ImageSource(Bitmap b)
     : kind_(Kind::Bitmap),
       bitmap_(std::move(b)),
-      version_(bitmap_.d_ ? bitmap_.d_->version : 0)
+      version_(bitmap_.d_ ? bitmap_.d_->version.load() : 0)
 {
 }
 ImageSource::ImageSource(RenderTexture t)
@@ -838,6 +838,17 @@ const PassStyle& Shape::passStyle() const
 const std::shared_ptr<const detail::InstanceSet>& Shape::instanceSet() const
 {
     return (d3_ ? *d3_ : tom3()).instanceSet;
+}
+
+Shape Shape::withResolvedText() const
+{
+    Shape s = *this;
+    if (s.text_.id() != 0)
+        s.text_ = TrText(s.text_.str());
+    for (TextSpan& del : s.spans_)
+        if (del.text.id() != 0)
+            del.text = TrText(del.text.str());
+    return s;
 }
 
 } // namespace glaze

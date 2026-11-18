@@ -366,12 +366,26 @@ public:
     // surf får vara EGL_NO_SURFACE (headless/surfacelöst — allt ritas i
     // retained-FBO:n och läses via captureRetained; composite/present
     // hoppar backbuffern).
+    // `share` är en kontext att DELA objekt med (texturer, buffertar,
+    // program, synkobjekt) — scen-kontextens renderare tar fönstrets
+    // (linux_scene_context.cpp); EGL_NO_CONTEXT = en egen grupp.
     bool init(EGLDisplay dpy, EGLConfig cfg, EGLSurface surf,
-              int w, int h, bool transparent);
+              int w, int h, bool transparent,
+              EGLContext share = EGL_NO_CONTEXT);
     void shutdownRenderer();
     bool ready() const { return context_ != EGL_NO_CONTEXT; }
 
     bool makeCurrent();
+    // Släpper kontexten från den anropande tråden (scentrådens slut).
+    void releaseCurrent();
+    // Det scen-kontexten delar med: displayen, konfigen och kontexten —
+    // oförändrade efter init.
+    EGLDisplay eglDisplay() const { return display_; }
+    EGLConfig  eglConfig() const { return config_; }
+    EGLContext eglContext() const { return context_; }
+
+    // Scen-kontexten (linux_scene_context.cpp) — se gfx/scene_context.h.
+    std::unique_ptr<SceneContext> createSceneContext() override;
     // Swap-interval per yta: 0 på Wayland (skymda ytor får inga frame-
     // callbacks — vsync-swap hade hängt pumpen; pacing sker i stället i
     // WaylandWindow::beforeSwap), 1 på X11 (vblank-styrt = säkert även
@@ -620,6 +634,7 @@ private:
     bool initScene();
     void shutdownScene();
     void beginSceneFrame();
+    void resetTransientRings();   // framens och blockets början
 
     // Den transienta ringen per buffertslag — se d3d11_backend.h:s
     // TransientRing; här orphanas lagringen vid framens första
@@ -758,6 +773,7 @@ private:
     EGLDisplay display_ = EGL_NO_DISPLAY;
     EGLSurface surface_ = EGL_NO_SURFACE;
     EGLContext context_ = EGL_NO_CONTEXT;
+    EGLConfig  config_  = nullptr;   // konfigen kontexten skapades med
 
     unsigned program_   = 0;
     int      vpUniform_ = -1;

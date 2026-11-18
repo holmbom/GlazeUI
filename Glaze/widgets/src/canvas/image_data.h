@@ -5,9 +5,11 @@
 // inte i publika API:t; bara src/canvas/*.cpp och src/image_cache.cpp drar
 // in den.
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include <gfx/color.h>
@@ -36,17 +38,23 @@ struct BitmapData {
     std::uint64_t             id = 0;
     int                       w = 0, h = 0;
     std::vector<std::uint8_t> px;   // RGBA8, rak alfa, täta rader
-    gfx::ImageFilter          filter = gfx::ImageFilter::Linear;
+    std::atomic<gfx::ImageFilter> filter{gfx::ImageFilter::Linear};
+
+    // TRÅDARNA. Appens tråd skriver bilden, och en renderingstråds bildcache
+    // läser den vid uppladdningen. `lock` skyddar `px`, `changes` och `base`
+    // — skrivarna (`setPixels`, `fill`, släppet) och uppladdningen tar det.
+    // Flaggorna, filtret och `version` är atomiska och läses utan lås.
+    std::mutex lock;
 
     // PIXLARNA SOM SLÄPPS (`Bitmap::setKeepPixels(false)`): när en
     // fönstercache har bilden HEL och AKTUELL köas den (`releaseQueued`, med
     // den uppladdade versionen) och släpps i slutet av pumpvarvet
     // (`released` — `px` tom, loggen tömd). `missLogged`: ett fönster utan
     // textur, eller en version efter, har loggat en gång.
-    bool keepPixels    = true;
-    bool released      = false;
-    bool releaseQueued = false;
-    bool missLogged    = false;
+    std::atomic<bool> keepPixels{true};
+    std::atomic<bool> released{false};
+    std::atomic<bool> releaseQueued{false};
+    std::atomic<bool> missLogged{false};
 
     // ÄNDRINGSLOGGEN. `version` stegas vid varje ändring (0 = som skapad).
     // `changes` bär varje ändring med version > `base`, i ordning — en
@@ -56,22 +64,22 @@ struct BitmapData {
         std::uint64_t version;
         int           x, y, w, h;
     };
-    std::uint64_t       version = 0;
-    std::uint64_t       base    = 0;
-    std::vector<Change> changes;
+    std::atomic<std::uint64_t> version{0};
+    std::uint64_t              base = 0;
+    std::vector<Change>        changes;
 
-    // Antecknar en ändrad rektangel. En ändring av HELA bilden tömmer
-    // loggen (allt äldre behöver hela bilden ändå), och en full logg ger
-    // upp sin äldre halva.
+    // Antecknar en ändrad rektangel — under `lock`. En ändring av HELA
+    // bilden tömmer loggen (allt äldre behöver hela bilden ändå), och en full
+    // logg ger upp sin äldre halva.
     void markChanged(int x, int y, int cw, int ch)
     {
-        ++version;
+        const std::uint64_t v = ++version;
         if (x == 0 && y == 0 && cw == w && ch == h) {
             changes.clear();
-            base = version;
+            base = v;
             return;
         }
-        changes.push_back(Change{version, x, y, cw, ch});
+        changes.push_back(Change{v, x, y, cw, ch});
         if (changes.size() > kMaxBitmapChanges) {
             const std::size_t drop = changes.size() / 2;
             base = changes[drop - 1].version;
@@ -81,8 +89,9 @@ struct BitmapData {
     }
 };
 
-// SLÄPPKÖN (UI-tråden). `queuePixelRelease` köar bilden vid den
-// uppladdade versionen (`ImageCache::get`); `releaseQueuedPixels` — App:s
+// SLÄPPKÖN. `queuePixelRelease` köar bilden vid den uppladdade versionen
+// (`ImageCache::get` — från den tråd som laddade upp, med bildens `lock`
+// taget; kön har sitt eget lås); `releaseQueuedPixels` — App:s
 // pump, direkt efter varvets ritloop, så varje fönster som ritar bilden i
 // samma varv hinner få den — släpper pixlarna i de köade bilder som
 // fortfarande har den versionen och `keepPixels` false. De andra får
@@ -90,5 +99,10 @@ struct BitmapData {
 void queuePixelRelease(const std::shared_ptr<BitmapData>& d,
                        std::uint64_t version);
 void releaseQueuedPixels();
+
+// PIXLARNAS GENERATION — stegas varje gång en bild släpper sina pixlar
+// (`releaseQueuedPixels`), atomiskt: det som summerar bildernas pixlar
+// (scene.h `sceneCpuBytes`) räknar om när den ändrats.
+std::uint64_t pixelGeneration();
 
 } // namespace glaze::detail

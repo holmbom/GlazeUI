@@ -86,6 +86,12 @@ extern PFNGLGETACTIVEATTRIBPROC                     pglGetActiveAttrib;
 extern PFNGLGETATTRIBLOCATIONPROC                   pglGetAttribLocation;
 extern PFNGLGETACTIVEUNIFORMPROC                    pglGetActiveUniform;
 extern PFNGLGETACTIVEUNIFORMSIVPROC                 pglGetActiveUniformsiv;
+// SYNKPUNKTERNA (GL 3.2) — scen-kontextens delade bilder: en kontext väntar
+// in den andras arbete med en bild (linux_scene_context.cpp). Synkobjekt
+// delas i delningsgruppen.
+extern PFNGLFENCESYNCPROC                           pglFenceSync;
+extern PFNGLCLIENTWAITSYNCPROC                      pglClientWaitSync;
+extern PFNGLDELETESYNCPROC                          pglDeleteSync;
 
 // Laddar alla pekare ovan EN gång (kräver en aktuell kontext). false + logg
 // om någon saknas — då finns ingen pipeline att bygga.

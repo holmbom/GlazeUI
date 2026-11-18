@@ -169,6 +169,14 @@
 //       `zoomToRect` mot `knownBox` (FL1 — inramad mot
 //       0 × 0; FL2 — kameran ändras direkt); `dropPendingFits` bort ur
 //       `setCamera` (FL3) resp. ur `setCamera(Camera3D)` (FL4).
+//   MU  RITYTANS MINNE i ett eget dolt fönster: MU1 `memoryUsed()` är {0, 0}
+//       utan fönster, räknar meshen på GPU:n och CPU:n och en delad mesh en
+//       gång; MU2 en mesh utanför bild hålls resident inom budgeten och
+//       vräks från GPU:n när budgeten inte rymmer den, medan CPU-originalen
+//       och det synliga står kvar; MU3 stilla bilder över budgeten laddar
+//       inte upp det vräkta igen. Sabotage (SKA fälla): kopian räknad per
+//       form (MU1); resten-passet utan `underBudget` eller utan märket (MU3);
+//       föremålen `använda` också när de inte syns (MU2 — inget vräks).
 //
 // VAD DEN INTE MÄTER, skrivet så anspråket inte överdrivs:
 //   * att backenderna levererar hjulets position, mittenknappen och
@@ -2553,6 +2561,101 @@ void fallFlik()
     }
 }
 
+// ------------------------------------------------------------------ MU
+//
+// RITYTANS MINNE (`Canvas::memoryUsed`, `setMemoryBudget`) i ett eget dolt
+// fönster.
+struct MinnesVärd : glaze::AppWindow {
+    glaze::Canvas yta;
+    MinnesVärd()
+    {
+        setClientSize(400, 300);
+        yta.dock = glaze::Dock::Fill;
+        yta.setBorder(false);
+        root().adopt(yta);
+    }
+    void rita()
+    {
+        yta.invalidate();
+        window().renderFrame();
+    }
+};
+
+void fallMinnet()
+{
+    MinnesVärd w;
+    w.setOffscreen(true);
+    const glaze::CanvasMemoryUse stängd = w.yta.memoryUsed();
+    check(stängd.gpu == 0 && stängd.cpu == 0, "MU1 utan ett öppet fönster är minnet {0, 0}");
+    bool kördes = false;
+    glaze::app().post([&] {
+        kördes = true;
+        const auto mesh = [](double x) {
+            glaze::MeshDesc d;
+            d.origin = {x, 0.0, 0.0};
+            for (int i = 0; i < 3000; ++i)
+                d.positions.push_back({static_cast<float>(i % 7), static_cast<float>(i % 5),
+                                       static_cast<float>(i % 3)});
+            return glaze::Mesh(std::move(d));
+        };
+        // A står framför kameran, B hundra kilometer bort — utanför bild.
+        const glaze::Mesh a = mesh(0.0), b = mesh(100000.0);
+        w.yta.setLayerPlacement(0, glaze::LayerPlacement::World);
+        w.yta.setCamera(glaze::Camera3D{.target = {3, 2, 1}, .distance = 40.0});
+        w.yta.addShape(0, glaze::Shape::mesh(a));
+        w.rita();
+        w.rita();
+        const glaze::CanvasMemoryUse en = w.yta.memoryUsed();
+        // MU1. Samma mesh en gång till räknas inte igen — varken på GPU:n
+        // eller på CPU:n.
+        w.yta.addShape(0, glaze::Shape::mesh(a, {.at = {1, 0, 0}}));
+        w.rita();
+        w.rita();
+        const glaze::CanvasMemoryUse två = w.yta.memoryUsed();
+        check(en.gpu > 0 && en.cpu >= 3000u * 12u && två.gpu == en.gpu && två.cpu == en.cpu,
+              "MU1 minnet räknar meshen på GPU:n och CPU:n, och en delad mesh en gång",
+              std::to_string(en.gpu) + " + " + std::to_string(en.cpu) + " → " +
+                  std::to_string(två.gpu) + " + " + std::to_string(två.cpu));
+
+        // MU2. B utanför bild hålls resident inom budgeten …
+        w.yta.addShape(0, glaze::Shape::mesh(b));
+        w.rita();
+        w.rita();
+        const glaze::CanvasMemoryUse medB = w.yta.memoryUsed();
+        check(medB.gpu > två.gpu && medB.cpu > två.cpu,
+              "MU2 en mesh utanför bild hålls resident medan budgeten räcker",
+              std::to_string(medB.gpu) + " byte på GPU:n mot " + std::to_string(två.gpu));
+        // … och vräks när budgeten inte längre rymmer den; den synliga står kvar.
+        w.yta.setMemoryBudget(medB.gpu + medB.cpu - 1);
+        w.rita();
+        w.rita();
+        w.rita();
+        const glaze::CanvasMemoryUse vräkt = w.yta.memoryUsed();
+        check(vräkt.gpu < medB.gpu && vräkt.gpu >= två.gpu && vräkt.cpu == medB.cpu,
+              "MU2 över budgeten vräks det som inte syns från GPU:n; CPU-originalen "
+              "och det synliga står kvar",
+              std::to_string(medB.gpu) + " → " + std::to_string(vräkt.gpu) + " byte på GPU:n");
+        // MU3. Stilla bilder över budgeten laddar inte upp det vräkta igen.
+        gfx::Renderer& r = w.window().renderer();
+        r.resetStats();
+        w.rita();
+        w.rita();
+        w.rita();
+        const glaze::CanvasMemoryUse stilla = w.yta.memoryUsed();
+        check(r.stats().bytesUploaded == 0 && stilla.gpu == vräkt.gpu,
+              "MU3 stilla bilder över budgeten laddar inte upp det vräkta igen",
+              std::to_string(r.stats().bytesUploaded) + " byte uppladdade, " +
+                  std::to_string(stilla.gpu) + " byte på GPU:n");
+        w.close();
+    });
+    w.run();
+    if (!kördes) {
+        std::printf("  --   MU hoppades över: inget fönster kunde skapas (ingen "
+                    "display)\n");
+        ++g_skips;
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -2566,6 +2669,7 @@ int main(int argc, char** argv)
     fallLäsning();
     fallLöpande();
     fallFlik();
+    fallMinnet();
     if (g_skips)
         std::printf("     %d block överhoppade (se raderna ovan)\n", g_skips);
     std::printf(g_fel ? "=== canvas_gate: %d FEL av %d ===\n"

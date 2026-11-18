@@ -68,10 +68,14 @@
 #include "../canvas/build.h"
 #include "../canvas/camera_math.h"
 #include "../canvas/drape.h"
+#include "../canvas/frame_job.h"
 #include "../canvas/hit_index.h"
 #include "../canvas/input_map.h"
 #include "../canvas/labels.h"
+#include "../canvas/memory_account.h"
+#include "../canvas/paint_list.h"
 #include "../canvas/pick3d.h"
+#include "../canvas/render_loop.h"
 #include "../canvas/resources.h"
 #include "../canvas/scene.h"
 #include "../canvas/target3d.h"
@@ -91,8 +95,9 @@ using detail::wrapBearing;
 namespace {
 
 // 3D-MÅLETS ARGUMENT som ritningen och `renderToBitmap` delar — provtagningen,
-// rutnätet ur temat och stilen, appens `onPaint` och lagrens målare; kameran,
-// stämpeln, toningen och del-vyerna sätter anroparen.
+// rutnätet ur temat och stilen, appens `onPaint` och lagrens målare (inspelade
+// första gången målet ritar dem, src/canvas/paint_list.h); kameran, stämpeln,
+// toningen och del-vyerna sätter anroparen.
 detail::Target3DArgs målArgs(Canvas& yta, const Ctx& c)
 {
     detail::Target3DArgs a;
@@ -101,11 +106,9 @@ detail::Target3DArgs målArgs(Canvas& yta, const Ctx& c)
     a.gridColor   = c.theme->colors.canvasGrid;
     a.gridMinPx   = c.style->canvasGridMin;
     a.gridWidthPx = c.style->canvasGridWidth;
-    if (yta.onPaint)
-        a.paint = [&yta](detail::PaintContext& p) {
-            detail::paintWith(yta, yta.onPaint, p, false);
-        };
-    a.layerPaint = detail::layerPaintOf(yta);
+    detail::CanvasPaints målare = detail::lazyPaintsOf(yta, true);
+    a.paint      = std::move(målare.main);
+    a.layerPaint = std::move(målare.layers);
     return a;
 }
 
@@ -366,21 +369,234 @@ bool Canvas::uses3DTarget() const
            detail::hasWorldLayer(*scene_) || detail::hasScreenPass(*scene_);
 }
 
+// RENDERINGSTRÅDEN (src/canvas/render_loop.h). Bilden tas i bildens steg —
+// en gång per bild och före ritningen, så en bild som redan lagts i fönstrets
+// bild aldrig byts under den.
+void Canvas::frameStep()
+{
+    AppWindow*                w    = appWindow();
+    detail::CanvasRenderLoop* loop = w ? detail::canvasLoopOf(*w) : nullptr;
+    const std::uint64_t       id   = loop ? loop->id() : 0;
+    if (id != threadLoop_) {
+        // En ny loop (fönstret öppnades igen, ritytan bytte fönster) eller
+        // ingen: det som hörde till den förra gäller inte.
+        threadLoop_    = id;
+        frameImage_    = nullptr;
+        frameResult_   = nullptr;
+        frameW_ = frameH_ = 0;
+        submitted_     = false;
+        renderAgain_   = false;
+        labelsPending_ = false;
+        jobCameras_.clear();
+        hasShownCamera_ = false;
+    }
+    if (!loop || forceSync_)
+        return;
+    const detail::CanvasRenderLoop::Shown bild = loop->present(scene_->id);
+    frameImage_  = bild.image;
+    frameW_      = bild.width;
+    frameH_      = bild.height;
+    frameResult_ = bild.result;
+    if (!bild.fresh)
+        return;
+    // SCENEN HAR NÅGOT BARA UI-TRÅDEN KAN HÄMTA (en `RenderTexture` i en
+    // form): bilden visas inte, tråden lämnas, och ritytan ritar scenen
+    // själv från och med den här bilden — som utan tråd.
+    if (bild.result->needsUiThread) {
+        forceSync_   = true;
+        frameImage_  = nullptr;
+        frameResult_ = nullptr;
+        frameW_ = frameH_ = 0;
+        labelsPending_  = false;
+        hasShownCamera_ = false;
+        jobCameras_.clear();
+        loop->forget(scene_->id);
+        invalidate();
+        return;
+    }
+    // En NY bild: det den vet följer med — toningen, minnet, om scenen vill
+    // ha en bild till, och etiketterna träffprovet läser.
+    labelsAnimating_ = bild.result->labelsAnimating;
+    threadMemory_    = CanvasMemoryUse{bild.result->memory.gpu, bild.result->memory.cpu};
+    renderAgain_     = bild.result->wantsMore();
+    labelsPending_   = true;
+    // Renderingstrådens faser och räknare räknas i bilden där den visas.
+    detail::profileMerge(bild.result->profile);
+    // Bildens kamera: jobbets, och de äldre jobbens behövs inte mer.
+    const std::uint64_t nr = bild.result->serial;
+    const auto          it =
+        std::find_if(jobCameras_.begin(), jobCameras_.end(),
+                     [nr](const FrameCamera& k) { return k.serial >= nr; });
+    if (it != jobCameras_.end() && it->serial == nr) {
+        shownCamera_    = *it;
+        hasShownCamera_ = true;
+    }
+    jobCameras_.erase(jobCameras_.begin(), it);
+}
+
+// Skärmfrågornas kamera (canvas.h `ShownScope`): den visade bildens, bytt in
+// för frågans längd och lagd tillbaka efteråt. Ingenting ritas om och ingen
+// händelse fyras — bara de fyra fälten byts.
+Canvas::ShownScope::ShownScope(const Canvas& c)
+{
+    if (!c.threaded() || !c.hasShownCamera_)
+        return;
+    c_     = const_cast<Canvas*>(&c);
+    saved_ = FrameCamera{0, c_->cam_, c_->hasCamera_, c_->cam3D_, c_->is3D_};
+    const FrameCamera& k = c_->shownCamera_;
+    c_->cam_       = k.cam;
+    c_->hasCamera_ = k.hasCamera;
+    c_->cam3D_     = k.cam3;
+    c_->is3D_      = k.is3D;
+}
+
+Canvas::ShownScope::~ShownScope()
+{
+    if (!c_)
+        return;
+    c_->cam_       = saved_.cam;
+    c_->hasCamera_ = saved_.hasCamera;
+    c_->cam3D_     = saved_.cam3;
+    c_->is3D_      = saved_.is3D;
+}
+
+// De förankrade barnens projektion: genom den VISADE bildens kamera när
+// scenen ritas av renderingstråden, annars genom ritytans.
+bool Canvas::projectShown(const gfx::Rectf& box, float scale, Point world,
+                          double& px, double& py) const
+{
+    if (!threaded() || !hasShownCamera_)
+        return projectIn(box, scale, world, px, py);
+    const FrameCamera& k = shownCamera_;
+    if (k.is3D)
+        return gfx::project(detail::view3D(k.cam3, box, detail::sceneBox(*scene_)),
+                            gfx::Vec3d{world.x, world.y, 0.0}, px, py);
+    if (!k.hasCamera)
+        return projectIn(box, scale, world, px, py);   // ytans egen, utan kamera
+    return gfx::project(detail::mapView(k.cam, yUp_, maxPitch_, box, scale),
+                        world.x, world.y, px, py);
+}
+
+// Bilden är färdig (renderingstrådens väckning, i fönstertrådens ramkö):
+// ritytans yta ritas om — utan att stega `damageStamp()`, som är jobbets
+// nyckel.
+void Canvas::threadFrameReady()
+{
+    invalidateRect(lastBox_);
+}
+
+// TRÅDLÄGET: ett jobb lämnas när något ritytan ritar kan ha ändrats (eller
+// den visade bilden ville ha en till), och den senast färdiga bilden läggs på
+// plats. Ritningen väntar aldrig på renderingstråden.
+bool Canvas::submitThreadFrame(const Ctx& c, detail::CanvasRenderLoop& loop)
+{
+    const detail::CanvasFrameBox fb    = detail::canvasFrameBox(c.box);
+    const std::uint64_t          stamp = damageStamp();
+    const bool ändrad =
+        !submitted_ || renderAgain_ || stamp != submittedStamp_ ||
+        c.box.x != submittedBox_.x || c.box.y != submittedBox_.y ||
+        c.box.w != submittedBox_.w || c.box.h != submittedBox_.h ||
+        c.scale != submittedScale_ || c.pxPerMm != submittedMm_;
+    if (ändrad && fb.width > 0 && fb.height > 0) {
+        detail::CanvasFrameJob j;
+        j.serial = ++jobSerial_;
+        j.width  = fb.width;
+        j.height = fb.height;
+        j.box    = fb.box;
+        // Scenen som en ögonblicksbild, ritläget för bildens ruta.
+        j.scene = detail::publishScene(*scene_);
+        detail::PaintContext pc;
+        paintContext(c, pc, fb.box);
+        pc.scene   = j.scene.get();
+        j.world    = pc.world;
+        j.screen   = pc.screen;
+        j.zoom     = pc.zoom;
+        j.lighting = lighting_;
+        j.scale    = c.scale;
+        j.pxPerMm  = c.pxPerMm;
+        j.ui       = c.ui;
+        j.theme    = *c.theme;
+        j.style    = *c.style;
+        j.target3D = uses3DTarget();
+        if (is3D_)
+            j.camera3 = cam3D_;
+        j.samples     = multisample();
+        j.stamp       = j.serial;   // varje jobb är en ny bild
+        j.views       = views_;
+        j.labelFade   = labelFade_;
+        j.gridSize    = gridSize_;
+        j.gridColor   = c.theme->colors.canvasGrid;
+        j.gridMinPx   = c.style->canvasGridMin;
+        j.gridWidthPx = c.style->canvasGridWidth;
+        j.memoryBudget = app().canvasMemoryBudget();
+        j.uploadBudget = app().canvasUploadBudget();
+        {
+            // Appens målare körs HÄR, en gång, och spelas in (paint_list.h).
+            const detail::PaintingScope ritar(*scene_);
+            if (j.target3D)
+                pc.view3D = detail::mainView3D(is3D_ ? &cam3D_ : nullptr, pc.world,
+                                               *j.scene);
+            j.paints = detail::recordPaints(*this, pc, true, j.target3D);
+        }
+        // Jobbets kamera — den dess bild visas med (`projectShown`).
+        if (jobCameras_.size() >= detail::kFrameCameraHistory)
+            jobCameras_.erase(jobCameras_.begin());
+        jobCameras_.push_back(FrameCamera{j.serial, cam_, hasCamera_, cam3D_, is3D_});
+        loop.submit(std::move(j), [liv = lifeToken(), this] {
+            if (!liv.expired())
+                threadFrameReady();
+        });
+        submitted_      = true;
+        submittedStamp_ = stamp;
+        submittedBox_   = c.box;
+        submittedScale_ = c.scale;
+        submittedMm_    = c.pxPerMm;
+        renderAgain_    = false;
+    }
+    // Bildens etiketter in i fönstrets resurser — träffprovet läser dem där.
+    if (labelsPending_ && frameResult_) {
+        c.canvas->importLabels(*scene_, frameResult_->labels);
+        labelsPending_ = false;
+    }
+    detail::CanvasRenderLoop::Shown bild;
+    bild.image  = frameImage_;
+    bild.width  = frameW_;
+    bild.height = frameH_;
+    detail::PaintContext ton;
+    paintContext(c, ton, c.box);
+    detail::drawCanvasFrame(c, bild, fb.x, fb.y, ton.opacity);
+    return true;
+}
+
 void Canvas::drawScene(const Ctx& c)
 {
     if (!c.canvas)
         return;   // en Ctx utan fönstrets resurser (ingen renderer att ladda upp i)
+    // Med en renderingstråd ritas scenen där; `frameStep` har redan frågat
+    // fönstret efter den.
+    if (threaded())
+        if (AppWindow* w = appWindow())
+            if (detail::CanvasRenderLoop* loop = detail::canvasLoopOf(*w);
+                loop && loop->id() == threadLoop_) {
+                submitThreadFrame(c, *loop);
+                return;
+            }
+    // RITNINGEN LÄSER EN ÖGONBLICKSBILD av scenen (src/canvas/scene.h
+    // `publishScene`) — aldrig de data sättarna skriver i.
+    const std::shared_ptr<detail::SceneData> bild = detail::publishScene(*scene_);
     // Bilderna ritningen hämtar räknas på ritytans konto.
-    const detail::ImageAccount   konto(c, scene_);
+    const detail::MemoryAccount  konto(c, bild);
     const detail::PaintingScope  ritar(*scene_);
     detail::PaintContext pc;
     paintContext(c, pc, c.box);
+    pc.scene = bild.get();
 
     if (uses3DTarget()) {
         // 3D-MÅLET (src/canvas/target3d.h): scenen i målets px, kompositen
         // i fönstrets.
         detail::PaintContext tc;
         paintContext(c, tc, detail::targetBox(c.box));
+        tc.scene = bild.get();
         detail::Target3DArgs a = målArgs(*this, c);
         a.stamp          = damageStamp();
         a.camera         = is3D_ ? &cam3D_ : nullptr;
@@ -389,7 +605,7 @@ void Canvas::drawScene(const Ctx& c)
         // Etiketterna tonar, eller draperingar väntar på nästa bilds budget
         // (src/canvas/drape.h): nästa frame tar nästa steg (Progress-
         // mönstret) — och när inget väntar ber ritytan inte om fler (regel 1).
-        const detail::Target3DState läge = detail::drawTarget3D(pc, tc, scene_, a);
+        const detail::Target3DState läge = detail::drawTarget3D(pc, tc, bild, a);
         labelsAnimating_ = läge.labelsAnimating;
         if (läge.labelsAnimating || läge.drapesPending)
             invalidate();
@@ -400,32 +616,33 @@ void Canvas::drawScene(const Ctx& c)
     // ritning släpps. Profilerarens faser följer stegen:
     // rutnätet och lagren ritas, lagren förbereds däremellan, och `onPaint`
     // målar sist.
-    c.canvas->dropViews(scene_->id, detail::kMainView);
+    c.canvas->dropViews(bild->id, detail::kMainView);
     // Lagren förbereds först — också ritytans och lagrens klipp, som masker
     // (src/canvas/clip.h) — och rutnätet, lagren och målarna ritas sedan
     // innanför ritytans klipp.
     std::optional<detail::PhaseScope> fas{std::in_place, ProfilePhase::CanvasPrepare};
     const detail::LayerFrame lf =
-        detail::prepareLayers(pc, scene_, labelFade_, false);
+        detail::prepareLayers(pc, bild, labelFade_, false);
     pc.clip = lf.clips.canvas;
     fas.emplace(ProfilePhase::CanvasDraw);
     detail::drawGrid(pc, gridSize_, c.theme->colors.canvasGrid,
                      c.style->canvasGridMin, c.style->canvasGridWidth);
     // Etiketterna tonar: nästa frame tar nästa steg (Progress-mönstret) —
     // och när toningen är framme ber ritytan inte om fler (regel 1).
-    // Lagrens målare i lagrens ordning, `onPaint` ovanpå dem.
-    const detail::LayerPaint lagren = detail::layerPaintOf(*this);
-    detail::drawGround(pc, *scene_, lf, detail::GroundPart::All, &lagren);
+    // Lagrens målare i lagrens ordning, `onPaint` ovanpå dem — inspelade en
+    // gång för ritningen och spelade upp där de ritas.
+    const detail::CanvasPaints målare = detail::lazyPaintsOf(*this, false);
+    detail::drawGround(pc, *bild, lf, detail::GroundPart::All, &målare.layers);
     labelsAnimating_ = lf.animating();
     if (labelsAnimating_)
         invalidate();
     // Ritningen laddade upp det som syns; resten med det som blir kvar av
     // framens budget (src/canvas/scene.h `prepareUploads`).
     fas.emplace(ProfilePhase::CanvasPrepare);
-    detail::prepareUploads(pc, *scene_);
+    detail::prepareUploads(pc, *bild);
     fas.emplace(ProfilePhase::CanvasPaint);
-    if (onPaint)
-        detail::paintWith(*this, onPaint, pc, false);
+    if (målare.main)
+        målare.main(pc);
 }
 
 // OVERLAY-LAGRET: `onPaintOverlay` vid varje present, ovanpå allt
@@ -441,7 +658,7 @@ void Canvas::drawOverlay(const Ctx& c)
 {
     if (!c.canvas || !onPaintOverlay)
         return;
-    const detail::ImageAccount  konto(c, scene_);
+    const detail::MemoryAccount konto(c, scene_);
     const detail::PaintingScope ritar(*scene_);
     detail::PaintContext pc;
     paintContext(c, pc, c.box);
@@ -1282,6 +1499,7 @@ void Canvas::applyPending(const Ctx& c)
 
 std::optional<Point> Canvas::toWorld(Point local) const
 {
+    const ShownScope visad(*this);
     gfx::Rectf box{};
     float      scale = 0.0f;
     if (!knownBox(box, scale))
@@ -1306,6 +1524,7 @@ bool Canvas::projectIn(const gfx::Rectf& box, float scale, Point world,
 
 std::optional<Point> Canvas::toLocal(Point world) const
 {
+    const ShownScope visad(*this);
     gfx::Rectf box{};
     float      scale = 0.0f;
     double     px = 0.0, py = 0.0;
@@ -1377,7 +1596,7 @@ gfx::Rectf Canvas::placeChild(const Widget& child, const Ctx& c) const
 {
     const ChildAnchor* a  = anchorOf(child);
     double             px = 0.0, py = 0.0;
-    if (!a || !projectIn(c.area, c.scale, a->world, px, py))
+    if (!a || !projectShown(c.area, c.scale, a->world, px, py))
         return gfx::Rectf{c.area.x, c.area.y, 0.0f, 0.0f};
     const gfx::Sizef m = measure(child, c);
     const gfx::Sizef sz{m.w * c.scale, m.h * c.scale};
@@ -1389,6 +1608,7 @@ gfx::Rectf Canvas::placeChild(const Widget& child, const Ctx& c) const
 
 std::optional<double> Canvas::unitsPerPixelAt(Point local) const
 {
+    const ShownScope visad(*this);
     // Fasadens skala vid pixeln (fysiska px per världsenhet längs bildraden,
     // räknad relativt kamerans mitt — SWEREF tappar inga siffror), med samma
     // vy som toWorld; 0 betyder ovanför horisonten.
@@ -1436,6 +1656,7 @@ std::optional<Ray3> Canvas::rayAt(Point local) const
 
 std::optional<Point> Canvas::project(Point3 world) const
 {
+    const ShownScope visad(*this);
     gfx::Rectf box{};
     float      scale = 0.0f;
     double     px = 0.0, py = 0.0;
@@ -1472,6 +1693,7 @@ std::optional<double> Canvas::worldPerPixel(Point3 world) const
 
 std::vector<Point3> Canvas::visibleRegion(const Plane3& plane, double maxDistance) const
 {
+    const ShownScope visad(*this);
     std::vector<Point3> out;
     gfx::Rectf          box{};
     float               scale = 0.0f;
@@ -2056,7 +2278,9 @@ const Shape* Canvas::shape(int layer, int index) const
     const detail::LayerData& L = *scene_->layers[static_cast<std::size_t>(layer)];
     if (index < 0 || static_cast<std::size_t>(index) >= L.slots.size())
         return nullptr;
-    return &L.slots[static_cast<std::size_t>(index)].entry->shape;
+    // Formen som appen gav den — en översatt etikett med sitt id, inte den
+    // upplösta texten ritningen läser.
+    return &L.slots[static_cast<std::size_t>(index)].entry->original();
 }
 
 // ------------------------------------------------------------- textens mått
@@ -2423,20 +2647,72 @@ detail::Projection Canvas::viewProjection(int vy, const gfx::Rectf& box,
 
 // --------------------------------------------------------------------- bilden
 
-std::optional<Bitmap> Canvas::renderToBitmap(int w, int h, const Camera3D& camera)
+// BILDENS JOBB, för båda formerna av `renderToBitmap`: prövningen, scenen som
+// en ögonblicksbild, ritläget för bildens ruta — som 3D-målet ritar den, med
+// bildens kamera och utan toning (bilden är ett ögonblick) — och appens
+// målare, körda här och inspelade.
+bool Canvas::bitmapJob(int w, int h, const Camera3D& camera, const Ctx& c,
+                       detail::CanvasFrameJob& j)
 {
     if (w <= 0 || h <= 0) {
         gfx::log("Canvas(%s)::renderToBitmap: bilden %d × %d har ingen yta — "
                  "ingen bild",
                  name.c_str(), w, h);
-        return std::nullopt;
+        return false;
     }
     if (!detail::validCamera3D(camera)) {
         gfx::log("Canvas(%s)::renderToBitmap: ogiltig Camera3D (camera.h:s "
                  "regler) — ingen bild",
                  name.c_str());
-        return std::nullopt;
+        return false;
     }
+    if (scene_->painting) {
+        gfx::log("Canvas(%s)::renderToBitmap: anropad inuti ritytans ritning — "
+                 "ingen bild",
+                 name.c_str());
+        return false;
+    }
+    if (!c.canvas)
+        return false;   // fönstret är mitt i öppning eller stängning
+    const gfx::Rectf ruta{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)};
+    j.width  = w;
+    j.height = h;
+    j.box    = ruta;
+    j.scene  = detail::publishScene(*scene_);
+    detail::PaintContext pc;
+    paintContext(c, pc, ruta);
+    pc.scene       = j.scene.get();
+    j.world        = pc.world;
+    j.screen       = pc.screen;
+    j.zoom         = pc.zoom;
+    j.lighting     = lighting_;
+    j.scale        = c.scale;
+    j.pxPerMm      = c.pxPerMm;
+    j.ui           = c.ui;
+    j.theme        = *c.theme;
+    j.style        = *c.style;
+    j.target3D     = true;
+    j.camera3      = camera;
+    j.samples      = multisample();
+    j.gridSize     = gridSize_;
+    j.gridColor    = c.theme->colors.canvasGrid;
+    j.gridMinPx    = c.style->canvasGridMin;
+    j.gridWidthPx  = c.style->canvasGridWidth;
+    j.memoryBudget = app().canvasMemoryBudget();
+    j.uploadBudget = app().canvasUploadBudget();
+    {
+        // Appens målare körs HÄR, en gång, och spelas in (paint_list.h).
+        const detail::PaintingScope ritar(*scene_);
+        pc.view3D = detail::mainView3D(&camera, pc.world, *j.scene);
+        j.paints  = detail::recordPaints(*this, pc, true, true);
+    }
+    return true;
+}
+
+// FORMEN SOM RETURNERAR BILDEN: ritad här, i UI-tråden, med fönstrets
+// resurser.
+std::optional<Bitmap> Canvas::renderToBitmap(int w, int h, const Camera3D& camera)
+{
     const AppWindow* win = appWindow();
     if (!win || !win->isOpen()) {
         gfx::log("Canvas(%s)::renderToBitmap: ritytan sitter inte i ett öppet "
@@ -2444,21 +2720,67 @@ std::optional<Bitmap> Canvas::renderToBitmap(int w, int h, const Camera3D& camer
                  name.c_str());
         return std::nullopt;
     }
-    const Ctx c = behaviorCtx();
-    if (!c.canvas)
-        return std::nullopt;   // fönstret är mitt i öppning eller stängning
-    // Scenen som 3D-målet ritar den — men med bildens kamera och utan
-    // toning (bilden är ett ögonblick).
-    detail::Target3DArgs a = målArgs(*this, c);
-    a.camera               = &camera;
-    // Ritytans ritläge bär fönstrets resurser, ljuset och y-riktningen —
-    // rutan är bildens (target3d.h).
-    detail::PaintContext pc;
-    paintContext(c, pc, gfx::Rectf{0.0f, 0.0f, static_cast<float>(w),
-                                   static_cast<float>(h)});
-    const detail::ImageAccount  konto(c, scene_);
-    const detail::PaintingScope ritar(*scene_);
-    return detail::renderBitmap3D(pc, scene_, a, w, h, background(c));
+    const Ctx              c = behaviorCtx();
+    detail::CanvasFrameJob j;
+    if (!bitmapJob(w, h, camera, c, j))
+        return std::nullopt;
+    return detail::renderCanvasBitmap(j, c, background(c));
+}
+
+// FORMEN SOM SVARAR I EFTERHAND: ritad av fönstrets renderingstråd.
+void Canvas::renderToBitmap(int w, int h, const Camera3D& camera,
+                            BitmapHandler done)
+{
+    // SVARET: i ramkön, en gång, och bara om ritytan lever. Efter appens
+    // handler ritas fönstret om (en diskret händelse).
+    detail::CanvasRenderLoop::BitmapDone svara =
+        [liv = lifeToken(), this, done = std::move(done)](std::optional<Bitmap> b) {
+            if (liv.expired() || !done)
+                return;
+            done(std::move(b));
+            if (liv.expired())
+                return;   // handlern rev ritytan
+            if (AppWindow* w = appWindow())
+                w->invalidate();
+        };
+    // Det tomma svaret postas — aldrig inne i anropet.
+    const auto tomt = [&svara] {
+        detail::postFrameWork([svara] { svara(std::nullopt); });
+    };
+    AppWindow* win = appWindow();
+    if (!win || !win->isOpen()) {
+        gfx::log("Canvas(%s)::renderToBitmap: ritytan sitter inte i ett öppet "
+                 "fönster (renderaren är fönstrets) — ingen bild",
+                 name.c_str());
+        return tomt();
+    }
+    const Ctx  c    = behaviorCtx();
+    const auto jobb = std::make_shared<detail::CanvasFrameJob>();
+    if (!bitmapJob(w, h, camera, c, *jobb))
+        return tomt();
+    const gfx::Color bakgrund = background(c);
+    // Bilden i UI-tråden, med fönstrets resurser — vägen utan tråd, och
+    // reserven när jobbet har något bara UI-tråden kan hämta.
+    const auto här = [liv = lifeToken(), this, jobb,
+                      bakgrund]() -> std::optional<Bitmap> {
+        if (liv.expired())
+            return std::nullopt;
+        const AppWindow* f = appWindow();
+        if (!f || !f->isOpen())
+            return std::nullopt;
+        return detail::renderCanvasBitmap(*jobb, behaviorCtx(), bakgrund);
+    };
+    detail::CanvasRenderLoop* loop = forceSync_ ? nullptr : detail::canvasLoopOf(*win);
+    if (loop) {
+        loop->order(jobb, bakgrund, std::move(svara), här);
+        return;
+    }
+    // UTAN RENDERINGSTRÅD: bilden ritas här och svaret postas som de andra.
+    std::optional<Bitmap> bild = här();
+    detail::postFrameWork(
+        [svara = std::move(svara), bild = std::move(bild)]() mutable {
+            svara(std::move(bild));
+        });
 }
 
 // ------------------------------------------------------------------ minnet
@@ -2472,6 +2794,22 @@ void Canvas::setMemoryBudget(std::size_t bytes)
 std::size_t Canvas::memoryBudget() const
 {
     return scene_->memoryBudget;
+}
+
+CanvasMemoryUse Canvas::memoryUsed() const
+{
+    // Ritytans konto i fönstrets liggare — det `trim` jämför med budgeten.
+    // Med en renderingstråd bor kontot där: svaret är den visade bildens.
+    if (threaded())
+        return threadMemory_;
+    const AppWindow* w = appWindow();
+    if (!w || !w->isOpen())
+        return {};
+    const Ctx c = behaviorCtx();
+    if (!c.canvas)
+        return {};
+    const detail::MemoryUse u = c.canvas->ledger().usage(scene_->id);
+    return CanvasMemoryUse{u.gpu, u.cpu};
 }
 
 // ---------------------------------------------------------------- gesterna
@@ -3227,6 +3565,7 @@ bool clipTouchesRect(const detail::ClipState& k, InvalidClip mode, const Rect& r
 
 std::vector<HitResult> Canvas::hitTest(Point local) const
 {
+    const ShownScope visad(*this);
     const ProfileScope mät(detail::frameworkLabel(detail::FrameworkLabel::HitTest));
     std::vector<HitResult> out;
     const AppWindow*       w = appWindow();
@@ -3343,6 +3682,7 @@ std::optional<Ray3> unitRay(const Ray3& r)
 
 std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) const
 {
+    const ShownScope visad(*this);
     const ProfileScope mät(detail::frameworkLabel(detail::FrameworkLabel::HitTest));
     std::vector<HitResult> out;
     const AppWindow*       w = appWindow();
@@ -3768,6 +4108,7 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
 
 std::vector<HitResult> Canvas::hitTest(Rect local, HitMode mode) const
 {
+    const ShownScope visad(*this);
     const ProfileScope mät(detail::frameworkLabel(detail::FrameworkLabel::HitTest));
     std::vector<HitResult> out;
     if (!std::isfinite(local.x) || !std::isfinite(local.y) ||
@@ -3929,6 +4270,7 @@ std::optional<double> Canvas::heightAt(Point xy) const
 
 CanvasMouseArgs Canvas::mouseArgs(const Ctx& c, float x, float y) const
 {
+    const ShownScope visad(*this);
     CanvasMouseArgs  e;
     const gfx::Rectf box = resolve(c);
     e.local = Point{Draw::localX(c, box, x), Draw::localY(c, box, y)};

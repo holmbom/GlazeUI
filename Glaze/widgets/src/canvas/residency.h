@@ -55,6 +55,7 @@
 #include <gfx/renderer.h>
 #include <gfx/scene.h>
 
+#include "../memory_ledger.h"
 #include "glaze/canvas/mesh.h"
 #include "instances.h"
 #include "mesh_data.h"
@@ -67,9 +68,14 @@ class ImageCache;
 
 namespace detail {
 
-class ObjectResidency {
+// MINNET: residensen är en ÄGARE i fönstrets liggare (../memory_ledger.h).
+// Varje kopia är EN post — en mesh som tusen former delar räknas en gång, på
+// den rityta som använde den senast — och får VRÄKAS över budgeten: buffertarna
+// släpps, kopian märks `evicted`, och en plats som visade den visar ingenting
+// tills datan strömmat upp igen ur CPU-kopian.
+class ObjectResidency final : private MemoryHolder {
 public:
-    explicit ObjectResidency(gfx::Renderer& r);
+    ObjectResidency(gfx::Renderer& r, MemoryLedger& ledger);
     ~ObjectResidency();
     ObjectResidency(const ObjectResidency&)            = delete;
     ObjectResidency& operator=(const ObjectResidency&) = delete;
@@ -110,6 +116,9 @@ public:
         std::size_t   nextSegment = 0;
         bool          inIndices   = false;
         std::uint32_t done        = 0;
+        // Liggarens post (buffertarnas byte) och om kopian vräkts.
+        Charge        charge;
+        bool          evicted = false;
     };
     // En INSTANSMÄNGD — raderna i cellordning i EN buffert.
     struct GpuInstances {
@@ -118,6 +127,8 @@ public:
         std::unique_ptr<gfx::GpuBuffer>  buf;
         std::uint32_t                    count = 0, done = 0;
         bool                             complete = false;
+        Charge                           charge;
+        bool                             evicted = false;
     };
     // Ett PUNKTMOLN — en buffert per chunk, i molnets chunkordning.
     struct GpuCloud {
@@ -129,6 +140,8 @@ public:
         std::size_t                         nextChunk = 0;
         std::uint32_t                       done      = 0;
         bool                                complete  = false;
+        Charge                              charge;
+        bool                                evicted = false;
     };
 
     // DET PLATSEN VISAR — FORMEN och kopiorna den ritas med i den här framen:
@@ -167,14 +180,19 @@ public:
     std::uint64_t copiesMade() const { return copiesMade_; }
 
 private:
+    // Liggarens ägare (../memory_ledger.h).
+    void eachCharge(const Visit& visit) override;
+    void evict(const ChargeKey& key) override;
+
     gfx::Renderer* r_;
+    MemoryLedger*  ledger_;
 
     std::unordered_map<std::uint64_t, std::shared_ptr<GpuMesh>>      meshes_;
     std::unordered_map<std::uint64_t, std::shared_ptr<GpuInstances>> instances_;
     std::unordered_map<std::uint64_t, std::shared_ptr<GpuCloud>>     clouds_;
 
     struct Slot {
-        std::weak_ptr<const ShapeEntry> src;
+        std::weak_ptr<const char>       src;   // formplatsens livstecken
         bool                            showing = false;
         Shape                           shape;   // formen platsen VISAR
         std::shared_ptr<GpuMesh>        mesh;    // …och dess kopior
@@ -182,6 +200,7 @@ private:
         std::shared_ptr<GpuCloud>       cloud;
     };
     std::unordered_map<std::uint64_t, Slot> slots_;
+    std::uint64_t deathsSeen_ = 0;   // `shapeEntryDeaths()` vid senaste genomgången
 
     std::unordered_map<std::uint32_t, std::unique_ptr<gfx::ShaderProgram>> meshPrograms_;
     std::unordered_map<std::uint32_t, std::unique_ptr<gfx::ShaderProgram>> pointPrograms_;

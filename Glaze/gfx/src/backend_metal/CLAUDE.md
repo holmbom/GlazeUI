@@ -558,3 +558,22 @@ Kompilerat och grindat (G9 del C, `mesh_program_gate`) på macOS sedan 2026-10-1
   en gång). En ny väg som avslutar en frame eller ett block ska gå genom
   `finishUploadPass`; ett glömt ställe syns som timeout i scene_pixel_gate och
   canvas3d_gate (offscreen-vägen).
+
+## Scen-kontexten (`metal_scene_context.mm` — gfx/scene_context.h, BLINT)
+
+En fristående `MetalRenderer` för en ANNAN TRÅD på fönstrets `MTLDevice`
+(enheten är trådsäker) med en EGEN kommandokö: `initHeadless(enhet)` →
+`initQueueAndPipeline()` + `initPrograms()` (delade med `init`). `sceneOnly_`
+märker den: den har ingen frame, så `beginOffscreen` nollar den transienta
+ringen där (ett fönsters ring får inte nollas i ett offscreen-block — en
+öppen frame kan läsa den), och varje offscreen-block har sin egen
+autorelease-pool (`blockPool_`, `objc_autoreleasePoolPush/Pop`) — tråden har
+ingen runloop som tömmer den.
+
+- **Den delade bilden** är SAMMA `MTLTexture` på båda sidor. `beginWrite`
+  väntar in fönstrets senast committade kommandobuffert (`lastCommitted()`,
+  under `commitLock_`), så scenen aldrig skriver i en bild fönstret ännu
+  läser; `publish` committar och väntar in scenens buffert.
+- Filen står i källistan OCH i ARC-listan i `Glaze/gfx/CMakeLists.txt`.
+- Oprövat: se `doc/os/macos/TESTS.md` (bygget, `scene_context_gate`,
+  `canvas_thread_gate`, valideringslagret).

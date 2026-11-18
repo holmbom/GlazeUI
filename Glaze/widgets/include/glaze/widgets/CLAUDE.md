@@ -957,9 +957,9 @@ Regeln står i [../](../CLAUDE.md) (`widget.h`). Ingen header har ett eget
   panoreras, fyrpilen medan den vrids. **MUSEN**: `CanvasMouseArgs : MouseArgs`, och `onMouseDown`/
   `onMouseUp`/`onMouseCancel` är BASENS (fönstret fyrar dem) —
   `onMouseMove`/`onMouseWheel`/`onDoubleClick` är ritytans. `onResize` är också basens (det synliga utsnittet
-  läses i handlern). **MINNET**: `setMemoryBudget(byte)` (0 = `App::canvasMemoryBudget()`) — bilderna,
-  render-texturerna och draperingarna ritytan ritade SENAST vräks per rityta, så två ytor i ett fönster vräker
-  inte varandras; setProp `memoryBudget`. **TEXTENS MÅTT I LAYOUTEN**: `measureText(c, …)` med krokens
+  läses i handlern). **MINNET**: `setMemoryBudget(byte)` (0 = `App::canvasMemoryBudget()`) — ALLT ritytan
+  håller (bilder, draperingar, lagrens buffertar, meshar, moln, mål och CPU-originalen); över budgeten vräks det på
+  GPU:n som inte användes senast, per rityta; `memoryUsed()` → `CanvasMemoryUse {gpu, cpu}`; setProp `memoryBudget`. **TEXTENS MÅTT I LAYOUTEN**: `measureText(c, …)` med krokens
   Ctx i en egen ritytas `heightForWidth`/`contentSize` — formen utan Ctx frågar layouten och svarar därifrån
   `nullopt` med en logg. **DE FÖRANKRADE BARNEN**: `setChildAnchor(barn, punkt, ankare)` — ritytan
   placerar BARA de förankrade (`placesChild`, widget.h) ur kameran, i SAMMA bildruta som scenen; får stå före

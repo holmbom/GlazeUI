@@ -306,6 +306,11 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
   fönstrets tema och fonter — och måste därför vara DETERMINISTISK.
   Innehållet är PREMULTIPLICERAT (gfx/image.h). En textur som ritar sig
   själv i sin målning får nullptr där (loggas, rekursionen bryts).
+  **I RITYTANS FORMER** (`Shape::image`, `MarkerStyle::img`,
+  `MeshStyle::texture`): målningen är appens kod med fönstrets Ctx, så en
+  rityta vars scen har en `RenderTexture` ritas i UI-TRÅDEN — renderingstråden
+  märker det i sin första bild (scene.h `textureOf`, resources.h
+  `refuseTexture`), bilden visas inte, och ritytan ritar själv därefter.
 - **`mesh.h`** (CANVAS_3D etapp 4, 6 och 7) — 3D-INNEHÅLL UR DATA, koddata
   som `Bitmap`: ingen `.glazeui`-form utom literalerna `Mesh::triangles`/
   `Mesh::indexed` (regel 8, §2.4). **`Mesh`** — ett HANDTAG (kopior delar
@@ -340,6 +345,39 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
   de ändrade lägena laddas upp, allt i en frame. `keepCpuCopy = false`
   släpper INTE CPU-kopian: varje fönster laddar upp ur den (skriven gräns).
 
+## Trådarna — vad appen får göra var
+
+Ritytans scen ritas av fönstrets RENDERINGSTRÅD (src/canvas/render_loop.h);
+appens kod körs i UI-tråden. Det ger fyra regler för typerna här:
+
+- **`onPaint` och `onPaintLayer` SPELAS IN.** Handlern körs en gång per ritad
+  bild i UI-tråden, och det den ritar (`draw`, transformen, `save`/klipp,
+  renderläget, `drawCanvas`) blir en lista som renderingstråden spelar upp.
+  Frågorna (`measureText`, `size()`) svarar direkt. En `TrText` i en form
+  löses upp vid inspelningen (`Shape::withResolvedText`). `onPaintOverlay`
+  spelas INTE in — den ritas i UI-tråden ovanpå bilden, med den SENASTE
+  kameran (scenens bild kan ligga en ruta efter under rörelse).
+- **Scenen är en ÖGONBLICKSBILD.** Sättarna (`addShape`, `setShape` …) skriver
+  ritytans egna data; ritningen läser en fryst bild av dem (scene.h
+  `publishScene`), tagen när jobbet lämnas. En ändring efter det kommer i
+  nästa bild.
+- **`Bitmap` och `Mesh` delas med renderingstråden.** `setPixels`/`fill` och
+  `setPositions`/`setColors` tar ett lås per bild respektive mesh, som
+  uppladdningen också tar — de kan vänta kort på en pågående uppladdning av
+  SAMMA data. Konstruktorerna, `decode` och `preparePicking` går i valfri
+  tråd som förut.
+- **`Canvas::renderToBitmap` har två former** (canvas.h): den som returnerar
+  bilden ritar i anropet, i UI-tråden; den med `done` ritas av
+  renderingstråden och svarar i UI-tråden, i efterhand.
+- **Skärmfrågorna svarar för bilden som SYNS** (`toWorld`, `toLocal`,
+  `project`, `unitsPerPixelAt`, `visibleRegion`, `hitTest`, musens `world`):
+  den visade bildens kamera, som de förankrade barnen. `camera()`, sättarna
+  och gesterna talar den senaste.
+
+Utan renderingstråd (ett offscreen-fönster, `GLAZE_CANVAS_THREAD=0`, en
+backend utan scen-kontext) gäller samma regler — inspelningen och
+ögonblicksbilden används då också, i UI-tråden.
+
 ## Konventioner
 
 - **Inga backend-typer, inga GPU-objekt i handtagen och formerna.** Pixlarna,
@@ -348,10 +386,10 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
   (fontens livstidsregel: rivs i `App::executeClose` före fonten).
 - **Minnesbudgeten är PER RITYTA, uppladdningen per fönster** (REQ3_RITYTAN
   10). Minnet (`Canvas::setMemoryBudget`, förval `App::setCanvasMemoryBudget`
-  256 MB) räknar bildernas, render-texturernas och de omräknade bildernas
-  texturer på den rityta som ritade dem SENAST — KONTON i fönstrets
-  `ImageCache`, det utanför ritytorna på fönstret — och ritytans
-  draperingsmål mot samma summa (src/canvas/drape.h); uppladdningen per frame
+  1 GiB) räknar ALLT ritytan håller — på GPU:n bilder, draperingar, lagrens
+  buffertar, meshar, instanser, punktmoln, textbyggen och 3D-mål, på den rityta
+  som använde dem SENAST, och på CPU:n originalen — som KONTON i fönstrets
+  liggare (src/memory_ledger.h), det utanför ritytorna på fönstret; uppladdningen per frame
   (`App::setCanvasUploadBudget`, 16 MiB) delas av bilderna och föremålens
   residens (meshar, instanser, punktmoln). Något SLÄPPS bara mellan frames:
   `ImageCache::trim()` och `CanvasResources::trim()` överst i

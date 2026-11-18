@@ -87,6 +87,7 @@
 //   · Antalet exporter (mäts för hand: objdump -p på libglaze.dll).
 //   · Processlut med en ikon i systemfältet eller öppna fönster
 //     (handtest, doc/os/windows/TESTS.md) — D9 är ett rökprov, inget bevis.
+//     (D14 mäter ett öppet fönster med en ritande renderingstråd.)
 //   · Ankaret på macOS och Debian (utan --as-needed), där ingenting stryks:
 //     D0 är grön också utan det.
 //   · Ett statiskt mellanbibliotek som länkar `glaze` eller `glaze_threads_ui`
@@ -100,12 +101,16 @@
 //   · Installerade och distribuerade layouter — bara byggträdet.
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <glaze/glaze.h>
+
+#include "canvas/render_loop.h"   // intern — ritytans renderingstråd (D14)
 #include <glaze/component.h>
 // INTE glaze_threads/ui.h: programmet får aldrig nämna `uiContext`, annars
 // håller den referensen bryggans DLL kvar och D0 mäter inte ankaret.
@@ -201,6 +206,19 @@ public:
     DoltFönster() : glaze::AppWindow("shared_gate", 200, 120)
     {
         setOffscreen(true);
+    }
+};
+
+// D14: ett fönster med en rityta som fyller det.
+class Ritfönster : public glaze::AppWindow {
+public:
+    glaze::Canvas yta;
+    Ritfönster() : glaze::AppWindow("shared_gate", 200, 120)
+    {
+        yta.name = "yta";
+        yta.dock = glaze::Dock::Fill;
+        yta.setCenter(0.0, 0.0);
+        root().adopt(yta);
     }
 };
 
@@ -358,6 +376,37 @@ int main()
     check((bitar & kUtanVakt) != 0,
           "D8/D10: fönstret stängdes av kedjan, inte av vakthunden (5 s)");
     check(glaze::app().windowCount() == 0, "D8: efteråt är App:s register tomt");
+
+    // ---- D14. PROCESSLUT MED EN RITANDE RENDERINGSTRÅD. Ett fönster med en
+    //      rityta står ÖPPET när main återvänder — det rivs aldrig av
+    //      programmet — med renderingstråden igång och ett jobb på väg.
+    //      App:s rivning i `exit()` (ankaret) stänger fönstret och väntar in
+    //      tråden; ctest mäter att processen slutar med 0 inom TIMEOUT.
+    {
+        glaze::detail::setCanvasThreadingOffscreen(true);
+        auto* f = new Ritfönster;   // lever till processens slut, med flit
+        f->setOffscreen(true);
+        f->show();
+        check(f->isOpen(), "D14: fönstret med ritytan gick att öppna");
+        if (f->isOpen()) {
+            f->yta.addShape(glaze::Shape::rect({-20, -20, 40, 40},
+                                               gfx::Color{200, 40, 40, 255}));
+            f->window().renderFrame();
+            glaze::detail::CanvasRenderLoop* loop = glaze::detail::canvasLoopOf(*f);
+            check(loop != nullptr, "D14: fönstret har en renderingstråd");
+            if (loop) {
+                const auto slut = std::chrono::steady_clock::now() +
+                                  std::chrono::seconds(5);
+                while (loop->framesRendered() < 1 &&
+                       std::chrono::steady_clock::now() < slut)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                check(loop->framesRendered() >= 1, "D14: tråden ritade en bild");
+                // Ett jobb till, som tråden kan hålla på med när main slutar.
+                f->yta.setCenter(1.0, 0.0);
+                f->window().renderFrame();
+            }
+        }
+    }
 
     // D9 — processluten — mäter ctest: exit 0 inom TIMEOUT.
     std::printf("\nshared_gate: %s (%d fel)\n", g_fel ? "FÄLLD" : "GRÖN", g_fel);

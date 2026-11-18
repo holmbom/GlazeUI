@@ -94,9 +94,16 @@ struct MeshData {
     // ändring av HELA samma ström gjort överflödiga. Ett fönster som laddat
     // upp version v kommer ikapp med ändringarna efter v om v ≥ base, och
     // behöver hela meshen annars.
-    std::uint64_t           version = 0;
-    std::uint64_t           base    = 0;
-    std::vector<MeshChange> changes;
+    std::atomic<std::uint64_t> version{0};
+    std::uint64_t              base = 0;
+    std::vector<MeshChange>    changes;
+
+    // TRÅDARNA. Appens tråd ändrar lägen och färger, och en renderingstråd
+    // läser dem när den laddar upp eller ritar. `lock` skyddar det som
+    // ändras efter skapandet — `positions`, `colors`, `bounds`, `picking`,
+    // `base` och `changes`; skrivarna (`setPositions`, `setColors`) och
+    // renderingstrådens läsare tar det. `version` är atomisk.
+    mutable std::mutex lock;
 
     std::shared_ptr<MeshPicking> picking = std::make_shared<MeshPicking>();
     // Loggat en gång per mesh: plockning utan CPU-kopia, och en ogiltig nivå

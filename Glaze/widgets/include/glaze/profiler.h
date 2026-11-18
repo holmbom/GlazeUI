@@ -72,12 +72,15 @@ enum class ProfilePhase : std::uint8_t {
 // uppladdade byten, de skapade buffertarna, uppladdningarna som bröt ett pass
 // (Metal), de byggda programmen och de skapade målen. Sedan ritytans: 3D-målen
 // som ritades om, draperingarna som ritades om, deras pixlar och nycklarna som
-// räknades, lagren som byggdes om och textbyggena. Sist skadan: ytorna en
+// räknades, lagren som byggdes om och textbyggena. Sedan skadan: ytorna en
 // partiell omritning ritade (1 för en full), och 1 för en full omritning.
+// Sist minnet: posterna som vräktes över ritytornas budget i bildens början,
+// och deras byte.
 enum class ProfileCount : std::uint8_t {
     DrawCalls, BytesUploaded, BuffersCreated, UploadBreaks, ProgramsBuilt,
     TargetsCreated, TargetRenders, DrapeRenders, DrapePixels, DrapeKeys,
-    LayerRebuilds, GlyphBuilds, DamageRects, FullDamage, Count_ };
+    LayerRebuilds, GlyphBuilds, DamageRects, FullDamage, Evictions,
+    EvictedBytes, Count_ };
 
 // EN BILD i ett fönster.
 struct FrameProfile {

@@ -18,6 +18,10 @@ add_library(glaze_impl ${_glaze_lib_type}
     # bytes, GENERERAD av `glazeassets embed` och committad (som lang_builtin).
     src/assets_builtin.cpp
     src/image_cache.cpp
+    # MINNETS LIGGARE — fönstrets konton, räkning och vräkning för allt
+    # ritytorna håller; ritytans konto öppnas av canvas/memory_account.cpp.
+    src/memory_ledger.cpp
+    src/canvas/memory_account.cpp
     # RITYTANS BILDKÄLLOR — pixlarna och deras
     # ändringslogg; fönstrets texturer bor i image_cache.cpp.
     src/canvas/bitmap.cpp
@@ -30,6 +34,8 @@ add_library(glaze_impl ${_glaze_lib_type}
     src/canvas/build.cpp
     src/canvas/scene.cpp
     src/canvas/target3d.cpp
+    src/canvas/frame_job.cpp
+    src/canvas/render_loop.cpp
     src/canvas/resources.cpp
     src/canvas/camera_math.cpp
     # BINDNINGSTABELLEN — rader, specificitet, lägenas
@@ -61,6 +67,12 @@ add_library(glaze_impl ${_glaze_lib_type}
     src/canvas/instances.cpp
     src/canvas/residency.cpp
     src/canvas/scene3d.cpp
+    # DET RUMSLIGA TRÄDET och körningens index över chunkar och föremål —
+    # ritningen och förberedelsen frågar bara det som kan synas.
+    src/canvas/spatial_index.cpp
+    src/canvas/run_index.cpp
+    # CPU-ORIGINALENS BYTE i en scen — ritytans konto räknar dem.
+    src/canvas/cpu_bytes.cpp
     # TERRÄNGEN OCH DRAPERINGEN — höjden under en punkt,
     # draperingsmålen per terrängmesh, deras klass och minne.
     src/canvas/drape.cpp

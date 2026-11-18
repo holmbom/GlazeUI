@@ -5,6 +5,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -181,38 +182,80 @@ struct KeyHash {
     }
 };
 
+// ---- ÖGONBLICKSBILDEN OCH LIVSTECKNEN
+//
+// Ritytan RITAR ALDRIG ur de data den bygger i: `publishScene` ger en
+// ögonblicksbild — ett eget skal med egna lager- och körningsnoder, som DELAR
+// chunkarna och formplatserna med byggaren. Det som delas är FRYST
+// (`frozen`): byggaren skriver aldrig i en fryst chunk eller formplats utan
+// KOPIERAR den först (`writable…` i scene.cpp) — samma id, samma livstecken,
+// ändringsloggen med — så ritningen, som kan gå i en annan tråd, läser data
+// som aldrig ändras under den.
+//
+// Kopiorna är samma SAK som originalet, så fönstrets resurser nycklas på id
+// och lever på nodens LIVSTECKEN (`life`), som kopiorna delar: en post släpps
+// när det sista exemplaret av noden dött, aldrig för att en kopia byttes ut.
+using Life = std::shared_ptr<const char>;
+Life newLife();
+// Väljer konstruktorn som gör en nod till en ögonblicksbild.
+struct SnapshotTag {};
+// Formplatsens livstecken: när det dör stegas `shapeEntryDeaths()` —
+// fönstrens residens (residency.h) letar döda platser bara när talet ändrats.
+Life newEntryLife();
+
 // En form i ett lager — delad mellan lagrets lista och Glyph-körningen den
 // ritas i (som läser den när fönstret bygger texten), eller Mesh- och
 // Points-körningen. `id` är FORMPLATSENS: det
 // överlever `setShape` och ombyggnaden, så fönstrets residens kan rita den
 // gamla meshen på platsen tills den nya är uppladdad (scene3d.h).
 struct ShapeEntry {
+    // FORMEN SOM DEN RITAS: en etiketts texter är UPPLÖSTA till literaler
+    // (`Shape::withResolvedText`), så ritningen aldrig rör språkbutiken.
     Shape         shape;
+    // Formen som appen gav den — bara för en form med ÖVERSATT text (ett
+    // id), annars tom: `Canvas::shape` svarar med den, och språkbytet
+    // (`touchText`) löser upp den på nytt.
+    std::shared_ptr<const Shape> source;
     bool          alive = true;   // false efter borttagning — körningen hoppar över den
     std::uint64_t id    = nextSceneId();
     // FORMENS VERSION på platsen — stegas av varje `setShape`
     // (`replaceShapeAt`), så det som nycklas på platsen och läser formen
     // (lådan nedan, terrängens region i drape.cpp) ser att den bytts.
     std::uint64_t version = 0;
+    Life          life    = newEntryLife();
+    // Delad med en ögonblicksbild — skrivs aldrig mer (se ovan). UI-trådens.
+    bool          frozen  = false;
     // FÖREMÅLETS LÅDA (`objectBox(entry)`) räknad med formens
     // och meshens version (`MeshData::version` — `setPositions`) — en cache,
-    // därför `mutable` (`SceneData::fallbackLogged`s skäl). UI-tråden.
+    // därför `mutable`, läst och skriven under platsens lås (scene.cpp
+    // `nodeLock`): byggaren och ritningen delar platsen.
     mutable std::optional<Box3> box;
     mutable std::uint64_t       boxVersion = 0, boxMesh = 0;
     mutable bool                boxCached  = false;
+
+    // Formen med appens texter (`source`, annars `shape`).
+    const Shape& original() const { return source ? *source : shape; }
 };
+
+// Hur många formplatser som dött i processen — atomiskt, växer bara.
+std::uint64_t shapeEntryDeaths();
 
 // FÖREMÅLETS LÅDA för platsens form — build.h `objectBox(form)`, räknad om
 // bara när formen eller meshens lägen ändrats (scenens låda, terrängens
 // rutnät, draperingarna och skymmarnas ordning frågar den). Tom som
-// `objectBox(form)`.
-const std::optional<Box3>& objectBox(const ShapeEntry& entry);
+// `objectBox(form)`. Svaret är ett VÄRDE: cachen delas av byggaren och
+// ritningen och läses under ett lås.
+std::optional<Box3> objectBox(const ShapeEntry& entry);
 
 // En chunk: CPU-geometrin och ändringsloggen (GPU-kopian är per fönster).
 struct ChunkData {
     ChunkData();
 
-    const std::uint64_t id;   // globalt, återanvänds aldrig
+    const std::uint64_t id;   // globalt, återanvänds aldrig — en kopia bär samma
+    Life                life = newLife();
+    // Delad med en ögonblicksbild — skrivs aldrig mer; byggaren kopierar
+    // chunken före nästa skrivning (`ShapeEntry` ovan). UI-trådens.
+    bool                frozen = false;
     PartKind            kind = PartKind::Line;
     double              originX = 0.0, originY = 0.0;
     double              originZ = 0.0;   // Line3 (2D-slagen ligger på z = 0)
@@ -255,22 +298,31 @@ struct ChunkData {
                      double z0 = 0.0, double z1 = 0.0);
 };
 
-// Var en forms geometri ligger — för borttagningen och ersättningen på plats.
-// `part` är delens index i formens `partKeys` (en del som inte rymdes i en
-// chunk har flera bitar); `dead` är indexen i intervallet som redan är döda
-// (en ersättning på plats med färre index fyller ut resten).
+struct RunData;
+
+// Var en forms geometri ligger — för borttagningen och ersättningen på plats:
+// chunken är `run->chunks[chunk]` (platsen och inte en pekare — byggaren byter
+// ut en fryst chunk mot en kopia på samma plats). `part` är delens index i
+// formens `partKeys` (en del som inte rymdes i en chunk har flera bitar);
+// `dead` är indexen i intervallet som redan är döda (en ersättning på plats
+// med färre index fyller ut resten).
 struct Piece {
-    ChunkData*   chunk = nullptr;
+    RunData*     run   = nullptr;
+    std::size_t  chunk = 0;
     std::uint8_t part  = 0;
     std::size_t  vtxFrom = 0, vtxCount = 0;
     std::size_t  idxFrom = 0, idxCount = 0;
     std::size_t  dead = 0;
 };
 
+struct RunIndex;   // run_index.h
+
 struct RunData {
     RunData();
+    RunData(const RunData& o, SnapshotTag);   // bildens nod
 
     const std::uint64_t id;   // globalt — fönstrets textbygge nycklas på det
+    Life                life = newLife();
     RunKey              key;
     DrawOrder           order = DrawOrder::Strict;   // lagrets, när den skapades
 
@@ -294,15 +346,24 @@ struct RunData {
     // räknas ur föremålen när den behövs. Pass: HELSKÄRMSPASSEN i
     // ordning.
     std::vector<std::shared_ptr<ShapeEntry>> objects;
+
+    // DET RUMSLIGA INDEXET över chunkarna och föremålen (run_index.h) — en
+    // cache byggd vid den första frågan, därför `mutable`; läst och bytt
+    // under körningens lås (scene.cpp `nodeLock`).
+    mutable std::shared_ptr<RunIndex> index;
 };
 
 // En form i lagret och var dess geometri byggdes. Indexet i `LayerData::
-// slots` ÄR formens publika index.
+// slots` ÄR formens publika index. Platserna i körningarnas listor
+// (`glyphPos`, `objectPos`) står kvar till nästa ombyggnad — en borttagen
+// form ligger kvar där som död.
 struct ShapeSlot {
     std::shared_ptr<ShapeEntry> entry;
     std::vector<Piece>          pieces;              // Line/Fill/Image
     RunData*                    glyphRun = nullptr;  // Glyph-körningen
     RunData*                    objectRun = nullptr; // Mesh/Points/Pass-körningen
+    std::size_t                 glyphPos  = 0;       // platsen i `glyphShapes`
+    std::size_t                 objectPos = 0;       // platsen i `objects`
 };
 
 // ETT KLIPP SOM DATA — ritytans (`SceneData::clip`) och varje lagers
@@ -337,10 +398,14 @@ struct ClipState {
     std::uint64_t             version = nextSceneId();
 };
 
+struct LayerCpu;   // cpu_bytes.cpp
+
 struct LayerData {
     LayerData();
+    LayerData(const LayerData& o, SnapshotTag);   // bildens nod
 
     const std::uint64_t id;
+    Life                life = newLife();
     TrText              name;
     bool                visible   = true;
     float               opacity   = 1.0f;
@@ -380,6 +445,9 @@ struct LayerData {
     // byggs lat ur formerna och gäller bara för den version det byggdes ur.
     std::uint64_t            shapesVersion = 1;
     std::shared_ptr<HitGrid> hit;
+    // Lagrets CPU-original (`sceneCpuBytes`, cpu_bytes.cpp) — en cache för
+    // den version den räknades ur, därför `mutable`.
+    mutable std::shared_ptr<LayerCpu> cpu;
     // TEXTENS VERSION — stegas av `touchText` (språkbytet), som bygger om
     // glyfkörningarna utan att formerna ändrats: draperingens markstämpel
     // (drape.cpp) läser den bredvid `shapesVersion`.
@@ -395,6 +463,12 @@ struct LayerData {
     std::size_t totalObjects = 0;
     std::size_t deadObjects  = 0;
     bool        dirty        = false;   // byggs om före nästa ritning
+
+    // ÖGONBLICKSBILDENS NOD för lagret (`publishScene`), och det den togs
+    // ur: formernas och textens version. Ett oförändrat lager lämnar samma
+    // nod till nästa bild. Byggarens — tom i en nod som själv är en bild.
+    std::shared_ptr<LayerData> published;
+    std::uint64_t              publishedShapes = 0, publishedText = 0;
 };
 
 // ETT EGET PROGRAM på ritytan (`Canvas::addProgram`):
@@ -411,16 +485,19 @@ struct ProgramSlot {
 
 struct SceneData {
     SceneData();
+    SceneData(const SceneData& o, SnapshotTag);   // bildens skal
 
     const std::uint64_t                     id;
+    Life                                    life = newLife();
     std::vector<std::shared_ptr<LayerData>> layers;
     bool                                    yUp = false;   // bildernas uv
     // De egna programmen i `addProgram`s ordning — namnen unika.
     std::vector<ProgramSlot>                programs;
     // Programnamnen vars RESERV redan loggats (en gång per rityta och namn,
-    // scene3d.cpp) — en loggcache, därför `mutable`: ritningen ser scenen
-    // som const.
-    mutable std::set<std::string>           fallbackLogged;
+    // scene3d.cpp) — EN mängd för ritytan, delad av byggaren och varje
+    // ögonblicksbild, läst och skriven under skalets lås (`nodeLock`).
+    std::shared_ptr<std::set<std::string>>  fallbackLogged =
+        std::make_shared<std::set<std::string>>();
     // MINNESBUDGETEN (`Canvas::setMemoryBudget`): bilderna och
     // draperingarna ritytan ritar, i byte; 0 = `App::canvasMemoryBudget()`.
     std::size_t                             memoryBudget = 0;
@@ -452,9 +529,22 @@ struct SceneData {
         std::optional<Box3> box;
     };
     mutable std::vector<BoxCache>           boxCache;
+    // CPU-ORIGINALENS BYTE (`sceneCpuBytes`) med sin nyckel — en cache,
+    // `mutable` som lådans.
+    struct CpuCache {
+        std::uint64_t key   = 0;
+        std::size_t   bytes = 0;
+        bool          valid = false;
+    };
+    mutable CpuCache                        cpuCache;
     // TERRÄNGENS RUTNÄT (drape.cpp) — byggt lat av höjdfrågan och
     // regionnyckeln, ombyggt när det blivit inaktuellt.
     mutable std::shared_ptr<TerrainIndex>   terrainIndex;
+
+    // DEN SENASTE ÖGONBLICKSBILDEN (`publishScene`) och det dess skal togs
+    // ur — byggarens; tom i ett skal. Cacherna ovan följer med från bild till
+    // bild.
+    std::shared_ptr<SceneData>              published;
 };
 
 // Markerar ritytan som ritande så länge objektet lever (`SceneData::painting`).
@@ -471,22 +561,6 @@ public:
 private:
     const SceneData& s_;
     bool             prev_;
-};
-
-// RITYTANS KONTO i fönstrets bildcache: medan objektet lever räknas
-// varje bild, render-textur och omräknad bild som hämtas genom `c.images` på
-// scenen (id, scenen som livstecken och budgeten). Implementerad i scene.cpp,
-// så widgetfilen inte behöver bildcachen; utan bildcache gör den ingenting.
-class ImageAccount {
-public:
-    ImageAccount(const Ctx& c, const std::shared_ptr<SceneData>& scene);
-    ~ImageAccount();
-    ImageAccount(const ImageAccount&)            = delete;
-    ImageAccount& operator=(const ImageAccount&) = delete;
-
-private:
-    ImageCache*   cache_    = nullptr;
-    std::uint64_t previous_ = 0;
 };
 
 // Programmet med namnet, eller nullptr.
@@ -509,8 +583,38 @@ void rebuildLayer(LayerData& layer, bool yUp);
 // ritning.
 void assignShapes(LayerData& layer, std::vector<Shape> shapes);
 // Glyph-körningarnas text ska byggas om i fönstren (språkbyte) — lagrets
-// `textVersion` stegas, `shapesVersion` inte (formerna står kvar).
+// `textVersion` stegas, `shapesVersion` inte (formerna står kvar). De
+// översatta etiketterna löses upp på nytt.
 void touchText(LayerData& layer);
+
+// ---- ÖGONBLICKSBILDEN (scene.cpp)
+
+// SCENEN SOM DEN ÄR NU, att rita ur — UI-tråden. De märkta lagren byggs om
+// först. Skalet och lagrens och körningarnas noder är bildens egna; chunkarna
+// och formplatserna delas med byggaren och FRYSES. Ett lager som inte ändrats
+// sedan förra bilden lämnar samma nod, och en scen där ingenting ändrats samma
+// skal — bilden kostar det som ändrats, inte scenens storlek. Bilden bär inga
+// formlistor (`LayerData::slots`) och inget träffrutnät: ritningen går över
+// körningarna.
+std::shared_ptr<SceneData> publishScene(SceneData& scene);
+
+// LAGRETS LEVANDE FÖREMÅL — meshar, ytor i rymden, instanser och punkter —
+// ur körningarna, i deras ordning. Det ritningen går över i stället för
+// formlistan, som en ögonblicksbild inte bär.
+std::vector<std::shared_ptr<ShapeEntry>> liveObjects(const LayerData& layer);
+
+// Låset för en nods cacher (formplatsens låda, körningens index, skalets
+// lådor) — nodens id väljer ett av ett fast antal lås. Byggaren och
+// ritningen delar noderna, och en bild kan ritas av två trådar (en rityta
+// ritad på en annan ytas sida).
+std::mutex& nodeLock(std::uint64_t id);
+
+// EN RENDER-TEXTUR I EN FORM: dess målning är appens kod med fönstrets Ctx,
+// så den hämtas ur fönstrets bildcache — i UI-tråden. I renderingstrådens
+// resurser (`CanvasResources::threaded`) går det inte: där antecknas det
+// (`refuseTexture`) och svaret är nullptr, och den som lämnade jobbet ritar om
+// i UI-tråden. `c` är ritningens Ctx.
+gfx::Image* textureOf(CanvasResources* res, const Ctx* c, const ImageSource& src);
 
 // ---- PLACERINGEN (style3d.h)
 
@@ -544,6 +648,17 @@ bool paintsGround(const LayerData& layer);
 // fråga i stället för O(föremål), för den frågas vid varje musrörelse,
 // `castRay`, `hitTest` och `project`.
 std::optional<Box3> sceneBox(const SceneData& scene, int view = kMainView);
+
+// CPU-ORIGINALENS BYTE i scenen (cpu_bytes.cpp) — det ritytans konto räknar
+// bredvid GPU-posterna (../memory_ledger.h `setAccountCpu`): meshernas
+// strömmar och index, punktmolnens punkter, instansmängdernas rader, bildernas
+// pixlar (formernas bilder och meshernas texturer) och lagrens chunkar. DATA
+// SOM DELAS räknas EN gång, hur många former och lager som än bär den.
+// Plockningens BVH räknas inte (en arbetstråd kan bygga den), och inte
+// formernas egna punktlistor. CACHAD i scenen: nyckeln är varje lagers id och
+// `shapesVersion`, meshernas generation och bildernas pixelgeneration
+// (image_data.h), så den räknas om bara när något av det ändrats. UI-tråden.
+std::size_t sceneCpuBytes(const SceneData& scene);
 
 // LAGRETS RENDERLÄGE i fasadens form: etiketterna
 // (`label`) skriver aldrig djup — de står upprätta, och en etiketts gloria och

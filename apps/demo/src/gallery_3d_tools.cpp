@@ -641,15 +641,20 @@ void WidgetGallery::miniatyrKlickad(glaze::Widget*, glaze::ClickArgs&)
                                  .distance  = kMiniRadier * radie,
                                  .azimuth   = kMiniAzimut,
                                  .elevation = kMiniElev};
+    // Scenen tas som den står i anropet — rutnätet är dolt just då — och
+    // bilden kommer i efterhand, i pumpens svans.
     verktyg3d_->setLayerVisible(kRutnat, false);
-    const std::optional<glaze::Bitmap> bild =
-        verktyg3d_->renderToBitmap(kMiniPx, kMiniPx, kamera);
+    verktyg3d_->renderToBitmap(
+        kMiniPx, kMiniPx, kamera, [this](std::optional<glaze::Bitmap> bild) {
+            if (!bild) {
+                statusTxt_->setText(glaze::tr(demo::str::MiniatyrFel));
+                return;
+            }
+            miniatyr_->setShapes(
+                {glaze::Shape::image({0, 0, kMiniYta, kMiniYta}, *bild)});
+            statusTxt_->setText(trs(demo::str::MiniatyrKlar) +
+                                std::to_string(bild->width()) + " × " +
+                                std::to_string(bild->height()) + " px");
+        });
     verktyg3d_->setLayerVisible(kRutnat, true);
-    if (!bild) {
-        statusTxt_->setText(glaze::tr(demo::str::MiniatyrFel));
-        return;
-    }
-    miniatyr_->setShapes({glaze::Shape::image({0, 0, kMiniYta, kMiniYta}, *bild)});
-    statusTxt_->setText(trs(demo::str::MiniatyrKlar) + std::to_string(bild->width()) +
-                        " × " + std::to_string(bild->height()) + " px");
 }

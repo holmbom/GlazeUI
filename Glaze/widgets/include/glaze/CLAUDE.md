@@ -28,10 +28,10 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   **skärmkalibreringen** (`setDisplayCalibration(id, pxPerMm)` — appens
   mätning av en skärm, per skärm-id, app-global; 0 tar bort; varje öppet
   fönster mäts om och ritas om, appen äger lagringen), **ritytans
-  minnesbudget** (`setCanvasMemoryBudget(byte)`, 256 MB — FÖRVALET PER RITYTA
-  (`Canvas::setMemoryBudget` slår det) och taket för fönstrets bilder utanför
-  ritytorna; LRU-vräkning i `ImageCache::trim` i början av nästa frame, aldrig
-  mitt i en; det som ritades i förra framen vräks aldrig), **ritytans
+  minnesbudget** (`setCanvasMemoryBudget(byte)`, 1 GiB — FÖRVALET PER RITYTA
+  (`Canvas::setMemoryBudget` slår det) för ALLT ritytan håller, GPU och CPU, och taket för
+  fönstrets bilder utanför ritytorna; vräkning i början av nästa frame, aldrig mitt i en;
+  det som användes senast och CPU-originalen vräks aldrig), **ritytans
   uppladdningsbudget** (`setCanvasUploadBudget(byte)`/`canvasUploadBudget()`,
   förval 16 MiB PER FÖNSTER OCH FRAME — det som inte ryms väntar på nästa
   frame, som fönstret begär själv, och framens FÖRSTA uppladdning går alltid
@@ -456,7 +456,9 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   första missen per nyckel loggas), `assetSizeClass` (logiska px). FRIA
   funktioner — `app()` är lat och får inte konstrueras av ett uppslag i
   genererad kod; lagringen är en fristående Meyers-singleton (themeState-
-  precedensen). Texturen avkodas lazily PER FÖNSTER (`Ctx::images`).
+  precedensen). Texturen avkodas lazily PER FÖNSTER (`Ctx::images`) — och,
+  för det en rityta visar, i fönstrets renderingstråd (`detail::canvasLoopOf`
+  i `app_window.h`, intern: ritytans scen ritas där, src/canvas/render_loop.h).
   Widgetarna TAR ett `ImageSource` (canvas/image_source.h) — handtaget går in
   genom den implicita konverteringen, bredvid en `Bitmap` ur pixlar.
 - **`app_window.h`** — `class AppWindow`, basklassen appar ärver: **Livet:**

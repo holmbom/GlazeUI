@@ -430,6 +430,46 @@ bool MetalRenderer::init(CAMetalLayer* layer, int w, int h, bool transparent)
     deviceName_ = device_.name ? device_.name.UTF8String : "";
     adapterId_  = metalAdapterId(device_);   // kortets id
     logDevice(device_, adapterId_);
+    if (!initQueueAndPipeline())
+        return false;
+
+    // Retained-RT:n. Misslyckas den ritas direkt i drawablen i stället
+    // (beginFrame/composite degraderar) — appen lever, partiell omritning
+    // uteblir bara.
+    createRetained(w, h);
+
+    initPrograms();
+    return true;
+}
+
+// SCEN-KONTEXTENS RENDERARE (gfx/scene_context.h): fönstrets ENHET med en egen
+// kommandokö, utan lager, drawable och retained-RT. Den ritar bara i
+// offscreen-block, i render-mål, och varje block har sin egen
+// autorelease-pool (beginOffscreen/endOffscreen) — scentråden har ingen
+// annan.
+bool MetalRenderer::initHeadless(id<MTLDevice> device,
+                                 const std::string& deviceName,
+                                 const std::string& adapterId)
+{
+    if (!device)
+        return false;
+    layer_       = nil;
+    width_       = 1;   // ingen egen yta: gäller bara tills ett mål binds
+    height_      = 1;
+    transparent_ = false;
+    device_      = device;
+    deviceName_  = deviceName;
+    adapterId_   = adapterId;
+    sceneOnly_   = true;
+    if (!initQueueAndPipeline())
+        return false;
+    initPrograms();
+    return true;
+}
+
+// Kön och UI-pipelinen — lika för fönstrets renderare och scen-kontextens.
+bool MetalRenderer::initQueueAndPipeline()
+{
     // GPU-tiden ur commandbufferns GPUStartTime/GPUEndTime —
     // de finns från macOS 10.15, äldre än något backenden stöder.
     gpuTimingSupported_ = true;
@@ -443,24 +483,20 @@ bool MetalRenderer::init(CAMetalLayer* layer, int w, int h, bool transparent)
         return false;
     }
 
-    if (!createPipeline())
-        return false;
+    return createPipeline();
+}
 
-    // Retained-RT:n. Misslyckas den ritas direkt i drawablen i stället
-    // (beginFrame/composite degraderar) — appen lever, partiell omritning
-    // uteblir bara.
-    createRetained(w, h);
-
-    // Scenens program (metal_scene.mm). Misslyckas det loggas det och
-    // drawMesh ritar ingenting — UI:t påverkas inte. Image-programmet
-    // (metal_image.mm) skapas efter det.
+// Scenens program (metal_scene.mm). Misslyckas det loggas det och drawMesh
+// ritar ingenting — UI:t påverkas inte. Image-programmet (metal_image.mm)
+// skapas efter det.
+void MetalRenderer::initPrograms()
+{
     initScene();
     initImageProgram();
     initFillProgram();   // ytorna (metal_fill.mm)
     initGlyphProgram();  // texten (metal_glyph.mm)
 
     batch_.reserve(kMaxVerts);
-    return true;
 }
 
 void MetalRenderer::shutdownRenderer()
@@ -513,9 +549,26 @@ void MetalRenderer::shutdownRenderer()
     curSamples_  = 1;
     curDepthTex_ = nil;
     offscreen_   = false;
+    {
+        const std::lock_guard<std::mutex> vakt(commitLock_);
+        lastCommitted_ = nil;
+    }
+    if (blockPool_) {
+        objc_autoreleasePoolPop(blockPool_);
+        blockPool_ = nullptr;
+    }
+    sceneOnly_  = false;
     queue_      = nil;
     device_     = nil;
     layer_      = nil;
+}
+
+// Den senast inskickade framens commandbuffer (metal_backend.h) — får frågas
+// från en annan tråd.
+id<MTLCommandBuffer> MetalRenderer::lastCommitted()
+{
+    const std::lock_guard<std::mutex> vakt(commitLock_);
+    return lastCommitted_;
 }
 
 bool MetalRenderer::createRetained(int w, int h)
@@ -865,6 +918,10 @@ id<MTLCommandBuffer> MetalRenderer::commitFrame()
         }];
     }
     [cmd commit];
+    {
+        const std::lock_guard<std::mutex> vakt(commitLock_);
+        lastCommitted_ = cmd;
+    }
     return cmd;
 }
 
@@ -1168,6 +1225,15 @@ bool MetalRenderer::beginOffscreen()
                          : "inuti en frame");
         return false;
     }
+    // SCEN-KONTEXTENS BLOCK: en egen autorelease-pool (scentråden har ingen
+    // annan — commandbuffern och encoderna är autoreleasade), och ringarna
+    // börjar om: renderaren har aldrig en frame som gör det, och förra
+    // blockets arbete väntades in av endOffscreen.
+    if (sceneOnly_) {
+        blockPool_  = objc_autoreleasePoolPush();
+        ringOffset_ = 0;
+        beginSceneFrame();
+    }
     cmd_         = [queue_ commandBuffer];
     ++frameSerial_;   // blocket är en egen "frame" för stämpeln
     offscreen_   = true;
@@ -1208,6 +1274,13 @@ void MetalRenderer::endOffscreen()
     bound_       = nullptr;
     curSamples_  = 1;
     curDepthTex_ = nil;
+    // De lokala referenserna släpps före poolen de ligger i.
+    cmd  = nil;
+    pass = nil;
+    if (blockPool_) {
+        objc_autoreleasePoolPop(blockPool_);
+        blockPool_ = nullptr;
+    }
 }
 
 // Byte av textur, topologi eller FILTER bryter batchen — flusha först så

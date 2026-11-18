@@ -597,6 +597,31 @@ endif()
 add_test(NAME scene3d_pixel_gate COMMAND scene3d_pixel_gate)
 set_tests_properties(scene3d_pixel_gate PROPERTIES TIMEOUT 120)
 
+# scene_context_gate SCEN-KONTEXTEN (gfx/scene_context.h) i pixlar genom den
+#                  riktiga backenden: en annan tråd ritar i en delad bild och
+#                  fönstret visar den (S1), fönstrets fråga väntar aldrig
+#                  (S2), hundra bilder genom tre delade bilder är alltid
+#                  enfärgade i sin färg (S3) och rivningen i fasadens ordning
+#                  (S4). INGEN SKIP_RETURN_CODE (clip_gate-beslutet).
+add_executable(scene_context_gate scene_context_gate.cpp)
+target_link_libraries(scene_context_gate PRIVATE glaze)
+add_test(NAME scene_context_gate COMMAND scene_context_gate)
+set_tests_properties(scene_context_gate PROPERTIES TIMEOUT 120)
+
+# canvas_thread_gate RITYTANS RENDERINGSTRÅD (src/canvas/render_loop.h) genom
+#                  den riktiga backenden: fönstrets bild väntar inte på en
+#                  spärrad tråd (T1), bilden visas hel (T2), en stilla scen ger
+#                  inga jobb (T3), en ändring ger ett (T4), trådläget ger det
+#                  synkrona lägets bild (T5), minnet följer bilden (T6), det
+#                  förankrade barnet följer den visade bildens kamera (T7) och
+#                  stängningen väntar in tråden (T8). INGEN SKIP_RETURN_CODE.
+add_executable(canvas_thread_gate canvas_thread_gate.cpp)
+target_link_libraries(canvas_thread_gate PRIVATE glaze)
+target_include_directories(canvas_thread_gate
+                           PRIVATE ${CMAKE_SOURCE_DIR}/Glaze/widgets/src)
+add_test(NAME canvas_thread_gate COMMAND canvas_thread_gate)
+set_tests_properties(canvas_thread_gate PROPERTIES TIMEOUT 120)
+
 # mesh_program_gate UTAN ritytan: de
 #                  INBYGGDA Mesh- och Points-programmen (src/canvas/
 #                  programs3d.cpp) genom fasaden direkt — createProgram +
@@ -1158,7 +1183,9 @@ set_tests_properties(canvas_perf PROPERTIES TIMEOUT 300)
 #                ersatt mesh strömmar inom budgeten och den gamla ritas tills
 #                den nya är komplett — och sedan ber ritytan inte om fler
 #                frames, genom pumpen (S), detaljnivåerna (L, T), gallringen
-#                mot grindens egen synsektor och pyramid (C, T, P). Tiderna och
+#                mot grindens egen synsektor och pyramid (C, T, P), och 100 000
+#                föremål i ett lager där bara det under kameran ritas och
+#                kontot räknar den delade meshen en gång (G). Tiderna och
 #                GPU:n SKRIVS UT men grindas inte; `--full` kör de verkliga
 #                storlekarna (stolpar om 200 k, 100 000 träd, 6 M punkter) för
 #                hand. Når `Glaze/widgets/src/` för de interna
@@ -1222,7 +1249,9 @@ set_tests_properties(app_perf PROPERTIES TIMEOUT 900)
 #                att hovret träffar och att det orörda steget ritar 0 bilder
 #                (hård regel 1); tiderna är mätningen.
 #                ctest kör DOLDA fönster; `--synlig`, `--hp`, `--skärm N`,
-#                `--objekt N`, `--mål Hz` och `--steg N` för hand.
+#                `--objekt N`, `--mål Hz`, `--steg N` och `--rå` (scenen som
+#                rådata: en terrängmesh, en mesh per stolpe, ett punktmoln —
+#                utan appens detaljnivåer och strömning) för hand.
 add_executable(terrain_perf terrain_perf.cpp)
 target_link_libraries(terrain_perf PRIVATE perf_harness glaze)
 add_test(NAME terrain_perf COMMAND terrain_perf)
@@ -1684,6 +1713,9 @@ if(GLAZE_SHARED AND TARGET glaze_threads_ui)
     add_executable(shared_gate shared_gate.cpp)
     target_link_libraries(shared_gate PRIVATE glaze glaze_threads_ui
                                               ${CMAKE_DL_LIBS})
+    # D14 når ritytans renderingstråd (intern header).
+    target_include_directories(shared_gate
+                               PRIVATE ${CMAKE_SOURCE_DIR}/Glaze/widgets/src)
     target_compile_definitions(shared_gate PRIVATE
         SHARED_GATE_PLUGIN="$<TARGET_FILE:shared_gate_plugin>"
         SHARED_GATE_ASSETS="${CMAKE_SOURCE_DIR}/apps/demo/assets.bin")

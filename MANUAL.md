@@ -469,7 +469,7 @@ De hårda reglerna i `CLAUDE.md` är skrivna för den som utvecklar ramverket; h
 - `const std::vector<AppWindow*>& windows() const` · `std::size_t windowCount() const` · `AppWindow* find(const std::string& title) const;` — de öppna fönstren (icke-ägande pekare).
 - `float userScale() const;` · `void setUserScale(float s);` — appens zoom ovanpå OS-skalan, 0.5–2.0, app-global; ALLT växer. Appen äger lagringen.
 - `void setDisplayCalibration(const std::string& id, float pxPerMm);` — appens mätning av en skärm (`AppWindow::display().id`) i fysiska px per mm; 0 tar bort. Ritytans mm följer.
-- `void setCanvasMemoryBudget(std::size_t bytes);` (förval 256 MB — FÖRVALET PER RITYTA, `Canvas::setMemoryBudget` sätter en rityta egen, och taket för fönstrets bilder utanför ritytorna) · `void setCanvasUploadBudget(std::size_t bytes);` (förval 16 MiB per fönster och frame) — ritytans budgetar (`canvas`, `canvas-images`).
+- `void setCanvasMemoryBudget(std::size_t bytes);` (förval 1 GiB — FÖRVALET PER RITYTA för allt ritytan håller, på GPU:n och CPU:n; `Canvas::setMemoryBudget` sätter en rityta egen, och det är också taket för fönstrets bilder utanför ritytorna) · `void setCanvasUploadBudget(std::size_t bytes);` (förval 16 MiB per fönster och frame) — ritytans budgetar (`canvas`, `canvas-images`).
 - `void setWheelInvert(InputDevice d, bool vertical, bool horizontal);` · `bool wheelInverted(InputDevice d, bool horizontal) const;` — rullningens riktning i HELA APPEN, för musens hjul och för styrplattan var för sig, lodrätt och i sidled: förvalet varje widget ärver när varken den eller en förfader satt något (`input`). Relativ mot OS:et. `Keyboard` loggas.
 - `void setCanvasBinding(const std::string& mode, InputSource s, std::uint32_t mods, InputAction a, InputDirection dir = Normal, float speed = 1.0f);` · `void removeCanvasBinding(mode, s, mods);` · `void resetCanvasBindings();` (ramverkets förval, rader och vändningar) · `std::vector<InputBinding> canvasBindings() const;` · `void setCanvasSourceInvert(InputSource s, bool on);` · `void setCanvasActionInvert(InputDevice d, InputAction a, bool on);` — RITYTORNAS bindningstabell för hela appen, som varje rityta ärver rad för rad (`input`).
 - FRIA funktioner i `glaze/app.h`, anropade i `main` FÖRE första fönstret: `void setAppId(const std::string& id);` (`app-icon`) · `void setShowInDock(bool show);` · `bool showInDock();` — false = ingen ikon i macOS-dockan, för en app som bor i menyradens systemfält (`tray-icon`). Windows och Linux har ingen docka: begäran lagras och false loggas en gång — fönstrets knapp i aktivitetsfältet styrs per fönster med `AppWindow::setShowInTaskbar`.
@@ -4415,7 +4415,7 @@ if (sida && sida->complete)
 ```
 
 Fallgropar:
-- `draw` kan köras MER ÄN EN GÅNG (när en bild väntade på uppladdningen) och ska rita deterministiskt. Alla bilder är med i bilden som returneras. `complete` är false bara när en sida har fler nya bilder än de 256 omritningarna räcker till vid appens uppladdningsbudget.
+- `draw` (och en `PageFn`) körs EN GÅNG per sida och spelas in; sidan ritas ur inspelningen, om igen tills ingen bild väntar på uppladdningen. I ett utskriftsjobb ritas sidan av renderingstråden, så förloppsfönstret svarar under tiden. Alla bilder är med i bilden som returneras. `complete` är false bara när en sida har fler nya bilder än de 256 omritningarna räcker till vid appens uppladdningsbudget.
 - En LÄGRE TÄTHET är möjlig: den längsta sidan är högst `PrintJob::kMaxPagePx` punkter och aldrig över renderarens största textur, så A1 i 300 dpi (9 933 punkter) blir ungefär 248 dpi. Läs `dpi`; bilden kaklas inte.
 - Fönstret får vara dolt men måste vara öppet. Ritytan får sitta i ett annat fönster. Etiketterna tonar inte på en sida, och skärmens etiketter och träffar står orörda.
 - Anropas i en handler eller `onLoad`, inte inuti `draw` eller `PageFn`, och inte i en ritning. I en `PageFn` ritar `p.drawCanvas` direkt på sidan.
@@ -4556,7 +4556,8 @@ EN widget för kartor, grafer och egen ritning, i 2D och 3D. Innehållet är FOR
 - `void setGridSize(double size)` / `double gridSize() const` — rutnät var `size` världsenhet, 0 = inget.
 - `Handler<PaintArgs> onPaint` · `onPaintLayer` (i ett lagers ordning, `canvas-painter`) · `onPaintOverlay` · `Handler<CanvasMouseArgs> onMouseMove` · `onMouseWheel` · `onDoubleClick` — och basens `onMouseDown`/`onMouseUp`/`onMouseCancel` (`Handler<MouseArgs>` på varje widget, `events`), vars fullform med `glaze::CanvasMouseArgs&` får ritytans args
 - `Handler<KeyArgs> onKeyDown` · `Handler<GestureArgs> onGesture` · `Handler<TickArgs> onTick` · `Handler<ChangeArgs> onCameraChange`
-- `void setMemoryBudget(std::size_t bytes)` / `std::size_t memoryBudget() const` — MINNET (REQ3 10): ritytans budget i byte för bilderna, render-texturerna och de omräknade bilderna den ritar (räknade på den rityta som ritade dem SENAST) och dess draperingar; 0 = `app().canvasMemoryBudget()`. Lagrar och ritar inte om — gäller från nästa ritning (`canvas-images`).
+- `void setMemoryBudget(std::size_t bytes)` / `std::size_t memoryBudget() const` — MINNET: ritytans budget i byte för ALLT den håller — på GPU:n bilder, draperingar, lagrens buffertar, meshar, instanser, punktmoln, textbyggen och 3D-mål (räknade på den rityta som använde dem SENAST; data som flera former delar räknas en gång) och på CPU:n originalen (meshens lägen, molnets punkter, bildernas pixlar, lagrens geometri); 0 = `app().canvasMemoryBudget()`. Över budgeten vräks det på GPU:n som inte användes när ritytan senast ritade, och laddas upp igen när det syns; CPU-originalen vräks aldrig. Appen behöver alltså inte själv begränsa hur mycket data den lägger i ritytan för GPU-minnets skull. Lagrar och ritar inte om — gäller från nästa ritning (`canvas-images`).
+- `CanvasMemoryUse memoryUsed() const` — det ritytan håller nu: `gpu` och `cpu` i byte, det budgeten jämförs med; {0, 0} utan ett öppet fönster och före första ritningen.
 - AUTO-måtten är stilens `canvasDefaultW`/`canvasDefaultH`; ritytan är ett tabbstopp och kan ha widgets som barn.
 - `void setChildAnchor(Widget& barn, Point världen, TextAnchor ankare = TextAnchor::Center)` · `void clearChildAnchor(Widget& barn)` · `std::optional<Canvas::ChildAnchor> childAnchor(const Widget& barn) const` — FÖRANKRADE BARN (REQ8 14): ett barn till ritytan står med sitt mätta mått och `ankare`-hörnet i världspunkten (`BottomLeft` = nedre vänstra hörnet i punkten) och följer kameran i SAMMA bildruta som scenen, också under tröghet och glidning. Barnets dock/anchors/x/y ignoreras; utanför ritytan klipps det, och en punkt bakom kameran eller ovanför horisonten ger en tom yta (synligheten rörs inte). Får stå före `adopt`. En inforuta eller anteckning är en riktig widget — `FloatingPanel` (`widget-floating-panel`) flyttas av användaren, och då flyttar ankaret.
 
@@ -5119,6 +5120,8 @@ Bara kopplingen står i filen; det handlern ritar syns aldrig i previewn. Målar
 - `Canvas::measureText` i en KONSTRUKTOR ger `nullopt` (inget fönster än) — mät i `onLoad`/`onShow`. Mått i mm och världsenheter räknas med skärmens täthet och kamerans skala i MITTEN, som etiketten byggs; under tilt är ett världsmått etikettens tänkta storlek.
 - I ritytans EGEN `heightForWidth`/`contentSize`: `measureText(c, …)` med krokens `c`. Formen utan Ctx frågar layouten (ytan resolvas, och en Panel resolvar sina barn), så därifrån hade den gått runt i sig själv — den loggar i stället en gång och svarar `nullopt`.
 - `{}` och `{{"abc"}}` är tvetydiga mellan texten och delarna (som i `Shape::text`); `{"abc"}` är text.
+- `onPaint` och `onPaintLayer` SPELAS IN: handlern körs en gång per ritad bild, i UI-tråden, och det den ritar spelas upp av ritytans renderingstråd. Rita det som hör till bilden och ingenting annat — handlern får inte räkna med att köras ett visst antal gånger, och scenen den ritar ovanpå kan ligga en bildruta efter. `onPaintOverlay` spelas inte in: den ritas direkt, ovanpå bilden, med den senaste kameran.
+- Ritytan ritar scenen i en EGEN TRÅD per fönster (`canvas`): UI-tråden väntar aldrig på den, och en stilla scen ritar ingenting. Sättarna (`addShape` …) och alla handlers hör fortfarande till UI-tråden. Miljövariabeln `GLAZE_CANVAS_THREAD=0` stänger av tråden (felsökning) — då ritar fönstret scenen själv.
 
 <!-- END:canvas-painter -->
 
@@ -5240,13 +5243,13 @@ En bild på ritytan kommer ur en `ImageSource`: en asset (`glaze::img`), appens 
 - `void setPixels(int x, int y, int w, int h, const std::uint8_t* rgba, std::size_t stride = 0)` · `void fill(gfx::Color c)` · `void setFilter(gfx::ImageFilter f)` (`Linear`/`Nearest`) · `bool valid() const` · `int width() const` · `int height() const`
 - MIP-KEDJAN (REQ8 5): en `Bitmap` och en `RenderTexture` har den i varje fönster, omräknad på GPU:n när pixlarna ändras eller texturen målas om, så en stor bild ritad utzoomad blir varken grynig eller får moiré. Filtret gäller också mellan nivåerna: `Linear` är MJUKT (trilinjärt), `Nearest` SKARPT (närmaste pixel i närmaste nivå — pixlarna syns inzoomat). Budgeten räknar kedjan (en tredjedel till).
 - STÖRRE ÄN GPU:NS STÖRSTA TEXTUR (`gfx::Renderer::maxTextureSize()`, 16384 på de flesta): en `Bitmap` av valfri storlek delas automatiskt i RUTOR med en kantpixel från grannen (ingen söm), och `Shape::image`/`Painter::drawImage` ritar den som en fyrhörning per ruta med samma projektiva avbildning — också på fyra fria hörn och under tilt.
-- `RenderTexture(int w, int h)` · `void paint(PaintFn fn, gfx::Color clear = gfx::Color{0, 0, 0, 0})` · `void repaint()` — `using PaintFn = std::function<void(const Ctx&)>`.
+- `RenderTexture(int w, int h)` · `void paint(PaintFn fn, gfx::Color clear = gfx::Color{0, 0, 0, 0})` · `void repaint()` — `using PaintFn = std::function<void(const Ctx&)>`. En rityta med en `RenderTexture` i en form ritar scenen i UI-tråden (målningen är appens kod), inte i renderingstråden — för en tung scen är `Bitmap` vägen.
 - `static Shape image(Rect r, ImageSource source, ImageStyle style = {})` — en världsrektangel, perspektivkorrekt under tilt. `Painter::drawImage(r, källa, stil)` likadant.
 - `struct ImageStyle { float opacity = 1, saturation = 1, contrast = 1, brightness = 1; }` (fälten i den ordningen — kontrakt för designerade initierare) — `opacity` (0–1) är BILDENS egen och ritas GÅNGER lagrets (`setLayerOpacity`, `canvas-layers`): en höjdmodell på 0.6 i ett lager på 0.5 syns med 0.3 — också draperad på terrängen. FÄRGJUSTERINGEN (REQ8 3) verkar på bildens raka färg: `brightness` multiplicerar (0 svart), `contrast` sträcker kring mittgrått (0 grått), `saturation` blandar mot luminansen (0 = GRÅSKALA), i den ordningen och klampad till 0–1 efter varje steg. 1 är orört, över 1 förstärker; under 0 räknas som 0 och ett tal som inte är ändligt som 1. Värdena är UNIFORMER: att byta stil med `setShape` bygger om fyra hörn och laddar aldrig upp pixlarna igen. Samma namn och samma betydelse som `MeshStyle`s (`canvas-meshes`).
 - `static Shape image(Point topLeft, Point topRight, Point bottomRight, Point bottomLeft, ImageSource source, ImageStyle style = {})` — bilden på FYRA FRIA HÖRN: bildens övre vänstra, övre högra, nedre högra och nedre vänstra hörn i världen, i ringordning (spegelvänt går). Avbildningen är PROJEKTIV — raka linjer i bilden förblir raka, utan knäck längs diagonalen — och perspektivkorrekt under tilt. `Painter::drawImage` har samma överlagring.
 - `const ImageStyle& Shape::imageStyle() const` — stilen som fabriken normerat den.
 - `void setKeepPixels(bool keep)` · `bool keepPixels() const` (REQ3 9, förval true) — med false SLÄPPS CPU-kopian i slutet av det pumpvarv där bilden första gången laddats upp hel och aktuell i ett fönster (varje fönster som ritar den i samma varv hinner få den). Efter släppet: `pixels()` ger nullptr, `valid()`/`width()`/`height()` står kvar, `setPixels`/`fill` loggar och gör ingenting, och fönstren som har texturen ritar den så länge något handtag lever — budgetens LRU vräker den aldrig (den räknas, och loggas när taket inte hålls).
-- `void Canvas::setMemoryBudget(std::size_t bytes)` (REQ3 10, 0 = förvalet) · `void App::setCanvasMemoryBudget(std::size_t bytes)` (förval 256 MB — förvalet PER RITYTA, och taket för fönstrets bilder utanför ritytorna) · `void App::setCanvasUploadBudget(std::size_t bytes)` (förval 16 MiB per fönster och frame). En bild räknas på den rityta som RITADE den senast; draperingarna på ritytans budget med.
+- `void Canvas::setMemoryBudget(std::size_t bytes)` (REQ3 10, 0 = förvalet) · `void App::setCanvasMemoryBudget(std::size_t bytes)` (förval 1 GiB — förvalet PER RITYTA, och taket för fönstrets bilder utanför ritytorna) · `void App::setCanvasUploadBudget(std::size_t bytes)` (förval 16 MiB per fönster och frame). En bild räknas på den rityta som RITADE den senast; budgeten räknar också ritytans draperingar, lagrens buffertar, meshar, punktmoln och CPU-originalen (`canvas`).
 
 ### Exempel
 ```cpp
@@ -5687,7 +5690,8 @@ En DEL-VY (`glaze::View`) är en egen kamera i en ruta ovanpå huvudvyn — en n
 - `View` i fältordning: `anchor` (`TextAnchor`, förval `TopLeft`), `offset` (`Point`), `width`, `height` (ritytans lokala logiska px, 0 = hela), `camera` (`Camera3D`), `followRotation`, `background` (alfa 0 = genomskinlig).
 - `int addView(View v)` (svarar med numret 1, 2 … eller −1) · `void setView(int view, View v)` · `void setViews(std::vector<View> views)` · `void removeView(int view)` · `int viewCount() const` · `const View* view(int view) const`
 - `void setLayerViews(int layer, std::vector<int> views)` · `std::vector<int> layerViews(int layer) const` — `{0}` från start, `{}` = ingen vy.
-- `std::optional<Bitmap> renderToBitmap(int w, int h, const Camera3D& camera)` — fysiska px; tomt + logg utan öppet fönster.
+- `std::optional<Bitmap> renderToBitmap(int w, int h, const Camera3D& camera)` — fysiska px; tomt + logg utan öppet fönster. Bilden ritas i anropet, i UI-tråden.
+- `void renderToBitmap(int w, int h, const Camera3D& camera, BitmapHandler done)` — `using BitmapHandler = std::function<void(std::optional<Bitmap>)>`. SAMMA bild, men UTAN ATT VÄNTA: den ritas av fönstrets renderingstråd, och `done` körs i UI-tråden, i pumpens svans — exakt en gång per anrop, aldrig inne i anropet, och inte alls om ritytan hunnit rivas. Scenen och `onPaint` tas som de står när anropet görs. Tomt svar + logg som för den första formen, och när fönstret stängs innan bilden ritats.
 
 ### Exempel
 ```cpp
@@ -5719,6 +5723,12 @@ public:
                 glaze::Camera3D{.distance = 14, .azimuth = 45, .elevation = 30});
             if (b)
                 setTitle("Miniatyr " + std::to_string(b->width()) + " px");
+            // En tung scen utan att UI:t väntar: formen med ett svar.
+            scen.renderToBitmap(1024, 1024, glaze::Camera3D{.distance = 14},
+                [this](std::optional<glaze::Bitmap> stor) {   // i efterhand
+                    if (stor)
+                        setTitle("Stor bild klar");
+                });
         };
 
         root().adopt(bild);
@@ -5744,6 +5754,7 @@ scen.removeView(1);
 - Ett lager som läggs i `{1}` försvinner ur huvudvyn — skriv `{0, 1}` för båda.
 - `removeView` flyttar senare vyer ett nummer ned, och lagrens vylistor följer med.
 - Rutnätet och `onPaint` hör till huvudvyn. `renderToBitmap` tar inte med del-vyerna och får inte anropas inifrån en ritning — anropa den i en handler (fönstret får vara dolt men måste vara öppet).
+- Formen av `renderToBitmap` med `done` returnerar ingenting: bilden kommer till `done`, senare. Kod som behöver bilden står i `done`, inte efter anropet. En ändring av scenen EFTER anropet (ett lager som visas igen) kommer inte med i bilden.
 
 <!-- END:canvas-views -->
 
@@ -6868,7 +6879,7 @@ Ingen plattformsgren finns eller behövs — samma fil ritas likadant överallt,
 - `void clear()` — tömmer ringarna och etiketterna.
 - `struct FrameProfile` — `window` (fönstrets id), `frame` (renderarens `frameSerial`), `iteration` (pumpvarvet, 0 = utanför pumpen), `at`, `interval` (ms sedan fönstrets förra bild), `total`, `inputLatency` (den första inmatningen sedan förra bilden → bildens slut; 0 = ingen), `continued`, `outsidePump`, `ms` (per `ProfilePhase`) och `count` (per `ProfileCount`).
 - `enum class ProfilePhase` — `Content` (innehållspasset, med layouten och ritytans fyra faser), `CanvasPrepare` (lagren, texten och rutnätet förbereds), `CanvasDrapes` (terrängens draperingar), `CanvasDraw` (scenen med lagrens målare, utan `onPaint`), `CanvasPaint` (`onPaint`), `Overlay`, `Present` (från overlayn till bildens slut, med väntan), `PresentWait` (vsync och en ledig drawable), `Gpu` (GPU:ns tid, i efterhand), `Compile` (program och varianter som byggdes).
-- `enum class ProfileCount` — renderarens `DrawCalls`, `BytesUploaded`, `BuffersCreated`, `UploadBreaks`, `ProgramsBuilt`, `TargetsCreated`; ritytans `TargetRenders`, `DrapeRenders`, `DrapePixels`, `DrapeKeys`, `LayerRebuilds`, `GlyphBuilds`; skadan `DamageRects` och `FullDamage`.
+- `enum class ProfileCount` — renderarens `DrawCalls`, `BytesUploaded`, `BuffersCreated`, `UploadBreaks`, `ProgramsBuilt`, `TargetsCreated`; ritytans `TargetRenders`, `DrapeRenders`, `DrapePixels`, `DrapeKeys`, `LayerRebuilds`, `GlyphBuilds`; skadan `DamageRects` och `FullDamage`; minnet `Evictions` och `EvictedBytes` (det som vräktes över ritytornas budget i bildens början).
 - `struct PumpProfile` — `iteration`, `at`, och delarna i ms: `wait` (`waitEvent`), `events`, `posted`, `postedMax` (den längsta postade funktionen), `timers`, `commits`, `closes`; `eventCount`, `postedCount` och `depth` (1 = den yttersta pumpen).
 - `struct WindowSummary` — `window`, `deviceName`, `frames`, `paced` (intervallens underlag), `intervalP50`/`intervalP95`/`intervalP99`/`intervalMax`, `missed50Hz` (intervall över 20 ms), `missed150Hz` (över 6,7 ms), `phaseP50`/`phaseP95` och `perFrame` (räknarnas medel per bild).
 - `struct LabelStats` — `name`, `count`, `totalMs`, `p50`, `p95`, `p99`, `maxMs`.

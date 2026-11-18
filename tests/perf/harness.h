@@ -62,6 +62,11 @@ inline constexpr double kPi = 3.14159265358979323846;
 // Ett FEL i sessionen: skrivs och räknas — exit-koden är programmets.
 void fel(const std::string& vad);
 
+// Kommandoradens argument i UTF-8, programmet först. Windows ger `main` dem i
+// ANSI-teckentabellen, där en flagga med å, ä eller ö inte stämmer med
+// källans UTF-8 — kommandoraden läses därför i UTF-16.
+std::vector<std::string> argumenten(int argc, char** argv);
+
 // EGET frö och egen avbildning (canvas_perf:s skäl): scenen ska vara
 // densamma med libstdc++ och libc++.
 struct Slump {
@@ -288,6 +293,8 @@ struct StegMått {
     double                   väckPerSek = -1.0;
     std::size_t              bildcache = 0;
     std::size_t              chunkar   = 0;   // ritytornas chunkar på GPU:n efter steget
+    // De mätta ritytornas konton efter steget (`Canvas::memoryUsed`), i byte.
+    std::size_t              kontoGpu = 0, kontoCpu = 0;
     std::uint64_t            uppTotalt = 0;
     bool                     rörelse = false;   // stegets `Steg::rörelse`
     std::vector<bool>        tickar;            // stegets `Steg::tickar`

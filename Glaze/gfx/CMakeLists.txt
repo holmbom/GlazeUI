@@ -40,6 +40,7 @@ if(GLAZE_BACKEND_RESOLVED STREQUAL "d3d11")
         src/backend_d3d11/d3d11_timer.cpp     # appens timer
         src/backend_d3d11/d3d11_print.cpp     # utskriften
         src/backend_d3d11/d3d11_gpu.cpp       # grafikkorten
+        src/backend_d3d11/d3d11_scene_context.cpp   # scen-kontexten
     )
     # Enbart OS-komponenter — inga externa beroenden. d3dcompiler binder
     # mot d3dcompiler_47.dll (OS-komponent i System32 frÃ¥n Windows 8.1).
@@ -99,6 +100,7 @@ elseif(GLAZE_BACKEND_RESOLVED STREQUAL "metal")
         src/backend_metal/metal_timer.mm      # appens timer
         src/backend_metal/metal_print.mm      # utskriften
         src/backend_metal/metal_gpu.mm        # grafikkorten
+        src/backend_metal/metal_scene_context.mm   # scen-kontexten
     )
     # ARC på .mm-filerna — ObjC-pekare i C++-medlemmar blir implicit
     # __strong (inga manuella retain/release; memcpy:a aldrig sådana objekt)
@@ -117,6 +119,7 @@ elseif(GLAZE_BACKEND_RESOLVED STREQUAL "metal")
         src/backend_metal/metal_timer.mm
         src/backend_metal/metal_print.mm
         src/backend_metal/metal_gpu.mm
+        src/backend_metal/metal_scene_context.mm
         PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_link_libraries(common_gfx PRIVATE
         "-framework Metal" "-framework QuartzCore" "-framework AppKit"
@@ -191,6 +194,7 @@ elseif(GLAZE_BACKEND_RESOLVED STREQUAL "linux")
         src/backend_linux/linux_timer.cpp     # appens timer + timerfd-källan
         src/backend_linux/linux_print.cpp     # utskriften — läsbar degradering
         src/backend_linux/linux_gpu.cpp       # grafikkorten och valet i init
+        src/backend_linux/linux_scene_context.cpp   # scen-kontexten
         src/backend_linux/protocols/xdg-shell-protocol.c
         src/backend_linux/protocols/viewporter-protocol.c
         src/backend_linux/protocols/xdg-decoration-unstable-v1-protocol.c

@@ -36,9 +36,12 @@
 // linje i mm är lika bred efter `scale(2, 2)`), och `save(rect)` KLIPPER det
 // som ritas till en rektangel i den rymden.
 //
-// KONTRAKTET (som `AppWindow::frame`): ritningen MÅSTE vara DETERMINISTISK.
-// Vid partiell omritning körs handlern en gång per skadad yta, och den får
-// varken ändra trädet eller ritytans former — bara rita.
+// KONTRAKTET: ritningen MÅSTE vara DETERMINISTISK, och handlern får varken
+// ändra trädet eller ritytans former — bara rita. `onPaint` och `onPaintLayer`
+// körs EN gång när ritytans bild ritas om, och det de ritar SPELAS IN och ritas
+// av ritytans motor (som kan gå i en annan tråd): handlern körs alltså inte
+// för varje skadad yta, och inte alls när bilden står oförändrad.
+// `onPaintOverlay` ritar direkt, vid varje present.
 //
 // Det som ritas här syns ALDRIG i GlazeBuilders preview: handlern är
 // användarkod, och previewn kör aldrig användarkod. Det som ska synas i
@@ -46,13 +49,18 @@
 
 namespace glaze {
 
+class Canvas;   // glaze/widgets/canvas.h — `Painter::drawCanvas`
+class Painter;
+
 namespace detail {
 struct PaintContext;   // src/canvas/scene.h — ritningens fönsterresurser
 struct PainterState;   // src/canvas/painter.cpp
+// INSPELNINGEN (src/canvas/paint_list.h): målaren antecknar sina anrop i
+// stället för att rita, och listan spelas upp mot en annan målare.
+struct PaintOp;
+void startRecording(Painter& p, std::vector<PaintOp>& ut);
+void replayPaint(Painter& p, const std::vector<PaintOp>& l);
 } // namespace detail
-
-class Canvas;   // glaze/widgets/canvas.h — `Painter::drawCanvas`
-class Painter;
 
 // Args till `onPaint`/`onPaintLayer`/`onPaintOverlay` — målaren är giltig
 // under anropet.
@@ -193,7 +201,8 @@ public:
     // fönster (utskriftssidan ritas i jobbets förloppsfönster). false
     // (+ `gfx::log`): ingen renderare, ritningen sker i ritytans egen
     // ritning, en ogiltig kamera eller rektangel, eller ett mål som inte gick
-    // att skapa.
+    // att skapa. I `onPaintOverlay` ritas ritytan i UI-tråden, vid varje
+    // present.
     bool drawCanvas(Canvas& canvas, const Rect& rect, const Camera& camera);
     bool drawCanvas(Canvas& canvas, const Rect& rect, const Camera3D& camera);
 
@@ -218,6 +227,9 @@ public:
     gfx::Sizef size() const;
 
 private:
+    friend void detail::startRecording(Painter& p, std::vector<detail::PaintOp>& ut);
+    friend void detail::replayPaint(Painter& p,
+                                    const std::vector<detail::PaintOp>& l);
     void restore();   // Saved
     std::unique_ptr<detail::PainterState> s_;
 };

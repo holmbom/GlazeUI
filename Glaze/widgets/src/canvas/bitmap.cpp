@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <vector>
 
 #include "gfx/platform.h"
@@ -18,6 +19,9 @@ namespace {
 // Bildernas id — atomiskt, för konstruktorerna och `decode` får köras i
 // vilken tråd som helst.
 std::atomic<std::uint64_t> g_nextBitmapId{1};
+
+// Bilderna som släppt sina pixlar (`detail::pixelGeneration`).
+std::atomic<std::uint64_t> g_pixelGeneration{0};
 
 // Ryms w × h RGBA-pixlar i minnet över huvud taget? (w × h × 4 får inte
 // spricka i size_t.)
@@ -37,15 +41,19 @@ std::shared_ptr<detail::BitmapData> makeData(int w, int h)
     return d;
 }
 
-// SLÄPPKÖN — UI-trådens, som allt som rör uppladdningen: bilden och
-// den uppladdade versionen.
+// SLÄPPKÖN: bilden och den uppladdade versionen. Den som laddade upp köar
+// (vilken tråd som helst), pumpen släpper — kön har sitt eget lås.
 struct Queued {
     std::weak_ptr<detail::BitmapData> data;
     std::uint64_t                     version = 0;
 };
-std::vector<Queued>& releaseQueue()
+struct ReleaseQueue {
+    std::mutex          lock;
+    std::vector<Queued> q;
+};
+ReleaseQueue& releaseQueue()
 {
-    static std::vector<Queued> q;
+    static ReleaseQueue q;
     return q;
 }
 
@@ -57,26 +65,39 @@ void queuePixelRelease(const std::shared_ptr<BitmapData>& d,
                        std::uint64_t version)
 {
     d->releaseQueued = true;
-    releaseQueue().push_back(Queued{d, version});
+    ReleaseQueue&                     k = releaseQueue();
+    const std::lock_guard<std::mutex> l(k.lock);
+    k.q.push_back(Queued{d, version});
 }
 
 void releaseQueuedPixels()
 {
-    std::vector<Queued>& q = releaseQueue();
-    if (q.empty())
-        return;
+    // Kön tas ur under sitt lås och släpps utanför det — bildens lås tas
+    // aldrig med köns hållet.
+    std::vector<Queued> q;
+    {
+        ReleaseQueue&                     k = releaseQueue();
+        const std::lock_guard<std::mutex> l(k.lock);
+        q.swap(k.q);
+    }
     for (const Queued& k : q) {
         const std::shared_ptr<BitmapData> d = k.data.lock();
         if (!d)
             continue;
+        const std::lock_guard<std::mutex> l(d->lock);
         d->releaseQueued = false;
         if (d->keepPixels || d->released || d->version != k.version)
             continue;   // ångrad, redan släppt eller ändrad sedan uppladdningen
         std::vector<std::uint8_t>().swap(d->px);
         d->changes.clear();
         d->released = true;
+        g_pixelGeneration.fetch_add(1, std::memory_order_relaxed);
     }
-    q.clear();
+}
+
+std::uint64_t pixelGeneration()
+{
+    return g_pixelGeneration.load(std::memory_order_relaxed);
 }
 
 } // namespace detail
@@ -148,6 +169,8 @@ void Bitmap::setPixels(int x, int y, int w, int h, const std::uint8_t* rgba,
     }
     const std::size_t src  = stride ? stride : row;
     const std::size_t dRow = static_cast<std::size_t>(d_->w) * 4;
+    // En renderingstråds uppladdning läser samma pixlar (image_data.h).
+    const std::lock_guard<std::mutex> l(d_->lock);
     for (int r = 0; r < h; ++r)
         std::memcpy(d_->px.data() + static_cast<std::size_t>(y + r) * dRow +
                         static_cast<std::size_t>(x) * 4,
@@ -164,6 +187,7 @@ void Bitmap::fill(gfx::Color c)
                  "(setKeepPixels(false)) — ingenting skrivs");
         return;
     }
+    const std::lock_guard<std::mutex> l(d_->lock);
     for (std::size_t i = 0; i < d_->px.size(); i += 4) {
         d_->px[i]     = c.r;
         d_->px[i + 1] = c.g;
@@ -175,7 +199,7 @@ void Bitmap::fill(gfx::Color c)
 
 gfx::ImageFilter Bitmap::filter() const
 {
-    return d_ ? d_->filter : gfx::ImageFilter::Linear;
+    return d_ ? d_->filter.load() : gfx::ImageFilter::Linear;
 }
 
 void Bitmap::setFilter(gfx::ImageFilter f)
@@ -198,7 +222,7 @@ void Bitmap::setKeepPixels(bool keep)
 
 bool Bitmap::keepPixels() const
 {
-    return d_ ? d_->keepPixels : true;
+    return d_ ? d_->keepPixels.load() : true;
 }
 
 } // namespace glaze

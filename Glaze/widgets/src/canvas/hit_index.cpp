@@ -626,11 +626,11 @@ void forEachShownLabel(LayerData& L, const HitGrid& g, const HitQuery& q,
             continue;   // inte ritad i sin nuvarande form
         // Synligheten ur placeringen — gjord för just det här bygget.
         const CanvasResources::LabelRun* placed = nullptr;
-        if (labels && labels->tex)
+        if (labels && labels->hides())
             for (const CanvasResources::LabelRun& r : labels->runs)
                 if (r.run == run->id && r.serial == b->serial)
                     placed = &r;
-        if (labels && labels->tex && !placed)
+        if (labels && labels->hides() && !placed)
             continue;
         const double sizeUnitPx = unitPx(q, run->key.unit);
         // GOLVET OCH TAKET: lådan som Glyph-programmet ritar den.

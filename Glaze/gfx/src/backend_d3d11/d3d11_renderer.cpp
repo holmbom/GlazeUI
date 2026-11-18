@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -343,15 +344,22 @@ ComPtr<ID3DBlob> D3dRenderer::compileHlsl(const std::string& src,
     // Glyph3, Image — ~12 D3DCompile) — en meny eller en dropdown tar
     // 0,5–1 s att öppna. Därför kompileras varje (källa, ingång, mål,
     // definitioner) en gång per process; nästa fönster skapar bara sina
-    // shaderobjekt ur bloben. Bara lyckade kompileringar sparas. UI-tråden
-    // ensam anropar — ingen låsning.
+    // shaderobjekt ur bloben. Bara lyckade kompileringar sparas. Cachen
+    // delas av fönstrens renderare och scen-kontexternas, som går på var sin
+    // tråd: uppslaget och infogningen sker under låset, kompileringen
+    // utanför det (två trådar som missar samma nyckel kompilerar båda, och
+    // den första infogningen står kvar).
+    static std::mutex                                        lås;
     static std::unordered_map<std::string, ComPtr<ID3DBlob>> cache;
     std::string nyckel = std::string(entry) + '\x1f' + target + '\x1f';
     for (const D3D_SHADER_MACRO* m = defines; m && m->Name; ++m)
         nyckel += std::string(m->Name) + '=' + (m->Definition ? m->Definition : "") + '\x1f';
     nyckel += src;
-    if (const auto it = cache.find(nyckel); it != cache.end())
-        return it->second;
+    {
+        const std::lock_guard<std::mutex> vakt(lås);
+        if (const auto it = cache.find(nyckel); it != cache.end())
+            return it->second;
+    }
 
     ComPtr<ID3DBlob> blob, err;
     HRESULT          hr = E_FAIL;
@@ -360,8 +368,7 @@ ComPtr<ID3DBlob> D3dRenderer::compileHlsl(const std::string& src,
         // EN EGEN TRÅD: efter vissa program kan tråden som kompilerade inte
         // längre skapa en skrivar-DC — CreateDC och PrintDlgEx ger ingen DC,
         // med fel 995 ur drivrutinen. Bara D3DCompile gör det, och en annan
-        // tråd som kompilerar påverkar inte den här. Anroparen väntar, så
-        // cachen är fortfarande UI-trådens ensam.
+        // tråd som kompilerar påverkar inte den här. Anroparen väntar.
         const auto kompilera = [&] {
             hr = D3DCompile(src.data(), src.size(), nullptr, defines, nullptr,
                             entry, target, 0, 0, &blob, &err);
@@ -392,8 +399,8 @@ ComPtr<ID3DBlob> D3dRenderer::compileHlsl(const std::string& src,
             log("HLSL-kompilering (%s) misslyckades: %s", entry, text.c_str());
         return nullptr;
     }
-    cache.emplace(std::move(nyckel), blob);
-    return blob;
+    const std::lock_guard<std::mutex> vakt(lås);
+    return cache.emplace(std::move(nyckel), blob).first->second;
 }
 
 // ---------------------------------------------------------------- init
@@ -498,7 +505,44 @@ bool D3dRenderer::init(HWND hwnd, int w, int h, bool transparent)
 
     if (!createBackbuffer(w, h))
         return false;
+    return initPipeline();
+}
 
+// SCEN-KONTEXTENS RENDERARE (gfx/scene_context.h): en enhet på `adapter` —
+// fönsterenhetens, för en delad textur öppnas bara på samma kort — utan
+// swapchain, backbuffer och retained-RT. Den ritar bara i offscreen-block, i
+// render-mål. Namnet och id:t är fönsterenhetens.
+bool D3dRenderer::initHeadless(IDXGIAdapter* adapter,
+                               const std::string& deviceName,
+                               const std::string& adapterId)
+{
+    const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0,
+                                        D3D_FEATURE_LEVEL_10_1,
+                                        D3D_FEATURE_LEVEL_10_0};
+    const HRESULT hr =
+        D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, levels,
+                          3, D3D11_SDK_VERSION, &device_, nullptr, &context_);
+    if (FAILED(hr)) {
+        log("D3D11: scen-kontextens enhet gick inte att skapa (0x%08lx)", hr);
+        return false;
+    }
+    transparent_ = false;
+    deviceName_  = deviceName;
+    adapterId_   = adapterId;
+    // Ingen egen yta: storleken gäller bara tills ett mål binds.
+    width_  = 1;
+    height_ = 1;
+    if (!initPipeline()) {
+        shutdownRenderer();
+        return false;
+    }
+    return true;
+}
+
+// Allt efter enheten och ytan: UI-pipelinen, tillståndsobjekten och scenens
+// program — lika för fönstrets renderare och scen-kontextens.
+bool D3dRenderer::initPipeline()
+{
     // Shaders + input-layout (klippmaskernas del först — psMain läser den)
     const std::string uiSrc = std::string(kHlslClipSrc) + kUiShaderSrc;
     ComPtr<ID3DBlob> vsb = compileHlsl(uiSrc, "vsMain", "vs_4_0");
@@ -966,6 +1010,9 @@ bool D3dRenderer::beginOffscreen()
     context_->OMSetRenderTargets(0, nullptr, nullptr);
     beginFrameTargets();    // en obalanserad stack töms
     bindPipelineState();
+    // Blockets transienta ringar börjar om — en renderare som bara ritar i
+    // block (scen-kontextens) får aldrig en beginFrame som gör det.
+    beginSceneFrame();
     return true;
 }
 

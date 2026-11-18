@@ -1,7 +1,13 @@
 #pragma once
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 #include "glaze/profiler.h"
+
+namespace gfx {
+class Renderer;
+}
 
 // INTERN — PROFILERARENS KROKAR. Det publika API:t och vad som
 // mäts står i glaze/profiler.h; inspelningen bor i profiler.cpp. Krokarna
@@ -114,6 +120,22 @@ private:
 
 // `n` till räknaren `c` i den öppna bilden.
 void profileCount(ProfileCount c, std::uint64_t n = 1) noexcept;
+
+// EN BILD PÅ EN ANNAN TRÅD (ritytans renderingstråd, canvas/render_loop.h).
+// Tråden har ingen fönsterbild att skriva i, så den öppnar sin egen kring
+// jobbet: faserna (`PhaseScope`) och räknarna (`profileCount`) samlas i den,
+// och renderarens räknare läggs till som en differens över jobbet.
+// `profileThreadEnd` svarar med summan, som följer med bilden till
+// fönstertråden och läggs i fönstrets öppna bild med `profileMerge` — den
+// bild där ritytans bild först visas. Avstängd profilerare: tomt, ingenting.
+struct ThreadFrameProfile {
+    bool                                                         recorded = false;
+    std::array<float, std::size_t(ProfilePhase::Count_)>         ms{};
+    std::array<std::uint64_t, std::size_t(ProfileCount::Count_)> count{};
+};
+void               profileThreadBegin(gfx::Renderer& r);
+ThreadFrameProfile profileThreadEnd();
+void               profileMerge(const ThreadFrameProfile& p) noexcept;
 
 // RAMVERKETS ETIKETTER — förregistrerade (ids 0, 1, 2), så de har samma id i
 // varje körning.

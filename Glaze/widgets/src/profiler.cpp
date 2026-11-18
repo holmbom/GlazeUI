@@ -76,7 +76,7 @@ constexpr const char* kCountNames[] = {
     "draw_calls",     "bytes_uploaded", "buffers_created", "upload_breaks",
     "programs_built", "targets_created", "target_renders", "drape_renders",
     "drape_pixels",   "drape_keys",     "layer_rebuilds",  "glyph_builds",
-    "damage_rects",   "full_damage"};
+    "damage_rects",   "full_damage",    "evictions",       "evicted_bytes"};
 static_assert(std::size(kCountNames) == std::size_t(ProfileCount::Count_),
               "ett namn per räknare");
 
@@ -272,8 +272,15 @@ struct OpenFrame {
     double           mark    = 0.0;     // slutet av det senaste passet, ms
     gfx::RenderStats s0{};
     FrameProfile     rec{};
+    // Det en renderingstråd ritade för bilden (`profileMerge`) — läggs till
+    // när bilden stängs, efter renderarens differenser.
+    detail::ThreadFrameProfile merged{};
 };
-OpenFrame g_frame;
+// TRÅDLOKAL: bilden öppnas och stängs av UI-tråden, och faserna och räknarna
+// hamnar i trådens egen. Ritytans motor går också i renderingstråden, där
+// ingen bild är öppen — krokarna gör då ingenting, i stället för att skriva i
+// UI-trådens.
+thread_local OpenFrame g_frame;
 
 double msSince(const Registry& g, Klocka::time_point t)
 {
@@ -460,6 +467,13 @@ void closeFrame(Registry& g, double slut, bool continued)
     n(C::UploadBreaks)   = delta(s1.uploadBreaks, s0.uploadBreaks);
     n(C::ProgramsBuilt)  = delta(s1.programsBuilt, s0.programsBuilt);
     n(C::TargetsCreated) = delta(s1.targetsCreated, s0.targetsCreated);
+    // Renderingstrådens del av bilden: ritytornas faser och räknare.
+    if (f.merged.recorded)
+        for (std::size_t i = 0; i < rec.ms.size(); ++i)
+            rec.ms[i] += f.merged.ms[i];
+    if (f.merged.recorded)
+        for (std::size_t i = 0; i < rec.count.size(); ++i)
+            rec.count[i] += f.merged.count[i];
     rec.frame     = f.r->frameSerial();
     rec.continued = continued;
     WindowRing& ring = *f.ring;
@@ -1000,6 +1014,62 @@ void profileCount(ProfileCount c, std::uint64_t n) noexcept
     if (!profiling() || !g_frame.open)
         return;
     g_frame.rec.count[std::size_t(c)] += n;
+}
+
+// ------------------------------------------- bilden på en annan tråd
+
+namespace {
+// Trådbildernas löpnummer — skilda från fönsterbildernas (`Registry::
+// frameSeq`, UI-trådens) med den översta biten.
+constexpr std::uint64_t    kThreadToken = std::uint64_t{1} << 63;
+std::atomic<std::uint64_t> g_threadSeq{0};
+} // namespace
+
+void profileThreadBegin(gfx::Renderer& r)
+{
+    if (!profiling())
+        return;
+    g_frame       = OpenFrame{};
+    g_frame.open  = true;
+    g_frame.r     = &r;
+    g_frame.token = kThreadToken | g_threadSeq.fetch_add(1, std::memory_order_relaxed);
+    g_frame.s0    = r.stats();
+}
+
+ThreadFrameProfile profileThreadEnd()
+{
+    ThreadFrameProfile ut;
+    if (!g_frame.open)
+        return ut;
+    g_frame.open = false;
+    using P      = ProfilePhase;
+    using C      = ProfileCount;
+    ut.recorded  = true;
+    ut.ms        = g_frame.rec.ms;
+    ut.count     = g_frame.rec.count;
+    const gfx::RenderStats& s0 = g_frame.s0;
+    const gfx::RenderStats& s1 = g_frame.r->stats();
+    ut.ms[std::size_t(P::Compile)] +=
+        static_cast<float>(delta(s1.compileNs, s0.compileNs) / kNsPerMs);
+    ut.count[std::size_t(C::DrawCalls)]      += delta(s1.drawCalls, s0.drawCalls);
+    ut.count[std::size_t(C::BytesUploaded)]  += delta(s1.bytesUploaded, s0.bytesUploaded);
+    ut.count[std::size_t(C::BuffersCreated)] += delta(s1.buffersCreated, s0.buffersCreated);
+    ut.count[std::size_t(C::UploadBreaks)]   += delta(s1.uploadBreaks, s0.uploadBreaks);
+    ut.count[std::size_t(C::ProgramsBuilt)]  += delta(s1.programsBuilt, s0.programsBuilt);
+    ut.count[std::size_t(C::TargetsCreated)] += delta(s1.targetsCreated, s0.targetsCreated);
+    return ut;
+}
+
+void profileMerge(const ThreadFrameProfile& p) noexcept
+{
+    if (!p.recorded || !profiling() || !g_frame.open)
+        return;
+    ThreadFrameProfile& m = g_frame.merged;
+    m.recorded            = true;
+    for (std::size_t i = 0; i < m.ms.size(); ++i)
+        m.ms[i] += p.ms[i];
+    for (std::size_t i = 0; i < m.count.size(); ++i)
+        m.count[i] += p.count[i];
 }
 
 const ProfileLabel& frameworkLabel(FrameworkLabel l)

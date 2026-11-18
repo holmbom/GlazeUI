@@ -167,11 +167,13 @@ gfx::Image* ImageCache::resampledBitmap(const Bitmap& b, int w, int height)
     const std::shared_ptr<detail::BitmapData>& d = b.d_;
     if (!d || w <= 0 || height <= 0)
         return nullptr;
+    // Pixlarna läses under bildens lås (image_data.h) — appens tråd kan
+    // skriva dem samtidigt.
+    const std::lock_guard<std::mutex> lås(d->lock);
     const auto key = std::make_tuple(d->id, w, height);
     auto       it  = bitmapResampled_.find(key);
     if (it != bitmapResampled_.end()) {
-        it->second.lastFrame = frame_;
-        book(it->second.account, it->second.bytes, account_, it->second.bytes);
+        use(it->second.charge);
         // En bild utan pixlar svarar med det den har.
         if (it->second.version == d->version || d->released)
             return it->second.image.get();   // även negativ post (nullptr)
@@ -191,16 +193,15 @@ gfx::Image* ImageCache::resampledBitmap(const Bitmap& b, int w, int height)
 
     if (it == bitmapResampled_.end()) {
         ResampledEntry ny;
-        ny.data    = d;
-        ny.account = account_;
-        it         = bitmapResampled_.emplace(key, std::move(ny)).first;
+        ny.data = d;
+        it      = bitmapResampled_.emplace(key, std::move(ny)).first;
     }
     ResampledEntry& e = it->second;
-    e.lastFrame       = frame_;
+    use(e.charge);
     e.version         = d->version;   // också en negativ post: försöks igen
                                       // först när bilden ändras
     if (ut.empty()) {
-        book(e.account, e.bytes, account_, 0);
+        book(e.charge, 0);
         e.image.reset();
         return nullptr;
     }
@@ -213,7 +214,7 @@ gfx::Image* ImageCache::resampledBitmap(const Bitmap& b, int w, int height)
                               ut.px.data(), 0);
     if (e.image && !e.image->valid())
         e.image.reset();   // negativ post — försöks igen vid nästa version
-    book(e.account, e.bytes, account_, e.image ? need : 0);
+    book(e.charge, e.image ? need : 0);
     return e.image.get();
 }
 
@@ -246,9 +247,8 @@ namespace {
 // version efter: loggas EN gång per bild.
 void missLog(detail::BitmapData& d, bool none)
 {
-    if (d.missLogged)
+    if (d.missLogged.exchange(true))
         return;
-    d.missLogged = true;
     if (none)
         gfx::log("Bitmap: bilden (%d × %d) har släppt sina pixlar "
                  "(setKeepPixels(false)) och fönstret har ingen textur — den "
@@ -314,6 +314,9 @@ ImageCache::BitmapEntry* ImageCache::bitmapEntry(const Bitmap& b)
     const std::shared_ptr<detail::BitmapData>& d = b.d_;
     if (!d)
         return nullptr;
+    // Pixlarna och ändringsloggen läses under bildens lås (image_data.h) —
+    // appens tråd kan skriva dem samtidigt.
+    const std::lock_guard<std::mutex> lås(d->lock);
     const std::size_t full = d->px.size();
     const std::size_t row  = static_cast<std::size_t>(d->w) * 4;
     const auto        at   = [&](int x, int y) {
@@ -326,7 +329,6 @@ ImageCache::BitmapEntry* ImageCache::bitmapEntry(const Bitmap& b)
         BitmapEntry e;
         e.data    = d;
         e.version = d->version;
-        e.account = account_;
         std::size_t bytes = 0;
         if (d->released) {
             // UTAN PIXLAR: en negativ post — en tom buffert hade gett en
@@ -369,13 +371,12 @@ ImageCache::BitmapEntry* ImageCache::bitmapEntry(const Bitmap& b)
             }
         }
         it = bitmaps_.emplace(d->id, std::move(e)).first;
-        book(it->second.account, it->second.bytes, account_, bytes);
+        book(it->second.charge, bytes);
         ++contentGeneration_;   // en ny post — `contentVersion` svarar annat
     }
 
     BitmapEntry& e = it->second;
-    e.lastFrame    = frame_;
-    book(e.account, e.bytes, account_, e.bytes);
+    use(e.charge);
     if (e.textures.empty())
         return &e;
 
@@ -482,8 +483,7 @@ gfx::Image* ImageCache::get(const RenderTexture& t, const Ctx& c)
     auto it = targets_.find(d->id);
     if (it == targets_.end()) {
         TargetEntry e;
-        e.data    = d;
-        e.account = account_;
+        e.data = d;
         // Med MIP-KEDJA — omräknad varje gång målningen lämnar målet;
         // budgeten räknar pixlarna, som för en bild.
         gfx::TargetDesc desc;
@@ -495,15 +495,14 @@ gfx::Image* ImageCache::get(const RenderTexture& t, const Ctx& c)
                                                  static_cast<std::size_t>(d->h) * 4
                                            : 0;
         it = targets_.emplace(d->id, std::move(e)).first;
-        book(it->second.account, it->second.bytes, account_, bytes);
+        book(it->second.charge, bytes);
         ++contentGeneration_;
     }
 
     // Referensen håller: en målning som ritar en ANNAN ny textur lägger till
     // i mappen, och unordered_map flyttar aldrig sina element.
     TargetEntry& e = it->second;
-    e.lastFrame    = frame_;
-    book(e.account, e.bytes, account_, e.bytes);
+    use(e.charge);
     if (!e.target)
         return nullptr;
     if (e.painting) {
@@ -539,48 +538,40 @@ gfx::Image* ImageCache::get(const RenderTexture& t, const Ctx& c)
 
 // ------------------------------------------------------ framens början
 
-void ImageCache::book(std::uint64_t& entryAccount, std::size_t& entryBytes,
-                      std::uint64_t account, std::size_t bytes)
+std::size_t ImageCache::pixelBytes(const Bitmap& b, std::uint64_t& id)
 {
-    // Det vanliga fallet — en ritning av samma rityta, samma storlek — ändrar
-    // ingenting: inga uppslag i kontona per bild och frame.
-    if (entryAccount == account && entryBytes == bytes)
-        return;
-    bytes_ -= entryBytes;
-    accounts_[entryAccount].bytes -= entryBytes;
-    entryAccount = account;
-    entryBytes   = bytes;
-    bytes_ += bytes;
-    accounts_[account].bytes += bytes;
+    if (!b.d_) {
+        id = 0;
+        return 0;
+    }
+    id = b.d_->id;
+    return b.d_->px.size();
 }
 
-std::uint64_t ImageCache::beginAccount(std::uint64_t id,
-                                       std::weak_ptr<const void> life,
-                                       std::size_t budget)
+void ImageCache::book(detail::Charge& c, std::size_t bytes)
 {
-    const std::uint64_t previous = account_;
-    if (id == 0)
-        return previous;   // 0 är fönstret — inget att öppna
-    Account& a = accounts_[id];
-    a.life     = std::move(life);
-    a.budget   = budget;   // gäller från den här ritningen
-    account_   = id;
-    return previous;
+    bytes_ = bytes_ - c.bytes + bytes;
+    ledger_.book(c, ledger_.open(), bytes);
 }
 
-std::size_t ImageCache::accountBytes(std::uint64_t id) const
+void ImageCache::use(detail::Charge& c)
 {
-    const auto it = accounts_.find(id);
-    return it != accounts_.end() ? it->second.bytes : 0;
+    ledger_.use(c, c.bytes);
 }
 
-void ImageCache::setAccountExtra(std::uint64_t id, std::size_t bytes)
+void ImageCache::unbook(detail::Charge& c)
 {
-    if (const auto it = accounts_.find(id); it != accounts_.end())
-        it->second.extra = bytes;
+    bytes_ -= c.bytes;
+    ledger_.drop(c);
 }
 
 namespace {
+
+// Posternas SLAG i liggaren — också ordningen bland poster som ritades i samma
+// bild: bilder, omräknade bilder, render-texturer.
+constexpr int kChargeBitmap    = 0;
+constexpr int kChargeResampled = 1;
+constexpr int kChargeTarget    = 2;
 
 // Bilden går inte att ladda upp igen: släppt eller köad för släpp —
 // den, och dess omräkningar, vräks aldrig.
@@ -593,6 +584,39 @@ bool pinned(const Entry& e)
 
 } // namespace
 
+// LIGGARENS POSTER: bilderna, de omräknade bilderna och render-texturerna.
+// En bild utan pixlar (`pinned`) vräks aldrig — den går inte att ladda upp igen.
+void ImageCache::eachCharge(const Visit& visit)
+{
+    for (auto& [id, e] : bitmaps_)
+        visit(e.charge, detail::ChargeKey{kChargeBitmap, id, 0, 0}, !pinned(e));
+    for (auto& [key, e] : bitmapResampled_)
+        visit(e.charge,
+              detail::ChargeKey{kChargeResampled, std::get<0>(key), std::get<1>(key),
+                                std::get<2>(key)},
+              !pinned(e));
+    for (auto& [id, e] : targets_)
+        visit(e.charge, detail::ChargeKey{kChargeTarget, id, 0, 0}, true);
+}
+
+void ImageCache::evict(const detail::ChargeKey& key)
+{
+    const auto drop = [this](auto& m, const auto& k) {
+        const auto it = m.find(k);
+        if (it == m.end())
+            return;
+        unbook(it->second.charge);
+        m.erase(it);
+        ++contentGeneration_;   // vräkt — `contentVersion` svarar 0
+    };
+    switch (key.kind) {
+    case kChargeBitmap:    drop(bitmaps_, key.id); break;
+    case kChargeResampled: drop(bitmapResampled_, std::make_tuple(key.id, key.a, key.b)); break;
+    case kChargeTarget:    drop(targets_, key.id); break;
+    default:               break;
+    }
+}
+
 void ImageCache::trim(std::size_t defaultBudget, std::size_t uploadBudget)
 {
     // 1. DÖDA bilder och texturer — appen har släppt sista handtaget. En
@@ -600,7 +624,7 @@ void ImageCache::trim(std::size_t defaultBudget, std::size_t uploadBudget)
     const auto släppDöda = [this](auto& m) {
         for (auto it = m.begin(); it != m.end();) {
             if (it->second.data.expired()) {
-                book(it->second.account, it->second.bytes, 0, 0);
+                unbook(it->second.charge);
                 it = m.erase(it);
                 ++contentGeneration_;
             } else {
@@ -612,119 +636,13 @@ void ImageCache::trim(std::size_t defaultBudget, std::size_t uploadBudget)
     släppDöda(targets_);
     släppDöda(bitmapResampled_);
 
-    // 2. DÖDA KONTON — en riven rityta lämnar sina poster åt
-    //    fönstrets konto. Fönstrets konto finns FÖRE vandringen, så `book`
-    //    aldrig lägger till ett konto mitt i den.
-    accounts_[0];
-    for (auto it = accounts_.begin(); it != accounts_.end();) {
-        if (it->first == 0 || !it->second.life.expired()) {
-            ++it;
-            continue;
-        }
-        const std::uint64_t död    = it->first;
-        const auto          flytta = [&](auto& m) {
-            for (auto& kv : m)
-                if (kv.second.account == död)
-                    book(kv.second.account, kv.second.bytes, 0, kv.second.bytes);
-        };
-        flytta(bitmaps_);
-        flytta(targets_);
-        flytta(bitmapResampled_);
-        it = accounts_.erase(it);
-    }
-    if (!accounts_.count(account_))
-        account_ = 0;
-
-    // 3. ÖVER BUDGETEN, PER KONTO: de som legat oritade längst först (LRU),
-    //    men aldrig en som ritades i framen som just tog slut (lastFrame ==
-    //    frame_) och aldrig en bild utan pixlar (`pinned`). En post vräks bara
-    //    medan DESS konto ligger över sin budget — draperingarna (extra)
-    //    inräknade. Bilder, omräknade bilder och texturer i SAMMA ordning — en
-    //    vräkt bild laddas upp igen, en vräkt omräkning räknas om, en vräkt
-    //    textur målas om.
-    const auto budgetOf = [&](std::uint64_t id, const Account& a) {
-        return id != 0 && a.budget > 0 ? a.budget : defaultBudget;
-    };
-    const auto overAcc = [&](std::uint64_t id, const Account& a) {
-        return a.bytes + a.extra > budgetOf(id, a);
-    };
-    const auto over = [&](std::uint64_t id) {
-        const auto it = accounts_.find(id);
-        return it != accounts_.end() && overAcc(id, it->second);
-    };
-    bool anyOver = false;
-    for (const auto& [id, a] : accounts_)
-        anyOver = anyOver || overAcc(id, a);
-    if (anyOver) {
-        enum class Slag { Bild, Omräknad, Textur };
-        using Nyckel = std::tuple<std::uint64_t, int, int>;
-        struct Kandidat {
-            std::uint64_t lastFrame;
-            Slag          slag;
-            Nyckel        nyckel;   // bild- eller textur-id, (id, w, h)
-            bool operator<(const Kandidat& o) const
-            {
-                return lastFrame != o.lastFrame ? lastFrame < o.lastFrame
-                       : slag != o.slag         ? slag < o.slag
-                                                : nyckel < o.nyckel;
-            }
-        };
-        std::vector<Kandidat> kandidater;
-        for (const auto& [id, e] : bitmaps_)
-            if (e.lastFrame < frame_ && over(e.account) && !pinned(e))
-                kandidater.push_back(
-                    Kandidat{e.lastFrame, Slag::Bild, Nyckel{id, 0, 0}});
-        for (const auto& [nyckel, e] : bitmapResampled_)
-            if (e.lastFrame < frame_ && over(e.account) && !pinned(e))
-                kandidater.push_back(Kandidat{e.lastFrame, Slag::Omräknad, nyckel});
-        for (const auto& [id, e] : targets_)
-            if (e.lastFrame < frame_ && over(e.account))
-                kandidater.push_back(
-                    Kandidat{e.lastFrame, Slag::Textur, Nyckel{id, 0, 0}});
-        std::sort(kandidater.begin(), kandidater.end());
-        for (const Kandidat& k : kandidater) {
-            if (k.slag == Slag::Textur) {
-                const auto it = targets_.find(std::get<0>(k.nyckel));
-                if (!over(it->second.account))
-                    continue;
-                book(it->second.account, it->second.bytes, 0, 0);
-                targets_.erase(it);
-            } else if (k.slag == Slag::Omräknad) {
-                const auto it = bitmapResampled_.find(k.nyckel);
-                if (!over(it->second.account))
-                    continue;
-                book(it->second.account, it->second.bytes, 0, 0);
-                bitmapResampled_.erase(it);
-            } else {
-                const auto it = bitmaps_.find(std::get<0>(k.nyckel));
-                if (!over(it->second.account))
-                    continue;
-                book(it->second.account, it->second.bytes, 0, 0);
-                bitmaps_.erase(it);
-            }
-            ++contentGeneration_;   // vräkt — `contentVersion` svarar 0
-        }
-    }
-    // EN loggrad per konto och episod — det synliga, och bilderna utan
-    // pixlar, överskrider budgeten.
-    for (auto& [id, a] : accounts_) {
-        if (!overAcc(id, a)) {
-            a.overLogged = false;
-            continue;
-        }
-        if (!a.overLogged)
-            gfx::log("ImageCache: %s tar %zu byte (bilder) + %zu byte "
-                     "(draperingar), och allt ritades i förra framen eller "
-                     "saknar pixlar (setKeepPixels(false)) — budgeten %zu byte "
-                     "hålls inte (Canvas::setMemoryBudget, "
-                     "App::setCanvasMemoryBudget)",
-                     id == 0 ? "fönstret utanför ritytorna" : "en rityta",
-                     a.bytes, a.extra, budgetOf(id, a));
-        a.overLogged = true;
-    }
+    // 2. LIGGAREN: döda kontons poster till fönstret, och över budgeten vräks
+    //    per konto de poster — hos alla fönstrets ägare — som legat oanvända
+    //    längst (memory_ledger.h). En vräkt bild laddas upp igen, en vräkt
+    //    omräkning räknas om, en vräkt textur målas om.
+    ledger_.trim(defaultBudget);
 
     // 3. En ny frame: en ny uppladdningsbudget.
-    ++frame_;
     uploadBudget_  = uploadBudget;
     frameUploaded_ = 0;
     deferred_      = false;

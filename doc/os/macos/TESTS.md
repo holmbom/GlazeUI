@@ -324,3 +324,40 @@ fragmentfunktionen tar `GlazeClipArgs clip` sist och anropar
   färgpopup.
   *Rätt utfall:* som på Windows; fönstret står kvar i den dragna storleken efter
   klicket (`AppWindow::trackClientSize`), och popupernas kant syns mot ytan bakom.
+
+### Ritytans minneskonto och rumsliga träd
+
+Ingen backendkod är ändrad — kontot (`Glaze/widgets/src/memory_ledger.cpp`) och
+trädet (`Glaze/widgets/src/canvas/run_index.cpp`) är gemensamma — men grindarna
+är bara körda på Windows.
+
+- [ ] **Grindarna och mätningen.** *Vad man gör:* `painter_gate` (MB),
+  `geom_gate` (TR), `canvas_gate` (MU), `canvas_perf3d` (G och resten) och
+  `terrain_perf --rå`, också med `MTL_DEBUG_LAYER=1`. *Rätt utfall:* gröna, och
+  sessionen går igenom. En chunk som vräkts över budgeten och blir synlig först
+  inne i ett draperingsmål laddas upp där — `upload_breaks` får vara över 0 då,
+  men bilden ska vara rätt.
+
+### Ritytans renderingstråd — scen-kontexten (BLINT skriven)
+
+`Glaze/gfx/src/backend_metal/metal_scene_context.mm` och ändringarna i
+`metal_renderer.mm` (`initHeadless`, `initQueueAndPipeline`, `initPrograms`,
+`lastCommitted`, autorelease-poolen per offscreen-block, ringnollningen i
+`beginOffscreen` för en ren scen-renderare) är skrivna utan att kompileras.
+Scen-renderaren delar fönstrets `MTLDevice` och har en egen kommandokö; den
+delade bilden är samma `MTLTexture`, och `beginWrite` väntar in fönstrets
+senast committade kommandobuffert.
+
+- [ ] **Bygget.** *Vad man gör:* bygger med `-DGLAZE_TESTS=ON`. *Rätt utfall:*
+  0 fel och 0 varningar; `metal_scene_context.mm` står i både källistan och
+  ARC-listan i `Glaze/gfx/CMakeLists.txt`.
+- [ ] **`scene_context_gate`.** *Vad man gör:* kör den, också med
+  `MTL_DEBUG_LAYER=1`. *Rätt utfall:* S1–S4 gröna och inga valideringsfel —
+  särskilt att en bild aldrig skrivs medan fönstrets kommandobuffert läser den.
+- [ ] **`canvas_thread_gate`.** *Vad man gör:* kör den, också med
+  `MTL_DEBUG_LAYER=1`. *Rätt utfall:* T1–T8 gröna.
+- [ ] **En app med en rityta.** *Vad man gör:* `demo`, panorerar och zoomar
+  ritytan, ändrar fönstrets storlek, stänger fönstret mitt i en rörelse.
+  *Rätt utfall:* scenen följer, ingen halv bild, ingen hängning vid
+  stängningen. Med `GLAZE_CANVAS_THREAD=0` ritar fönstret scenen själv och
+  bilden är densamma.

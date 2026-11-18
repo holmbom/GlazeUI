@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 
 #include "../gpu_util.h"
 #include "gfx/platform.h"
@@ -174,9 +175,10 @@ std::uint32_t pack(Color c)
 // ---------------------------------------------------------------- init
 
 bool GlRenderer::init(EGLDisplay dpy, EGLConfig cfg, EGLSurface surf,
-                      int w, int h, bool transparent)
+                      int w, int h, bool transparent, EGLContext share)
 {
     display_     = dpy;
+    config_      = cfg;
     surface_     = surf;
     transparent_ = transparent;
     width_       = w;
@@ -193,9 +195,9 @@ bool GlRenderer::init(EGLDisplay dpy, EGLConfig cfg, EGLSurface surf,
                               EGL_CONTEXT_OPENGL_PROFILE_MASK,
                               EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
                               EGL_NONE};
-    context_ = eglCreateContext(display_, cfg, EGL_NO_CONTEXT, ctxCore);
+    context_ = eglCreateContext(display_, cfg, share, ctxCore);
     if (context_ == EGL_NO_CONTEXT)
-        context_ = eglCreateContext(display_, cfg, EGL_NO_CONTEXT, nullptr);
+        context_ = eglCreateContext(display_, cfg, share, nullptr);
     if (context_ == EGL_NO_CONTEXT) {
         log("eglCreateContext misslyckades: 0x%04x", eglGetError());
         return false;
@@ -227,7 +229,9 @@ bool GlRenderer::init(EGLDisplay dpy, EGLConfig cfg, EGLSurface surf,
     // …och i loggen när den är en annan än förra renderarens
     // — en popup på samma GPU loggar ingenting.
     {
-        static std::string senaste;
+        static std::mutex                 lås;
+        static std::string                senaste;
+        const std::lock_guard<std::mutex> vakt(lås);
         if (deviceName_ != senaste) {
             senaste                = deviceName_;
             const std::string valt = gpuAdapter();
@@ -247,8 +251,10 @@ bool GlRenderer::init(EGLDisplay dpy, EGLConfig cfg, EGLSurface surf,
     if (maxTexture > 0)
         maxTextureSize_ = static_cast<int>(maxTexture);
     // VALET I EFTERHAND: ett mål som inte blev av,
-    // mjukvarurendering och en begäran ändrad efter init — loggat.
-    reportGpuOutcome(adapterId_, deviceName_);
+    // mjukvarurendering och en begäran ändrad efter init — loggat. En
+    // scen-kontext ritar på fönstrets kort, och fönstret har redan sagt det.
+    if (share == EGL_NO_CONTEXT)
+        reportGpuOutcome(adapterId_, deviceName_);
 
     // 1×1 vit R8-textur — alfa-masken för ofärgad geometri.
     const std::uint8_t white = 255;
@@ -412,6 +418,13 @@ bool GlRenderer::makeCurrent()
         return false;
     return eglMakeCurrent(display_, surface_, surface_, context_) ==
            EGL_TRUE;
+}
+
+void GlRenderer::releaseCurrent()
+{
+    if (display_ != EGL_NO_DISPLAY)
+        eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                       EGL_NO_CONTEXT);
 }
 
 void GlRenderer::setSwapInterval(int interval)
@@ -717,6 +730,7 @@ bool GlRenderer::beginOffscreen()
     ++frameSerial_;        // blocket har ett eget löpnummer (renderer.h)
     bound_     = nullptr;
     beginFrameTargets();   // en obalanserad stack töms
+    resetTransientRings();
     return true;
 }
 

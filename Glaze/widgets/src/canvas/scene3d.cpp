@@ -23,6 +23,7 @@
 #include "mesh_data.h"
 #include "residency.h"
 #include "resources.h"
+#include "run_index.h"
 
 namespace glaze::detail {
 
@@ -48,7 +49,8 @@ gfx::Image* imageOf(const PaintContext& f, const ImageSource& src)
     switch (src.kind()) {
     case ImageSource::Kind::Asset:   return f.c->images->get(src.asset());
     case ImageSource::Kind::Bitmap:  return f.c->images->get(src.bitmap());
-    case ImageSource::Kind::Texture: return f.c->images->get(src.texture(), *f.c);
+    case ImageSource::Kind::Texture:
+        return textureOf(f.res, f.c, src);
     case ImageSource::Kind::Icon:    return f.c->images->get(src, *f.c);
     case ImageSource::Kind::None:    break;
     }
@@ -162,17 +164,13 @@ bool drawnRange(const ObjectResidency::GpuMesh& g, const IndexRange& stil,
 
 // Vyn föremålen ritas genom: 3D-målets, eller i 2D-vägen kartkamerans som
 // 3D-vy över körningens höjder.
-gfx::View3D objectView(const PaintContext& f, const RunData& run)
+gfx::View3D objectView(const PaintContext& f, const RunData& run,
+                       std::uint64_t shapesVersion)
 {
     if (f.view3D)
         return *f.view3D;
     double zMin = 0.0, zMax = 0.0;
-    for (const std::shared_ptr<ShapeEntry>& e : run.objects)
-        if (e->alive)
-            if (const std::optional<Box3>& b = objectBox(*e)) {
-                zMin = std::min(zMin, b->min.z);
-                zMax = std::max(zMax, b->max.z);
-            }
+    objectZSpan(run, shapesVersion, zMin, zMax);
     return gfx::toView3D(f.world, zMin, zMax);
 }
 
@@ -234,7 +232,8 @@ struct MeshBinding {
 // gång per rityta och namn (scene3d.h).
 bool firstFallback(const SceneData& sc, const std::string& name)
 {
-    return sc.fallbackLogged.insert(name).second;
+    const std::lock_guard<std::mutex> vakt(nodeLock(sc.id));
+    return sc.fallbackLogged->insert(name).second;
 }
 
 // Ritytans eget program med namnet, kompilerat för fönstret — eller nullptr,
@@ -698,22 +697,34 @@ void meshUniforms(const MeshStyle& st, const Lighting& light,
         setScreenSize(u, st.size.value, st.size.unit);
 }
 
-void queueObjects(const PaintContext& f, const RunData& run, bool draw,
+void queueObjects(const PaintContext& f, const RunData& run,
+                  std::uint64_t shapesVersion, bool draw, bool wantRest,
                   std::vector<UploadItem>& visible, std::vector<UploadItem>& rest)
 {
     // Ritningens vy och gallring (`drawObjects`) — ett lager som inte ritas
     // syns inte.
-    const gfx::View3D view = objectView(f, run);
+    const gfx::View3D view = objectView(f, run, shapesVersion);
     const Projection  proj(view);
     const Point3      öga = toPoint(view.eye);
+    if (draw) {
+        // DE SYNLIGA ur körningens index (run_index.h): bara kandidaterna prövas.
+        std::vector<std::uint32_t> kandidater;
+        objectCandidates(run, shapesVersion, proj, kCullSlackPx, kandidater);
+        for (std::uint32_t i : kandidater) {
+            const std::shared_ptr<ShapeEntry>& e = run.objects[i];
+            const std::optional<Box3>&         b = objectBox(*e);
+            if (objectInView(proj, *e, b))
+                visible.push_back(UploadItem{b ? distanceToBox(öga, *b) : 0.0, &e,
+                                             nullptr, true});
+        }
+    }
+    if (!wantRest)
+        return;
+    // RESTEN — bara när lagrets residens ska göras om (scene.h `prepareUploads`).
     for (const std::shared_ptr<ShapeEntry>& e : run.objects) {
         if (!e->alive)
             continue;
-        const std::optional<Box3>& b = objectBox(*e);
-        if (draw && objectInView(proj, *e, b))
-            visible.push_back(UploadItem{b ? distanceToBox(öga, *b) : 0.0, &e,
-                                         nullptr, true});
-        else
+        if (!draw || !objectInView(proj, *e, objectBox(*e)))
             rest.push_back(UploadItem{0.0, &e, nullptr, draw});
     }
 }
@@ -806,7 +817,7 @@ void drawScreenPass(const PaintContext& f, const SceneData& sc, const Shape& s,
 }
 
 void drawObjects(const PaintContext& f, const SceneData& sc, const LayerFrame& lf,
-                 const RunData& run, float op, bool draw,
+                 const RunData& run, std::uint64_t shapesVersion, float op, bool draw,
                  const gfx::RenderState& state)
 {
     // I 3D-målet är allt redan uppladdat (förberedelsen); 2D-vägen
@@ -815,16 +826,24 @@ void drawObjects(const PaintContext& f, const SceneData& sc, const LayerFrame& l
     const bool upload = !f.view3D;
     if (!draw)
         return;
-    const gfx::View3D view = objectView(f, run);
+    const gfx::View3D view = objectView(f, run, shapesVersion);
     const Projection  proj(view);
     const Lighting    förval;
     const Pass        p{f,  view, proj, f.lighting ? *f.lighting : förval, state,
                  op, f.res->objects(), sc, lf.drapes};
-    for (const std::shared_ptr<ShapeEntry>& e : run.objects) {
-        if (!e->alive)
+    // KANDIDATERNA ur körningens index, i körningens ordning — varje föremål
+    // gallras sedan exakt där det ritas, så anropen är desamma som om alla
+    // hade prövats.
+    std::vector<std::uint32_t> kandidater;
+    objectCandidates(run, shapesVersion, proj, kCullSlackPx, kandidater);
+    for (std::uint32_t i : kandidater) {
+        const std::shared_ptr<ShapeEntry>& e = run.objects[i];
+        // Kandidaterna är en övermängd: ett föremål utanför vyn ritas inte —
+        // och frågas inte heller, så dess kopia räknas inte som använd i
+        // bilden och kan vräkas över budgeten (memory_ledger.h).
+        if (!objectInView(proj, *e, objectBox(*e)))
             continue;
-        const ObjectResidency::Shown sh =
-            resident(f, e, upload && objectInView(proj, *e, objectBox(*e)));
+        const ObjectResidency::Shown sh = resident(f, e, upload);
         if (!sh.shape)
             continue;   // en ny plats vars data inte är uppe än
         switch (sh.shape->kind()) {

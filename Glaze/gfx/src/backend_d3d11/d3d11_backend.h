@@ -11,7 +11,7 @@
 #endif
 #include <windows.h>
 
-#include <d3d11.h>
+#include <d3d11_1.h>    // ID3D11Device1::OpenSharedResource1 — scen-kontexten
 #include <dwrite_2.h>   // IDWriteFactory2/IDWriteFontFallback — glyfreserven
 #include <dxgi1_2.h>
 #include <wrl/client.h>
@@ -393,6 +393,10 @@ public:
     // exakt ForHwnd+FLIP_DISCARD — vägen får inte läcka in dit.
     // Misslyckas composition-vägen degraderas fönstret till opakt (loggat).
     bool init(HWND hwnd, int w, int h, bool transparent = false);
+    // Scen-kontextens renderare (d3d11_scene_context.cpp): en enhet på
+    // `adapter` utan swapchain — ritar bara i offscreen-block.
+    bool initHeadless(IDXGIAdapter* adapter, const std::string& deviceName,
+                      const std::string& adapterId);
     void shutdownRenderer();
     // Finns enheten? Fönstrets egen storleksändring i init (WM_SIZE före
     // `init` här) ska inte rita — ritanropen hade lagt sig i batchen utan en
@@ -485,6 +489,9 @@ public:
     // tillstånd, som beginFrame annars gör.
     bool beginOffscreen() override;
     void endOffscreen() override;
+
+    // Scen-kontexten (d3d11_scene_context.cpp) — se gfx/scene_context.h.
+    std::unique_ptr<SceneContext> createSceneContext() override;
 
     // Scenen (d3d11_scene.cpp): buffertarna, den
     // transienta ringen och Line-programmet — se renderer.h för kontraktet.
@@ -803,6 +810,7 @@ private:
     // AA/blur), prim själva rektangeln parametrarna beskriver.
     void sdfQuad(const Rectf& dst, Color c, float mode, const Rectf& prim,
                  float radius, float param, float offX, float offY);
+    bool initPipeline();   // UI-pipelinen, tillstånden och scenens program
     bool createBackbuffer(int w, int h);
     bool createOffscreen(int w, int h);   // retained-RT:n (texture+RTV+SRV)
     bool initComposition(HWND hwnd);      // dcomp-trädet (transparent-vägen)

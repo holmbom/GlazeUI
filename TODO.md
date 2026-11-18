@@ -64,6 +64,14 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
 - 🟠 **Windows- och Mac-testet** — [doc/os/](doc/os/)
   Kvar är rader som kräver hårdvara eller handtest: mus, skärmskalning och VS Code på Windows; andra skärm, PC-tangentbord och Intel-Mac på macOS.
   Stängs när `doc/os/windows/TESTS.md` och `doc/os/macos/TESTS.md` är TOMMA.
+- 🟢 **Ritytans minneskonto och rumsliga träd** — [canvas/](Glaze/widgets/src/canvas/) · mätt i [RITYTANS_KONTO_OCH_TRAD.md](doc/research/RITYTANS_KONTO_OCH_TRAD.md)
+  Ritytans minnesbudget räknar allt den håller (GPU och CPU) och vräker det som inte syns, och ett rumsligt träd per körning ger ritningen det som kan synas i stället för att varje chunk och föremål prövas.
+  Kvar: sviten före commit, och Eriks test. Grunden för automatisk detaljnivå — pixelfel som mått, terräng, meshar och punktmoln som ritytan själv delar och förenklar, och instansanrop för former som delar mesh.
+- 🟠 **Ritytans renderingstråd** — [canvas/](Glaze/widgets/src/canvas/) · [gfx/](Glaze/gfx/include/gfx/)
+  Ritytan ritar i en egen tråd per fönster med egen grafikkontext, och UI-tråden visar den senast färdiga bilden utan att vänta. Scenen lämnas som frusna ögonblicksbilder, appens målare spelas in, och `renderToBitmap` svarar i efterhand.
+  Byggt: scen-kontexten i de tre backendarna (Metal och Linux blint), inspelade målare, ögonblicksbilderna, tråden med jobbkö och tre bilder i växling, ritytans trådläge (`GLAZE_CANVAS_THREAD=0` stänger av det), låsen kring bild- och meshdata, förankrade barn efter den visade bildens kamera, grindarna `scene_context_gate` och `canvas_thread_gate`.
+  `renderToBitmap(w, h, kamera, done)` svarar i efterhand och ritas av renderingstråden, liksom utskriftens sidor; profileraren räknar trådens faser i bilden där den visas.
+  Kvar: Eriks test i en riktig app, och Metal och Linux (blint skrivna — `doc/os/*/TESTS.md`).
 
 ## Utseendepasset — UI, Tema och Style, PARKERAT
 
@@ -130,3 +138,31 @@ Utanför grinden. Inte mindre viktigt — men inte villkor för släppet, och f�
 - 💡 **Bidi/RTL saknas i textvägen**
   Träffar där de tre backendarna skiljer sig MEST: DirectWrite och Core Text gör bidi och shaping åt en, FreeType inte alls.
   Språkpaketen byter strängar; RTL byter TEXTVÄGEN.
+
+---
+
+# Kanske
+
+Möjligt och genomtänkt, men inte beslutat. Ritytan med mycket stora 3D-modeller på 2–4 GB grafikminne.
+
+- 💡 **16-bitars index för meshar under 65 536 hörn**
+  Indexen är alltid 32 bitar i dag (fasaden). Halverar indexdatan; kräver en ändring i alla tre backendarna.
+  Vinst: minne och inladdning, knappt bildtakt.
+- 💡 **Tätare hörnformat — lägen som 16-bitars heltal relativt meshens låda**
+  12–16 byte per hörn mot 20; två nya attributformat i fasaden, avpackningen i modellmatrisen så egna program inte märker det.
+  Hake: meshar som delar en kant får olika rutnät — väljs av ramverket efter lådans storlek. Vinst: minne, inladdning, lite bildtakt.
+- 💡 **Mesh utan CPU-kopia — eller en LADDARE i stället för data**
+  Kopian läses av uppladdningen i ett annat fönster och på en annan enhet, återuppladdningen efter vräkning, ändringsloggen, målaren och `heightAt`.
+  Släppt kopia = `Bitmap::setKeepPixels(false)`s regler; en laddare låter ramverket släppa och hämta om själv. Vinst: RAM, inte fart.
+- 💡 **Plockning genom en id-buffert på renderingstråden**
+  Föremålets och triangelns nummer ritas i ett litet mål kring pekaren, djupet ger punkten: inget sökträd, ingen väntan i UI-tråden, svar i efterhand.
+  Ger ytan under pekaren — inte hörn- och kantsnäpp, inte det skymda. Den stora vinsten för klick och inladdning.
+- 💡 **Plockning som inte blockerar — bara meshar med sökträd, eller svar i efterhand**
+  En flagga i `HitOptions` (ofullständigt svar, sagt i svaret), och `hitTest` med en svarsfunktion där träden byggs i arbetspoolen.
+  Sökträden bör räknas i ritytans minnesbudget och kunna vräkas.
+- 💡 **Omvänt djup i 3D-målet**
+  Nära = 1, långt bort = 0, vänt inuti ramverket så att `DepthTest::Less` fortsätter betyda "närmare vinner"; tar bort flimret i kilometerstora scener.
+  Full effekt på D3D11 och Metal, på GL bara med `glClipControl`. Bias-värdena (markdjupet, stående etiketter, punkter) måste mätas om. Ingen fartvinst.
+- 💡 **Minnesbudgeten när appen har ett eget urval**
+  I dag: appen sätter `setMemoryBudget` högt och väljer själv, annars vräker ramverket det appen tror är inladdat.
+  Målet är att appen säger vad som är viktigast och ramverket vräker — kräver laddaren ovan.
