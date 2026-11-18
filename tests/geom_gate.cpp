@@ -236,6 +236,20 @@
 //       blandade punkter på SWEREF blir fyra chunkar om 50 000, rumsligt
 //       delade längs den längsta axeln, varje punkt (läge, färg, skalär)
 //       återfunnen genom ordningen inom 1e-4 m.
+//   TR  DET RUMSLIGA TRÄDET och körningens index: TR1 20 000 slumpade lådor
+//       (SWEREF och kring origo) mot 300 frågelådor — kandidaterna innehåller
+//       varje överlappande post en gång, en liten fråga besöker under 2 % av
+//       posterna, och nodernas mängd beror inte på insättningsordningen;
+//       TR2 körningens föremålskandidater innehåller varje synligt föremål, i
+//       körningens ordning, och är få när lite syns; TR3 indexet byggs en
+//       gång per version och en borttagen form är ingen kandidat; TR4 en mesh
+//       som flyttat sina lägen in i vyn blir en kandidat; TR5 chunkarnas
+//       kandidater; TR6 CPU-originalens byte — delad data en gång.
+//       Sabotage som SKA fälla dem: rötterna lyfts inte (TR1 liten del),
+//       nodens låda växer inte upp genom förfäderna (TR1 saknade),
+//       kandidaterna sorteras inte (TR2), indexets nyckel utan
+//       `shapesVersion` (TR3) eller utan `meshGeneration` (TR4), och CPU-
+//       summan utan mängden av id:n (TR6).
 //
 // INTE MÄTT i del 3D: hur programmen ritar trianglarna (i
 // pixlar), uppladdningen av segmenten och ändringsloggen,
@@ -272,7 +286,12 @@
 #include <gfx/sdf.h>
 
 #include "canvas/build.h"   // imageCornersOf/buildImageQuad (del Q)
+#include "canvas/camera_math.h"   // Projection, view3D (del TR)
 #include "canvas/mesh_data.h"
+#include "canvas/run_index.h"     // körningens index (del TR)
+#include "canvas/scene.h"         // lagren och körningarna (del TR)
+#include "canvas/scene3d.h"       // boxVisible3 (del TR)
+#include "canvas/spatial_index.h"
 #include "glaze/canvas/mesh.h"
 
 namespace {
@@ -3646,6 +3665,325 @@ void fallPunktmolnet()
           "tomt");
 }
 
+// ------------------------------------------------------------------ TR
+//
+// DET RUMSLIGA TRÄDET (canvas/spatial_index.h) och körningens index
+// (canvas/run_index.h), headless.
+
+// Överlappar två lådor (kant mot kant räknas)?
+bool överlappar(const glaze::detail::SpatialIndex::Box& a,
+                const glaze::detail::SpatialIndex::Box& b)
+{
+    return a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY &&
+           a.minZ <= b.maxZ && b.minZ <= a.maxZ;
+}
+
+void fallTrädet()
+{
+    using Box = glaze::detail::SpatialIndex::Box;
+    // 20 000 lådor på SWEREF-koordinater, från 0,5 m till 400 m stora, över
+    // 20 × 20 km — också över origo i en andra omgång (negativa index).
+    const auto bygg = [](double x0, double y0, std::uint32_t frö, std::vector<Box>& lådor) {
+        std::mt19937                           rng(frö);
+        std::uniform_real_distribution<double> läge(0.0, 20000.0), höjd(0.0, 80.0);
+        std::uniform_real_distribution<double> exp(-1.0, 8.65);   // 2^-1 … 2^8,65 m
+        for (int i = 0; i < 20000; ++i) {
+            const double x = x0 + läge(rng), y = y0 + läge(rng), z = höjd(rng);
+            const double s = std::pow(2.0, exp(rng));
+            lådor.push_back(Box{x, y, z, x + s, y + s * 0.5, z + s * 0.25});
+        }
+    };
+    for (const auto& [x0, y0, namn] :
+         {std::tuple{674000.0, 6580000.0, "SWEREF"}, std::tuple{-10000.0, -10000.0, "kring origo"}}) {
+        std::vector<Box> lådor;
+        bygg(x0, y0, 20261118u, lådor);
+        glaze::detail::SpatialIndex träd, omvänt;
+        for (std::size_t i = 0; i < lådor.size(); ++i)
+            träd.insert(static_cast<std::uint32_t>(i), lådor[i]);
+        for (std::size_t i = lådor.size(); i-- > 0;)
+            omvänt.insert(static_cast<std::uint32_t>(i), lådor[i]);
+
+        // TR1 — 300 slumpade frågelådor: kandidaterna är en ÖVERMÄNGD av
+        // facit (brute force), och varje post kommer högst en gång.
+        std::mt19937                           rng(77u);
+        std::uniform_real_distribution<double> läge(0.0, 20000.0), sida(1.0, 600.0);
+        std::size_t saknade = 0, dubbla = 0, kandidater = 0, facitSumma = 0;
+        for (int q = 0; q < 300; ++q) {
+            const double x = x0 + läge(rng), y = y0 + läge(rng), s = sida(rng);
+            const Box    fråga{x, y, -1.0, x + s, y + s, 100.0};
+            std::vector<char> fick(lådor.size(), 0);
+            träd.query([&](const Box& n) { return överlappar(n, fråga); },
+                       [&](std::uint32_t i) {
+                           dubbla += fick[i] ? 1u : 0u;
+                           fick[i] = 1;
+                           ++kandidater;
+                       });
+            for (std::size_t i = 0; i < lådor.size(); ++i)
+                if (överlappar(lådor[i], fråga)) {
+                    ++facitSumma;
+                    saknade += fick[i] ? 0u : 1u;
+                }
+        }
+        check(saknade == 0 && dubbla == 0 && facitSumma > 0,
+              std::string("TR1 ") + namn + ": frågans kandidater innehåller varje post "
+                                           "som överlappar frågelådan, var och en en gång",
+              std::to_string(saknade) + " saknade, " + std::to_string(dubbla) + " dubbla av " +
+                  std::to_string(facitSumma));
+        // …och frågan besöker en liten del av trädet: i snitt under 2 % av
+        // posterna per fråga (en frågelåda är högst 600 m av 20 km).
+        check(kandidater < 300u * lådor.size() / 50u,
+              std::string("TR1 ") + namn + ": en liten fråga besöker en liten del av posterna",
+              std::to_string(kandidater / 300u) + " kandidater per fråga av " +
+                  std::to_string(lådor.size()));
+        // TR1 — samma poster i omvänd ordning ger samma noder (stabila nycklar).
+        check(träd.nodeCount() == omvänt.nodeCount() && träd.size() == lådor.size(),
+              std::string("TR1 ") + namn + ": nodernas mängd beror inte på insättningsordningen",
+              std::to_string(träd.nodeCount()) + " mot " + std::to_string(omvänt.nodeCount()));
+    }
+}
+
+// En vy rakt uppifrån över (x, y) — en liten del av en stor scen syns.
+glaze::detail::Projection uppifrån(double x, double y, const glaze::Box3& scen)
+{
+    const glaze::Camera3D k{.target = {x, y, 0.0}, .distance = 300.0, .elevation = 89.0f};
+    return glaze::detail::Projection(
+        glaze::detail::view3D(k, gfx::Rectf{0.0f, 0.0f, 1280.0f, 800.0f}, scen));
+}
+
+void fallKörningensIndex()
+{
+    using namespace glaze::detail;
+    constexpr double kSlack = 2.0;
+    // 2 500 lådor i ett rutnät om 50 × 50 med 40 m mellan dem, i ETT lager.
+    LayerData L;
+    L.placement = glaze::LayerPlacement::World;
+    const auto vid = [](int i, int j) {
+        return glaze::Point3{674000.0 + 40.0 * i, 6580000.0 + 40.0 * j, 0.0};
+    };
+    for (int j = 0; j < 50; ++j)
+        for (int i = 0; i < 50; ++i) {
+            const glaze::Point3 p = vid(i, j);
+            appendShape(L, glaze::Shape::box({{p.x - 1, p.y - 1, 0}, {p.x + 1, p.y + 1, 6}}),
+                        false);
+        }
+    const RunData* run = nullptr;
+    for (const std::shared_ptr<RunData>& r : L.runs)
+        if (isObjectKind(r->key.kind))
+            run = r.get();
+    if (!run || run->objects.size() != 2500) {
+        check(false, "TR2 lagret har en föremålskörning med 2 500 lådor");
+        return;
+    }
+    const glaze::Box3 scen{{674000.0, 6580000.0, 0.0}, {676000.0, 6582000.0, 6.0}};
+    const auto facit = [&](const Projection& proj) {
+        std::vector<std::uint32_t> ut;
+        for (std::size_t i = 0; i < run->objects.size(); ++i) {
+            const ShapeEntry& e = *run->objects[i];
+            if (e.alive && boxVisible3(proj, *objectBox(e.shape), kSlack))
+                ut.push_back(static_cast<std::uint32_t>(i));
+        }
+        return ut;
+    };
+    const auto övermängd = [](const std::vector<std::uint32_t>& k,
+                              const std::vector<std::uint32_t>& f) {
+        return std::includes(k.begin(), k.end(), f.begin(), f.end());
+    };
+
+    // TR2 — kandidaterna är en övermängd av de synliga, i VÄXANDE ordning
+    // (körningens ritordning), och få när lite syns.
+    std::vector<std::uint32_t> k;
+    bool        ok = true, växande = true;
+    std::size_t flest = 0, synliga = 0;
+    for (int n = 0; n < 40; ++n) {
+        const glaze::Point3 p    = vid((n * 7) % 50, (n * 13) % 50);
+        const Projection    proj = uppifrån(p.x, p.y, scen);
+        objectCandidates(*run, L.shapesVersion, proj, kSlack, k);
+        const std::vector<std::uint32_t> f = facit(proj);
+        ok      = ok && övermängd(k, f);
+        växande = växande && std::is_sorted(k.begin(), k.end()) &&
+                  std::adjacent_find(k.begin(), k.end()) == k.end();
+        flest   = std::max(flest, k.size());
+        synliga += f.size();
+    }
+    check(ok && växande && synliga > 0,
+          "TR2 kandidaterna innehåller varje synligt föremål, i körningens ordning utan dubbletter",
+          std::to_string(synliga) + " synliga i 40 vyer");
+    check(flest < run->objects.size() / 4,
+          "TR2 en vy över en liten del ger få kandidater",
+          "flest " + std::to_string(flest) + " av " + std::to_string(run->objects.size()));
+
+    // TR3 — indexet byggs EN gång för en version: 40 frågor till bygger inte
+    // om; en borttagen form är ingen kandidat och bygger om en gång.
+    const std::uint64_t byggen = objectIndexBuilds(*run);
+    for (int n = 0; n < 40; ++n)
+        objectCandidates(*run, L.shapesVersion, uppifrån(vid(n, n).x, vid(n, n).y, scen), kSlack, k);
+    const std::uint64_t efterFrågor = objectIndexBuilds(*run);
+    const glaze::Point3 mitt        = vid(25, 25);
+    const std::size_t   bort        = 25u * 50u + 25u;
+    removeShapeAt(L, bort);
+    const Projection projMitt = uppifrån(mitt.x, mitt.y, scen);
+    // Lagret kan ha byggts om (kompakteringen): körningen slås upp igen.
+    run = nullptr;
+    for (const std::shared_ptr<RunData>& r : L.runs)
+        if (isObjectKind(r->key.kind))
+            run = r.get();
+    bool kvar = false;
+    if (run) {
+        objectCandidates(*run, L.shapesVersion, projMitt, kSlack, k);
+        for (std::uint32_t i : k)
+            kvar = kvar || !run->objects[i]->alive;
+        objectCandidates(*run, L.shapesVersion, projMitt, kSlack, k);
+    }
+    check(byggen == 1 && efterFrågor == 1 && run && !kvar && objectIndexBuilds(*run) == 2,
+          "TR3 indexet byggs en gång per version, och en borttagen form är ingen kandidat",
+          std::to_string(byggen) + " → " + std::to_string(efterFrågor) + " → " +
+              std::to_string(run ? objectIndexBuilds(*run) : 0) + " byggen");
+
+    // TR4 — en mesh vars lägen flyttas in i vyn blir en kandidat
+    // (`meshGeneration`), fast formerna är oförändrade.
+    {
+        LayerData M;
+        M.placement = glaze::LayerPlacement::World;
+        std::vector<glaze::Mesh> meshar;
+        for (int i = 0; i < 100; ++i) {
+            glaze::MeshDesc d;
+            d.origin    = {674000.0 + 40.0 * i, 6580000.0, 0.0};
+            d.positions = {{0, 0, 0}, {2, 0, 0}, {0, 2, 0}};
+            meshar.emplace_back(std::move(d));
+            appendShape(M, glaze::Shape::mesh(meshar.back()), false);
+        }
+        const RunData& r = *M.runs.front();
+        // Vyn står 10 km norr om meshen 0.
+        const Projection proj = uppifrån(674000.0, 6590000.0, scen);
+        objectCandidates(r, M.shapesVersion, proj, kSlack, k);
+        const bool före = std::find(k.begin(), k.end(), 0u) != k.end();
+        const std::vector<glaze::Float3> nya = {
+            {0, 10000, 0}, {2, 10000, 0}, {0, 10002, 0}};
+        meshar[0].setPositions(0, nya);
+        objectCandidates(r, M.shapesVersion, proj, kSlack, k);
+        const bool efter = std::find(k.begin(), k.end(), 0u) != k.end();
+        check(!före && efter, "TR4 en mesh som flyttat sina lägen in i vyn blir en kandidat",
+              std::string(före ? "kandidat före" : "inte före") + ", " +
+                  (efter ? "kandidat efter" : "inte efter"));
+    }
+
+    // TR6 — INDEXET FÖRS IKAPP: efter det första bygget läggs bara de poster
+    // in som ändrats. En ny låda är en post, en flyttad låda är en post (och
+    // är kandidat på sin nya plats, inte en dubblett), och trädet byggs inte
+    // om från början.
+    {
+        LayerData I;
+        I.placement = glaze::LayerPlacement::World;
+        const auto låda = [](double x, double y) {
+            return glaze::Shape::box({{x - 1, y - 1, 0}, {x + 1, y + 1, 6}});
+        };
+        for (int i = 0; i < 500; ++i)
+            appendShape(I, låda(674000.0 + 40.0 * (i % 25), 6580000.0 + 40.0 * (i / 25)),
+                        false);
+        const RunData*   r    = I.runs.front().get();
+        const Projection nära = uppifrån(674000.0, 6580000.0, scen);
+        objectCandidates(*r, I.shapesVersion, nära, kSlack, k);
+        const std::uint64_t in0 = objectIndexInserted(*r), om0 = objectIndexRebuilds(*r);
+
+        // En ny låda 10 km österut.
+        appendShape(I, låda(684000.0, 6580000.0), false);
+        r                    = I.runs.front().get();
+        const Projection öst = uppifrån(684000.0, 6580000.0, scen);
+        objectCandidates(*r, I.shapesVersion, öst, kSlack, k);
+        const bool          nyMed = std::find(k.begin(), k.end(), 500u) != k.end();
+        const std::uint64_t in1 = objectIndexInserted(*r), om1 = objectIndexRebuilds(*r);
+
+        // Lådan 0 flyttas 10 km norrut.
+        replaceShapeAt(I, 0, låda(674000.0, 6590000.0), false);
+        r                     = I.runs.front().get();
+        const Projection norr = uppifrån(674000.0, 6590000.0, scen);
+        objectCandidates(*r, I.shapesVersion, norr, kSlack, k);
+        const bool flyttad = std::count(k.begin(), k.end(), 0u) == 1;
+        objectCandidates(*r, I.shapesVersion, nära, kSlack, k);
+        const bool unika = std::adjacent_find(k.begin(), k.end()) == k.end();
+        const std::uint64_t in2 = objectIndexInserted(*r), om2 = objectIndexRebuilds(*r);
+
+        check(in0 == 500 && om0 == 1 && in1 == 501 && om1 == 1 && nyMed && in2 == 502 &&
+                  om2 == 1 && flyttad && unika,
+              "TR6 indexet förs ikapp: en ny och en flyttad låda är en post var, utan "
+              "ombygge och utan dubbletter",
+              std::to_string(in0) + " → " + std::to_string(in1) + " → " +
+                  std::to_string(in2) + " poster, " + std::to_string(om2) + " byggen");
+    }
+
+    // TR5 — chunkarna: 200 korta linjer 5 km isär ger en chunk var (rutan är
+    // 4 096 enheter), och en vy över en av dem ger få kandidater som
+    // innehåller den.
+    {
+        LayerData C;
+        C.order = glaze::DrawOrder::ByKind;
+        for (int i = 0; i < 200; ++i) {
+            const double x = 674000.0 + 5000.0 * (i % 20), y = 6580000.0 + 5000.0 * (i / 20);
+            appendShape(C, glaze::Shape::line({x, y}, {x + 10.0, y + 10.0},
+                                              {.paint = gfx::Color{0, 0, 0, 255}}),
+                        false);
+        }
+        const RunData& r = *C.runs.front();
+        gfx::NullRenderer nr;
+        glaze::Ctx        c{};
+        c.r     = &nr;
+        c.scale = 1.0f;
+        PaintContext f{};
+        f.c     = &c;
+        f.world = gfx::MapView{};
+        f.world.box       = gfx::Rectf{0.0f, 0.0f, 1280.0f, 800.0f};
+        f.world.cx        = 674000.0 + 5000.0 * 7;
+        f.world.cy        = 6580000.0 + 5000.0 * 3;
+        f.world.pxPerUnit = 1.0;
+        std::vector<std::uint32_t> kc;
+        chunkCandidates(f, r, C.shapesVersion, 2.0f, kc);
+        std::vector<std::uint32_t> fc;
+        for (std::size_t i = 0; i < r.chunks.size(); ++i) {
+            const ChunkData& ch = *r.chunks[i];
+            if (ch.hasBox && boxVisible(f, ch.minX, ch.minY, ch.minZ, ch.maxX, ch.maxY, ch.maxZ, 2.0f))
+                fc.push_back(static_cast<std::uint32_t>(i));
+        }
+        check(r.chunks.size() >= kRunIndexMin && !fc.empty() && övermängd(kc, fc) &&
+                  std::is_sorted(kc.begin(), kc.end()) && kc.size() < r.chunks.size() / 4,
+              "TR5 chunkarnas kandidater innehåller de synliga, i ordning, och är få",
+              std::to_string(kc.size()) + " kandidater, " + std::to_string(fc.size()) +
+                  " synliga av " + std::to_string(r.chunks.size()));
+    }
+}
+
+// TR6 — CPU-ORIGINALENS BYTE (scene.h `sceneCpuBytes`): en mesh som tre former
+// i två lager delar räknas en gång, en till mesh läggs till, och en borttagen
+// forms mesh räknas inte längre.
+void fallCpuByte()
+{
+    using namespace glaze::detail;
+    SceneData sc;
+    sc.layers = {std::make_shared<LayerData>(), std::make_shared<LayerData>()};
+    for (const std::shared_ptr<LayerData>& L : sc.layers)
+        L->placement = glaze::LayerPlacement::World;
+    const auto mesh = [](int n) {
+        glaze::MeshDesc d;
+        for (int i = 0; i < 3 * n; ++i)
+            d.positions.push_back({static_cast<float>(i), 0, 0});
+        return glaze::Mesh(std::move(d));
+    };
+    const glaze::Mesh a = mesh(100), b = mesh(40);   // 300 respektive 120 lägen om 12 byte
+    appendShape(*sc.layers[0], glaze::Shape::mesh(a), false);
+    const std::size_t en = sceneCpuBytes(sc);
+    appendShape(*sc.layers[0], glaze::Shape::mesh(a, {.at = {5, 0, 0}}), false);
+    appendShape(*sc.layers[1], glaze::Shape::mesh(a, {.at = {9, 0, 0}}), false);
+    const std::size_t tre = sceneCpuBytes(sc);
+    appendShape(*sc.layers[1], glaze::Shape::mesh(b), false);
+    const std::size_t två = sceneCpuBytes(sc);
+    removeShapeAt(*sc.layers[1], 1);
+    rebuildLayer(*sc.layers[1], false);
+    const std::size_t efter = sceneCpuBytes(sc);
+    check(en == 300u * 12u && tre == en && två == en + 120u * 12u && efter == en,
+          "TR6 en delad mesh räknas en gång, en ny läggs till och en borttagen räknas inte",
+          std::to_string(en) + " → " + std::to_string(tre) + " → " + std::to_string(två) +
+              " → " + std::to_string(efter) + " byte");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -3690,6 +4028,9 @@ int main(int argc, char** argv)
     fallSegmentgränsen64();
     fallMeshDatan();
     fallPunktmolnet();
+    fallTrädet();
+    fallKörningensIndex();
+    fallCpuByte();
     std::printf(g_fel ? "=== geom_gate: %d FEL av %d ===\n"
                       : "=== geom_gate: allt grönt (%d fel av %d) ===\n",
                 g_fel, g_fall);

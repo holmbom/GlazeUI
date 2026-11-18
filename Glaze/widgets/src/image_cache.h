@@ -12,6 +12,7 @@
 #include "glaze/assets.h"
 #include "glaze/canvas/image_source.h"
 #include "glaze/theme.h"   // Theme::Colors — standardikonens färger
+#include "memory_ledger.h"
 
 // INTERN header — ingår inte i publika API:t (till skillnad från
 // glaze/draw.h, som är publik med flit).
@@ -53,16 +54,13 @@
 // budgeten (det loggas en gång): att släppa en synlig bild hade bara gett en
 // ny uppladdning i nästa frame.
 //
-// KONTONA (`Canvas::setMemoryBudget`): budgeten är PER RITYTA. En
-// rityta som ritar öppnar sitt konto (`beginAccount` — scenens id, scenen
-// som livstecken och dess budget; `detail::ImageAccount` i
-// canvas/scene.h), och varje bild, render-textur och omräknad bild som
-// hämtas medan det är öppet räknas på det — på den rityta som RITADE den
-// senast. Det som ritas utanför ritytorna (widgetarna) räknas på FÖNSTRET,
-// konto 0, med appens förval. `trim` vräker per konto med LRU: en post vräks
-// bara medan dess konto ligger över sin budget. Ett dött kontos poster
-// flyttas till fönstret. Draperingarna (canvas/drape.h) räknas mot samma
-// budget genom `setAccountExtra`.
+// KONTONA (`Canvas::setMemoryBudget`): budgeten är PER RITYTA och räknas av
+// fönstrets LIGGARE (`ledger()`, memory_ledger.h), som bildcachen äger och
+// är en av ägarna i. Varje bild, render-textur och omräknad bild som hämtas
+// medan en ritytas konto är öppet räknas på det — på den rityta som RITADE
+// den senast; det som ritas utanför ritytorna (widgetarna) räknas på
+// FÖNSTRET, konto 0, med appens förval. Liggaren vräker per konto: en post
+// vräks bara medan dess konto ligger över sin budget.
 //
 // BILDER SOM SLÄPPT SINA PIXLAR (`Bitmap::setKeepPixels(false)`):
 // `get` köar bilden när texturen är hel och aktuell; utan textur ger den
@@ -135,9 +133,16 @@ struct ImageTile {
     float       tu0 = 0.0f, tv0 = 0.0f, tu1 = 1.0f, tv1 = 1.0f;
 };
 
-class ImageCache {
+class ImageCache final : private detail::MemoryHolder {
 public:
-    explicit ImageCache(gfx::Renderer& r) : r_(&r) {}
+    explicit ImageCache(gfx::Renderer& r) : r_(&r) { ledger_.add(*this); }
+    ImageCache(const ImageCache&)            = delete;
+    ImageCache& operator=(const ImageCache&) = delete;
+
+    // Fönstrets liggare — kontona, räkningen och vräkningen för allt
+    // ritytorna håller i fönstret (memory_ledger.h).
+    detail::MemoryLedger&       ledger() { return ledger_; }
+    const detail::MemoryLedger& ledger() const { return ledger_; }
 
     // Avkodad bild för handtaget — nullptr vid ogiltigt handtag eller
     // trasig bilddata. NEGATIV cachning: ett misslyckande lagras som
@@ -202,27 +207,16 @@ public:
     // i sin egen målning (loggas en gång — rekursionen bryts).
     gfx::Image* get(const RenderTexture& t, const Ctx& c);
 
-    // Framens början: släpp döda bilder (inget handtag kvar), flytta döda
-    // kontons poster till fönstret och, för varje konto över sin budget
-    // (kontots, eller `defaultBudget` när det är 0 — och alltid för
-    // fönstret), vräk dess poster som legat oritade längst. Framen får sedan
-    // ladda upp `uploadBudget` byte (`App::canvasUploadBudget`) — det som
-    // inte ryms väntar på NÄSTA frame (`uploadsDeferred`, och AppWindow
-    // begär den), så en vy full av nya plattor fylls på över några frames i
-    // stället för att frysa en. Framens FÖRSTA uppladdning går alltid
-    // igenom, så en bild större än budgeten också kommer upp.
+    // Framens början: släpp döda bilder (inget handtag kvar) och låt
+    // liggaren flytta döda kontons poster till fönstret och vräka över
+    // budgeten (`defaultBudget` är förvalet per rityta och fönstrets tak).
+    // Framen får sedan ladda upp `uploadBudget` byte
+    // (`App::canvasUploadBudget`) — det som inte ryms väntar på NÄSTA frame
+    // (`uploadsDeferred`, och AppWindow begär den), så en vy full av nya
+    // plattor fylls på över några frames i stället för att frysa en. Framens
+    // FÖRSTA uppladdning går alltid igenom, så en bild större än budgeten
+    // också kommer upp.
     void trim(std::size_t defaultBudget, std::size_t uploadBudget);
-
-    // KONTONA (filhuvudet). `beginAccount` öppnar kontot `id` (≠ 0) med
-    // livstecknet och budgeten (0 = förvalet) och svarar med det som var
-    // öppet; `endAccount` öppnar det igen. `accountBytes` är kontots
-    // bildbyte. `setAccountExtra` är draperingarnas byte på ett öppnat konto
-    // — `trim` jämför bilderna PLUS dem mot budgeten men vräker bara bilder.
-    std::uint64_t beginAccount(std::uint64_t id, std::weak_ptr<const void> life,
-                               std::size_t budget);
-    void          endAccount(std::uint64_t previous) { account_ = previous; }
-    std::size_t   accountBytes(std::uint64_t id) const;
-    void          setAccountExtra(std::uint64_t id, std::size_t bytes);
 
     // Fick en bild vänta på nästa frame för budgeten? Sann till nästa trim().
     bool uploadsDeferred() const { return deferred_; }
@@ -255,6 +249,11 @@ public:
     // varje bilds version.
     std::uint64_t contentGeneration() const { return contentGeneration_; }
 
+    // Bildens PIXLAR på CPU:n, i byte, och dess id — 0 byte för en bild utan
+    // pixlar (ogiltig, eller släppt med `setKeepPixels(false)`). Ritytans
+    // konto räknar dem (canvas/scene.h `sceneCpuBytes`).
+    static std::size_t pixelBytes(const Bitmap& b, std::uint64_t& id);
+
     // Bildernas, render-texturernas och de omräknade bildernas byte och
     // antal — budgeten räknar dem (totalen över alla konton).
     std::size_t canvasBytes() const { return bytes_; }
@@ -268,10 +267,13 @@ public:
         map_.clear();
         resampled_.clear();
         sources_.clear();
+        // Bildernas räkning tas bort ur liggaren — de andra ägarnas står kvar.
+        eachCharge([this](detail::Charge& c, const detail::ChargeKey&, bool) {
+            ledger_.drop(c);
+        });
         bitmaps_.clear();
         targets_.clear();
         bitmapResampled_.clear();
-        accounts_.clear();
         bytes_ = 0;
         ++contentGeneration_;
     }
@@ -281,12 +283,17 @@ private:
     // något väntar.
     bool mayUpload(std::size_t need);
 
-    // EN väg för budgetens räkning: postens byte flyttas till
-    // kontot `account` med storleken `bytes`, i totalen och på kontona — vid
-    // en ny post, en ny storlek, en ritning av en annan rityta och (med
-    // bytes 0) en borttagning.
-    void book(std::uint64_t& entryAccount, std::size_t& entryBytes,
-              std::uint64_t account, std::size_t bytes);
+    // BUDGETENS RÄKNING: `book` sätter postens storlek på det öppna kontot
+    // (en ny post, en ny storlek), `use` antecknar att posten ritas i den
+    // här framen av det öppna kontot, och `unbook` tar bort räkningen —
+    // alla tre i bildernas total och i liggaren.
+    void book(detail::Charge& c, std::size_t bytes);
+    void use(detail::Charge& c);
+    void unbook(detail::Charge& c);
+
+    // Liggarens ägare (memory_ledger.h).
+    void eachCharge(const Visit& visit) override;
+    void evict(const detail::ChargeKey& key) override;
 
     // Assetens respektive bildens omräkning (`getResampled`s två grenar).
     gfx::Image* resampledAsset(AssetHandle h, int w, int height);
@@ -321,11 +328,9 @@ private:
         std::weak_ptr<const detail::BitmapData> data;   // död ⇒ släpps i trim
         std::vector<TileTexture> textures;   // tom = negativ
         std::vector<ImageTile>   tiles;      // ritvägarnas vy, samma ordning
-        std::uint64_t version   = 0;   // bildens version i texturen
-        std::uint64_t lastFrame = 0;   // senaste frame bilden ritades
-        std::size_t   bytes     = 0;   // texturernas pixlar (budgeten)
-        std::uint64_t account   = 0;   // kontot som ritade den senast
-        bool          tiledLogged = false;   // `get` på en delad bild
+        std::uint64_t  version = 0;   // bildens version i texturen
+        detail::Charge charge;        // texturernas pixlar, kontot, senaste framen
+        bool           tiledLogged = false;   // `get` på en delad bild
     };
     std::unordered_map<std::uint64_t, BitmapEntry> bitmaps_;   // id → post
     // Bildens post, uppladdad eller ikapp med ändringsloggen — `get(Bitmap)`
@@ -336,11 +341,9 @@ private:
     struct TargetEntry {
         std::weak_ptr<const detail::RenderTextureData> data;
         std::unique_ptr<gfx::RenderTarget>             target;  // nullptr = negativ
-        std::uint64_t version   = 0;       // målad version (0 = aldrig)
-        std::uint64_t lastFrame = 0;
-        std::size_t   bytes     = 0;
-        std::uint64_t account   = 0;
-        bool          painting  = false;   // rekursionsvakten
+        std::uint64_t  version = 0;        // målad version (0 = aldrig)
+        detail::Charge charge;
+        bool           painting = false;   // rekursionsvakten
     };
     std::unordered_map<std::uint64_t, TargetEntry> targets_;   // id → post
     bool selfPaintLogged_ = false;
@@ -351,26 +354,14 @@ private:
     struct ResampledEntry {
         std::weak_ptr<const detail::BitmapData> data;   // död ⇒ släpps i trim
         std::unique_ptr<gfx::Image>             image;  // nullptr = negativ
-        std::uint64_t version   = 0;   // bildens version i texturen
-        std::uint64_t lastFrame = 0;
-        std::size_t   bytes     = 0;
-        std::uint64_t account   = 0;
+        std::uint64_t  version = 0;   // bildens version i texturen
+        detail::Charge charge;
     };
     std::map<std::tuple<std::uint64_t, int, int>, ResampledEntry>
         bitmapResampled_;
 
-    // KONTONA — 0 är fönstret och har inget livstecken.
-    struct Account {
-        std::weak_ptr<const void> life;
-        std::size_t               budget = 0;   // 0 = förvalet
-        std::size_t               bytes  = 0;   // postenas byte
-        std::size_t               extra  = 0;   // draperingarnas (setAccountExtra)
-        bool                      overLogged = false;
-    };
-    std::unordered_map<std::uint64_t, Account> accounts_;
-    std::uint64_t                              account_ = 0;   // det öppna
+    detail::MemoryLedger ledger_;   // kontona och vräkningen (`ledger()`)
 
-    std::uint64_t frame_         = 0;   // stegas av trim()
     std::size_t   uploadBudget_  = 0;   // framens budget, satt av trim()
     std::size_t   frameUploaded_ = 0;   // byte i den här framen
     std::size_t   bytes_         = 0;   // alla bilders texturer

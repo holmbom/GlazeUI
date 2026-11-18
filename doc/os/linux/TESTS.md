@@ -1479,3 +1479,40 @@ vWorld.xy)`; `kPointsGlsl*`: `vClipPx` (noperspective) och `vAnchor`),
   färgpopup.
   *Rätt utfall:* som på Windows; fönstret står kvar i den dragna storleken efter
   klicket (`AppWindow::trackClientSize`), och popupernas kant syns mot ytan bakom.
+
+## Ritytans minneskonto och rumsliga träd
+
+Ingen backendkod är ändrad — kontot (`Glaze/widgets/src/memory_ledger.cpp`) och
+trädet (`Glaze/widgets/src/canvas/run_index.cpp`) är gemensamma — men grindarna
+är bara körda på Windows.
+
+- [ ] **Grindarna och mätningen.** *Vad man gör:* `painter_gate` (MB),
+  `geom_gate` (TR), `canvas_gate` (MU), `canvas_perf3d` (G och resten) och
+  `terrain_perf --rå`. *Rätt utfall:* gröna, och sessionen går igenom; kolumnen
+  för GPU-minnet visar "—" (den mäts bara på Windows), ritytornas konton skrivs.
+
+### Ritytans renderingstråd — scen-kontexten (BLINT skriven)
+
+`Glaze/gfx/src/backend_linux/linux_scene_context.cpp` och ändringarna i
+`linux_renderer.cpp`/`linux_scene.cpp`/`gl_common.cpp`/`linux_text.cpp`
+(`init` med en delad kontext, `releaseCurrent`, `resetTransientRings`,
+fence-pekarna, låsen kring GL-laddningen och fontconfig) är skrivna utan att
+kompileras. Scen-renderaren är en EGL-kontext i fönsterkontextens
+delningsgrupp — ytlös, eller med en 1 × 1-pbuffer när `EGL_KHR_surfaceless_
+context` saknas (loggas en gång); den delade bilden lämnas över med
+`glFinish` i `publish` och en fence åt andra hållet.
+
+- [ ] **Bygget.** *Vad man gör:* bygger med `-DGLAZE_TESTS=ON`. *Rätt utfall:*
+  0 fel och 0 varningar.
+- [ ] **`scene_context_gate` och `canvas_thread_gate`.** *Vad man gör:* kör
+  båda under Wayland, under X11 (`GLAZE_LINUX_DRIVER=x11`) och headless.
+  *Rätt utfall:* S1–S4 och T1–T8 gröna i alla tre; headless utan
+  scen-kontext FALLER grindarna (ingen tyst skip) — då ska loggen säga varför.
+- [ ] **Trådarna.** *Vad man gör:* bygger med `-fsanitize=thread` och kör
+  `canvas_thread_gate`, `painter_gate` och `demo` med en rityta som
+  panoreras medan former läggs till. *Rätt utfall:* inga rapporter.
+- [ ] **En app med en rityta.** *Vad man gör:* `demo` under Wayland och X11:
+  panorerar, zoomar, ändrar storlek (kantdrag), stänger mitt i en rörelse.
+  *Rätt utfall:* scenen följer, ingen halv bild, ingen hängning — Waylands
+  `beforeSwap` väntar som förut. Med `GLAZE_CANVAS_THREAD=0` ritar fönstret
+  scenen själv och bilden är densamma.

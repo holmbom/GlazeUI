@@ -77,10 +77,19 @@
 //      innanför, också utan kollision (bilden finns); ZV2 en dold etikett
 //      tränger inte undan sin granne; ZV4 målaren hoppar över formen; ZV5
 //      toningen ger ett mellanvärde över tröskeln.
-//   MB MINNESBUDGETEN PER RITYTA, två ritytor i SAMMA bildcache:
-//      MB1 A över sin budget vräker sin äldsta och B:s äldre bild står kvar;
+//   PL INSPELAD = DIREKT: samma målaranrop direkt och inspelade + uppspelade
+//      ger samma rit-anrop, och inspelningen ritar ingenting.
+//   SN ÖGONBLICKSBILDERNA (scene.h `publishScene`): SN1 en publicerad bild är
+//      orörd efter varje sättare; SN2 en oförändrad scen lämnar samma skal och
+//      ett oförändrat lager samma nod; SN3 `setShape` i 20 000 former byter
+//      högst en chunk; SN4 ändringen laddar bara upp den ändrade formen.
+//   MB MINNESBUDGETEN PER RITYTA, två ritytor i SAMMA fönster — kontot räknar
+//      allt ritytan håller, så budgeten sätts som "allt minus en bild":
+//      MB1 A över sin budget vräker sin äldsta bild och B:s äldre bild står kvar;
 //      MB2 kontot är den senaste ritytans; MB3 en riven rityta lämnar sina
-//      bilder åt fönstret; MB4 `accountBytes` är summan av kontots poster.
+//      bilder åt fönstret; MB4 kontots byte är summan av dess poster; MB5 en
+//      mesh som tre former i två lager delar räknas en gång, och lagrens
+//      buffertar räknas (sabotage: räkna kopian per form).
 //      Sabotage som SKA fälla dem: uniformen
 //      bort (GT1), gränserna utanför `RunKey` (GT2), placeringen med rå
 //      storlek (GT3), marginalen utan `reachEm` (GT4), zoomkontrollen bort
@@ -173,6 +182,9 @@
 #include <gfx/null_renderer.h>
 #include <glaze/glaze.h>
 
+#include "canvas/camera_math.h"     // intern — localView (fall PL)
+#include "canvas/canvas_access.h"   // intern — ritytans scen (fall SN)
+#include "canvas/paint_list.h"      // intern — inspelade målare (fall PL)
 #include "canvas/residency.h"   // intern — föremålens residens (fall LO)
 #include "canvas/resources.h"   // intern — fönstrets resurser
 #include "image_cache.h"        // intern — fönstrets bildcache
@@ -418,7 +430,7 @@ struct Bänk {
     Inspelare              r;
     Font                   font{13.0f};
     glaze::ImageCache      bilder{r};
-    glaze::CanvasResources res{r};
+    glaze::CanvasResources res{r, bilder.ledger()};
     Rityta                 yta;
     glaze::Ctx             c{};
 
@@ -1580,7 +1592,9 @@ void fallZV()
     }
 }
 
-// MB — MINNESBUDGETEN PER RITYTA: två ritytor i samma bildcache.
+// MB — MINNESBUDGETEN PER RITYTA: två ritytor i samma fönster. Kontot räknar
+// ALLT ritytan håller (bilderna, lagrens buffertar, kopiorna, CPU-originalen),
+// så budgetarna sätts ur det kontot faktiskt bär: "allt, minus en bild".
 // En bild på 16 × 16 är 1024 byte.
 void fallMB()
 {
@@ -1588,8 +1602,8 @@ void fallMB()
         return glaze::Shape::image({100, 100, 50, 50}, bm);
     };
     const auto ram = [](Bänk& b, glaze::Canvas* a, glaze::Canvas* c2) {
-        b.bilder.trim(std::size_t{256} << 20, std::size_t{16} << 20);
         b.res.trim();
+        b.bilder.trim(std::size_t{256} << 20, std::size_t{16} << 20);
         b.r.transienta.clear();
         b.r.anrop.clear();
         if (a)
@@ -1597,13 +1611,22 @@ void fallMB()
         if (c2)
             c2->render(b.c);
     };
-    // MB1 — A med två bilders budget vräker sin äldsta; B:s (äldre) bild rörs
-    // inte.
+    // Ritytornas konton i den ordning ritytorna skapades (id:n växer), utan
+    // fönstrets, och ett kontos hela minne.
+    const auto konton = [](Bänk& b) {
+        std::vector<std::uint64_t> ids = b.bilder.ledger().accounts();
+        ids.erase(std::remove(ids.begin(), ids.end(), std::uint64_t{0}), ids.end());
+        return ids;
+    };
+    const auto allt = [](Bänk& b, std::uint64_t id) {
+        return b.bilder.ledger().usage(id).total();
+    };
+    // MB1 — A med budgeten "allt minus en bild" vräker sin äldsta bild; B:s
+    // (äldre) bild rörs inte.
     {
         Bänk          b;
         Rityta        B;
         glaze::Bitmap a1(16, 16), a2(16, 16), a3(16, 16), b1(16, 16);
-        b.yta.setMemoryBudget(2048);
         b.yta.addShape(0, bildform(a1));
         b.yta.addShape(b.yta.addLayer("2"), bildform(a2));
         b.yta.addShape(b.yta.addLayer("3"), bildform(a3));
@@ -1612,33 +1635,39 @@ void fallMB()
             for (int i = 0; i < 3; ++i)
                 b.yta.setLayerVisible(i, i == lager);
         };
+        ram(b, &b.yta, &B);   // allt uppe: kontots hela storlek
+        const std::vector<std::uint64_t> id = konton(b);
+        const std::size_t hela = id.size() == 2 ? allt(b, id[0]) : 0;
+        b.yta.setMemoryBudget(hela - 1024);
         visa(0);
         ram(b, &b.yta, &B);
         visa(1);
         ram(b, &b.yta, nullptr);
         visa(2);
         ram(b, &b.yta, nullptr);
-        ram(b, nullptr, nullptr);   // trim: A = 3072 > 2048
+        ram(b, nullptr, nullptr);   // trim: A en bild över sin budget
         const std::size_t kvar = b.bilder.canvasBytes();
         b.r.resetStats();
         ram(b, nullptr, &B);
         const std::uint64_t bUpp = b.r.stats().bytesUploaded;
-        check(kvar == 3 * 1024u && bUpp < 1024,
-              "MB1 A över sin budget vräker sin äldsta — B:s bild står kvar",
-              std::to_string(kvar) + " byte kvar, B laddade upp " +
-                  std::to_string(bUpp));
+        check(hela > 3 * 1024u && kvar == 3 * 1024u && bUpp < 1024,
+              "MB1 A över sin budget vräker sin äldsta bild — B:s bild står kvar",
+              std::to_string(kvar) + " byte bilder kvar, B laddade upp " +
+                  std::to_string(bUpp) + ", A:s konto " + std::to_string(hela));
     }
     // MB2 — en bild ritad av A och sedan av B räknas på B: A ligger inte
-    // över sin budget (en bild), och ingenting vräks.
+    // över sin budget (allt minus en bild), och ingenting vräks.
     {
         Bänk          b;
         Rityta        B;
         glaze::Bitmap x(16, 16), y(16, 16);
-        b.yta.setMemoryBudget(1024);
         b.yta.addShape(0, bildform(x));
         b.yta.addShape(b.yta.addLayer("y"), bildform(y));
         B.addShape(bildform(x));
         ram(b, &b.yta, nullptr);   // A: x och y
+        const std::vector<std::uint64_t> id = konton(b);
+        b.yta.setMemoryBudget(id.empty() ? 0 : allt(b, id[0]) - 1024);
+        ram(b, &b.yta, nullptr);   // budgeten gäller från den här ritningen
         ram(b, nullptr, &B);       // B: x — nu B:s
         ram(b, nullptr, nullptr);
         check(b.bilder.canvasCount() == 2,
@@ -1658,10 +1687,12 @@ void fallMB()
         }
         ram(b, nullptr, nullptr);
         ram(b, nullptr, nullptr);
-        check(b.bilder.canvasCount() == 2 && b.bilder.accountBytes(0) == 2048,
+        const std::size_t fönstret = b.bilder.ledger().usage(0).gpu;
+        check(b.bilder.canvasCount() == 2 && fönstret == 2048 && konton(b).empty(),
               "MB3 en riven ritytas bilder går till fönstret och vräks inte",
               std::to_string(b.bilder.canvasCount()) + " bilder, " +
-                  std::to_string(b.bilder.accountBytes(0)) + " byte på fönstret");
+                  std::to_string(fönstret) + " byte på fönstret, " +
+                  std::to_string(konton(b).size()) + " konton kvar");
     }
     // MB4 — kontots byte är summan av dess poster, och en bild flyttar konto
     // när en annan ritar den.
@@ -1671,18 +1702,52 @@ void fallMB()
         glaze::Bitmap     p(16, 16), q(16, 16);
         const auto        liv = std::make_shared<int>(0);
         c.trim(std::size_t{256} << 20, std::size_t{16} << 20);
-        const std::uint64_t förra = c.beginAccount(77, liv, 0);
+        glaze::detail::MemoryLedger& l     = c.ledger();
+        const std::uint64_t          förra = l.beginAccount(77, liv, 0);
         c.get(p);
         c.get(q);
-        c.endAccount(förra);
-        const std::size_t på77 = c.accountBytes(77);
+        l.endAccount(förra);
+        const std::size_t på77 = l.usage(77).gpu;
         c.trim(std::size_t{256} << 20, std::size_t{16} << 20);
         c.get(p);
-        check(förra == 0 && på77 == 2048 && c.accountBytes(77) == 1024 &&
-                  c.accountBytes(0) == 1024 && c.canvasBytes() == 2048,
+        check(förra == 0 && på77 == 2048 && l.usage(77).gpu == 1024 &&
+                  l.usage(0).gpu == 1024 && c.canvasBytes() == 2048,
               "MB4 kontots byte = summan av dess poster; ritad utanför flyttar den",
-              std::to_string(på77) + " → " + std::to_string(c.accountBytes(77)) +
-                  " / " + std::to_string(c.accountBytes(0)));
+              std::to_string(på77) + " → " + std::to_string(l.usage(77).gpu) +
+                  " / " + std::to_string(l.usage(0).gpu));
+    }
+    // MB5 — kontot räknar lagrens buffertar och föremålens kopior, och en mesh
+    // som flera former i flera lager delar räknas EN gång.
+    {
+        Bänk            b;
+        glaze::MeshDesc d;
+        d.positions = {{0, 0, 0}, {10, 0, 0}, {0, 10, 0}};
+        const glaze::Mesh m(std::move(d));
+        const int          l2 = b.yta.addLayer("2");
+        b.yta.setLayerPlacement(0, glaze::LayerPlacement::World);
+        b.yta.setLayerPlacement(l2, glaze::LayerPlacement::World);
+        b.yta.addShape(0, glaze::Shape::mesh(m, {.at = {100, 100, 0}}));
+        ram(b, &b.yta, nullptr);
+        ram(b, &b.yta, nullptr);
+        const std::vector<std::uint64_t> id = konton(b);
+        const std::size_t en = id.size() == 1 ? b.bilder.ledger().usage(id[0]).gpu : 0;
+        b.yta.addShape(0, glaze::Shape::mesh(m, {.at = {120, 100, 0}}));
+        b.yta.addShape(l2, glaze::Shape::mesh(m, {.at = {140, 100, 0}}));
+        ram(b, &b.yta, nullptr);
+        ram(b, &b.yta, nullptr);
+        const std::size_t tre = id.size() == 1 ? b.bilder.ledger().usage(id[0]).gpu : 0;
+        // En linje i ett lager: chunkens buffertar räknas (minst 4 KiB var).
+        b.yta.addShape(0, glaze::Shape::line({100, 100}, {150, 150},
+                                             {.paint = gfx::Color{0, 0, 0, 255}}));
+        ram(b, &b.yta, nullptr);
+        ram(b, &b.yta, nullptr);
+        const std::size_t medLinje = id.size() == 1 ? b.bilder.ledger().usage(id[0]).gpu : 0;
+        check(en > 0 && tre == en && b.res.objects().meshCount() == 1 &&
+                  medLinje >= tre + 2 * 4096u,
+              "MB5 en delad mesh räknas en gång, och lagrens buffertar räknas",
+              std::to_string(en) + " → " + std::to_string(tre) + " → " +
+                  std::to_string(medLinje) + " byte, " +
+                  std::to_string(b.res.objects().meshCount()) + " kopior");
     }
 }
 
@@ -2317,6 +2382,199 @@ std::string indexAntal(const Bänk& b)
                              : std::to_string(b.r.anrop[0].indexCount);
 }
 
+// ------------------------------------------------------------------- PL
+// INSPELAD = DIREKT: samma målaranrop ritade direkt och inspelade och sedan
+// uppspelade (paint_list.h) ger samma rit-anrop — program, index, matris,
+// rymd och opacitet — och inspelningen ritar ingenting själv.
+void fallPL()
+{
+    Bänk                        b;
+    glaze::detail::PaintContext f;
+    f.c      = &b.c;
+    f.res    = &b.res;
+    f.world  = gfx::MapView{0.0, 0.0, 1.0, 0.0, 0.0, false, b.c.box};
+    f.screen = glaze::detail::localView(b.c.box, b.c.scale);
+    f.zoom   = 1.0;
+    const gfx::Color kRöd{255, 0, 0, 255};
+    const auto       rita = [&](glaze::Painter& p) {
+        p.fillRect({10, 10, 40, 30}, kRöd);
+        {
+            auto läge = p.save();
+            p.translate(20.0, 5.0);
+            p.rotate(15.0);
+            p.drawLine({0, 0}, {50, 20}, {.width = 2.0f});
+        }
+        p.drawLine({0, 60}, {80, 60}, {.width = 3.0f});
+        p.screenSpace();
+        p.fillRect({0, 0, 10, 10}, kRöd);
+    };
+
+    b.r.anrop.clear();
+    {
+        glaze::Painter p(f, false);
+        rita(p);
+    }
+    const std::vector<Anrop> direkt = b.r.anrop;
+
+    b.r.anrop.clear();
+    glaze::detail::PaintList lista;
+    {
+        glaze::Painter p(f, false);
+        glaze::detail::startRecording(p, lista);
+        rita(p);
+    }
+    check(b.r.anrop.empty() && !lista.empty(),
+          "PL inspelningen ritar ingenting och antecknar anropen",
+          std::to_string(b.r.anrop.size()) + " anrop, " +
+              std::to_string(lista.size()) + " poster");
+
+    {
+        glaze::Painter p(f, false);
+        glaze::detail::replayPaint(p, lista);
+    }
+    const std::vector<Anrop>& spelad = b.r.anrop;
+    bool                      lika   = spelad.size() == direkt.size() && !direkt.empty();
+    for (std::size_t i = 0; lika && i < direkt.size(); ++i)
+        lika = spelad[i].program == direkt[i].program &&
+               spelad[i].indexCount == direkt[i].indexCount &&
+               spelad[i].space == direkt[i].space &&
+               spelad[i].pxPerWidthUnit == direkt[i].pxPerWidthUnit &&
+               spelad[i].opacity == direkt[i].opacity &&
+               std::memcmp(spelad[i].viewProj, direkt[i].viewProj,
+                           sizeof direkt[i].viewProj) == 0;
+    check(lika, "PL uppspelningen ger samma rit-anrop som den direkta ritningen",
+          std::to_string(direkt.size()) + " direkt, " +
+              std::to_string(spelad.size()) + " uppspelade");
+}
+
+// ------------------------------------------------------------------- SN
+// ÖGONBLICKSBILDERNA (scene.h `publishScene`): det ritningen läser är fryst.
+//   SN1 en publicerad bild är ORÖRD efter varje sättare — lagren, körningarna,
+//       chunkarnas id, version, vertex och index.
+//   SN2 en oförändrad scen lämnar samma skal, ett oförändrat lager samma nod.
+//   SN3 `setShape` i 20 000 former byter högst EN chunk; de andra delas.
+//   SN4 samma ändring laddar bara upp den ändrade formen.
+
+// Bildens innehåll som text — det som inte får ändras under en ritning.
+std::string avtryck(const glaze::detail::SceneData& s)
+{
+    std::string t = std::to_string(s.layers.size()) + "L";
+    for (const auto& L : s.layers) {
+        t += "|" + std::to_string(L->id) + (L->visible ? "v" : "d") + ":";
+        for (const auto& r : L->runs) {
+            t += "r" + std::to_string(r->id) + "(";
+            for (const auto& c : r->chunks)
+                t += std::to_string(c->id) + "." + std::to_string(c->version) +
+                     "." + std::to_string(c->vertexCount()) + "." +
+                     std::to_string(c->indices.size()) + ",";
+            t += ")";
+        }
+    }
+    return t;
+}
+
+void fallSN()
+{
+    using glaze::detail::CanvasAccess;
+    using glaze::detail::publishScene;
+
+    // SN1 och SN2.
+    {
+        Bänk b;
+        b.yta.addShape(yta(10, 10, gfx::Color{255, 0, 0, 255}));
+        b.yta.addShape(linje(10, 60));
+        b.yta.addShape(linje(60, 60));
+        const int övre = b.yta.addLayer("Övre");
+        b.yta.addShape(övre, linje(10, 120));
+        glaze::detail::SceneData& scen = *CanvasAccess::scene(b.yta);
+
+        const auto        s1 = publishScene(scen);
+        const std::string a1 = avtryck(*s1);
+        check(publishScene(scen) == s1,
+              "SN2 en oförändrad scen lämnar samma skal");
+
+        std::string fel;
+        const auto  prova = [&](const char* vad) {
+            if (avtryck(*s1) != a1)
+                fel += std::string(vad) + " (före publicering) ";
+            const auto ny = publishScene(scen);   // bygger om det märkta
+            if (avtryck(*s1) != a1)
+                fel += std::string(vad) + " (efter publicering) ";
+            if (ny == s1)
+                fel += std::string(vad) + " (samma skal efter en ändring) ";
+        };
+        b.yta.addShape(linje(10, 90));
+        prova("addShape");
+        b.yta.setShape(1, linje(200, 60));
+        prova("setShape");
+        b.yta.removeShape(2);
+        prova("removeShape");
+        b.yta.setShapes({linje(5, 5), linje(5, 30)});
+        prova("setShapes");
+        b.yta.setLayerVisible(0, false);
+        prova("setLayerVisible");
+        check(fel.empty(), "SN1 en publicerad bild är orörd efter varje sättare",
+              fel);
+
+        // Bara lager 0 ändras: det övre lagrets nod är densamma.
+        const auto före = publishScene(scen);
+        b.yta.addShape(linje(300, 10));
+        const auto efter = publishScene(scen);
+        check(före != efter && före->layers.size() == 2 &&
+                  efter->layers.size() == 2 &&
+                  före->layers[1] == efter->layers[1] &&
+                  före->layers[0] != efter->layers[0],
+              "SN2 ett oförändrat lager lämnar samma nod, ett ändrat en ny");
+    }
+
+    // SN3 och SN4: många former, en ändras på plats.
+    {
+        constexpr int kFormer = 20000;
+        constexpr int kKolumner = 200;
+        Bänk b;
+        b.yta.setLayerDrawOrder(0, glaze::DrawOrder::ByKind);
+        std::vector<glaze::Shape> former;
+        former.reserve(kFormer);
+        for (int i = 0; i < kFormer; ++i)
+            former.push_back(
+                linje(40.0 * (i % kKolumner), 30.0 * (i / kKolumner)));
+        b.yta.setShapes(std::move(former));
+        glaze::detail::SceneData& scen = *CanvasAccess::scene(b.yta);
+        b.frame();
+
+        const auto        s1 = publishScene(scen);
+        const std::string a1 = avtryck(*s1);
+        std::vector<const glaze::detail::ChunkData*> före;
+        for (const auto& r : s1->layers[0]->runs)
+            for (const auto& c : r->chunks)
+                före.push_back(c.get());
+
+        b.r.resetStats();
+        b.yta.setShape(kFormer / 2, linje(40.0 * 7, 30.0 * 50 + 3.0));
+        const auto s2 = publishScene(scen);
+        std::size_t bytta = 0, totalt = 0;
+        for (const auto& r : s2->layers[0]->runs)
+            for (const auto& c : r->chunks) {
+                ++totalt;
+                if (std::find(före.begin(), före.end(), c.get()) == före.end())
+                    ++bytta;
+            }
+        check(före.size() >= 2 && totalt == före.size() && bytta <= 1,
+              "SN3 setShape i 20 000 former byter högst en chunk",
+              std::to_string(bytta) + " av " + std::to_string(totalt) + " bytta");
+        check(avtryck(*s1) == a1, "SN3 den förra bilden är orörd efter setShape");
+
+        b.frame();
+        check(b.r.stats().bytesUploaded <= kLinjeByte &&
+                  b.r.stats().bytesUploaded > 0 &&
+                  b.r.stats().buffersCreated == 0,
+              "SN4 ändringen laddar bara upp den ändrade formen, i samma buffert",
+              std::to_string(b.r.stats().bytesUploaded) + " byte (högst " +
+                  std::to_string(kLinjeByte) + "), " +
+                  std::to_string(b.r.stats().buffersCreated) + " nya buffertar");
+    }
+}
+
 void fallFD()
 {
     const gfx::Color röd{255, 0, 0, 255}, blå{0, 0, 255, 255};
@@ -2465,6 +2723,8 @@ int main(int argc, char** argv)
     fallZV();
     fallMB();
     fallKL();
+    fallPL();
+    fallSN();
     fallFD();
 
     std::printf(g_fel ? "=== painter_gate: %d FEL av %d ===\n"

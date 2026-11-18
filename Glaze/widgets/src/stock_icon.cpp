@@ -76,6 +76,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -251,6 +252,15 @@ constexpr Del kFärgDelar[] = {
 struct AppRecept {
     std::string namn, kontur, färg;
 };
+
+// IKONERNAS LÅS: registret, cacherna och felloggen delas av appens tråd och
+// av renderingstrådarna (en ikon i en ritytas form rastreras där). Varje
+// ingång tar det; rekursivt, för en okänd appikon ritas som en standardikon.
+std::recursive_mutex& ikonLås()
+{
+    static std::recursive_mutex m;
+    return m;
+}
 
 std::vector<AppRecept>& appIkoner()
 {
@@ -2754,6 +2764,7 @@ bool registrera(std::vector<AppRecept>& v, const char* vad, std::string_view nam
     if (lager > kMaxLager)
         gfx::log("%s \"%.*s\": %zu lager — de fyra första ritas", vad,
                  static_cast<int>(namn.size()), namn.data(), lager);
+    const std::lock_guard<std::recursive_mutex> lås(ikonLås());
     // Ett nytt recept (eller en ny del) kan ha nya fel: de loggas igen.
     appCache().clear();
     felLoggade().clear();
@@ -2814,6 +2825,7 @@ bool registerIconPart(std::string_view name, std::string_view shapes,
 
 std::vector<std::string> drawnIconNames()
 {
+    const std::lock_guard<std::recursive_mutex> lås(ikonLås());
     std::vector<std::string> ut;
     for (const AppRecept& r : appIkoner())
         ut.push_back(r.namn);
@@ -2848,6 +2860,7 @@ Bitmap stockBitmap(StockIcon icon, int px, IconStyle style,
     const int i = static_cast<int>(icon);
     if (i < 0 || i >= kAntal || px <= 0)
         return Bitmap{};
+    const std::lock_guard<std::recursive_mutex> lås(ikonLås());
     px = std::min(px, kMaxPx);
     // EN bild per (ikon, px, stil, färgerna): fönstrens texturer delar den,
     // och en ny färg (ett temabyte) är en ny bild.
@@ -2871,6 +2884,7 @@ Bitmap drawnBitmap(const std::string& name, int px, IconStyle style,
 {
     if (px <= 0)
         return Bitmap{};
+    const std::lock_guard<std::recursive_mutex> lås(ikonLås());
     const AppRecept* r = hittaApp(appIkoner(), name);
     if (!r) {
         auto& loggade = okändaLoggade();
@@ -2901,6 +2915,7 @@ Bitmap drawnBitmap(const std::string& name, int px, IconStyle style,
 
 std::vector<std::string> iconErrorNames()
 {
+    const std::lock_guard<std::recursive_mutex> lås(ikonLås());
     return felLoggade();
 }
 

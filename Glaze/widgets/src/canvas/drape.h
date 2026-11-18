@@ -69,11 +69,11 @@
 // Poolen räknas i sin senaste ritytas budget och töms först när den går över.
 //
 // MINNET räknas i RITYTANS minnesbudget (`Canvas::setMemoryBudget`
-// — förvalet `App::setCanvasMemoryBudget`) ihop med ritytans konto i
-// bildcachen: SUMMAN av dess bilder och draperingar jämförs med budgeten, och
-// över den släpps först ritytans mål i poolen och sedan vräks dess
-// draperingar som INTE användes i framen, äldst först (LRU); bildcachens
-// `trim` vräker bilderna mot samma summa (`ImageCache::setAccountExtra`).
+// — förvalet `App::setCanvasMemoryBudget`) ihop med allt annat på ritytans
+// konto i fönstrets liggare: SUMMAN jämförs med budgeten, och över den släpps
+// först ritytans mål i poolen och sedan vräks dess draperingar som INTE
+// användes i framen, äldst först (LRU); liggarens `trim` vräker det övriga
+// mot samma summa (draperingarnas byte är ritytans post, `DrapeCache`).
 // Vräkningen lägger målet i `retired` — det släpps i nästa `trim`, aldrig
 // mitt i en frame. En platta som syns vräks aldrig (det loggas en gång). En
 // platta som vräkts ritas om när den syns igen.
@@ -98,6 +98,7 @@
 #include <gfx/image.h>
 #include <gfx/renderer.h>
 
+#include "../memory_ledger.h"
 #include "scene.h"
 
 namespace glaze::detail {
@@ -187,9 +188,15 @@ std::uint64_t drapeFrameBudget();
 // DRAPERINGSMÅLEN PER FÖNSTER (`CanvasResources::drapes()`), samma
 // livstidsregel som resten: `trim()` överst i framen är det enda stället
 // något släpps.
-class DrapeCache {
+//
+// MINNET: draperingarna är en ÄGARE i fönstrets liggare (../memory_ledger.h)
+// med EN post per rityta — dess draperingar och mål i poolen. Posten räknas
+// mot ritytans budget men vräks inte av liggaren: draperingarna vräker själva
+// i förberedelsen (`prepareDrapes`), där de vet vilka plattor som syns.
+class DrapeCache final : private MemoryHolder {
 public:
-    explicit DrapeCache(gfx::Renderer& r) : r_(&r) {}
+    DrapeCache(gfx::Renderer& r, MemoryLedger& ledger);
+    ~DrapeCache();
     DrapeCache(const DrapeCache&)            = delete;
     DrapeCache& operator=(const DrapeCache&) = delete;
 
@@ -223,7 +230,7 @@ private:
                                     const LayerFrame& lf, DrapeMode mode);
 
     struct Entry {
-        std::weak_ptr<const ShapeEntry>    src;
+        std::weak_ptr<const char>          src;   // formplatsens livstecken
         std::unique_ptr<gfx::RenderTarget> target;
         int                                cls = 0;           // målets sida
         std::uint64_t                      drawnKey = 0;      // målets innehåll
@@ -267,7 +274,13 @@ private:
     // (ritytans) inte längre ligger över `limit`.
     void dropPooled(std::uint64_t scene, std::size_t& bytes, std::size_t limit);
 
+    // Liggarens ägare (../memory_ledger.h).
+    void eachCharge(const Visit& visit) override;
+    void evict(const ChargeKey& key) override;
+
     gfx::Renderer*                                  r_;
+    MemoryLedger*                                   ledger_;
+    std::unordered_map<std::uint64_t, Charge>       charges_;   // per rityta (scenens id)
     std::unordered_map<std::uint64_t, Entry>        entries_;   // formplatsens id
     std::vector<Retired>                            retired_;
     std::array<std::vector<Pooled>, kClasses>       pool_;

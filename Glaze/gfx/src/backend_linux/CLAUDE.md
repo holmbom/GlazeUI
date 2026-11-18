@@ -756,3 +756,25 @@ Wayland och X11.
   ingen roll. Klippmaskernas `vPix` är HÖRNETS egen projektion — ett hörn
   bakom ögat får ingen (0, 0; sällsynt för en etikett, skriven gräns). G9
   H5/H5b/H5c på Wayland och X11.
+
+## Scen-kontexten (`linux_scene_context.cpp` — gfx/scene_context.h, BLINT)
+
+En fristående `GlRenderer` för en ANNAN TRÅD: en EGL-kontext i
+fönsterkontextens DELNINGSGRUPP (`init(…, share)`, med fönstrets `config_`),
+ytlös med `EGL_KHR_surfaceless_context` och annars med en 1 × 1-pbuffer
+(loggas en gång). `attachThread` gör kontexten aktuell på scentråden,
+`detachThread` släpper den (`releaseCurrent`).
+
+- **Den delade bilden** är en textur i gruppen: scenen ritar i den genom sin
+  egen FBO (FBO:er delas inte), `publish` gör `glFinish`, och fönstret ritar
+  den genom en icke-ägande `GlImage`. Åt andra hållet lämnar fönstret en
+  FENCE (`glFenceSync`) vid `retire`, som `beginWrite` väntar in
+  (`glClientWaitSync`) innan scenen skriver igen.
+- **Det som blev trådsäkert för detta:** `loadGlFunctions`/
+  `loadGlTimerQueries` (under ett lås), GPU-loggens "senaste", fontconfig
+  (`fontconfigLock()` kring `fontconfigMatch` och `candidates`) och
+  `nextProgramSerial` (atomisk). `beginOffscreen` nollar den transienta
+  ringen med `resetTransientRings()` — INTE `beginSceneFrame`, som sätter
+  `pipeline_ = Ui`.
+- Oprövat: se `doc/os/linux/TESTS.md` (bygget, de två grindarna under
+  Wayland, X11 och headless, och en körning med trådsaneraren).

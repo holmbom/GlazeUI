@@ -768,3 +768,31 @@ grind: G9 del C.
   hörnet förbi ögat, så linor bakom kameran syntes som en solfjäder genom
   flyktpunkten (GL har samma risk fast GL alltid klipper i z — felet sitter
   i vertexen, inte i `DepthClipEnable`). Grind: G9 L1.
+
+## Scen-kontexten (`d3d11_scene_context.cpp` — gfx/scene_context.h)
+
+En fristående `D3dRenderer` för en ANNAN TRÅD, och bilderna den lämnar till
+fönstret. `D3dRenderer::createSceneContext()` skapar en ANDRA ENHET på
+fönsterenhetens adapter (`initHeadless(adapter, namn, id)` — ingen swapchain,
+ingen backbuffer; `initPipeline()` är allt efter backbuffern, delat med
+`init`). Två enheter och inte en delad: en `ID3D11DeviceContext` är inte
+trådsäker, och en uppskjuten kontext hade ändå spelats upp i fönstrets tråd.
+
+- **`D3dSharedTarget`** — en B8G8R8A8-textur skapad på SCEN-enheten med
+  `D3D11_RESOURCE_MISC_SHARED_NTHANDLE | SHARED_KEYEDMUTEX` och öppnad på
+  fönsterenheten med `OpenSharedResource1`. Nycklarna: 0 = ledig för scenen,
+  1 = publicerad. `beginWrite` tar nyckel 0 (väntar högst `kWriteWaitMs`),
+  `publish` väntar in GPU:n på scentråden (`ID3D11Query` av slaget EVENT, högst
+  `kGpuWaitMs`) och släpper med nyckel 1; `acquire` är `AcquireSync(1, 0)` —
+  noll väntan, nullptr när bilden inte är publicerad — och `retire` släpper
+  med nyckel 0. Tillståndet (`Free/Writing/Published/Held`) är atomiskt och
+  skyddar mot fel ordning; mutexen skyddar texturen.
+- **Livstiden:** bilden och kontexten skapas och rivs på scentråden; fönstret
+  lämnar tillbaka (`retire`) innan scentråden river.
+- **Det som blev trådsäkert för detta:** bytekodscachen i `compileHlsl` (ett
+  lås kring uppslag och insättning, kompileringen utanför),
+  `nextProgramSerial` (atomisk), och `beginOffscreen` nollar den transienta
+  ringen (`beginSceneFrame`) — en scen-renderare har ingen `beginFrame`.
+- **Fallgrop:** en delad bild är alltid ett prov per pixel utan djup. Ett mål
+  med MSAA eller djup ritas på scen-enheten och läggs in med `drawImage`.
+- Grindar: `scene_context_gate` (S1–S4) och `canvas_thread_gate`.

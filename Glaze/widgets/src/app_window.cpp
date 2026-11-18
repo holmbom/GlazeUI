@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "glaze/app.h"
+#include "canvas/render_loop.h" // CanvasRenderLoop komplett för canvasLoop_
 #include "canvas/resources.h"   // CanvasResources komplett för canvas_
 #include "drag_scroll.h"   // autoskrollens timer-id
 #include "font_set.h"      // FontSet komplett för fontSet_
@@ -679,6 +680,23 @@ void AppWindow::drawWindowGradient(const Ctx& c, const gfx::Rectf& client)
 // Säkerhetsnät: ett fönster som fortfarande är öppet när C++-objektet dör
 // (objektet ska normalt överleva sin stängning — användaren äger det) rivs
 // direkt så App-registret inte pekar på ett lik.
+namespace detail {
+
+// Renderingstråden startas vid första frågan — ett fönster utan ritytor får
+// ingen. Ett offscreen-fönster (en enda bild, läst direkt) ritar själv.
+CanvasRenderLoop* canvasLoopOf(AppWindow& w)
+{
+    if (!w.open_ || !w.canvas_ || (w.offscreen_ && !canvasThreadingOffscreen()))
+        return nullptr;
+    if (!w.canvasLoop_ && !w.canvasLoopTried_ && canvasThreading()) {
+        w.canvasLoopTried_ = true;
+        w.canvasLoop_      = CanvasRenderLoop::start(w.win_->renderer());
+    }
+    return w.canvasLoop_.get();
+}
+
+} // namespace detail
+
 AppWindow::~AppWindow()
 {
     if (open_ && App::instance_)
@@ -906,7 +924,7 @@ void AppWindow::showOwned(AppWindow* owner)
     images_ = std::make_unique<ImageCache>(win_->renderer());
     // Ritytans resurser — efter bildcachen och rivs före
     // den i executeClose: de hör till samma renderer.
-    canvas_ = std::make_unique<CanvasResources>(win_->renderer());
+    canvas_ = std::make_unique<CanvasResources>(win_->renderer(), images_->ledger());
     // Textfonterna — tomma här, laddade lat per variant;
     // rivs i executeClose i fontens block.
     fontSet_ = std::make_unique<FontSet>();
@@ -2357,12 +2375,18 @@ void AppWindow::renderContent(gfx::Window& win)
     // framen är klar, vilken väg den än tog ut (en frame till, aldrig en
     // loop — varje frame laddar upp minst en bild). Båda budgetarna läses
     // här, så ett byte gäller från fönstrets nästa frame.
-    images_->trim(App::instance_->canvasMemoryBudget(),
-                  App::instance_->canvasUploadBudget());
     // Ritytans resurser släpps också BARA i en frames början (här och på en
     // utskriftssida, print.cpp): det döda (ombyggda chunkar och körningar, rivna
-    // rytor) och det som ersattes mitt i förra framen.
+    // rytor) och det som ersattes mitt i förra framen. FÖRE bildcachens `trim`,
+    // som låter liggaren vräka över budgeten hos alla fönstrets ägare — det
+    // döda ska vara borta ur räkningen då.
     canvas_->trim();
+    images_->trim(App::instance_->canvasMemoryBudget(),
+                  App::instance_->canvasUploadBudget());
+    if (const std::uint64_t vräkta = images_->ledger().lastEvictions(); vräkta > 0) {
+        detail::profileCount(ProfileCount::Evictions, vräkta);
+        detail::profileCount(ProfileCount::EvictedBytes, images_->ledger().lastEvictedBytes());
+    }
     // …och fältens fria textstorlekar över taket (font_set.h) —
     // samma ställe av samma skäl: ingen batch pekar på en atlas här.
     if (fontSet_)

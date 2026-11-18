@@ -108,6 +108,16 @@
 //      fyller inte heller, och poolen håller högst två maskmål. Utskrivet per bild
 //      med -v: fyllningar, maskmål, maskernas px, renderarens skapade mål
 //      (`targetsCreated`) och tiden; genomströmningen per serie
+//   G MÅNGA FÖREMÅL — 100 000 lådor (EN delad enhetsmesh) i ett rutnät över
+//      20 × 20 km i ett World-lager, och två kameraserier där bara en liten
+//      del syns: en orbit nära marken och en rakt uppifrån. G1 rakt uppifrån
+//      ritas bara lådorna under kameran (anropen ≤ lådorna inom 1 km + det
+//      fasta); G2 en kameraändring laddar upp 0 byte; G3 ritytans konto
+//      räknar den delade meshen en gång. Utskrivet: residensens tid,
+//      rit-anropen som mest, kameraändringens tid och genomströmningen, och
+//      med -v profilerarens faser för serien rakt uppifrån. Sabotage som SKA
+//      fälla G1: körningens index ger alla föremål som kandidater OCH
+//      ritningens exakta gallring bort
 //
 // TIDERNA — MÄTTA OCH UTSKRIVNA, INTE GRINDADE: uppbyggnaden (meshar,
 // former), residensen (frames och tid tills allt är uppe), kameraändringens
@@ -1796,6 +1806,115 @@ int main(int argc, char** argv)
                     static_cast<unsigned long long>(u2.maxMasker), u2.maxPixlar / 1.0e6,
                     static_cast<unsigned long long>(u2.mål));
         skrivTider("klipp 2D", u2.t, klippGenom(b, 30, ändra2));
+    }
+
+    // ============================================================ MÅNGA FÖREMÅL
+    // G 100 000 lådor om 2 × 2 × 6 m i ett rutnät över 20 × 20 km, alla med
+    // samma enhetsmesh, i ETT World-lager. Två serier där en liten del syns.
+    {
+        constexpr int    kSida   = 316;       // 316² = 99 856 lådor
+        constexpr double kUtsträckning = 20000.0;
+        for (int i = 0; i < k.layerCount(); ++i)
+            k.setLayerVisible(i, false);
+        // Ritytans konto FÖRE scenen — målen (fönstrets storlek och skala,
+        // MSAA och djup) och de tidigare scenernas data ligger redan där.
+        const glaze::CanvasMemoryUse minneFöre = k.memoryUsed();
+        const int lager = k.addLayer("många");
+        k.setLayerPlacement(lager, glaze::LayerPlacement::World);
+        t0 = Klocka::now();
+        std::vector<glaze::Shape> lådor;
+        lådor.reserve(static_cast<std::size_t>(kSida) * kSida);
+        const double steg = kUtsträckning / kSida;
+        for (int j = 0; j < kSida; ++j)
+            for (int i = 0; i < kSida; ++i) {
+                const double x = kX0 - kUtsträckning / 2.0 + (i + 0.5) * steg;
+                const double y = kY0 - kUtsträckning / 2.0 + (j + 0.5) * steg;
+                lådor.push_back(glaze::Shape::box(
+                    {{x - 1.0, y - 1.0, 0.0}, {x + 1.0, y + 1.0, 6.0}},
+                    {.color = gfx::Color{static_cast<std::uint8_t>(80 + (i * 7 + j * 3) % 120),
+                                         140, 180, 255}}));
+            }
+        const std::size_t antal = lådor.size();
+        k.setShapes(lager, std::move(lådor));
+        const double tBygg = msSedan(t0);
+
+        const auto nära = [](int i) {
+            return glaze::Camera3D{.target    = {kX0, kY0, 3.0},
+                                   .distance  = 150.0,
+                                   .azimuth   = static_cast<float>(6 * (i + 1)),
+                                   .elevation = 15.0f};
+        };
+        const auto uppifrån = [](int i) {
+            return glaze::Camera3D{.target    = {kX0 + 40.0 * (i + 1), kY0, 0.0},
+                                   .distance  = 400.0,
+                                   .azimuth   = 0.0f,
+                                   .elevation = 89.0f};
+        };
+        k.setCamera(nära(-1));
+        const int ramar = b.residens(tRes, resByte);
+        std::printf("  scen G: %zu lådor över %.0f × %.0f km i ett lager — lagda på %.0f ms, "
+                    "residensen %d frames, %.1f MB, %.0f ms\n",
+                    antal, kUtsträckning / 1000.0, kUtsträckning / 1000.0, tBygg, ramar,
+                    resByte / 1.0e6, tRes);
+        const SerieUt gN = serie(b, 30, nära);
+        std::printf("  mått G orbit nära marken: flest %llu anrop, %llu byte som mest per ändring\n",
+                    static_cast<unsigned long long>(gN.maxAnrop),
+                    static_cast<unsigned long long>(gN.maxByte));
+        skrivTider("många (orbit)", gN.t, genomström(b, nära));
+        // -v: profilerarens faser för serien rakt uppifrån — var tiden går när
+        // nästan ingenting syns.
+        if (g_verbose)
+            glaze::profiler().setEnabled(true);
+        const SerieUt gU = serie(b, 30, uppifrån);
+        if (g_verbose) {
+            std::printf("%s\n", glaze::profiler().report().c_str());
+            glaze::profiler().setEnabled(false);
+        }
+        std::printf("  mått G rakt uppifrån: flest %llu anrop, %llu byte som mest per ändring\n",
+                    static_cast<unsigned long long>(gU.maxAnrop),
+                    static_cast<unsigned long long>(gU.maxByte));
+        skrivTider("många (uppifrån)", gU.t, genomström(b, uppifrån));
+        // G1 — rakt uppifrån ritas bara det som ligger under kameran: fler än
+        // inga (lådorna inom 60 m från målet syns säkert — rutnätets steg är
+        // 63 m) och högst lådorna inom 1 km från målet, långt utanför vyns
+        // avtryck på 400 m höjd. En låda är ett anrop.
+        std::uint64_t flestNära = 0;
+        bool          någonUnder = true;
+        for (int n = 0; n < 30; ++n) {
+            const double  mx = kX0 + 40.0 * (n + 1), my = kY0;
+            std::uint64_t inom1km = 0, inom60 = 0;
+            for (int j = 0; j < kSida; ++j)
+                for (int i = 0; i < kSida; ++i) {
+                    const double x = kX0 - kUtsträckning / 2.0 + (i + 0.5) * steg;
+                    const double y = kY0 - kUtsträckning / 2.0 + (j + 0.5) * steg;
+                    const double d = std::hypot(x - mx, y - my);
+                    inom1km += d < 1000.0 ? 1u : 0u;
+                    inom60 += d < 60.0 ? 1u : 0u;
+                }
+            flestNära  = std::max(flestNära, inom1km);
+            någonUnder = någonUnder && inom60 > 0;
+        }
+        check(någonUnder && gU.maxAnrop > 0 && gU.maxAnrop <= flestNära + kFast,
+              "G1 rakt uppifrån ritas bara lådorna under kameran (anropen ≤ lådorna inom "
+              "1 km + det fasta)",
+              "flest " + std::to_string(gU.maxAnrop) + " anrop, " + std::to_string(flestNära) +
+                  " lådor inom 1 km");
+        // G2 — U också med 100 000 föremål: en kameraändring laddar upp 0 byte
+        // och skapar 0 buffertar.
+        check(gN.maxByte == 0 && gN.buffertar == 0 && gU.maxByte == 0 && gU.buffertar == 0,
+              "G2 de många föremålen: en kameraändring laddar upp 0 byte och skapar 0 buffertar",
+              std::to_string(std::max(gN.maxByte, gU.maxByte)) + " byte, " +
+                  std::to_string(gN.buffertar + gU.buffertar) + " buffertar");
+        // G3 — kontot räknar de många föremålen EN gång: en delad enhetsmesh
+        // på GPU:n, och CPU-originalet lika. Mätt som TILLSKOTTET över kontot
+        // före scenen — hundra tusen egna kopior hade varit hundratals MiB.
+        const glaze::CanvasMemoryUse minne = k.memoryUsed();
+        check(b.obj().meshCount() >= 1 && minne.gpu > 0 &&
+                  minne.gpu < minneFöre.gpu + (std::size_t{64} << 20),
+              "G3 100 000 lådor med samma mesh räknas som en kopia i ritytans konto",
+              std::to_string(minneFöre.gpu) + " → " + std::to_string(minne.gpu) +
+                  " byte på GPU:n, " + std::to_string(minne.cpu) + " på CPU:n");
+        k.setLayerVisible(lager, false);
     }
 
     std::printf(g_fel ? "=== canvas_perf3d: %d FEL av %d ===\n"

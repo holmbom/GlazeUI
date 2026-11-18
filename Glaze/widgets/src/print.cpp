@@ -32,7 +32,10 @@
 #include <gfx/renderer.h>
 
 #include "canvas/camera_math.h"
+#include "canvas/frame_job.h"
+#include "canvas/render_loop.h"
 #include "canvas/resources.h"
+#include "glaze/canvas/painter.h"
 #include "canvas/scene.h"
 #include "dialog_layout.h"
 #include "glaze/app.h"
@@ -110,10 +113,6 @@ PageRaster pageRaster(const Rect& area, double dpi, int maxPx)
     return r;
 }
 
-struct SlutPåSida {
-    CanvasResources& res;
-    ~SlutPåSida() { res.setPageRender(false); }
-};
 
 // `running_` är sann så länge `run` pågår, hur det än lämnas.
 struct RunningScope {
@@ -127,60 +126,53 @@ struct RunningScope {
 // EN SIDA I ETT MÅL: vitt, med en målare i sidans mm, och om tills ingen bild
 // väntar på uppladdningen. `read` = läs tillbaka bilden. false = ett fel (loggat);
 // `complete` false = taket för varven nåddes och bilder saknas.
+//
+// SIDAN ÄR ETT JOBB (src/canvas/frame_job.h `PageJob`): ritfunktionen körs EN
+// gång, här i UI-tråden, och det den ritar spelas in; jobbet ritas sedan av
+// fönstrets renderingstråd eller, utan en sådan, direkt (`renderPageJob`).
+//
+// En sida ritas inte INIFRÅN en annan sidas ritfunktion (UI-trådens flagga).
+bool g_recordingPage = false;
+
+void recordPage(const Ctx& c, const PageRaster& raster,
+                const std::function<void(Painter&)>& draw, bool read,
+                detail::PageJob& j)
+{
+    const RunningScope spelarIn(g_recordingPage);
+    j.width        = raster.w;
+    j.height       = raster.h;
+    j.pxPerMm      = raster.pxPerMm;
+    j.cx           = raster.cx;
+    j.cy           = raster.cy;
+    j.scale = static_cast<float>(raster.pxPerMm * kMmPerInch / kLogicalPerInch);
+    j.ui           = c.ui;
+    j.theme        = *c.theme;
+    j.style        = *c.style;
+    j.read         = read;
+    j.maxRounds    = kMaxUploadRounds;
+    j.memoryBudget = app().canvasMemoryBudget();
+    j.uploadBudget = app().canvasUploadBudget();
+    // Inspelningens ritläge: fönstrets resurser med sidans ruta och täthet —
+    // mätningen och `size()` läser det.
+    const Ctx            sc = detail::pageCtx(j, c);
+    detail::PaintContext f  = detail::pagePaint(j, sc);
+    Painter              p(f, false);
+    detail::startRecording(p, j.paints);
+    draw(p);
+}
+
 bool renderRaster(const Ctx& c, const PageRaster& raster,
                   const std::function<void(Painter&)>& draw, bool read,
                   std::vector<std::uint8_t>& rgba, bool& complete)
 {
-    gfx::Renderer& r = *c.r;
-    // Sidans Ctx: fönstrets resurser, tema och fonter, med målets täthet.
-    Ctx sc     = c;
-    sc.box     = gfx::Rectf{0.0f, 0.0f, static_cast<float>(raster.w),
-                            static_cast<float>(raster.h)};
-    sc.area    = sc.box;
-    sc.scale   = static_cast<float>(raster.pxPerMm * kMmPerInch / kLogicalPerInch);
-    sc.pxPerMm = static_cast<float>(raster.pxPerMm);
-
-    complete = true;
-    for (int varv = 0;; ++varv) {
-        if (!r.beginOffscreen())
-            return false;   // inuti en frame — renderaren loggar orsaken
-        // Varje varv börjar som en frame: släpp det döda, öppna budgeten. Sidor i
-        // följd utan en fönsterframe emellan samlar då inga mål.
-        if (c.images)
-            c.images->trim(app().canvasMemoryBudget(), app().canvasUploadBudget());
-        c.canvas->trim();
-        c.canvas->setPageRender(true);
-        const SlutPåSida slut{*c.canvas};
-        const std::unique_ptr<gfx::RenderTarget> mål =
-            r.createRenderTarget(raster.w, raster.h);
-        if (!mål->image().valid()) {
-            r.endOffscreen();
-            gfx::log("Sidans mål (%d × %d) gick inte att skapa", raster.w, raster.h);
-            return false;
-        }
-        r.pushTarget(*mål, gfx::Color{255, 255, 255, 255});
-        detail::PaintContext f;
-        f.c      = &sc;
-        f.res    = c.canvas;
-        f.world  = gfx::MapView{raster.cx, raster.cy, raster.pxPerMm, 0.0,
-                                0.0,       false,     sc.box};
-        f.screen = detail::localView(sc.box, sc.scale);
-        f.zoom   = raster.pxPerMm / sc.scale;
-        {
-            // Målaren tömmer sin sista sats när den går ur räckvidd — innan
-            // målet poppas.
-            Painter p(f, false);
-            draw(p);
-        }
-        r.popTarget();
-        r.endOffscreen();
-        if (c.images && c.images->uploadsDeferred()) {
-            if (varv + 1 < kMaxUploadRounds)
-                continue;   // en bild väntade — sidan ritas om
-            complete = false;
-        }
-        return !read || r.readTarget(*mål, rgba);
+    if (g_recordingPage) {
+        gfx::log("En sida ritas inte inifrån en annan sidas ritfunktion — ingen "
+                 "bild");
+        return false;
     }
+    detail::PageJob j;
+    recordPage(c, raster, draw, read, j);
+    return detail::renderPageJob(j, c, rgba, complete);
 }
 
 } // namespace
@@ -217,9 +209,10 @@ private:
     void step();
     void abortJob();
     void failJob();
-    // Ritar sidan; `read` = läs tillbaka bilden. false = ett fel (loggat).
-    bool renderPage(int page, bool read, std::vector<std::uint8_t>& rgba,
-                    bool& more);
+    // Sidan `page` är ritad (`ok` false = ett fel, loggat): skicka den och
+    // gå vidare. Efter renderingstråden kommer den i ramkön.
+    void pageDone(int page, bool send, bool more, bool ok, bool complete,
+                  std::vector<std::uint8_t> rgba);
 
     PrintJob&                           job_;
     std::unique_ptr<gfx::PrintDocument> doc_;
@@ -405,9 +398,55 @@ void PrintProgressWindow::step()
     const int  till = job_.toPage();
     const bool skickas = sida >= std::max(1, från) && (till <= 0 || sida <= till);
 
+    const Ctx c = makeCtx();
+    if (!c.r || !c.canvas) {
+        gfx::log("PrintJob::run: förloppsfönstret har ingen renderare — "
+                 "sidan ritas inte");
+        failJob();
+        return;
+    }
+    // Sidans ritfunktion körs HÄR, en gång, och spelas in.
+    bool       mer  = true;
+    const auto jobb = std::make_shared<detail::PageJob>();
+    recordPage(c, raster_, [&](Painter& p) { mer = draw_(sida, p); }, skickas, *jobb);
+    // Med en renderingstråd ritas sidan där, och steget fortsätter när den
+    // är klar — fönstret svarar under tiden (Avbryt). En sida med något bara
+    // UI-tråden kan hämta (en `RenderTexture`) ritas om här, som utan tråd.
+    if (detail::CanvasRenderLoop* loop = detail::canvasLoopOf(*this)) {
+        const std::weak_ptr<int> liv = alive_;
+        loop->orderPage(jobb, [this, liv, jobb, sida, skickas, mer](
+                                  bool ok, bool komplett,
+                                  std::vector<std::uint8_t> px, bool iUi) {
+            if (liv.expired())
+                return;
+            if (iUi) {
+                px.clear();
+                ok = detail::renderPageJob(*jobb, makeCtx(), px, komplett);
+            }
+            pageDone(sida, skickas, mer, ok, komplett, std::move(px));
+        });
+        return;
+    }
     std::vector<std::uint8_t> px;
-    bool                      mer = true;
-    if (!renderPage(sida, skickas, px, mer)) {
+    bool                      komplett = true;
+    const bool                ok = detail::renderPageJob(*jobb, c, px, komplett);
+    pageDone(sida, skickas, mer, ok, komplett, std::move(px));
+}
+
+// SIDAN ÄR RITAD: skickas om den ligger i intervallet, och nästa steg postas
+// eller jobbet avslutas.
+void PrintProgressWindow::pageDone(int sida, bool skickas, bool mer, bool ok,
+                                   bool komplett, std::vector<std::uint8_t> px)
+{
+    if (done_)
+        return;   // avbrutet medan sidan ritades
+    const int från = job_.fromPage();
+    const int till = job_.toPage();
+    if (!komplett)
+        gfx::log("PrintJob::run: sidan %d har bilder som inte hann laddas "
+                 "upp på %d varv — de saknas",
+                 sida, kMaxUploadRounds);
+    if (!ok) {
         failJob();
         return;
     }
@@ -444,26 +483,6 @@ void PrintProgressWindow::step()
     }
     updateStatus();
     postStep();
-}
-
-bool PrintProgressWindow::renderPage(int page, bool read,
-                                     std::vector<std::uint8_t>& rgba,
-                                     bool& more)
-{
-    const Ctx c = makeCtx();
-    if (!c.r || !c.canvas) {
-        gfx::log("PrintJob::run: förloppsfönstret har ingen renderare — "
-                 "sidan ritas inte");
-        return false;
-    }
-    bool komplett = true;
-    const bool ok = renderRaster(
-        c, raster_, [&](Painter& p) { more = draw_(page, p); }, read, rgba, komplett);
-    if (!komplett)
-        gfx::log("PrintJob::run: sidan %d har bilder som inte hann laddas "
-                 "upp på %d varv — de saknas",
-                 page, kMaxUploadRounds);
-    return ok;
 }
 
 // --------------------------------------------------------------- sidan som bild

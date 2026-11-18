@@ -91,15 +91,13 @@ int  defaultMultisample();
 bool validMultisample(int samples);
 
 // ----------------------------------------------------------- MÅLARNA
-// (painter.cpp) — `onPaint`, `onPaintLayer` och `onPaintOverlay` går EN väg: en
-// målare i ritningens läge (i världen, eller i de lokala px för overlayn),
-// lagret i args (−1 utanför ett lager) och, för ett lager i rymden, lagrets
-// renderläge som målarens start. Målaren tömmer sin sista sats när den går ur
-// räckvidd — innan anroparen släpper ett klipp.
+// (painter.cpp) — `onPaintOverlay` ritar DIREKT: en målare i de lokala px,
+// som tömmer sin sista sats när den går ur räckvidd — innan anroparen släpper
+// ett klipp. `onPaint` och `onPaintLayer` SPELAS IN och spelas upp av motorn
+// (paint_list.h) — krokarna nedan (`Target3DArgs::paint`, `layerPaint`) är
+// uppspelningen.
 void paintWith(Canvas& yta, const Handler<PaintArgs>& h, PaintContext& p,
                bool screen, int layer = -1, const RenderState* state = nullptr);
-// LAGRENS MÅLARE (scene.h `LayerPaint`) — tom utan `onPaintLayer`.
-LayerPaint layerPaintOf(Canvas& yta);
 
 // Det 3D-målet behöver av ritytan utöver ritningens läge.
 struct Target3DArgs {
@@ -112,9 +110,10 @@ struct Target3DArgs {
     double          gridSize = 0.0;
     gfx::Color      gridColor{};
     float           gridMinPx = 0.0f, gridWidthPx = 0.0f;
-    // `onPaint`, anropad med målets ritläge (målaren i världen, i målet).
+    // `onPaint`s INSPELNING, spelad upp i målets ritläge (målaren i världen,
+    // i målet) — paint_list.h `CanvasPaints`.
     std::function<void(PaintContext&)> paint;
-    // `onPaintLayer`: lagrens målare i steg 2 och 4 (scene.h
+    // `onPaintLayer`s inspelningar: lagrens målare i steg 2 och 4 (scene.h
     // `LayerPaint`) — tom utan handler.
     LayerPaint layerPaint;
     // Del-vyerna — vy 1 först.
@@ -137,6 +136,19 @@ struct Target3DState {
 Target3DState drawTarget3D(const PaintContext& window, PaintContext& target,
                            const std::shared_ptr<SceneData>& scene,
                            const Target3DArgs& args);
+
+// Samma ritning UTAN kompositen: målen ritas om där de är inaktuella, och
+// `images` får det kompositen ska lägga — målens bilder med sina rutor i
+// `window`s px, i ordning (huvudmålet, sedan vyerna). Den som ritar ritytan
+// i en egen bild (frame_job.h) lägger dem själv.
+struct TargetImage {
+    gfx::Image* image = nullptr;
+    gfx::Rectf  rect{};
+};
+Target3DState renderTargets3D(const PaintContext& window, PaintContext& target,
+                              const std::shared_ptr<SceneData>& scene,
+                              const Target3DArgs& args,
+                              std::vector<TargetImage>& images);
 
 // HUVUDVYNS 3D-VY i kartvyns ruta (`world.box`): 3D-kamerans när `camera` är
 // satt, annars kartkamerans `toView3D` över huvudvyns z-spann — den vy

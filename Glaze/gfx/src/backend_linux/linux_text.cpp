@@ -69,12 +69,21 @@ FcConfig* fontConfig()
     return config;
 }
 
+// Låset kring fontconfig: fontvalet och reservens kandidater frågas av varje
+// renderares fonter — fönstrets i UI-tråden, scen-kontextens i sin egen.
+std::mutex& fontconfigLock()
+{
+    static std::mutex lås;
+    return lås;
+}
+
 // fontconfig-uppslag: familjenamn ("sans-serif"/"monospace") → filsökväg +
 // face-index. Regeln "fontsökvägar bara i font_catalog.cpp" bryts inte:
 // fontconfig LEVERERAR sökvägar i runtime, inget hårdkodas här.
 bool fontconfigMatch(const char* family, std::string& pathOut,
                      int& indexOut)
 {
+    const std::lock_guard<std::mutex> vakt(fontconfigLock());
     FcConfig* config = fontConfig();
     if (!config)
         return false;
@@ -136,9 +145,8 @@ struct Candidate {
 // EN gång per mönster och process, bakom ett lås.
 const std::vector<Candidate>& candidates(const std::string& pattern)
 {
-    static std::mutex                                    lås;
     static std::map<std::string, std::vector<Candidate>> lista;
-    const std::lock_guard<std::mutex>                    l(lås);
+    const std::lock_guard<std::mutex>                    l(fontconfigLock());
     auto [it, ny] = lista.try_emplace(pattern);
     if (!ny)
         return it->second;

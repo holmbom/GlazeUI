@@ -83,10 +83,12 @@ struct UploadItem {
     bool                               draw     = false;     // lagret ritas
 };
 // Körningens föremål i kön: de som syns i vyn (`f.view3D`, i 2D-vägen
-// kartkamerans 3D-vy över körningens höjder) med avståndet i `visible`,
-// resten i `rest`. En skärmkonstant mesh räknas som synlig — dess låda är
-// origot, och ritningen gallrar den med sin storlek.
-void queueObjects(const PaintContext& f, const RunData& run, bool draw,
+// kartkamerans 3D-vy över körningens höjder) med avståndet i `visible` — ur
+// körningens index (run_index.h, `shapesVersion` är lagrets) — och, med
+// `wantRest`, resten i `rest`. En skärmkonstant mesh räknas som synlig — dess
+// låda är origot, och ritningen gallrar den med sin storlek.
+void queueObjects(const PaintContext& f, const RunData& run,
+                  std::uint64_t shapesVersion, bool draw, bool wantRest,
                   std::vector<UploadItem>& visible, std::vector<UploadItem>& rest);
 // Förberedelsen av ett föremål (se filhuvudet): resident inom budgeten och,
 // med `draw` (lagret ritas), det ritningen binder — texturen, rampen och ett
@@ -95,10 +97,12 @@ void prepareObject(const PaintContext& f, const SceneData& scene,
                    const std::shared_ptr<ShapeEntry>& e, bool draw);
 
 // Körningens föremål ritade med renderläget `state` och lagrets opacitet
-// `op` (tonen inräknad); utan `draw` hålls de bara residenta. `lf` är
-// förberedelsens svar (labels.h — draperingarna).
+// `op` (tonen inräknad); utan `draw` ritas ingenting. Bara de som kan synas
+// frågas (run_index.h, `shapesVersion` är lagrets). `lf` är förberedelsens
+// svar (labels.h — draperingarna).
 void drawObjects(const PaintContext& f, const SceneData& scene,
-                 const LayerFrame& lf, const RunData& run, float op, bool draw,
+                 const LayerFrame& lf, const RunData& run,
+                 std::uint64_t shapesVersion, float op, bool draw,
                  const gfx::RenderState& state);
 
 // Helskärmspasset `s`: förberedelsen — programmet kompilerat och

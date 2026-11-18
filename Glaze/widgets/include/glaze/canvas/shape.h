@@ -602,6 +602,12 @@ public:
     // andra slagen.
     const std::shared_ptr<const detail::InstanceSet>& instanceSet() const;
 
+    // En kopia där etikettens text och delar är UPPLÖSTA till literaler i
+    // språket som gäller nu. Kopian följer inte ett språkbyte — och läses
+    // därför utan språkbutiken, från vilken tråd som helst (ritytans
+    // inspelade målare). Former utan text kopieras oförändrade.
+    Shape withResolvedText() const;
+
 private:
     static Shape area(std::vector<Contour> rings, Paint fill,
                       std::optional<Stroke> stroke);

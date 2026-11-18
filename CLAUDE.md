@@ -578,7 +578,11 @@ aldrig CMakeLists; "nytt fönster" påminner i statusraden.
    ritas RITYTAN om, inte fönstret (PRESTANDA D1). Det som rör sig av sig
    självt (en glidning, en tröghet, en uppladdning som strömmar inom
    budgeten, en drapering som väntar på bildens budget) invaliderar på samma
-   sätt och STANNAR. Ny widget-interaktion måste sätta dirty via samma
+   sätt och STANNAR. **Ritytans SCEN ritas av en renderingstråd per fönster**
+   (`src/canvas/render_loop.h`): `draw()` lämnar ett jobb bara när något
+   ändrats och lägger den senast färdiga bilden på plats, tråden sover utan
+   jobb, och en färdig bild väcker pumpen — en stilla scen ritar ingenting,
+   och UI-tråden väntar aldrig på den. Ny widget-interaktion måste sätta dirty via samma
    mönster som befintliga (se handleEvent).
 2. **All text via `gfx::Font` + `Renderer::drawText`** (UTF-8 → åäö gratis).
    Fonter väljs via `gfx::FontFamily` (UI/Mono) + `gfx::fontsize::`-
@@ -800,7 +804,7 @@ aldrig CMakeLists; "nytt fönster" påminner i statusraden.
   `app_perf` (en app på riktigt: två fönster, strömmande data, minne och
   energi per steg; `--synlig` för hand, `--varv N` för läckor) och
   `terrain_perf` (en terrängkarta och en 3D-vy i 27 steg; i
-  Debug, `--synlig`, `--hp`). Mät före och efter
+  Debug, `--synlig`, `--hp`, `--rå` = scenen som rådata). Mät före och efter
   en optimering. VAR tiden går visar profileraren (`GLAZE_PROFILE=1`,
   `glaze::profiler().report()` — MANUAL `profiler`).
 - Verifiering utan fönster: `makeWidget`/`find<>`/`resolve()` och builderns
@@ -878,6 +882,7 @@ aldrig CMakeLists; "nytt fönster" påminner i statusraden.
   deterministisk. **De backend-neutrala filerna (`camera3d.cpp`, `geom3d.cpp` …) står i TRE block i
   `Glaze/gfx/CMakeLists.txt`**, ett per backend — en ny fil i bara ett block bygger på din plattform och
   länkar fel på de två andra.
+- **RITYTANS MOTOR GÅR I EN ANNAN TRÅD** (`Glaze/widgets/src/canvas/`): den läser bara JOBBET — scenens ögonblicksbild (`publishScene`), de inspelade målarna, kopior av tema och stil — aldrig en widget, `App`, en `TrText` eller fönstrets renderare. Appens kod (`onPaint`, `renderToBitmap`s svar) körs i UI-tråden; det som trådarna delar (bildpixlar, meshdata, ikoncachen) har lås. `GLAZE_CANVAS_THREAD=0` stänger av tråden, och ett offscreen-fönster har ingen.
 - **NAMNLISTENS BARN**: `topBar` är ett värdefält, rotens första barn, dolt utan eget chrome, och standardbarnen byggs bara vid `Custom`. Ett barn utöver dem gör att `TopBar::extrasRect` placerar hela raden i stället för flexen; sidan är barnets `dock`. `menuBar.setInTitleBar(true)` flyttar raden mellan roten och namnlisten i `AppWindow::placeMenuBar` (i ett öppet fönster i pump-svansen), och `chromeInsetH` frågar radens FAKTISKA förälder, för utan namnlist står den kvar i innehållsytan.
 - **CHROME-TRÄDETS RÖTTER (PROGRAMIKON B2):** `topBar` och `appIcon`
   resolvas mot chrome-ctx:t (HELA klientytan), allt annat mot

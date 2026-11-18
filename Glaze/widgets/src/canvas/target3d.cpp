@@ -297,6 +297,20 @@ Target3DState drawTarget3D(const PaintContext& wf, PaintContext& tf,
                            const std::shared_ptr<SceneData>& scene,
                            const Target3DArgs& a)
 {
+    // Målen ritas om där de är inaktuella, och kompositas sedan — varje gång,
+    // under ritytans klipp, med tonen.
+    std::vector<TargetImage> bilder;
+    const Target3DState      läge = renderTargets3D(wf, tf, scene, a, bilder);
+    for (const TargetImage& b : bilder)
+        wf.c->r->drawImage(*b.image, b.rect, wf.opacity);
+    return läge;
+}
+
+Target3DState renderTargets3D(const PaintContext& wf, PaintContext& tf,
+                              const std::shared_ptr<SceneData>& scene,
+                              const Target3DArgs& a,
+                              std::vector<TargetImage>& images)
+{
     const Ctx&       c      = *wf.c;
     CanvasResources& res    = *wf.res;
     const int        nViews = static_cast<int>(a.views.size());
@@ -399,17 +413,15 @@ Target3DState drawTarget3D(const PaintContext& wf, PaintContext& tf,
         ritat(*v.t, v.rect);
     }
 
-    // KOMPOSIT — varje gång, under ritytans klipp, med tonen: huvudmålet och
-    // vyerna i nummerordning.
-    c.r->drawImage(t.target->image(),
-                   gfx::Rectf{mp.x0, mp.y0, static_cast<float>(mp.w),
-                              static_cast<float>(mp.h)},
-                   wf.opacity);
+    // KOMPOSITENS BILDER: huvudmålet och vyerna i nummerordning.
+    images.push_back(TargetImage{&t.target->image(),
+                                 gfx::Rectf{mp.x0, mp.y0, static_cast<float>(mp.w),
+                                            static_cast<float>(mp.h)}});
     for (const ViewTarget& v : vyer)
-        c.r->drawImage(v.t->target->image(),
-                       gfx::Rectf{v.px.x0, v.px.y0, static_cast<float>(v.px.w),
-                                  static_cast<float>(v.px.h)},
-                       wf.opacity);
+        images.push_back(
+            TargetImage{&v.t->target->image(),
+                        gfx::Rectf{v.px.x0, v.px.y0, static_cast<float>(v.px.w),
+                                   static_cast<float>(v.px.h)}});
     return läge;
 }
 

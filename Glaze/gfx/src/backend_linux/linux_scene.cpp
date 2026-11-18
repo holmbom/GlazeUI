@@ -771,12 +771,20 @@ void GlRenderer::shutdownScene()
 
 void GlRenderer::beginSceneFrame()
 {
+    resetTransientRings();
+    pipeline_ = Pipeline::Ui;   // beginFrame har just bundit UI-pipelinen
+}
+
+// Ringarna börjar om: nästa uppladdning orphanar lagringen, och delar som
+// växte ur ringen släpps. Framens början och blockets (beginOffscreen) — en
+// renderare som bara ritar i block får annars aldrig sina ringar nollade.
+void GlRenderer::resetTransientRings()
+{
     for (GlTransientRing& r : transient_) {
         r.offset = 0;
         r.fresh  = true;
         r.retired.clear();
     }
-    pipeline_ = Pipeline::Ui;   // beginFrame har just bundit UI-pipelinen
 }
 
 // --------------------------------------------------------------- buffertar

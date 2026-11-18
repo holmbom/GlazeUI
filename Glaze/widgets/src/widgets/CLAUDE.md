@@ -916,11 +916,12 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   `contentSize` (den anropas ur layouten), formen UTAN har VAKTEN `measuring_` mot sin egen layoutvandring
   (canvas_gate MR). **INRAMNINGEN** (`zoomToRect`/`zoomToBox`/`panBy`) räknar mot `currentBox` — aldrig
   `lastBox_`, som en inaktiv flik lämnar gammal — eller väntar till `applyPending` (canvas_gate FL). **MINNET**:
-  `setMemoryBudget` LAGRAR i `scene_->memoryBudget` och gäller från nästa ritning, och de TRE ritvägarna
-  (`drawScene`, `drawOverlay`, `renderToBitmap`) öppnar sitt konto i bildcachen med `detail::ImageAccount`.
-  **MÅLARNA** går EN väg, `måla` (`onPaint`, `onPaintOverlay`, `onPaintLayer`), och `målArgs(yta, c)` är 3D-målets
-  argument som `drawScene` och `renderToBitmap` delar. `easeTo` stegas FÖRST i `draw()` och invaliderar sig själv
-  tills den är framme (Progress-mönstret).
+  `setMemoryBudget` LAGRAR i `scene_->memoryBudget` och gäller från nästa ritning; ritvägarna i UI-tråden
+  (`drawScene` utan tråd, `drawOverlay`) öppnar sitt konto med `detail::MemoryAccount`, och `memoryUsed()` läser
+  kontot — med en renderingstråd den visade bildens svar (`threadMemory_`), för kontot bor då hos tråden.
+  **TRÅDLÄGET** (`frameStep` tar den färdiga bilden en gång per bild, `submitThreadFrame` lämnar jobbet när nyckeln — `damageStamp()`, rutan, skalan — ändrats och lägger bilden på plats; `renderToBitmap` beställer): ../canvas/render_loop.h.
+  **MÅLARNA** spelas in (`../canvas/paint_list.h` — `onPaint`, `onPaintLayer`; `onPaintOverlay` ritas direkt), och
+  `målArgs(yta, c)` är 3D-målets argument i den synkrona vägen. `easeTo` stegas FÖRST i `draw()` och invaliderar sig själv tills den är framme (Progress-mönstret).
   FÖNSTRET fyrar `onMouseDown`/`onMouseUp`/`onMouseCancel` med ritytans args (`fireMouse` → `mouseArgs`) och
   krokarna gör bara gesten; ett tryck appen TOG når ritytan som `appPress` (Begin fångar en kastad karta, Move
   ger `onMouseMove`, DoubleClick `onDoubleClick`). Ett tryck och ett dubbelklick ritar om fönstret, en rörelse

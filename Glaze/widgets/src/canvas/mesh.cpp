@@ -194,7 +194,7 @@ std::uint64_t meshGeneration()
 void MeshData::markChanged(MeshStream stream, std::uint32_t first,
                            std::uint32_t count)
 {
-    ++version;
+    const std::uint64_t v = ++version;
     if (stream == MeshStream::Positions)
         g_meshGeneration.fetch_add(1, std::memory_order_relaxed);
     if (first == 0 && count == positions.size()) {
@@ -203,7 +203,7 @@ void MeshData::markChanged(MeshStream stream, std::uint32_t first,
             return c.stream == stream;
         });
     }
-    changes.push_back(MeshChange{version, stream, first, count});
+    changes.push_back(MeshChange{v, stream, first, count});
     if (changes.size() > kMaxMeshChanges) {
         const std::size_t drop = changes.size() / 2;
         base = changes[drop - 1].version;
@@ -409,6 +409,8 @@ void Mesh::setPositions(std::size_t first, std::span<const Float3> positions)
                  positions.size(), first, n);
         return;
     }
+    // En renderingstråd läser samma data (mesh_data.h).
+    const std::lock_guard<std::mutex> l(d_->lock);
     std::copy(positions.begin(), positions.end(),
               d_->positions.begin() + static_cast<std::ptrdiff_t>(first));
     d_->markChanged(detail::MeshStream::Positions,
@@ -428,6 +430,7 @@ void Mesh::setColors(std::size_t first, std::span<const gfx::Color> colors)
                  colors.size(), first, n);
         return;
     }
+    const std::lock_guard<std::mutex> l(d_->lock);
     std::copy(colors.begin(), colors.end(),
               d_->colors.begin() + static_cast<std::ptrdiff_t>(first));
     d_->markChanged(detail::MeshStream::Colors, static_cast<std::uint32_t>(first),

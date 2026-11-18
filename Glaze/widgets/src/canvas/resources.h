@@ -17,6 +17,7 @@
 #include <gfx/scene.h>
 #include <gfx/sdf.h>
 
+#include "../memory_ledger.h"
 #include "clip.h"
 #include "glaze/canvas/shape.h"
 #include "scene.h"
@@ -72,9 +73,16 @@ class ObjectResidency;   // residency.h — föremålen på GPU:n
 class DrapeCache;        // drape.h — terrängens draperingsmål
 }
 
-class CanvasResources {
+// MINNET: ritytans resurser är en ÄGARE i fönstrets liggare
+// (../memory_ledger.h). Chunkarnas buffertar och 3D-målen räknas på den
+// rityta som använde dem senast och VRÄKS över budgeten — en vräkt chunk
+// laddas upp igen ur sin `ChunkData`, ett vräkt mål ritas om. Textbyggena och
+// etikettbilderna räknas på sin rityta men vräks inte (de byggs i
+// förberedelsen av varje bild som ritar dem), och atlaserna och ramperna, som
+// ritytorna delar, räknas på fönstret.
+class CanvasResources final : private detail::MemoryHolder {
 public:
-    explicit CanvasResources(gfx::Renderer& r);
+    CanvasResources(gfx::Renderer& r, detail::MemoryLedger& ledger);
     ~CanvasResources();
     CanvasResources(const CanvasResources&)            = delete;
     CanvasResources& operator=(const CanvasResources&) = delete;
@@ -178,6 +186,25 @@ public:
     // ingen sida ritats på två framer.
     void setPageRender(bool on) { pageRender_ = on; }
     bool pageRender() const { return pageRender_; }
+
+    // RENDERINGSTRÅDENS RESURSER (render_loop.h). En `RenderTexture` målas
+    // av appens kod med fönstrets Ctx och kan inte hämtas här: `refuseTexture`
+    // antecknar det och svarar nullptr, och den som lämnade jobbet läser
+    // `takeTextureRefused` och ritar då om i UI-tråden, med fönstrets
+    // resurser — där texturen hämtas som vanligt.
+    void        setThreaded(bool on) { threaded_ = on; }
+    bool        threaded() const { return threaded_; }
+    gfx::Image* refuseTexture()
+    {
+        textureRefused_ = true;
+        return nullptr;
+    }
+    bool takeTextureRefused()
+    {
+        const bool r    = textureRefused_;
+        textureRefused_ = false;
+        return r;
+    }
     // Bygget SOM DET RITADES senast — bara om det byggdes ur körningens
     // nuvarande version (`RunData::glyphVersion`), annars nullptr. Bygger
     // aldrig: träffprovet frågar utanför en frame, där en atlas inte får
@@ -204,7 +231,7 @@ public:
     // så en ritning med samma indata — en partiell omritning, två
     // damage-ytor i en frame — inte placerar eller laddar upp igen.
     struct LabelState {
-        std::weak_ptr<const detail::SceneData> src;
+        std::weak_ptr<const char> src;   // scenens livstecken
         bool                  placed  = false;
         gfx::MapView          view{};
         std::optional<gfx::View3D> view3D;   // 3D-målets vy
@@ -217,11 +244,18 @@ public:
         // SVARET: målet (0 dold, 255 synlig) och det bilden BÄR (tonas mot
         // målet när ritytan tonar, annars samma).
         std::vector<std::uint8_t>   target, shown;
+        detail::Charge              charge;       // synlighetsbildens byte
         std::uint64_t               fadeMs = 0;   // senaste tonsteget
         // Ritytans och lagrens klippversioner placeringen gjordes med
         // (clip.h `clipVersions`) — ett ändrat klipp placerar om.
         std::uint64_t               clipKey = 0;
         std::unique_ptr<gfx::Image> tex;   // nullptr = ingen etikett kolliderar
+        // Placeringen kom från en annan tråds resurser (`importLabels`) och
+        // DÖLJER etiketter — bilden finns där, inte här.
+        bool                        imported = false;
+
+        // Döljer placeringen någon etikett (`shown` gäller då)?
+        bool hides() const { return tex != nullptr || imported; }
     };
     // Bildens bredd i texlar; raderna växer med antalet etiketter.
     static constexpr int kLabelTexWidth = 256;
@@ -235,6 +269,31 @@ public:
     void uploadLabels(LabelState& s, std::size_t lo, std::size_t hi);
     // Ritytan har ingen kolliderande etikett: bilden släpps (efter framen).
     void dropLabels(LabelState& s);
+
+    // ETIKETTERNA TILL EN ANNAN TRÅD. Ritytan ritas i renderingstråden med
+    // SINA resurser, men träffprovet (`findGlyphs`, `findLabelState`) frågas i
+    // UI-tråden mot fönstrets. Det träffprovet läser går därför över som
+    // VÄRDEN: `exportLabels` tar det ur resurserna som ritade, `importLabels`
+    // lägger det i de andra — poster utan geometri (de ritas aldrig där).
+    struct LabelExport {
+        struct Build {
+            std::uint64_t             run = 0;       // RunData::id
+            std::weak_ptr<const char> life;          // körningens livstecken
+            std::uint64_t             version = 0;   // glyphVersion bygget gjordes ur
+            std::uint64_t             serial  = 0;   // byggets löpnummer
+            std::shared_ptr<const std::vector<LabelInfo>> labels;
+        };
+        struct Placement {
+            int                       slot  = detail::kMainView;
+            bool                      hides = false;
+            std::vector<LabelRun>     runs;
+            std::vector<std::uint8_t> shown;
+        };
+        std::vector<Build>     builds;
+        std::vector<Placement> placements;
+    };
+    void exportLabels(const detail::SceneData& scene, LabelExport& out);
+    void importLabels(const detail::SceneData& scene, const LabelExport& in);
 
     // ---- ATLASERNA, RAMPERNA, RUTNÄTET
     gfx::SdfAtlas*    atlas(gfx::FontFamily family);
@@ -256,7 +315,7 @@ public:
     // Det cachen jämför (target3d.cpp): vad målet senast RITADES med. Målet
     // är W × H fysiska px med djup och provtagningen `samples`.
     struct Target3D {
-        std::weak_ptr<const detail::SceneData> src;
+        std::weak_ptr<const char> src;   // scenens livstecken
         std::unique_ptr<gfx::RenderTarget>     target;
         int                                    w = 0, h = 0, samples = 0;
         bool                                   drawn = false;   // bär en ritning
@@ -264,6 +323,7 @@ public:
         gfx::Rectf                             box{};           // ritytans ruta
         float                                  pxPerPx = 0.0f, pxPerMm = 0.0f;
         std::uint64_t                          clipKey = 0;     // klippversionerna
+        detail::Charge                         charge;          // målets byte
     };
     // Målet för ritytan och vyn — skapat, eller ersatt (och då oritat) när
     // måtten eller provtagningen ändrats. `target` är ogiltigt när målet inte
@@ -320,29 +380,68 @@ public:
     std::uint64_t labelPlacements() const { return placements_; }
     void          notePlacement() { ++placements_; }
 
+    // Fönstrets liggare (konstruktorns).
+    detail::MemoryLedger& ledger() { return *ledger_; }
+
+    // LAGRETS RESIDENSMÄRKE (scene.h `prepareUploads`): läget lagrets rest —
+    // det som inte syns — senast gjordes resident för. Lika märke = ingenting
+    // att göra; ett nytt lager har `done` falskt. Släppt i `trim` när lagret dött.
+    // En VRÄKNING ändrar inte märket: det som vräkts över budgeten laddas upp
+    // igen först när det syns — annars hade resten fyllts på och vräkts om
+    // vartannat.
+    struct ResidentMark {
+        std::weak_ptr<const char> life;   // lagrets livstecken
+        std::uint64_t shapes = 0, meshes = 0;
+        std::size_t   budget = 0;
+        bool          drawn  = false;
+        bool          done   = false;
+    };
+    ResidentMark& resident(const std::shared_ptr<detail::LayerData>& layer);
+
 private:
-    gfx::Renderer* r_;
+    // Liggarens ägare (../memory_ledger.h).
+    void eachCharge(const Visit& visit) override;
+    void evict(const detail::ChargeKey& key) override;
+
+    gfx::Renderer*        r_;
+    detail::MemoryLedger* ledger_;
+    detail::Charge        shared_;   // atlaserna och ramperna, på fönstret
+    std::unordered_map<std::uint64_t, ResidentMark> resident_;   // lagrets id
 
     struct ChunkEntry {
-        std::weak_ptr<const detail::ChunkData> src;
+        std::weak_ptr<const char>              src;   // chunkens livstecken
         GpuChunk                               gpu;
         std::uint64_t                          version = 0;
+        detail::Charge                         charge;   // buffertarnas byte
     };
     std::unordered_map<std::uint64_t, ChunkEntry> chunks_;
 
     struct GlyphEntry {
-        std::weak_ptr<const detail::RunData> src;
+        std::weak_ptr<const char>            src;   // körningens livstecken
         std::uint64_t                        version = 0;
         float                                pxPerPx = 0.0f, pxPerMm = 0.0f;
         std::uint64_t                        atlasEpoch = 0;
         bool                                 onTerrain  = false;
         std::uint64_t                        terrain    = 0;       // regionen
         GlyphBuild                           build;
+        detail::Charge                       charge;               // byggets buffertar
+        // Bara etiketterna, ur en annan tråds bygge (`importLabels`).
+        bool                                 imported = false;
     };
     std::unordered_map<std::uint64_t, GlyphEntry> glyphs_;
+    // Etikettlistorna som delats ut (`exportLabels`) — en per körning och
+    // bygge; släppta i `trim` med körningen.
+    struct ExportedLabels {
+        std::weak_ptr<const char>                     life;
+        std::uint64_t                                 serial = 0;
+        std::shared_ptr<const std::vector<LabelInfo>> labels;
+    };
+    std::unordered_map<std::uint64_t, ExportedLabels> exported_;
     std::unordered_map<std::uint64_t, GlyphEntry> pageGlyphs_;
     std::uint64_t                                 pageGlyphsUsed_  = 0;   // framens löpnummer
     bool                                          pageRender_      = false;
+    bool                                          threaded_        = false;
+    bool                                          textureRefused_  = false;
     std::uint64_t                                 glyphBuildsMade_ = 0;
 
     // Per (rityta, plats) — se `LabelState`.

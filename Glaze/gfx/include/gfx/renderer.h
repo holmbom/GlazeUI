@@ -11,6 +11,7 @@
 #include "gfx/geometry.h"
 #include "gfx/image.h"
 #include "gfx/scene.h"
+#include "gfx/scene_context.h"
 #include "gfx/text.h"
 
 namespace gfx {
@@ -368,6 +369,13 @@ public:
     //   Metal  öppnar en egen command buffer
     virtual bool beginOffscreen() = 0;
     virtual void endOffscreen()   = 0;
+
+    // EN SCEN-KONTEXT på renderarens grafikkort (gfx/scene_context.h): en
+    // fristående renderare att rita med i en annan tråd, vars delade bilder
+    // den här renderaren visar. Får anropas från scentråden. nullptr (+ logg)
+    // när backenden inte kan ge en — anroparen ritar då med den här
+    // renderaren, i dess egen tråd.
+    virtual std::unique_ptr<SceneContext> createSceneContext() = 0;
 
     // GPU:N renderaren ritar med — DXGI-adapterns beskrivning (D3D11),
     // `GL_RENDERER` (Linux) eller `MTLDevice.name` (Metal); tom i en renderare

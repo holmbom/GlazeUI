@@ -188,6 +188,10 @@ enum class PanVertical : std::uint8_t;   // …3D-panoreringens fram/bak
 enum class MotionKind : std::uint8_t;    // …kamerans sort för bindningarna
 class  InputMap;       // src/canvas/input_map.h
 struct DragPlan;       //   …ett drags två axlar
+struct CanvasFrameResult;   // src/canvas/frame_job.h — en ritad bilds svar
+struct CanvasFrameJob;      //   …och jobbet
+class  CanvasRenderLoop;    // src/canvas/render_loop.h — renderingstråden
+struct CanvasAccess;        // src/canvas/canvas_access.h — ritytans scen
 }
 
 // Hur ett lager ritar sina former (src/canvas/scene.h har detaljerna):
@@ -315,6 +319,13 @@ struct HitOptions {
 // två: FÖNSTRET tar formerna som ligger HELT INOM rutan, KORSNINGEN dem som
 // skär den eller ligger inom.
 enum class HitMode : std::uint8_t { Window, Crossing };
+
+// Det en rityta håller i minnet (`Canvas::memoryUsed`), i byte: på GPU:n i
+// ritytans fönster, och på CPU:n — originalen och det som byggts ur dem.
+struct CanvasMemoryUse {
+    std::size_t gpu = 0;
+    std::size_t cpu = 0;
+};
 
 class Canvas : public Widget {
 public:
@@ -1013,19 +1024,37 @@ public:
     // väntar på bildcachens uppladdningsbudget saknas (loggas). Fönstrets täthet
     // gäller; en bild med egen täthet och alla bilder ger `renderPageImage`
     // (glaze/print.h) med `Painter::drawCanvas`.
+    //
+    // TVÅ FORMER. Den första RETURNERAR bilden: den ritas i anropet, i
+    // UI-tråden, och anropet väntar på den. Den andra SVARAR I EFTERHAND och
+    // väntar inte: bilden ritas av fönstrets renderingstråd, och `done` körs
+    // i UI-tråden, i pumpens svans — exakt en gång per anrop, aldrig inne i
+    // anropet, och inte alls om ritytan hunnit rivas (tomt också när
+    // fönstret stängdes innan bilden hann ritas). Scenen och `onPaint` tas i
+    // båda som de står när anropet görs. Efter `done` ritas fönstret om.
     std::optional<Bitmap> renderToBitmap(int w, int h, const Camera3D& camera);
+    using BitmapHandler = std::function<void(std::optional<Bitmap>)>;
+    void renderToBitmap(int w, int h, const Camera3D& camera, BitmapHandler done);
 
     // ------------------------------------------------------------ MINNET
-    // RITYTANS MINNESBUDGET i byte: bilderna, render-texturerna och
-    // de omräknade bilderna ritytan ritar — räknade på den rityta som ritade
-    // dem SENAST — och dess draperingar på terräng, i fönstrets bildcache. Över
-    // budgeten vräks det som legat oritat längst (det som ritades i förra
-    // framen och bilder utan pixlar aldrig — det loggas). 0 = förvalet
+    // RITYTANS MINNESBUDGET i byte — ALLT ritytan håller: på GPU:n bilderna,
+    // render-texturerna och de omräknade bilderna, draperingarna på terräng,
+    // lagrens buffertar, meshar, instanser och punktmoln, textbyggena och
+    // 3D-målen — räknade på den rityta som använde dem SENAST, så en mesh som
+    // tusen former delar räknas en gång — och på CPU:n originalen: meshens
+    // lägen, molnets punkter, bildernas pixlar och lagrens geometri. Över
+    // budgeten vräks det på GPU:n som legat oanvänt längst, och laddas upp
+    // igen när det ritas. Det som användes i förra framen vräks aldrig, och
+    // inte CPU-originalen eller bilder utan pixlar — en budget som de
+    // överskrider hålls inte, och det loggas en gång. 0 = förvalet
     // `App::canvasMemoryBudget()`. Sättaren LAGRAR och ritar inte om; den
     // gäller från ritytans nästa ritning. En tung karta och en miniatyr i
     // samma fönster får var sin: `karta.setMemoryBudget(std::size_t{2} << 30)`.
     void        setMemoryBudget(std::size_t bytes);
     std::size_t memoryBudget() const;
+    // Det ritytan håller NU, i byte — det budgeten jämförs med. {0, 0} utan
+    // ett öppet fönster och före den första ritningen.
+    CanvasMemoryUse memoryUsed() const;
 
     bool focusable() const override { return true; }
 
@@ -1074,6 +1103,9 @@ public:
 protected:
     gfx::Sizef contentSize(const Ctx& c) const override;
     void       draw(const Ctx& c) override;
+    // Bildens steg: den nyaste bild renderingstråden ritat klart tas här —
+    // en gång per bild, före ritningen, så en bild aldrig byts mitt i en.
+    void       frameStep() override;
     bool       hasOverlay() const override;
     void       drawOverlay(const Ctx& c) override;
 
@@ -1122,6 +1154,7 @@ private:
     // `Painter::drawCanvas` ritar ritytans scen på en annan yta och når
     // därför scenen (src/canvas/painter.cpp).
     friend class Painter;
+    friend struct detail::CanvasAccess;   // ramverkets och grindarnas väg till scenen
     // Scenen innanför klippet: rutnätet, lagren och målaren i världen — i
     // 2D-vägen direkt, annars genom 3D-målet (src/canvas/target3d.h).
     void drawScene(const Ctx& c);
@@ -1461,6 +1494,72 @@ private:
     // Etiketterna: toningen, och om den pågår (ritytan invaliderar sig själv).
     bool labelFade_       = false;
     bool labelsAnimating_ = false;
+
+    // RENDERINGSTRÅDEN (src/canvas/render_loop.h). Scenen ritas av fönstrets
+    // renderingstråd i en bild som `draw()` lägger på plats; utan en tråd
+    // (ett offscreen-fönster, en backend utan scen-kontext) ritar `draw()`
+    // scenen själv. `threadLoop_` är loopens löpnummer (0 = ingen) — ett nytt
+    // nollställer resten. `frame*_` är den bild som visas, giltig till nästa
+    // `frameStep`; `submitted*_` det senast lämnade jobbets nyckel;
+    // `renderAgain_` att den visade bilden ville ha en till (toningen, en
+    // uppladdning eller drapering som väntar); `labelsPending_` att bildens
+    // etiketter ska föras in i fönstrets resurser vid nästa ritning.
+    bool submitThreadFrame(const Ctx& c, detail::CanvasRenderLoop& loop);
+    void threadFrameReady();
+    // Bildens jobb för `renderToBitmap` (båda formerna): prövningen och
+    // inspelningen. false (+ logg) = ingen bild.
+    bool bitmapJob(int w, int h, const Camera3D& camera, const Ctx& c,
+                   detail::CanvasFrameJob& job);
+    // Ritas scenen av renderingstråden? Inte utan en loop, och inte för en
+    // scen med något bara UI-tråden kan hämta (`forceSync_` — en
+    // `RenderTexture` i en form): den ritar ritytan själv, som utan tråd.
+    bool threaded() const { return threadLoop_ != 0 && !forceSync_; }
+    bool                             forceSync_    = false;
+    std::uint64_t                    threadLoop_   = 0;
+    std::uint64_t                    jobSerial_    = 0;
+    gfx::Image*                      frameImage_   = nullptr;
+    int                              frameW_ = 0, frameH_ = 0;
+    const detail::CanvasFrameResult* frameResult_  = nullptr;
+    bool                             submitted_    = false;
+    std::uint64_t                    submittedStamp_ = 0;
+    gfx::Rectf                       submittedBox_{};
+    float                            submittedScale_ = 0.0f, submittedMm_ = 0.0f;
+    bool                             renderAgain_   = false;
+    bool                             labelsPending_ = false;
+    CanvasMemoryUse                  threadMemory_{};
+    // DEN VISADE BILDENS KAMERA. Bilden som visas ritades med kameran som
+    // den stod när jobbet lämnades — de förankrade barnen placeras efter
+    // den (`projectShown`), så de sitter fast i bilden också medan kameran
+    // rör sig. `jobCameras_` är de lämnade jobbens kameror tills deras bild
+    // visats; gesterna och `camera()` talar alltid den senaste.
+    struct FrameCamera {
+        std::uint64_t serial    = 0;
+        Camera        cam{};
+        bool          hasCamera = false;
+        Camera3D      cam3{};
+        bool          is3D      = false;
+    };
+    bool projectShown(const gfx::Rectf& box, float scale, Point world, double& px,
+                      double& py) const;
+    // SKÄRMFRÅGORNA (`toWorld`, `toLocal`, `project`, `unitsPerPixelAt`,
+    // `visibleRegion`, `hitTest` och musens `world`/`ray`) svarar för den
+    // bild som SYNS: så länge objektet lever är ritytans kamera den visade
+    // bildens. Utan renderingstråd, eller före den första bilden, gör det
+    // ingenting. `camera()`, sättarna och gesterna talar alltid den senaste.
+    class ShownScope {
+    public:
+        explicit ShownScope(const Canvas& c);
+        ~ShownScope();
+        ShownScope(const ShownScope&)            = delete;
+        ShownScope& operator=(const ShownScope&) = delete;
+
+    private:
+        Canvas*     c_ = nullptr;   // nullptr = ingenting bytt
+        FrameCamera saved_{};
+    };
+    std::vector<FrameCamera> jobCameras_;
+    FrameCamera              shownCamera_{};
+    bool                     hasShownCamera_ = false;
 
     // En `onCameraChange` väntar i pump-svansen; livstecknet släpper den om
     // ritytan dött innan den hann fram.

@@ -194,6 +194,11 @@ public:
     }
     bool beginOffscreen() override { return false; }
     void endOffscreen() override {}
+    // Ingen GPU, ingen scen-kontext: den som frågar ritar med renderaren själv.
+    std::unique_ptr<SceneContext> createSceneContext() override
+    {
+        return nullptr;
+    }
 
 protected:
     void applyClip(const Rectf*, const RoundedClip*, std::size_t) override {}

@@ -19,6 +19,7 @@
 #include "glaze/strings.h"
 #include "canvas/image_data.h"  // releaseQueuedPixels — pumpens släpp
 #include "canvas/input_map.h"   // ritytornas bindningstabell
+#include "canvas/render_loop.h" // komplett typ för canvasLoop_.reset()
 #include "canvas/resources.h"   // komplett typ för canvas_.reset()
 #include "font_set.h"           // komplett typ för fontSet_.reset()
 #include "image_cache.h"        // komplett typ för images_.reset()
@@ -787,6 +788,15 @@ void postFrameWork(std::function<void()> fn)
     a.enqueue(a.frame_, std::move(fn));
 }
 
+// Från en annan tråd: appen SKAPAS aldrig här (`app()` hade kunnat göra det
+// i fel tråd) — pekaren sattes av UI-tråden innan något fönster, och därmed
+// någon renderingstråd, fanns. `enqueue` tar köns lås och väcker pumpen.
+void postFrameWorkFromThread(std::function<void()> fn)
+{
+    if (App* a = App::instance_)
+        a->enqueue(a->frame_, std::move(fn));
+}
+
 } // namespace detail
 
 // VÄGEN IN, för båda köerna. Sättaren gör två saker: lägger funktionen i
@@ -1027,6 +1037,10 @@ void App::executeClose(AppWindow* w)
     // till renderern — släpp FÖRE win_->shutdown().
     // Ritytans resurser först: de skapades sist (efter
     // bildcachen), och sedan images_.
+    // Renderingstråden allra först: den lämnar tillbaka bilderna fönstret
+    // visar och väntas in, så ingenting ritas medan resten rivs.
+    w->canvasLoop_.reset();
+    w->canvasLoopTried_ = false;
     w->canvas_.reset();
     w->images_.reset();
     w->font_.reset();

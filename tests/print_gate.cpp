@@ -43,7 +43,7 @@
 //       vilken; fel indata och ett anrop inifrån en ritning ger ingen bild.
 //   P13 etiketterna tonar inte på en sida. P14 en sida tar inte skärmens träffar.
 //   Sabotage som SKA fälla dem: `sc.pxPerMm` kvar på fönstrets (P8 — linjen),
-//   `continue` bort ur `renderRaster` (P10), `complete = false` bort (P11),
+//   `continue` bort ur `renderPageJob` (P10), `complete = false` bort (P11),
 //   `pageRaster` utan taket (P12), `pageRender` bort ur `a.labelFade` (P13),
 //   `pageGlyphs_` bort ur `glyphs` (P14).
 //   P15 `PrintJob::lastError()`: tom före första anropet, felbeskedet efter ett
@@ -551,7 +551,10 @@ void fallP10P11()
             p.drawImage(glaze::Rect{5.0 + i * 10.0, 20.0, 10.0, 5.0}, rutor[std::size_t(5 + i)]);
     });
     check(b.has_value() && b->complete, "P10 sidan är komplett");
-    check(varv > 1, "P10 uppladdningen väntade, så sidan ritades om",
+    // Ritfunktionen körs EN gång och spelas in; sidan ritas om ur
+    // inspelningen tills bilderna är uppe — att alla tio finns med nedan
+    // mäter varven (budgeten rymmer en uppladdning per varv).
+    check(varv == 1, "P10 ritfunktionen körs en gång, också när sidan ritas om",
           std::to_string(varv));
     if (b) {
         bool allaRitytan = true, allaMålaren = true;

@@ -9,6 +9,8 @@
 #include <cmath>
 #include <utility>
 
+#include <gfx/platform.h>
+
 #include "../image_cache.h"
 #include "../profiler_hooks.h"
 #include "build.h"
@@ -17,6 +19,7 @@
 #include "labels.h"
 #include "mesh_data.h"
 #include "resources.h"
+#include "run_index.h"
 #include "scene3d.h"
 
 namespace glaze::detail {
@@ -28,6 +31,82 @@ std::atomic<std::uint64_t> g_nextId{1};
 std::uint64_t nextId()
 {
     return g_nextId.fetch_add(1, std::memory_order_relaxed);
+}
+
+// Formplatserna som dött (`shapeEntryDeaths`).
+std::atomic<std::uint64_t> g_entryDeaths{0};
+
+// Bär formen en ÖVERSATT text (ett id) — i etiketten eller en av dess delar?
+bool translated(const Shape& s)
+{
+    if (s.text().id() != 0)
+        return true;
+    for (const TextSpan& del : s.spans())
+        if (del.text.id() != 0)
+            return true;
+    return false;
+}
+
+// Formen in på platsen: den ritade (texterna upplösta) och, för en översatt
+// etikett, appens egen bredvid (scene.h `ShapeEntry::source`).
+void setEntryShape(ShapeEntry& e, Shape s)
+{
+    if (translated(s)) {
+        e.shape  = s.withResolvedText();
+        e.source = std::make_shared<const Shape>(std::move(s));
+    } else {
+        e.shape = std::move(s);
+        e.source.reset();
+    }
+}
+
+// En ny formplats för formen — byggd på plats, så formen flyttas in.
+std::shared_ptr<ShapeEntry> newEntry(Shape s)
+{
+    auto e = std::make_shared<ShapeEntry>();
+    setEntryShape(*e, std::move(s));
+    return e;
+}
+
+// ---- KOPIERA VID SKRIVNING (scene.h): en fryst chunk eller formplats delas
+// med en ögonblicksbild. Byggaren skriver i en KOPIA på samma plats — samma
+// id, livstecken och ändringslogg — och bilden behåller originalet.
+
+ChunkData& writable(std::shared_ptr<ChunkData>& ref)
+{
+    if (ref->frozen) {
+        ref         = std::make_shared<ChunkData>(*ref);
+        ref->frozen = false;
+    }
+    return *ref;
+}
+
+const ChunkData& chunkOf(const Piece& p)
+{
+    return *p.run->chunks[p.chunk];
+}
+
+ChunkData& writable(const Piece& p)
+{
+    return writable(p.run->chunks[p.chunk]);
+}
+
+// Formplatsen att skriva i: kopian tar originalets plats i lagrets lista och
+// i körningarnas (`glyphPos`/`objectPos`).
+ShapeEntry& writable(ShapeSlot& slot)
+{
+    if (!slot.entry->frozen)
+        return *slot.entry;
+    auto kopia    = std::make_shared<ShapeEntry>(*slot.entry);
+    kopia->frozen = false;
+    if (slot.glyphRun && slot.glyphPos < slot.glyphRun->glyphShapes.size() &&
+        slot.glyphRun->glyphShapes[slot.glyphPos] == slot.entry)
+        slot.glyphRun->glyphShapes[slot.glyphPos] = kopia;
+    if (slot.objectRun && slot.objectPos < slot.objectRun->objects.size() &&
+        slot.objectRun->objects[slot.objectPos] == slot.entry)
+        slot.objectRun->objects[slot.objectPos] = kopia;
+    slot.entry = std::move(kopia);
+    return *slot.entry;
 }
 
 // Gallringens marginal utöver delens egen: kantutjämningen (en px på varje
@@ -145,10 +224,12 @@ void merge(LayerData& L, RunData& run, ShapeSlot& slot, std::uint8_t part,
         if (b.indices.empty())
             continue;
         ChunkData*  dst   = nullptr;
+        std::size_t plats = 0;   // chunkens plats i körningen
         std::size_t vbase = 0, ibase = 0;
         if (k == 0 && target &&
             (*target)->vertexCount() + b.vertices.size() <= gfx::kMaxChunkVertices) {
-            dst   = target->get();
+            plats = static_cast<std::size_t>(target - run.chunks.data());
+            dst   = &writable(*target);
             vbase = (dst->*verts).size();
             ibase = dst->indices.size();
             (dst->*verts).insert((dst->*verts).end(), b.vertices.begin(),
@@ -164,14 +245,15 @@ void merge(LayerData& L, RunData& run, ShapeSlot& slot, std::uint8_t part,
             nc->indices  = std::move(b.indices);
             dst         = nc.get();
             run.chunks.push_back(std::move(nc));
+            plats = run.chunks.size() - 1;
             if (L.order == DrawOrder::ByKind)
-                run.cells[cell] = run.chunks.size() - 1;
+                run.cells[cell] = plats;
         }
         const std::size_t vn = (dst->*verts).size() - vbase;
         const std::size_t in = dst->indices.size() - ibase;
         dst->grow(box.x0, box.y0, box.x1, box.y1, box.z0, box.z1);
         dst->margin = std::max(dst->margin, margin);
-        slot.pieces.push_back(Piece{dst, part, vbase, vn, ibase, in, 0});
+        slot.pieces.push_back(Piece{&run, plats, part, vbase, vn, ibase, in, 0});
         L.totalIndices += in;
     }
 }
@@ -296,6 +378,7 @@ void buildSlot(LayerData& L, ShapeSlot& slot, bool yUp)
             RunData& run = runFor(L, k);
             run.objects.push_back(slot.entry);
             slot.objectRun = &run;
+            slot.objectPos = run.objects.size() - 1;
             ++L.totalObjects;
         }
         return;
@@ -310,6 +393,7 @@ void buildSlot(LayerData& L, ShapeSlot& slot, bool yUp)
             run.glyphShapes.push_back(slot.entry);
             ++run.glyphVersion;
             slot.glyphRun = &run;
+            slot.glyphPos = run.glyphShapes.size() - 1;
             ++L.totalGlyph;
             growRunBox(run, x0, y0, z0, x1, y1, z1);
             continue;
@@ -319,6 +403,7 @@ void buildSlot(LayerData& L, ShapeSlot& slot, bool yUp)
             // fönstret håller dess data resident och ritar den (scene3d.h).
             run.objects.push_back(slot.entry);
             slot.objectRun = &run;
+            slot.objectPos = run.objects.size() - 1;
             ++L.totalObjects;
             continue;
         }
@@ -390,12 +475,13 @@ bool writeInPlace(LayerData& L, ShapeSlot& slot, const Shape& s,
                     return false;   // delen bredde ut sig över flera chunkar
                 p = &q;
             }
-        if (!p || !near(*p->chunk, x0, y0, x1, y1, z0, z1))
+        if (!p || !near(chunkOf(*p), x0, y0, x1, y1, z0, z1))
             return false;
         InPlace ip;
         ip.piece = p;
         ip.box   = partBox(s, keys[i].kind, x0, y0, x1, y1, z0, z1, ip.margin);
-        const double ox = p->chunk->originX, oy = p->chunk->originY;
+        const ChunkData& gammal = chunkOf(*p);
+        const double     ox = gammal.originX, oy = gammal.originY;
         bool         ok = false;
         switch (keys[i].kind) {
         case PartKind::Line: {
@@ -405,7 +491,7 @@ bool writeInPlace(LayerData& L, ShapeSlot& slot, const Shape& s,
             break;
         }
         case PartKind::Line3: {
-            auto built = seededAt<gfx::LineChunk3>(ox, oy, p->chunk->originZ);
+            auto built = seededAt<gfx::LineChunk3>(ox, oy, gammal.originZ);
             buildLine3Part(s, built);
             ok = takeBuilt(built, p->vtxCount, p->idxCount, ip.lines3,
                            ip.indices);
@@ -439,7 +525,7 @@ bool writeInPlace(LayerData& L, ShapeSlot& slot, const Shape& s,
 
     for (InPlace& ip : plan) {
         Piece&     p = *ip.piece;
-        ChunkData& c = *p.chunk;
+        ChunkData& c = writable(p);
         switch (c.kind) {
         case PartKind::Line:
             std::copy(ip.lines.begin(), ip.lines.end(), c.lines.begin() + p.vtxFrom);
@@ -513,23 +599,184 @@ RunData::RunData() : id(nextId()) {}
 LayerData::LayerData() : id(nextId()) {}
 SceneData::SceneData() : id(nextId()) {}
 
-ImageAccount::ImageAccount(const Ctx& c, const std::shared_ptr<SceneData>& scene)
-    : cache_(scene ? c.images : nullptr)
+// ÖGONBLICKSBILDENS NODER (scene.h `publishScene`): samma id och livstecken,
+// och det ritningen läser. Körningens rutor (`cells`) och index är byggarens
+// respektive nodens egna; lagrets formlista, träffrutnät och CPU-räkning är
+// byggarens.
+RunData::RunData(const RunData& o, SnapshotTag)
+    : id(o.id), life(o.life), key(o.key), order(o.order), chunks(o.chunks),
+      glyphShapes(o.glyphShapes), glyphVersion(o.glyphVersion), minX(o.minX),
+      minY(o.minY), minZ(o.minZ), maxX(o.maxX), maxY(o.maxY), maxZ(o.maxZ),
+      hasBox(o.hasBox), objects(o.objects)
 {
-    if (cache_)
-        previous_ = cache_->beginAccount(
-            scene->id, std::weak_ptr<const void>(scene), scene->memoryBudget);
+    // Bilden ÄRVER körningens index (run_index.h) som en egen kopia: den förs
+    // ikapp med det som ändrats, i stället för att byggas från början för
+    // varje ny bild — och en äldre bild som ännu ritas behåller sitt.
+    const std::lock_guard<std::mutex> vakt(nodeLock(o.id));
+    if (o.index)
+        index = std::make_shared<RunIndex>(*o.index);
 }
 
-ImageAccount::~ImageAccount()
+LayerData::LayerData(const LayerData& o, SnapshotTag)
+    : id(o.id), life(o.life), name(o.name), visible(o.visible),
+      opacity(o.opacity), minZoom(o.minZoom), maxZoom(o.maxZoom),
+      collision(o.collision), snap(o.snap), order(o.order),
+      placement(o.placement), state(o.state), shapes3D(o.shapes3D),
+      passes(o.passes), groundShapes(o.groundShapes), views(o.views),
+      painter(o.painter), clip(o.clip), shapesVersion(o.shapesVersion),
+      textVersion(o.textVersion), totalIndices(o.totalIndices),
+      deadIndices(o.deadIndices), totalGlyph(o.totalGlyph),
+      deadGlyph(o.deadGlyph), totalObjects(o.totalObjects),
+      deadObjects(o.deadObjects)
 {
-    if (cache_)
-        cache_->endAccount(previous_);
+}
+
+SceneData::SceneData(const SceneData& o, SnapshotTag)
+    : id(o.id), life(o.life), yUp(o.yUp), programs(o.programs),
+      fallbackLogged(o.fallbackLogged), memoryBudget(o.memoryBudget),
+      clip(o.clip), invalidClip(o.invalidClip),
+      layerSetVersion(o.layerSetVersion)
+{
+}
+
+namespace {
+
+bool sameRenderState(const RenderState& a, const RenderState& b)
+{
+    return a.depth == b.depth && a.depthWrite == b.depthWrite &&
+           a.depthBias == b.depthBias && a.slopeBias == b.slopeBias &&
+           a.blend == b.blend && a.cull == b.cull;
+}
+
+// Gäller lagrets nod i bilden fortfarande? Formerna och texten på sina
+// versioner, egenskaperna fält för fält — sättarna i ritytan skriver dem
+// direkt, så de jämförs här i stället för att räknas.
+bool layerCurrent(const LayerData& L)
+{
+    if (!L.published || L.publishedShapes != L.shapesVersion ||
+        L.publishedText != L.textVersion)
+        return false;
+    const LayerData& s = *L.published;
+    return s.visible == L.visible && s.opacity == L.opacity &&
+           s.minZoom == L.minZoom && s.maxZoom == L.maxZoom &&
+           s.collision == L.collision && s.snap == L.snap && s.order == L.order &&
+           s.placement == L.placement && sameRenderState(s.state, L.state) &&
+           s.views == L.views && s.painter == L.painter &&
+           s.clip.version == L.clip.version;
+}
+
+// Lagrets nod i bilden — en ny när lagret ändrats. Det bilden delar med
+// byggaren fryses.
+std::shared_ptr<LayerData> snapshotOf(LayerData& L)
+{
+    if (layerCurrent(L))
+        return L.published;
+    auto bild = std::make_shared<LayerData>(L, SnapshotTag{});
+    bild->runs.reserve(L.runs.size());
+    for (const std::shared_ptr<RunData>& r : L.runs) {
+        for (const std::shared_ptr<ChunkData>& ch : r->chunks)
+            ch->frozen = true;
+        for (const std::shared_ptr<ShapeEntry>& e : r->glyphShapes)
+            e->frozen = true;
+        for (const std::shared_ptr<ShapeEntry>& e : r->objects)
+            e->frozen = true;
+        bild->runs.push_back(std::make_shared<RunData>(*r, SnapshotTag{}));
+    }
+    L.published       = bild;
+    L.publishedShapes = L.shapesVersion;
+    L.publishedText   = L.textVersion;
+    return bild;
+}
+
+// Skalets egna fält lika? (Programmen jämförs på version och antal.)
+bool shellCurrent(const SceneData& sc, const SceneData& s,
+                  const std::vector<std::shared_ptr<LayerData>>& lager)
+{
+    if (s.layers != lager || s.yUp != sc.yUp || s.memoryBudget != sc.memoryBudget ||
+        s.clip.version != sc.clip.version || s.invalidClip != sc.invalidClip ||
+        s.layerSetVersion != sc.layerSetVersion ||
+        s.programs.size() != sc.programs.size())
+        return false;
+    for (std::size_t i = 0; i < sc.programs.size(); ++i)
+        if (s.programs[i].version != sc.programs[i].version)
+            return false;
+    return true;
+}
+
+} // namespace
+
+std::vector<std::shared_ptr<ShapeEntry>> liveObjects(const LayerData& L)
+{
+    std::vector<std::shared_ptr<ShapeEntry>> ut;
+    for (const std::shared_ptr<RunData>& run : L.runs) {
+        if (!isObjectKind(run->key.kind))
+            continue;
+        for (const std::shared_ptr<ShapeEntry>& e : run->objects)
+            if (e->alive)
+                ut.push_back(e);
+    }
+    return ut;
+}
+
+std::shared_ptr<SceneData> publishScene(SceneData& sc)
+{
+    rebuildDirty(sc);
+    std::vector<std::shared_ptr<LayerData>> lager;
+    lager.reserve(sc.layers.size());
+    for (const std::shared_ptr<LayerData>& L : sc.layers)
+        lager.push_back(snapshotOf(*L));
+    if (sc.published && shellCurrent(sc, *sc.published, lager))
+        return sc.published;
+    auto bild    = std::make_shared<SceneData>(sc, SnapshotTag{});
+    bild->layers = std::move(lager);
+    // Skalets cacher följer med från förra bilden (de bär sina egna nycklar).
+    if (sc.published) {
+        const std::lock_guard<std::mutex> vakt(nodeLock(sc.id));
+        bild->boxCache     = sc.published->boxCache;
+        bild->terrainIndex = sc.published->terrainIndex;
+    }
+    sc.published = bild;
+    return bild;
 }
 
 std::uint64_t nextSceneId()
 {
     return nextId();
+}
+
+Life newLife()
+{
+    return std::make_shared<const char>();
+}
+
+Life newEntryLife()
+{
+    return Life(new char{}, [](const char* p) {
+        g_entryDeaths.fetch_add(1, std::memory_order_relaxed);
+        delete p;
+    });
+}
+
+gfx::Image* textureOf(CanvasResources* res, const Ctx* c, const ImageSource& src)
+{
+    if (res && res->threaded())
+        return res->refuseTexture();
+    return c && c->images ? c->images->get(src.texture(), *c) : nullptr;
+}
+
+std::mutex& nodeLock(std::uint64_t id)
+{
+    // Ett fast antal lås, valda på nodens id: en cache hålls låst bara medan
+    // den läses eller räknas om, och två noder som delar lås väntar som mest
+    // på varandras omräkning.
+    constexpr std::size_t kLocks = 64;
+    static std::mutex     lås[kLocks];
+    return lås[id % kLocks];
+}
+
+std::uint64_t shapeEntryDeaths()
+{
+    return g_entryDeaths.load(std::memory_order_relaxed);
 }
 
 std::size_t ChunkData::vertexCount() const
@@ -624,9 +871,7 @@ void appendShape(LayerData& L, Shape s, bool yUp)
     L.shapes3D += spatial(s) ? 1 : 0;
     L.passes += isPass(s) ? 1 : 0;
     L.groundShapes += paintsGround(s) ? 1 : 0;
-    L.slots.push_back(
-        ShapeSlot{std::make_shared<ShapeEntry>(ShapeEntry{std::move(s), true}),
-                  {}, nullptr});
+    L.slots.push_back(ShapeSlot{newEntry(std::move(s)), {}, nullptr});
     if (!L.dirty)   // ett märkt lager bygger allt på en gång före ritningen
         buildSlot(L, L.slots.back(), yUp);
 }
@@ -634,8 +879,8 @@ void appendShape(LayerData& L, Shape s, bool yUp)
 void removeShapeAt(LayerData& L, std::size_t i)
 {
     ++L.shapesVersion;
-    ShapeSlot& slot   = L.slots[i];
-    slot.entry->alive = false;
+    ShapeSlot& slot      = L.slots[i];
+    writable(slot).alive = false;
     L.shapes3D -= spatial(slot.entry->shape) ? 1 : 0;
     L.passes -= isPass(slot.entry->shape) ? 1 : 0;
     L.groundShapes -= paintsGround(slot.entry->shape) ? 1 : 0;
@@ -645,12 +890,13 @@ void removeShapeAt(LayerData& L, std::size_t i)
         for (Piece& p : slot.pieces) {
             if (p.idxCount == 0)
                 continue;
-            std::vector<std::uint32_t>& idx = p.chunk->indices;
+            ChunkData&                  c   = writable(p);
+            std::vector<std::uint32_t>& idx = c.indices;
             const auto first = static_cast<std::ptrdiff_t>(p.idxFrom);
             const auto last  = static_cast<std::ptrdiff_t>(p.idxFrom + p.idxCount);
             std::fill(idx.begin() + first, idx.begin() + last,
                       static_cast<std::uint32_t>(p.vtxFrom));
-            p.chunk->note(0, 0, p.idxFrom, p.idxCount);
+            c.note(0, 0, p.idxFrom, p.idxCount);
             L.deadIndices += p.idxCount - p.dead;
         }
         if (slot.glyphRun) {
@@ -681,8 +927,9 @@ void replaceShapeAt(LayerData& L, std::size_t i, Shape s, bool yUp)
         // Samma delar med samma nycklar ⇒ samma körningar, och då går formen
         // att skriva på plats — ordningen i lagret består.
         if (sameKeys(oldKeys, newKeys) && writeInPlace(L, slot, s, newKeys, yUp)) {
-            slot.entry->shape = std::move(s);
-            ++slot.entry->version;
+            ShapeEntry& e = writable(slot);
+            setEntryShape(e, std::move(s));
+            ++e.version;
             if (slot.glyphRun)
                 ++slot.glyphRun->glyphVersion;
             if (overDead(L))   // en krympt form lämnar döda index efter sig
@@ -690,8 +937,9 @@ void replaceShapeAt(LayerData& L, std::size_t i, Shape s, bool yUp)
             return;
         }
     }
-    slot.entry->shape = std::move(s);
-    ++slot.entry->version;
+    ShapeEntry& e = writable(slot);
+    setEntryShape(e, std::move(s));
+    ++e.version;
     L.dirty = true;
 }
 
@@ -729,9 +977,7 @@ void assignShapes(LayerData& L, std::vector<Shape> shapes)
         L.shapes3D += spatial(s) ? 1 : 0;
         L.passes += isPass(s) ? 1 : 0;
         L.groundShapes += paintsGround(s) ? 1 : 0;
-        L.slots.push_back(ShapeSlot{
-            std::make_shared<ShapeEntry>(ShapeEntry{std::move(s), true}), {},
-            nullptr});
+        L.slots.push_back(ShapeSlot{newEntry(std::move(s)), {}, nullptr});
     }
     L.dirty = true;   // allt byggs på en gång före nästa ritning
 }
@@ -739,6 +985,10 @@ void assignShapes(LayerData& L, std::vector<Shape> shapes)
 void touchText(LayerData& L)
 {
     ++L.textVersion;   // draperingens markstämpel (drape.cpp)
+    // De översatta etiketterna löses upp i det nya språket.
+    for (ShapeSlot& slot : L.slots)
+        if (slot.entry->source)
+            writable(slot).shape = slot.entry->source->withResolvedText();
     for (const std::shared_ptr<RunData>& r : L.runs)
         if (isGlyphKind(r->key.kind))
             ++r->glyphVersion;
@@ -804,12 +1054,13 @@ bool layerInView(const LayerData& L, int view)
     return std::binary_search(L.views.begin(), L.views.end(), view);
 }
 
-const std::optional<Box3>& objectBox(const ShapeEntry& e)
+std::optional<Box3> objectBox(const ShapeEntry& e)
 {
     // Lådan beror på formen (platsens version) och meshens lägen (meshens
     // version — `setPositions`); instansmängden och molnet ändras aldrig.
     const std::shared_ptr<MeshData>& d    = MeshAccess::data(e.shape.mesh());
-    const std::uint64_t              mesh = d ? d->version : 0;
+    const std::uint64_t              mesh = d ? d->version.load() : 0;
+    const std::lock_guard<std::mutex> vakt(nodeLock(e.id));
     if (!e.boxCached || e.boxVersion != e.version || e.boxMesh != mesh) {
         e.box        = objectBox(e.shape);
         e.boxVersion = e.version;
@@ -833,14 +1084,21 @@ std::optional<Box3> sceneBox(const SceneData& sc, int view)
         if (räknas)
             k.mix(L->shapesVersion);
     }
-    auto cache = std::find_if(sc.boxCache.begin(), sc.boxCache.end(),
-                              [view](const SceneData::BoxCache& c) {
-                                  return c.view == view;
-                              });
-    if (cache != sc.boxCache.end() && cache->key == k.h)
-        return cache->box;
-    if (cache == sc.boxCache.end())
-        cache = sc.boxCache.insert(sc.boxCache.end(), SceneData::BoxCache{view, 0, {}});
+    // Skalets cache — en bild kan frågas av två trådar, så den läses och
+    // skrivs under skalets lås; lådan räknas utanför det (formplatsernas
+    // cacher har sina egna lås).
+    const auto platsen = [&sc, view] {
+        return std::find_if(sc.boxCache.begin(), sc.boxCache.end(),
+                            [view](const SceneData::BoxCache& c) {
+                                return c.view == view;
+                            });
+    };
+    {
+        const std::lock_guard<std::mutex> vakt(nodeLock(sc.id));
+        const auto cache = platsen();
+        if (cache != sc.boxCache.end() && cache->key == k.h)
+            return cache->box;
+    }
 
     std::optional<Box3> box;
     const auto add = [&box](double x0, double y0, double z0, double x1,
@@ -869,7 +1127,7 @@ std::optional<Box3> sceneBox(const SceneData& sc, int view)
                 // sina lägen sedan den lades till (scene3d.h).
                 for (const std::shared_ptr<ShapeEntry>& e : run->objects)
                     if (e->alive)
-                        if (const std::optional<Box3>& b = objectBox(*e))
+                        if (const std::optional<Box3> b = objectBox(*e))
                             add(b->min.x, b->min.y, b->min.z, b->max.x,
                                 b->max.y, b->max.z);
                 continue;
@@ -880,6 +1138,10 @@ std::optional<Box3> sceneBox(const SceneData& sc, int view)
                         ch->maxZ);
         }
     }
+    const std::lock_guard<std::mutex> vakt(nodeLock(sc.id));
+    auto cache = platsen();
+    if (cache == sc.boxCache.end())
+        cache = sc.boxCache.insert(sc.boxCache.end(), SceneData::BoxCache{view, 0, {}});
     cache->key = k.h;
     cache->box = box;
     return box;
@@ -996,7 +1258,8 @@ gfx::Image* imageOf(const PaintContext& f, const ImageSource& src)
     switch (src.kind()) {
     case ImageSource::Kind::Asset:   return f.c->images->get(src.asset());
     case ImageSource::Kind::Bitmap:  return f.c->images->get(src.bitmap());
-    case ImageSource::Kind::Texture: return f.c->images->get(src.texture(), *f.c);
+    case ImageSource::Kind::Texture:
+        return textureOf(f.res, f.c, src);
     case ImageSource::Kind::Icon:    return f.c->images->get(src, *f.c);
     case ImageSource::Kind::None:    break;
     }
@@ -1076,11 +1339,16 @@ bool chunkVisible(const PaintContext& f, const RunData& run, const ChunkData& ch
                       margin);
 }
 
-// Körningens chunkar: alltid synkade (resident), ritade när `draw` och
-// synliga i vyn — med renderläget `state` (marken: inget djup).
-void drawChunks(const PaintContext& f, RunData& run, float op, bool draw,
-                const gfx::RenderState& state)
+// Körningens chunkar ritade när `draw` och synliga i vyn — med renderläget
+// `state` (marken: inget djup). Bara de som kan synas frågas (run_index.h),
+// och den som syns synkas här: i 2D-vägen är det uppladdningen av det
+// synliga, i 3D-målet gjorde förberedelsen den (`prepareRun`). Det som inte
+// syns hålls resident av `prepareUploads`, inom ritytans budget.
+void drawChunks(const PaintContext& f, RunData& run, std::uint64_t shapesVersion,
+                float op, bool draw, const gfx::RenderState& state)
 {
+    if (!draw)
+        return;
     const RunKey& k          = run.key;
     const bool    worldWidth = isLineKind(k.kind) && k.unit == Unit::World;
     const float   unitPx     = pxPerUnit(f, f.world, k.unit);
@@ -1090,23 +1358,21 @@ void drawChunks(const PaintContext& f, RunData& run, float op, bool draw,
     RunImage          bild;
     const gfx::Image* ramp    = nullptr;
     bool              hämtat  = false, saknas = false;
-    for (const std::shared_ptr<ChunkData>& ch : run.chunks) {
-        if (ch->indices.empty() || !ch->hasBox)
+    std::vector<std::uint32_t> kandidater;
+    chunkCandidates(f, run, shapesVersion, kCullSlackPx, kandidater);
+    for (std::uint32_t nr : kandidater) {
+        const std::shared_ptr<ChunkData>& ch = run.chunks[nr];
+        if (saknas || !chunkVisible(f, run, *ch))
             continue;
-        // RESIDENT FÖRST, GALLRAT SEDAN: varje chunk i ett synligt lager
-        // finns på GPU:n, också den som ligger utanför bild — en panorering
-        // in över den ska rita, inte ladda upp (kameran ändrar
-        // aldrig innehållet). Gallringen sparar rit-anropet.
         const CanvasResources::GpuChunk* g = f.res->sync(ch);
-        if (!g || !draw || saknas || !chunkVisible(f, run, *ch))
+        if (!g)
             continue;
         if (!hämtat) {
             hämtat = true;
             if (k.kind == PartKind::Image)
                 bild = runImage(f, k.image);
             ramp   = k.gradient ? f.res->ramp(k.paint.stops()) : nullptr;
-            // Ogiltig, eller väntar på bildcachens tak — nästa frame; resten
-            // av chunkarna synkas ändå.
+            // Ogiltig, eller väntar på bildcachens tak — nästa frame.
             saknas = (k.kind == PartKind::Image && !bild.ok()) || (k.gradient && !ramp);
             if (saknas)
                 continue;
@@ -1343,13 +1609,13 @@ bool zoomInRange(double minZoom, double maxZoom, double zoom)
 
 namespace {
 
-// 3D-målets förberedelse av en körning: chunkarna
-// residenta (de har ingen budget), och för ett ritat lager rampen, passens
-// program och markörernas bild hämtade — det som laddar upp sker då före
-// målet. Föremålen och bildkörningarnas bilder laddas upp av
-// `prepareUploads`, synligt först. Ritningen hittar allt i cacharna.
+// 3D-målets förberedelse av en körning: de SYNLIGA chunkarna synkade, och för
+// ett ritat lager rampen, passens program och markörernas bild hämtade — det
+// som laddar upp sker då före målet. Föremålen, bildkörningarnas bilder och
+// chunkarna utanför bild laddas upp av `prepareUploads`, synligt först.
+// Ritningen hittar allt i cacharna.
 void prepareRun(const PaintContext& f, const SceneData& sc, RunData& run,
-                bool draw)
+                std::uint64_t shapesVersion, bool draw)
 {
     const RunKey& k = run.key;
     if (isObjectKind(k.kind))
@@ -1367,11 +1633,15 @@ void prepareRun(const PaintContext& f, const SceneData& sc, RunData& run,
             imageOf(f, k.image);   // bildmarkörerna
         return;
     }
-    if (draw && k.gradient)
+    if (!draw)
+        return;
+    if (k.gradient)
         f.res->ramp(k.paint.stops());
-    for (const std::shared_ptr<ChunkData>& ch : run.chunks)
-        if (!ch->indices.empty() && ch->hasBox)
-            f.res->sync(ch);
+    std::vector<std::uint32_t> kandidater;
+    chunkCandidates(f, run, shapesVersion, kCullSlackPx, kandidater);
+    for (std::uint32_t nr : kandidater)
+        if (chunkVisible(f, run, *run.chunks[nr]))
+            f.res->sync(run.chunks[nr]);
 }
 
 bool has(GroundPart parts, GroundPart p)
@@ -1443,7 +1713,7 @@ LayerFrame prepareLayers(const PaintContext& f,
             lf.groundDrawn = true;
         for (const std::shared_ptr<RunData>& run : L.runs) {
             if (residentFirst)
-                prepareRun(f, sc, *run, draw);
+                prepareRun(f, sc, *run, L.shapesVersion, draw);
             if (!isGlyphKind(run->key.kind))
                 continue;
             const CanvasResources::GlyphBuild& b =
@@ -1473,25 +1743,54 @@ void prepareUploads(const PaintContext& f, const SceneData& sc)
     // KÖN: det synliga i vyn med avståndet från ögat (ritningens gallring —
     // `chunkVisible`, scene3d.cpp:s `queueObjects`) och resten i lagrens
     // ordning. Föremålen och bildkörningarna delar budgeten, så de delar kön.
+    //
+    // RESTEN — det som inte syns — hålls RESIDENT INOM RITYTANS BUDGET: en
+    // panorering in över det ska rita, inte ladda upp. Lagrets rest görs om
+    // bara när dess märke (resources.h `ResidentMark`) är inaktuellt —
+    // formerna, meshernas lägen, budgeten eller om lagret ritas har ändrats
+    // — och bara medan ritytans konto har plats
+    // (`MemoryLedger::underBudget`). En stilla bild frågar alltså bara det
+    // som syns, och det som vräkts över budgeten laddas inte upp igen förrän
+    // det ritas.
     std::vector<UploadItem> synligt, resten;
-    const bool              öga = f.view3D.has_value();
+    std::vector<std::shared_ptr<ChunkData>>                 chunkRest;
+    std::vector<std::pair<CanvasResources::ResidentMark*, CanvasResources::ResidentMark>> märken;
+    MemoryLedger&       liggare = f.res->ledger();
+    const std::size_t   budget  = liggare.budgetFor(sc.memoryBudget);
+    const std::uint64_t meshar  = meshGeneration();
+    const bool          öga = f.view3D.has_value();
     for (const std::shared_ptr<LayerData>& Lp : sc.layers) {
         const LayerData& L = *Lp;
         if (!L.visible || (f.view != kMainView && !layerInView(L, f.view)))
             continue;
         const bool draw = layerDrawn(f, L);
+        CanvasResources::ResidentMark&      märke = f.res->resident(Lp);
+        const CanvasResources::ResidentMark nu{Lp->life, L.shapesVersion, meshar, budget, draw, true};
+        const bool aktuellt = märke.done && märke.shapes == nu.shapes &&
+                              märke.meshes == nu.meshes && märke.budget == nu.budget &&
+                              märke.drawn == nu.drawn;
+        const bool rest = !aktuellt && liggare.underBudget();
+        if (!aktuellt)
+            märken.emplace_back(&märke, nu);
         for (const std::shared_ptr<RunData>& run : L.runs) {
             const RunKey& k = run->key;
             if (isObjectKind(k.kind)) {
-                queueObjects(f, *run, draw, synligt, resten);
+                queueObjects(f, *run, L.shapesVersion, draw, rest, synligt, resten);
                 continue;
             }
+            if (rest && !isGlyphKind(k.kind) && k.kind != PartKind::Pass)
+                for (const std::shared_ptr<ChunkData>& ch : run->chunks)
+                    if (!ch->indices.empty() && ch->hasBox)
+                        chunkRest.push_back(ch);
             if (!draw || k.kind != PartKind::Image)
                 continue;
             bool   syns    = false;
             double närmast = 0.0;
-            for (const std::shared_ptr<ChunkData>& ch : run->chunks) {
-                if (ch->indices.empty() || !ch->hasBox || !chunkVisible(f, *run, *ch))
+            std::vector<std::uint32_t> kandidater;
+            chunkCandidates(f, *run, L.shapesVersion, kCullSlackPx, kandidater);
+            for (std::uint32_t nr : kandidater) {
+                const std::shared_ptr<ChunkData>& ch = run->chunks[nr];
+                if (!chunkVisible(f, *run, *ch))
                     continue;
                 const double d =
                     öga ? distanceToBox(Point3{f.view3D->eye.x, f.view3D->eye.y,
@@ -1502,20 +1801,43 @@ void prepareUploads(const PaintContext& f, const SceneData& sc)
                 närmast = syns ? std::min(närmast, d) : d;
                 syns    = true;
             }
-            (syns ? synligt : resten).push_back(UploadItem{närmast, nullptr, run.get(), true});
+            if (syns)
+                synligt.push_back(UploadItem{närmast, nullptr, run.get(), true});
+            else if (rest)
+                resten.push_back(UploadItem{0.0, nullptr, run.get(), true});
         }
     }
     std::stable_sort(synligt.begin(), synligt.end(),
                      [](const UploadItem& a, const UploadItem& b) {
                          return a.distance < b.distance;
                      });
-    for (const std::vector<UploadItem>* kö : {&synligt, &resten})
-        for (const UploadItem& u : *kö) {
-            if (u.object)
-                prepareObject(f, sc, *u.object, u.draw);
-            else if (u.imageRun)
-                runImage(f, u.imageRun->key.image);
-        }
+    for (const UploadItem& u : synligt) {
+        if (u.object)
+            prepareObject(f, sc, *u.object, u.draw);
+        else if (u.imageRun)
+            runImage(f, u.imageRun->key.image);
+    }
+    // Resten så länge kontot har plats: chunkarna (de har ingen
+    // uppladdningsbudget), sedan föremålen och bildkörningarna.
+    for (const std::shared_ptr<ChunkData>& ch : chunkRest) {
+        if (!liggare.underBudget())
+            break;
+        f.res->sync(ch);
+    }
+    for (const UploadItem& u : resten) {
+        if (!liggare.underBudget())
+            break;
+        if (u.object)
+            prepareObject(f, sc, *u.object, u.draw);
+        else if (u.imageRun)
+            runImage(f, u.imageRun->key.image);
+    }
+    // MÄRKENA: lagrets rest är gjord för det här läget — utom när något fick
+    // vänta på framens uppladdningsbudget; då görs den om i nästa bild, som
+    // fönstret begär.
+    if (!(f.c->images && f.c->images->uploadsDeferred()))
+        for (auto& [märke, nu] : märken)
+            *märke = nu;
 }
 
 void drawGround(const PaintContext& f, const SceneData& sc,
@@ -1555,9 +1877,9 @@ void drawGround(const PaintContext& f, const SceneData& sc,
                 }
             } else if (isObjectKind(run->key.kind)) {
                 if (has(parts, GroundPart::Geometry))
-                    drawObjects(fl, sc, lf, *run, op, draw, mark);
+                    drawObjects(fl, sc, lf, *run, L.shapesVersion, op, draw, mark);
             } else if (mark2D) {
-                drawChunks(fl, *run, op, draw, mark);
+                drawChunks(fl, *run, L.shapesVersion, op, draw, mark);
             }
         }
         // MÅLAREN efter lagrets former, på marken utan djup — också med
@@ -1580,7 +1902,7 @@ void drawTerrain(const PaintContext& f, const SceneData& sc, const LayerFrame& l
         const PaintContext     fl   = inLayer(f, lf, li);
         for (const std::shared_ptr<RunData>& run : L.runs)
             if (isObjectKind(run->key.kind))
-                drawObjects(fl, sc, lf, *run, op, draw, geo);
+                drawObjects(fl, sc, lf, *run, L.shapesVersion, op, draw, geo);
     }
 }
 
@@ -1605,9 +1927,9 @@ void drawWorld(const PaintContext& f, const SceneData& sc, const LayerFrame& lf,
             } else if (isObjectKind(run->key.kind)) {
                 // Terrängens meshar ritas med marken (`drawTerrain`).
                 if (lf.placement[li] != LayerPlacement::Terrain)
-                    drawObjects(fl, sc, lf, *run, op, draw, geo);
+                    drawObjects(fl, sc, lf, *run, L.shapesVersion, op, draw, geo);
             } else {
-                drawChunks(fl, *run, op, draw, geo);
+                drawChunks(fl, *run, L.shapesVersion, op, draw, geo);
             }
         }
         // MÅLAREN efter lagrets former, med lagrets renderläge som start —

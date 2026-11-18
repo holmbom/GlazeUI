@@ -66,6 +66,10 @@ const Theme::Colors& osIconColors();
 // väckning och samma stängda kö efter nedstängningen som `App::post`, men
 // bara från UI-tråden och aldrig en apps väg: appen postar med `app().post`.
 void postFrameWork(std::function<void()> fn);
+// Samma ramkö FRÅN EN ANNAN TRÅD — ritytans renderingstråd säger till när en
+// bild är klar. Kön tas under sitt lås och pumpen väcks; efter appens
+// stängning köas ingenting. Appen måste finnas (ett fönster är öppet).
+void postFrameWorkFromThread(std::function<void()> fn);
 
 // APPENS HANDLER-EPOK — stegas före och efter varje körd handler (`Handler`,
 // widget.h `detail::HandlerCall`) och varje postad funktion i appens kö, när
@@ -165,17 +169,19 @@ public:
     // dpi) loggas och ändrar ingenting.
     void setDisplayCalibration(const std::string& id, float pxPerMm);
 
-    // RITYTANS MINNESBUDGET — taket i BYTE för de bilder
-    // ur pixlar (`glaze::Bitmap`) ett fönster håller som texturer; förval
-    // 256 MB. Talet är FÖRVALET PER RITYTA (en rityta med
-    // `Canvas::setMemoryBudget` har sitt eget) och taket för fönstrets bilder
-    // UTANFÖR ritytorna (widgetarna); varje fönster har sina egna texturer,
-    // och flera ritytor med förval kan tillsammans överstiga talet. Över
-    // taket släpps de bilder som legat oritade längst (LRU) i början av
-    // fönstrets nästa frame — aldrig mitt i en — och en släppt bild laddas
-    // upp igen när den ritas nästa gång. Det som ritades i förra framen
-    // släpps aldrig, så ett tak som det SYNLIGA överskrider hålls inte
-    // (loggas en gång). App-global som användarskalan; sättaren lagrar.
+    // RITYTANS MINNESBUDGET — taket i BYTE för det en rityta håller: bilder,
+    // render-texturer, draperingar, chunkarnas buffertar, meshar, instanser och
+    // punktmoln på GPU:n, 3D-målen — och CPU-originalen (meshens lägen,
+    // molnets punkter, bildernas pixlar); förval 1 GiB. Talet är FÖRVALET PER
+    // RITYTA (en rityta med `Canvas::setMemoryBudget` har sitt eget) och taket
+    // för fönstrets bilder UTANFÖR ritytorna (widgetarna); varje fönster har
+    // sina egna GPU-resurser, och flera ritytor med förval kan tillsammans
+    // överstiga talet. Över taket släpps det på GPU:n som legat oanvänt längst
+    // i början av fönstrets nästa frame — aldrig mitt i en — och det släppta
+    // laddas upp igen när det ritas nästa gång. Det som användes i förra
+    // framen släpps aldrig, och CPU-originalen aldrig, så ett tak som det
+    // SYNLIGA eller originalen överskrider hålls inte (loggas en gång).
+    // App-global som användarskalan; sättaren lagrar.
     void        setCanvasMemoryBudget(std::size_t bytes);
     std::size_t canvasMemoryBudget() const { return canvasBudget_; }
 
@@ -339,6 +345,7 @@ private:
     friend void detail::shutdownApp(const void* anchor);
     friend const Theme::Colors& detail::osIconColors();
     friend void detail::postFrameWork(std::function<void()> fn);
+    friend void detail::postFrameWorkFromThread(std::function<void()> fn);
     friend const detail::InputMap& detail::canvasInput();
     friend bool detail::appWheelInverted(InputDevice d, bool horizontal);
     friend ScrollbarVisibility detail::appScrollbarVisibility();
@@ -508,7 +515,7 @@ private:
     std::uint64_t eventSeq_ = 0;
     void          noteEvent(gfx::EventType t);
 
-    std::size_t canvasBudget_ = std::size_t{256} << 20;   // per fönster
+    std::size_t canvasBudget_ = std::size_t{1} << 30;     // per rityta
     std::size_t uploadBudget_ = std::size_t{16} << 20;    // per fönster och frame
 
     // RULLNINGENS RIKTNING [mus/styrplatta][lodrätt/sidled] och RITYTORNAS

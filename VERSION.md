@@ -21,6 +21,20 @@ versionen sätts.
 
 ## Nästa
 
+## 0.10.0
+
+- **New** — ritytans minnesbudget (`Canvas::setMemoryBudget`, `App::setCanvasMemoryBudget`) räknar allt ritytan håller: bilder, draperingar, lagrens buffertar, meshar, instanser, punktmoln, textbyggen, 3D-mål och CPU-originalen. Över budgeten vräks det på GPU:n som inte användes när ritytan senast ritade, och laddas upp igen när det syns. Förvalet är 1 GiB per rityta (var 256 MB för bilderna).
+- **New** — `Canvas::memoryUsed()` svarar med det ritytan håller på GPU:n och CPU:n, och profileraren räknar `Evictions` och `EvictedBytes`.
+- **New** — ritningen och förberedelsen frågar ett rumsligt träd per körning efter det som kan synas, i stället för att pröva varje chunk och föremål. Med 100 000 föremål i ett lager och ett litet synligt utsnitt gick en kameraändring från 211 ms till 2 ms (Debug).
+- **Fix** — det som inte syns hålls resident bara medan budgeten räcker, och en stilla bild rör inte längre det som ligger utanför bild.
+- **New** — ritytans scen ritas av en RENDERINGSTRÅD per fönster, med egen grafikkontext: uppladdningen, etiketterna, draperingarna och ritningen går inte längre i UI-tråden, som bara lägger den senast färdiga bilden på plats och aldrig väntar. En stilla scen ritar ingenting. `GLAZE_CANVAS_THREAD=0` i miljön stänger av det (fönstret ritar scenen själv, som förut); ett offscreen-fönster och en backend utan scen-kontext gör det alltid.
+- **New** — `onPaint` och `onPaintLayer` körs en gång per ritad bild i UI-tråden och spelas in; det de ritar spelas upp av renderingstråden. `onPaintOverlay` ritas som förut, ovanpå bilden.
+- **New** — ett barn förankrat på ritytan (`setChildAnchor`) placeras efter kameran i den bild som VISAS, så det sitter fast i scenen medan kameran rör sig.
+- **New** — utskriftens sidor (`PrintJob`) ritas av renderingstråden; sidans ritfunktion körs en gång per sida och spelas in, också när sidan ritas om för att bilder väntar på uppladdningen.
+- **New** — `Canvas::renderToBitmap(w, h, kamera, done)`: en form till, som inte väntar — bilden ritas av renderingstråden och `done` körs i pumpens svans med den, en gång. Formen som returnerar bilden står kvar som den var.
+- **New** — en rityta med en `RenderTexture` i en form ritar scenen i UI-tråden som förut (målningen är appens kod); alla andra ritas av renderingstråden. Skärmfrågorna (`toWorld`, `toLocal`, `project`, `hitTest`, musens `world`) svarar för den bild som syns.
+- **Fix** — ritningens och förberedelsens rumsliga träd förs ikapp med det som ändrats i stället för att byggas om för varje ändring i lagret.- **Fix** — ett föremål utanför bild räknades som använt i varje bild och vräktes därför aldrig över ritytans minnesbudget.
+
 ## 0.9.4
 
 - **Fix** — X11: fönstren hade en svart ram och svarta rundade hörn (och ett transparent fönster var svart). Den genomskinliga grafikkonfigurationen valdes utan hänsyn till fönstertypens djup; nu väljs en med 32 bitars djup.

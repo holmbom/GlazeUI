@@ -16,6 +16,7 @@
 #    include <windows.h>
 #    include <dxgi1_4.h>
 #    include <psapi.h>
+#    include <shellapi.h>   // CommandLineToArgvW — efter windows.h
 #elif defined(__APPLE__)
 #    include <mach/mach.h>
 #    include <sys/resource.h>
@@ -45,6 +46,30 @@ void fel(const std::string& vad)
 {
     std::printf("  FEL  %s\n", vad.c_str());
     ++g_fel;
+}
+
+std::vector<std::string> argumenten(int argc, char** argv)
+{
+#if defined(_WIN32)
+    (void)argc;
+    (void)argv;
+    std::vector<std::string> ut;
+    int                      n = 0;
+    LPWSTR*                  w = CommandLineToArgvW(GetCommandLineW(), &n);
+    if (!w)
+        return ut;
+    for (int i = 0; i < n; ++i) {
+        const int   len = WideCharToMultiByte(CP_UTF8, 0, w[i], -1, nullptr, 0, nullptr, nullptr);
+        std::string s(static_cast<std::size_t>(std::max(len, 1)) - 1, '\0');
+        if (len > 1)
+            WideCharToMultiByte(CP_UTF8, 0, w[i], -1, s.data(), len, nullptr, nullptr);
+        ut.push_back(std::move(s));
+    }
+    LocalFree(w);
+    return ut;
+#else
+    return std::vector<std::string>(argv, argv + argc);
+#endif
 }
 
 std::uint64_t blanda(std::uint64_t x)
@@ -620,12 +645,17 @@ void Session::nästa()
         g_steg->minne    = läsMinne();
         g_steg->bildcache = 0;
         g_steg->chunkar   = 0;
+        g_steg->kontoGpu  = 0;
+        g_steg->kontoCpu  = 0;
         for (const MättFönster& m : fönster_) {
             if (!m.fönster->isOpen())
                 continue;
             const glaze::Ctx c = m.yta->behaviorCtx();
             g_steg->bildcache += c.images ? c.images->canvasBytes() : 0;
             g_steg->chunkar += c.canvas ? c.canvas->chunkCount() : 0;
+            const glaze::CanvasMemoryUse u = m.yta->memoryUsed();
+            g_steg->kontoGpu += u.gpu;
+            g_steg->kontoCpu += u.cpu;
         }
         g_steg->uppTotalt = uppTotalt_;
         const Energi e    = läsEnergi();
@@ -734,11 +764,13 @@ void Session::skrivSteg(const StegMått& m) const
                            "/s").c_str()
                         : "");
     std::printf("       minne  process %s (stegets topp %s, processens %s, resident %s)  GPU %s  "
-                "bildcache %s  uppladdat totalt %s  chunkar %zu\n",
+                "bildcache %s  uppladdat totalt %s  chunkar %zu  ritytornas konton GPU %s + CPU %s\n",
                 mb(m.minne.process).c_str(), mb(m.toppSteg).c_str(), mb(m.minne.topp).c_str(),
                 mb(m.minne.arbete).c_str(), mb(m.minne.gpu).c_str(),
                 mb(static_cast<double>(m.bildcache) / 1.0e6).c_str(),
-                mb(static_cast<double>(m.uppTotalt) / 1.0e6).c_str(), m.chunkar);
+                mb(static_cast<double>(m.uppTotalt) / 1.0e6).c_str(), m.chunkar,
+                mb(static_cast<double>(m.kontoGpu) / 1.0e6).c_str(),
+                mb(static_cast<double>(m.kontoCpu) / 1.0e6).c_str());
     if (profil_)
         skrivProfil(m);
     std::fflush(stdout);

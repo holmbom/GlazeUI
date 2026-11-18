@@ -6,6 +6,8 @@
 
 #include <EGL/egl.h>
 
+#include <mutex>
+
 #include "gfx/platform.h"
 
 namespace gfx {
@@ -71,11 +73,18 @@ PFNGLGETACTIVEATTRIBPROC                pglGetActiveAttrib;
 PFNGLGETATTRIBLOCATIONPROC              pglGetAttribLocation;
 PFNGLGETACTIVEUNIFORMPROC               pglGetActiveUniform;
 PFNGLGETACTIVEUNIFORMSIVPROC            pglGetActiveUniformsiv;
+PFNGLFENCESYNCPROC                      pglFenceSync;
+PFNGLCLIENTWAITSYNCPROC                 pglClientWaitSync;
+PFNGLDELETESYNCPROC                     pglDeleteSync;
 
+// Laddarna anropas av varje renderare som skapas — också scen-kontextens, på
+// dess egen tråd — så var och en går under sitt lås.
 bool loadGlFunctions()
 {
-    static bool loaded = false;
-    static bool ok     = false;
+    static std::mutex                 lås;
+    static bool                       loaded = false;
+    static bool                       ok     = false;
+    const std::lock_guard<std::mutex> vakt(lås);
     if (loaded)
         return ok;
     loaded = true;
@@ -152,6 +161,9 @@ bool loadGlFunctions()
         GLZ_LOAD(pglGetAttribLocation, "glGetAttribLocation")
         GLZ_LOAD(pglGetActiveUniform, "glGetActiveUniform")
         GLZ_LOAD(pglGetActiveUniformsiv, "glGetActiveUniformsiv")
+        GLZ_LOAD(pglFenceSync, "glFenceSync")
+        GLZ_LOAD(pglClientWaitSync, "glClientWaitSync")
+        GLZ_LOAD(pglDeleteSync, "glDeleteSync")
         return true;
     };
 #undef GLZ_LOAD
@@ -167,8 +179,10 @@ PFNGLGETQUERYOBJECTUI64VPROC pglGetQueryObjectui64v;
 
 bool loadGlTimerQueries()
 {
-    static bool loaded = false;
-    static bool ok     = false;
+    static std::mutex                 lås;
+    static bool                       loaded = false;
+    static bool                       ok     = false;
+    const std::lock_guard<std::mutex> vakt(lås);
     if (loaded)
         return ok;
     loaded = true;

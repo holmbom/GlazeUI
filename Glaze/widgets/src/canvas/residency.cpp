@@ -162,11 +162,93 @@ std::unique_ptr<gfx::GpuBuffer> newBuffer(gfx::Renderer& r, gfx::BufferKind k,
     return b;
 }
 
+// Posternas SLAG i liggaren — också ordningen bland poster som användes i
+// samma bild.
+constexpr int kChargeMesh      = 0;
+constexpr int kChargeInstances = 1;
+constexpr int kChargeCloud     = 2;
+
+// Kopiornas byte på GPU:n — buffertarna, som skapas i full storlek.
+std::size_t copyBytes(const ObjectResidency::GpuMesh& g)
+{
+    std::size_t n = 0;
+    for (const ObjectResidency::GpuMesh::Segment& s : g.segments)
+        n += bufferBytes(s.vb.get()) + bufferBytes(s.ib.get());
+    return n;
+}
+std::size_t copyBytes(const ObjectResidency::GpuInstances& g)
+{
+    return bufferBytes(g.buf.get());
+}
+std::size_t copyBytes(const ObjectResidency::GpuCloud& g)
+{
+    std::size_t n = 0;
+    for (const std::unique_ptr<gfx::GpuBuffer>& b : g.chunks)
+        n += bufferBytes(b.get());
+    return n;
+}
+
+// VRÄKNINGEN av en kopia: buffertarna släpps NU (mellan två bilder), kopian
+// märks, och platserna som håller den ser märket när de frågas.
+void release(ObjectResidency::GpuMesh& g)
+{
+    g.segments.clear();
+    g.evicted = true;
+}
+void release(ObjectResidency::GpuInstances& g)
+{
+    g.buf.reset();
+    g.evicted = true;
+}
+void release(ObjectResidency::GpuCloud& g)
+{
+    g.chunks.clear();
+    g.evicted = true;
+}
+
 } // namespace
 
-ObjectResidency::ObjectResidency(gfx::Renderer& r) : r_(&r) {}
+ObjectResidency::ObjectResidency(gfx::Renderer& r, MemoryLedger& ledger)
+    : r_(&r), ledger_(&ledger)
+{
+    ledger_->add(*this);
+}
 
-ObjectResidency::~ObjectResidency() = default;
+ObjectResidency::~ObjectResidency()
+{
+    eachCharge([this](Charge& c, const ChargeKey&, bool) { ledger_->drop(c); });
+    ledger_->remove(*this);
+}
+
+// ------------------------------------------------------------ liggarens ägare
+
+void ObjectResidency::eachCharge(const Visit& visit)
+{
+    for (auto& [id, g] : meshes_)
+        visit(g->charge, ChargeKey{kChargeMesh, id, 0, 0}, true);
+    for (auto& [id, g] : instances_)
+        visit(g->charge, ChargeKey{kChargeInstances, id, 0, 0}, true);
+    for (auto& [id, g] : clouds_)
+        visit(g->charge, ChargeKey{kChargeCloud, id, 0, 0}, true);
+}
+
+void ObjectResidency::evict(const ChargeKey& key)
+{
+    const auto drop = [this, &key](auto& m) {
+        const auto it = m.find(key.id);
+        if (it == m.end())
+            return;
+        ledger_->drop(it->second->charge);
+        release(*it->second);
+        m.erase(it);
+    };
+    switch (key.kind) {
+    case kChargeMesh:      drop(meshes_); break;
+    case kChargeInstances: drop(instances_); break;
+    case kChargeCloud:     drop(clouds_); break;
+    default:               break;
+    }
+}
 
 // ------------------------------------------------------------ framens början
 
@@ -177,16 +259,27 @@ void ObjectResidency::trim()
     retiredClouds_.clear();
     // Platser vars form dött (borttagen, lagret eller ritytan riven) — deras
     // kopior släpps med dem när ingen annan håller dem. Förra framen är
-    // klar, så det som ritades med dem är redan ritat.
-    for (auto it = slots_.begin(); it != slots_.end();)
-        it = it->second.src.expired() ? slots_.erase(it) : std::next(it);
+    // klar, så det som ritades med dem är redan ritat. Platserna letas igenom
+    // bara när någon formplats dött sedan sist (`shapeEntryDeaths`).
+    if (const std::uint64_t döda = shapeEntryDeaths(); döda != deathsSeen_) {
+        deathsSeen_ = döda;
+        for (auto it = slots_.begin(); it != slots_.end();)
+            it = it->second.src.expired() ? slots_.erase(it) : std::next(it);
+    }
     // Kopior vars data dött: en plats som fortfarande visar en håller den.
-    for (auto it = meshes_.begin(); it != meshes_.end();)
-        it = it->second->src.expired() ? meshes_.erase(it) : std::next(it);
-    for (auto it = instances_.begin(); it != instances_.end();)
-        it = it->second->src.expired() ? instances_.erase(it) : std::next(it);
-    for (auto it = clouds_.begin(); it != clouds_.end();)
-        it = it->second->src.expired() ? clouds_.erase(it) : std::next(it);
+    const auto släppDöda = [this](auto& m) {
+        for (auto it = m.begin(); it != m.end();) {
+            if (it->second->src.expired()) {
+                ledger_->drop(it->second->charge);
+                it = m.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
+    släppDöda(meshes_);
+    släppDöda(instances_);
+    släppDöda(clouds_);
 }
 
 // ------------------------------------------------------------------ meshen
@@ -320,6 +413,9 @@ ObjectResidency::meshCopy(const std::shared_ptr<MeshData>& d, ImageCache* images
 {
     if (!d)
         return nullptr;
+    // Meshens data läses under dess lås (mesh_data.h) — appens tråd kan
+    // ändra lägen och färger samtidigt.
+    const std::lock_guard<std::mutex> lås(d->lock);
     std::shared_ptr<GpuMesh>& slot = meshes_[d->id];
     if (slot && slot->complete && upload && !catchUp(*slot, *d, images))
         slot.reset();   // loggen räckte inte: en ny kopia, dubbelbuffrad
@@ -486,7 +582,20 @@ ObjectResidency::Shown ObjectResidency::object(
     const Shape& s = entry->shape;
     Slot&        p = slots_[entry->id];
     if (p.src.expired())
-        p.src = entry;
+        p.src = entry->life;
+    // En VRÄKT kopia visas inte: platsen visar ingenting tills datan är uppe igen.
+    if ((p.mesh && p.mesh->evicted) || (p.inst && p.inst->evicted) ||
+        (p.cloud && p.cloud->evicted)) {
+        p.mesh.reset();
+        p.inst.reset();
+        p.cloud.reset();
+        p.showing = false;
+    }
+    // Kopian ANVÄNDS i den här bilden, av den rityta som ritar.
+    const auto använd = [this](const auto& g) {
+        if (g)
+            ledger_->use(g->charge, copyBytes(*g));
+    };
 
     // Det formen vill visa NU — kopiorna för dess data.
     std::shared_ptr<GpuMesh>      mesh;
@@ -521,6 +630,9 @@ ObjectResidency::Shown ObjectResidency::object(
     case Shape::Kind::Pass:
         break;
     }
+    använd(mesh);
+    använd(inst);
+    använd(cloud);
     const bool klar = (!wantsMesh || (mesh && mesh->complete)) &&
                       (!wantsInst || (inst && inst->complete)) &&
                       (!wantsCloud || (cloud && cloud->complete)) &&
@@ -543,6 +655,10 @@ ObjectResidency::Shown ObjectResidency::object(
     }
     if (!p.showing)
         return Shown{};
+    // Det platsen visar medan den nya datan strömmar (dubbelbuffringen).
+    använd(p.mesh);
+    använd(p.inst);
+    använd(p.cloud);
     return Shown{&p.shape, p.mesh.get(), p.inst.get(), p.cloud.get()};
 }
 

@@ -19,7 +19,16 @@
 //   --klipp     varje objektlager och vektorlager klipps mot SAMMA världspolygon
 //               (en rektangel med hål, `setLayerClips`) — mäter klippmaskerna i
 //               kartappens verkliga scen; utan flaggan är scenen oförändrad
-//   -v          processens minne i varje tick — stegets topp, och de 40
+//   --rå        scenen som RÅDATA, utan appens egna detaljnivåer och strömning:
+//               terrängen är EN mesh över hela området (samma handtag i båda
+//               fönstren), varje stolpe en EGEN mesh i en nivå, punktmolnet ETT
+//               moln över ledningsgatorna och träden EN instansform — allt
+//               lagt i scenen från start; utan flaggan är scenen oförändrad
+//   --tin N     (--rå) terrängmeshens trianglar (förval 4 000 000)
+//   --meshar N  (--rå) antalet stolpar som får en mesh (förval alla)
+//   --trianglar N  (--rå) trianglar per stolpmesh (förval 2 000)
+//   --punkter N (--rå) punktmolnets punkter (förval 8 000 000)
+//   -v         processens minne i varje tick — stegets topp, och de 40
 //               första skrivna (selens `sampla`; utan -v mäts det inte, så
 //               att DXGI-frågan inte hamnar i varje bild)
 // Exit: 0 = sessionen gick igenom · 1 = fönstret öppnades inte, ett steg blev
@@ -165,6 +174,15 @@ namespace {
 // `--klipp`: kartans objekt- och vektorlager klipps mot en världspolygon.
 bool g_klipp = false;
 
+// `--rå`: scenen som rådata — terrängen som en mesh, stolparna som egna
+// meshar, molnet som ett moln; ingen strömning och inga detaljnivåer.
+bool        g_rå              = false;
+int         g_tinTrianglar    = 4'000'000;
+int         g_råMeshar        = 0;   // 0 = alla stolpar
+int         g_råMeshTrianglar = 2'000;
+int         g_råPunkter       = 8'000'000;
+glaze::Mesh g_tin;                   // byggd i main, delad av båda fönstren
+
 // ================================================================= VÄRLDEN
 //
 // SWEREF-liknande koordinater. Rutnätens origo (kartans plattor och brickor,
@@ -184,6 +202,10 @@ double markhöjd(double x, double y)
            10.0 * std::sin(u / 230.0 + v / 310.0) + 4.0 * std::sin(u / 53.0) * std::cos(v / 61.0);
 }
 constexpr double kMarkTopp = 89.0;
+
+// `--rå`: terrängmeshens halva sida kring scenens mitt — ledningarna börjar
+// inom 1,5 km från mitten och är högst 125 spann om 70 m.
+constexpr double kRåHalv = 10500.0;
 
 // MARKENS MESH: (celler + 1)² hörn rad för rad från syd över kvadraten
 // (x0, y0)–(x0 + sida, y0 + sida), höjden ur DEM:en, normalerna ur centrala
@@ -775,6 +797,19 @@ public:
         if (k.pitch < 1.0f) {
             if (terrängAktiv_)
                 avaktivera();
+            return;
+        }
+        // `--rå`: hela terrängen är en mesh, lagd en gång.
+        if (g_rå) {
+            if (!terrängAktiv_) {
+                terrängAktiv_ = true;
+                if (råPlats_ < 0)
+                    råPlats_ = terräng_.lägg(markform(g_tin));
+                karta.setLayerVisible(lagerTerräng_, true);
+                terrängSyns_ = true;
+                for (std::size_t o = 0; o < lagren_.size(); ++o)
+                    byggRymd(static_cast<int>(o));
+            }
             return;
         }
         double x0 = 1e30, y0 = 1e30, x1 = -1e30, y1 = -1e30;
@@ -1591,7 +1626,7 @@ public:
         if (!påvägBrickor_.empty() || baskartaÄndrad_ || redigerar_ >= 0 || glider_ ||
             brickorInne_ != static_cast<int>(brickor_.size()))
             return false;
-        if (!terrängAktiv_)
+        if (!terrängAktiv_ || g_rå)
             return true;
         if (!påvägPlattor_.empty() || visadExp_ != plattExp_)
             return false;
@@ -1696,6 +1731,7 @@ private:
     Platser                                          terräng_;
     bool                                             terrängAktiv_ = false, terrängSyns_ = false;
     int                                              plattExp_ = -1, visadExp_ = -1;
+    int                                              råPlats_  = -1;   // `--rå`: terrängmeshens plats
     std::vector<Platta>                              önskadePlattor_;
     std::unordered_map<std::uint64_t, CachadPlatta> plattCache_;
     std::unordered_map<std::uint64_t, PlattPlats>   plattPlats_;
@@ -2150,6 +2186,8 @@ public:
                 break;
             }
         };
+        if (g_rå)
+            byggRå();
         std::printf("  scen 3D-vyn: 9 lager, %zu stolpar, himlen som eget program, MSAA 8 — "
                     "byggd på %.0f ms\n",
                     stolpar_.size(), msSedan(t0));
@@ -2175,6 +2213,8 @@ public:
 
     bool ikapp() const
     {
+        if (g_rå)
+            return true;   // allt lades i scenen från start
         return påväg_.empty() && stolpPåväg_.empty() &&
                rutor_.size() == static_cast<std::size_t>(kRutor3);
     }
@@ -2346,14 +2386,120 @@ private:
             if (KartFönster::g_karta)
                 KartFönster::g_karta->sättPose(öga_, gir_);
         }
-        rutKoll();
-        double vridning = std::fmod(std::abs(gir_ - planGir_), 360.0);
-        vridning        = std::min(vridning, 360.0 - vridning);
-        if (!planerad_ || std::hypot(öga_.x - planÖga_.x, öga_.y - planÖga_.y) >= 20.0 ||
-            vridning >= 10.0)
-            planera();
+        // `--rå`: scenen är komplett från start — ingen rutbegäran, inga nivåbyten.
+        if (!g_rå) {
+            rutKoll();
+            double vridning = std::fmod(std::abs(gir_ - planGir_), 360.0);
+            vridning        = std::min(vridning, 360.0 - vridning);
+            if (!planerad_ || std::hypot(öga_.x - planÖga_.x, öga_.y - planÖga_.y) >= 20.0 ||
+                vridning >= 10.0)
+                planera();
+        }
         status();
         vy.invalidateOverlay();
+    }
+
+    // `--rå`: HELA scenen som rådata, lagd en gång. Terrängen är samma
+    // handtag som kartans; varje stolpe är en egen mesh i en nivå; molnet är
+    // ett moln över ledningsgatorna; träden en instansform kring mitten.
+    void byggRå()
+    {
+        const auto t0 = Klocka::now();
+        terräng_.lägg(glaze::Shape::mesh(g_tin, {}, {.color = gfx::Color{184, 184, 184, 255}}));
+
+        int         meshar    = 0;
+        std::size_t trianglar = 0;
+        for (Stolpe3& s : stolpar_) {
+            if (g_råMeshar > 0 && meshar >= g_råMeshar)
+                break;
+            const glaze::Mesh m =
+                byggStolpe(g_råMeshTrianglar, 5000u + static_cast<std::uint64_t>(meshar), 1, false);
+            trianglar += m.triangleCount();
+            s.plats  = stolpLager_.lägg(glaze::Shape::mesh(m, {.at = s.vid, .yaw = s.gir}));
+            s.detalj = 0;
+            ++meshar;
+        }
+        linor();
+
+        // MOLNET: punkter i ledningsgatorna, lika många per meter ledning.
+        std::vector<Segment> seg;
+        std::vector<double>  summa;   // löpande längd
+        double               längd = 0.0;
+        for (const Objekt& o : g_objekt)
+            for (std::size_t i = 0; i + 1 < o.linje.size(); ++i) {
+                seg.push_back({o.linje[i], o.linje[i + 1]});
+                längd += std::hypot(o.linje[i + 1].x - o.linje[i].x, o.linje[i + 1].y - o.linje[i].y);
+                summa.push_back(längd);
+            }
+        Slump                      r{20261118};
+        std::vector<glaze::Float3> läge;
+        std::vector<gfx::Color>    färg;
+        std::vector<float>         hag;
+        läge.reserve(static_cast<std::size_t>(g_råPunkter));
+        färg.reserve(static_cast<std::size_t>(g_råPunkter));
+        hag.reserve(static_cast<std::size_t>(g_råPunkter));
+        for (int k = 0; k < g_råPunkter && !seg.empty(); ++k) {
+            const double      vid = r.mellan(0.0, längd);
+            const std::size_t i   = static_cast<std::size_t>(
+                std::lower_bound(summa.begin(), summa.end(), vid) - summa.begin());
+            const Segment&    s   = seg[std::min(i, seg.size() - 1)];
+            const double      dx = s.b.x - s.a.x, dy = s.b.y - s.a.y;
+            const double      l  = std::max(std::hypot(dx, dy), 1e-9);
+            const double      t  = r.enhet(), d = r.mellan(-kKorridor3, kKorridor3);
+            const double      x  = s.a.x + dx * t - dy / l * d, y = s.a.y + dy * t + dx / l * d;
+            const double      u  = r.enhet();
+            std::uint8_t      c  = 5;
+            double            h  = r.mellan(5.0, 20.0);
+            if (std::abs(d) < 1.5 && u < 0.10) {
+                c = 14;
+                h = r.mellan(18.0, 22.0);
+            } else if (u < 0.35) {
+                c = 2;
+                h = r.mellan(-0.05, 0.05);
+            } else if (u < 0.60) {
+                c = 3;
+                h = r.mellan(0.2, 1.0);
+            } else if (u < 0.85 || std::abs(d) < 15.0) {
+                c = 4;
+                h = r.mellan(1.0, 5.0);
+            }
+            läge.push_back({static_cast<float>(x - kX0), static_cast<float>(y - kY0),
+                            static_cast<float>(markhöjd(x, y) + h)});
+            färg.push_back(klassFärg(c));
+            hag.push_back(static_cast<float>(std::max(0.0, h)));
+        }
+        const std::size_t punkter = läge.size();
+        if (punkter > 0)
+            moln_.lägg(glaze::Shape::pointCloud(
+                glaze::PointCloud(std::move(läge), {kX0, kY0, 0.0}, std::move(färg), std::move(hag)),
+                {.size = glaze::mm(0.8f), .color = gfx::Color{255, 255, 255, 255}}));
+
+        // TRÄDEN: skog i rutor om 200 m inom 3 km från mitten, utom i ledningsgatorna.
+        std::vector<glaze::Instance> träd;
+        const double                 ruta = 200.0, halv = 3000.0;
+        for (double y0 = kY0 - halv; y0 < kY0 + halv; y0 += ruta)
+            for (double x0 = kX0 - halv; x0 < kX0 + halv; x0 += ruta) {
+                const std::vector<Segment> nära = segmentNära(x0, y0, x0 + ruta, y0 + ruta, 25.0);
+                for (int k = 0; k < 220; ++k) {
+                    const double x = x0 + r.mellan(0.0, ruta), y = y0 + r.mellan(0.0, ruta);
+                    if (!nära.empty() && avstånd(nära, x, y) < 25.0)
+                        continue;
+                    träd.push_back({.at    = {x, y, markhöjd(x, y)},
+                                    .yaw   = static_cast<float>(r.mellan(0.0, 360.0)),
+                                    .scale = {static_cast<float>(r.mellan(0.7, 1.3)),
+                                              static_cast<float>(r.mellan(0.7, 1.3)),
+                                              static_cast<float>(r.mellan(1.0, 2.6))},
+                                    .color = gfx::Color{static_cast<std::uint8_t>(r.mellan(40, 90)),
+                                                        static_cast<std::uint8_t>(r.mellan(110, 170)),
+                                                        50, 255}});
+                }
+            }
+        const std::size_t antalTräd = träd.size();
+        träd_.lägg(glaze::Shape::instances(glaze::Shape::mesh(kon_), std::move(träd)));
+
+        std::printf("  rå scen 3D-vyn: terrängen %zu trianglar, %d stolpmeshar om sammanlagt %zu trianglar, "
+                    "%zu punkter i ett moln, %zu träd i en instansform — byggd på %.0f ms\n",
+                    g_tin.triangleCount(), meshar, trianglar, punkter, antalTräd, msSedan(t0));
     }
 
     // Rutbegäran: när mittrutan flyttat släpps det som
@@ -2721,6 +2867,14 @@ int main(int argc, char** argv)
     double mål         = 0.0;
     bool   hp          = false;
     std::string kort;
+    // Flaggorna i UTF-8 — `--rå`, `--mål` och `--skärm` stämmer annars inte
+    // med källans tecken på Windows.
+    std::vector<std::string> utf8 = argumenten(argc, argv);
+    std::vector<char*>       pekare;
+    for (std::string& a : utf8)
+        pekare.push_back(a.data());
+    argc = static_cast<int>(pekare.size());
+    argv = pekare.data();
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-v") == 0)
             g_verbose = true;
@@ -2742,10 +2896,20 @@ int main(int argc, char** argv)
             mål = std::atof(argv[++i]);
         else if (std::strcmp(argv[i], "--steg") == 0 && i + 1 < argc)
             bara = std::clamp(std::atoi(argv[++i]), 1, 27);
+        else if (std::strcmp(argv[i], "--rå") == 0)
+            g_rå = true;
+        else if (std::strcmp(argv[i], "--tin") == 0 && i + 1 < argc)
+            g_tinTrianglar = std::max(2, std::atoi(argv[++i]));
+        else if (std::strcmp(argv[i], "--meshar") == 0 && i + 1 < argc)
+            g_råMeshar = std::max(0, std::atoi(argv[++i]));
+        else if (std::strcmp(argv[i], "--trianglar") == 0 && i + 1 < argc)
+            g_råMeshTrianglar = std::max(64, std::atoi(argv[++i]));
+        else if (std::strcmp(argv[i], "--punkter") == 0 && i + 1 < argc)
+            g_råPunkter = std::max(0, std::atoi(argv[++i]));
     }
-    std::printf("=== terrain_perf — terrängkartan och 3D-vyn (%s, %s%s%s%s) ===\n",
+    std::printf("=== terrain_perf — terrängkartan och 3D-vyn (%s, %s%s%s%s%s) ===\n",
                 kBygge, g_synlig ? "synliga fönster" : "dolda fönster",
-                hp ? ", GPU HighPerformance" : "",
+                g_rå ? ", rå scen" : "", hp ? ", GPU HighPerformance" : "",
                 kort.empty() ? "" : (", kortet " + kort).c_str(),
                 bara > 0 ? (", bara steg " + std::to_string(bara)).c_str() : "");
     if (hp)
@@ -2761,6 +2925,15 @@ int main(int argc, char** argv)
         stolparna += o.linje.size();
     std::printf("  data: %d bilder (PNG) och %d ledningar med %zu stolpar — %.0f ms\n", kPngAntal,
                 antalObjekt, stolparna, msSedan(t0));
+    if (g_rå) {
+        // Terrängen som EN mesh: ett kvadratiskt rutnät med två trianglar per cell.
+        t0               = Klocka::now();
+        const int celler = std::max(1, static_cast<int>(std::sqrt(g_tinTrianglar / 2.0)));
+        g_tin = markMesh(kX0 - kRåHalv, kY0 - kRåHalv, 2.0 * kRåHalv, celler, false);
+        std::printf("  rå terräng: en mesh om %zu trianglar över %.0f × %.0f m, med plockningens "
+                    "BVH — %.0f ms\n",
+                    g_tin.triangleCount(), 2.0 * kRåHalv, 2.0 * kRåHalv, msSedan(t0));
+    }
 
     Arbetare    arbete(4);
     KartFönster karta(arbete);

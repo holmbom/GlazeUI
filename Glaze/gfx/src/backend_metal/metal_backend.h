@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -19,6 +20,12 @@
 #include "../scene_clip.h"
 #include "../font_fallback.h"
 #include "gfx/renderer.h"
+
+// Autorelease-poolens körtidsfunktioner (libobjc) — en pool som öppnas i en
+// funktion och stängs i en annan går inte att skriva som ett @autoreleasepool-
+// block. Scen-kontextens renderare håller en över sitt offscreen-block.
+extern "C" void* objc_autoreleasePoolPush(void);
+extern "C" void  objc_autoreleasePoolPop(void* pool);
 #include "gfx/scene.h"
 #include "gfx/text.h"
 #include "gfx/window.h"
@@ -360,7 +367,16 @@ public:
     // Layern ägs av GlazeView (den ÄR vyns backing layer) — renderern
     // lånar pekaren och skapar device/kö. transparent styr composite-vägen.
     bool init(CAMetalLayer* layer, int w, int h, bool transparent = false);
+    // Scen-kontextens renderare (metal_scene_context.mm): fönstrets enhet
+    // med en egen kommandokö, utan lager — ritar bara i offscreen-block.
+    bool initHeadless(id<MTLDevice> device, const std::string& deviceName,
+                      const std::string& adapterId);
     void shutdownRenderer();
+
+    // Den senast inskickade framens commandbuffer (nil före den första). En
+    // delad bild som fönstret lämnat tillbaka skrivs först när den körts
+    // klart; frågan får ställas från scentråden.
+    id<MTLCommandBuffer> lastCommitted();
 
     // Alfa-hit-test för transparenta fönster: sant om pixeln (fysiska px)
     // är tillräckligt täckande för att fånga klick. Speglas från retained-
@@ -453,6 +469,9 @@ public:
     // buffer, som endOffscreen committar och väntar in.
     bool beginOffscreen() override;
     void endOffscreen() override;
+
+    // Scen-kontexten (metal_scene_context.mm) — se gfx/scene_context.h.
+    std::unique_ptr<SceneContext> createSceneContext() override;
 
     // Intern ritväg för glyf-/bild-quads — batchar mot texturen.
     void texturedQuad(id<MTLTexture> tex, const Rectf& dst, const Rectf& uv,
@@ -551,6 +570,8 @@ private:
                  float radius, float param, float offX, float offY);
     bool createPipeline();
     bool createRetained(int w, int h);
+    bool initQueueAndPipeline();   // kön och UI-pipelinen
+    void initPrograms();           // scenens program
     // MSL I RUNTIME — `newLibraryWithSource` med tiden i
     // `RenderStats::compileNs`. Varje program går hit: UI:t,
     // scenens, bildens, ytornas, textens och de egna. PSO-varianterna tas i
@@ -691,6 +712,17 @@ private:
     bool samplesLogged_  = false;
     bool readLogged_     = false;
     bool offscreen_      = false;   // beginOffscreen:s egen command buffer
+
+    // SCEN-KONTEXTENS RENDERARE (`initHeadless`): inga frames, bara block.
+    // Varje block har då en egen autorelease-pool (`blockPool_`, öppnad i
+    // beginOffscreen och stängd i endOffscreen) och nollar ringarna.
+    bool  sceneOnly_ = false;
+    void* blockPool_ = nullptr;
+
+    // Den senast inskickade framens commandbuffer, under ett lås — scentråden
+    // läser den (`lastCommitted`).
+    std::mutex           commitLock_;
+    id<MTLCommandBuffer> lastCommitted_ = nil;
 
     // Scenens livscykel (metal_scene.mm).
     bool initScene();

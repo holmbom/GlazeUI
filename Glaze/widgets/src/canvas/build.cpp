@@ -278,12 +278,16 @@ std::optional<Box3> objectBox(const Shape& s)
             return Box3{at, at};   // skärmkonstant: lådan är skärmens
         const Affine3 m = rotationScale(p.yaw, p.pitch, p.roll, p.scale, at.x,
                                         at.y, at.z);
-        return transformBox(m, Box3{{d.bounds.min.x - d.origin.x,
-                                     d.bounds.min.y - d.origin.y,
-                                     d.bounds.min.z - d.origin.z},
-                                    {d.bounds.max.x - d.origin.x,
-                                     d.bounds.max.y - d.origin.y,
-                                     d.bounds.max.z - d.origin.z}});
+        // Lådan flyttar med lägena — läst under meshens lås (mesh_data.h).
+        Box3 b;
+        {
+            const std::lock_guard<std::mutex> lås(d.lock);
+            b = d.bounds;
+        }
+        return transformBox(m, Box3{{b.min.x - d.origin.x, b.min.y - d.origin.y,
+                                     b.min.z - d.origin.z},
+                                    {b.max.x - d.origin.x, b.max.y - d.origin.y,
+                                     b.max.z - d.origin.z}});
     }
     case Shape::Kind::Instances: {
         const InstanceSet* set = s.instanceSet().get();

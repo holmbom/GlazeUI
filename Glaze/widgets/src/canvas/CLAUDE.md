@@ -110,9 +110,9 @@ widget-filen kan hålla sig fri från den.
   står kvar. Det som beror på PLATSEN räknas om varje ritning (fallgropen
   "Platsberoende" nedan), medan terrängens regionnyckel är
   ordningsoberoende (drape.cpp).
-  `RunKey::minSize`/`maxSize` (glyfslagen), `SceneData::memoryBudget`, RAII
-  `ImageAccount` (ritytans konto i bildcachen under drawScene/drawOverlay/
-  renderToBitmap) och `zoomInRange` (lagrens OCH etiketternas regel). `SceneData` →
+  `RunKey::minSize`/`maxSize` (glyfslagen), `SceneData::memoryBudget` (kontot öppnas av
+  `MemoryAccount`, memory_account.h, i drawScene/drawOverlay/renderToBitmap), `sceneCpuBytes`
+  (cpu_bytes.cpp) och `zoomInRange` (lagrens OCH etiketternas regel). `SceneData` →
   `LayerData` (`slots`: formen + var dess geometri ligger) → `RunData` (en KÖRNING: delar
   med samma `RunKey` — program, enhet, gradient, bild (med opaciteten och färgjusteringen), font, och för Line
   spetsgränsen, strecken och deras enhet; en Glyph-körning med en
@@ -130,8 +130,8 @@ widget-filen kan hålla sig fri från den.
   exakt lika många vertex, annars ombyggnad) och `rebuildLayer`. Ritningen:
   `prepareLayers` + `drawGround`/`drawWorld` ("I RYMDEN" nedan; dolt lager
   hoppas över; ett lager utanför sitt zoomintervall
-  hålls ändå RESIDENT — varje chunk synkas FÖRE gallringen, så en panorering
-  eller zoom ritar och laddar aldrig upp; ett FÖRPASS som
+  hålls ändå RESIDENT inom ritytans budget (`prepareUploads`), så en panorering
+  eller zoom ritar och laddar inte upp; ett FÖRPASS som
   bygger varje Glyph-körning för fönstret och samlar de RITADE i ritordning
   åt etiketternas placering (`labels.h`), som körs före den första
   Glyph-körningen — svaret true betyder att en toning pågår och ritytan
@@ -160,9 +160,11 @@ widget-filen kan hålla sig fri från den.
   (`growRunBox`), så en text flyttad med `setShape` ligger kvar i den.
   UPPLADDNINGEN SYNLIGT FÖRST: **`prepareUploads(f, scen)`** samlar föremålen
   (`queueObjects`) och bildkörningarna med en synlig chunk (`chunkVisible`,
-  ritningens gallring) närmast först, sedan resten med det som blir kvar av
-  framens budget; 3D-målets `prepareLayers` kör den, 2D-vägen efter sin
-  ritning. Chunkarna har ingen budget och synkas alla.
+  ritningens gallring) närmast först; 3D-målets `prepareLayers` kör den, 2D-vägen
+  efter sin ritning. RESTEN (chunkar, föremål, bilder utanför bild) görs resident
+  bara när lagrets `ResidentMark` (resources.h — formerna, meshernas lägen,
+  budgeten, om lagret ritas) är inaktuellt OCH kontot har plats
+  (`MemoryLedger::underBudget`); en vräkning ändrar inte märket.
   **I RYMDEN:** `PartKind {Image, Fill, Line, Line3,
   Glyph, Glyph3}` (`isLineKind`/`isGlyphKind`), `ChunkData` med origo och
   låda också i z och `lines3`, `RunData::box`, och `LayerData` med
@@ -752,6 +754,9 @@ widget-filen kan hålla sig fri från den.
   ström, GlazeFrame med origo i ögat — och reserven är `fallback`-färgen
   över ritytans ruta. **Etapp 9:** `drawMeshObject(…, entryId)` binder
   terrängformens drapering (`DrapeFrame`) i DRAPED-varianten.
+- **`spatial_index.h/.cpp`** + **`run_index.h/.cpp`** — INTERNA: fyrträdet (stabila nodnycklar (nivå, ix, iy), lådor i xyz, få rötter) och KÖRNINGENS INDEX över chunkar och föremål — `chunkCandidates`/`objectCandidates` ger en ÖVERMÄNGD i växande ordning, cachad mot `shapesVersion` och `meshGeneration()`; under `kRunIndexMin` inget träd.
+- **`render_loop.h/.cpp`**, **`frame_job.h/.cpp`**, **`paint_list.h`**, **`canvas_access.h`** — INTERNA: RENDERINGSTRÅDEN. En tråd per fönster ritar ritytans JOBB (`CanvasFrameJob`: ögonblicksbilden ur `publishScene`, de inspelade målarna, kopior av tema och stil) i tre delade bilder i växling, och beställningarna (`renderToBitmap`, utskriftens `PageJob`); kontrakten står i filhuvudena. Motorn här läser därför aldrig en widget, `App`, en `TrText` eller fönstrets renderare, och det den delar med UI-tråden går genom `nodeLock` eller datans eget lås. Grindar: `canvas_thread_gate`, `painter_gate` SN.
+- **`memory_account.h/.cpp`** + **`cpu_bytes.cpp`** — INTERNA: MINNET. `MemoryAccount` öppnar ritytans konto i fönstrets liggare (../memory_ledger.h) och lägger `sceneCpuBytes` på det (en lista per lager, delad data en gång). Chunkar, 3D-mål och residensens kopior är vräkbara POSTER (en vräkt kopia är `evicted` — platsen visar inget tills datan är uppe), draperingarna en post per rityta som vräker själv.
 
 ## Fallgropar
 
@@ -786,9 +791,14 @@ widget-filen kan hålla sig fri från den.
   logg och inte en enda smutsrektangel: ett fönster som inte ritat på två
   versioner måste få båda rektanglarna (B5 mäter det). Chunkarnas logg
   likadant (32 poster).
-- **Resident före gallring.** `drawChunks` synkar varje chunk innan den
-  prövar synligheten; vänds ordningen laddar en panorering in över en
-  oritad chunk upp den (painter_gate R fäller det).
+- **Resident inom budgeten.** Ritningen synkar bara det som syns; det osynliga
+  laddas upp av `prepareUploads` i SAMMA bild, medan kontot har plats. Tas det
+  passet bort laddar en panorering upp (painter_gate R); körs det varje bild
+  vräks aldrig något (canvas_gate MU).
+- **Kandidaterna är en övermängd, inte svaret** (run_index.h): varje kandidat
+  gallras exakt (`chunkVisible`, `objectInView`) och ritas i körningens ordning.
+  Indexet följer `shapesVersion` och `meshGeneration()` — en ny väg som ändrar
+  en låda utan att stega någon av dem ger en form som inte ritas (geom_gate TR).
 - **Text byggs per fönster, inte vid `addShape`.** Fontens rasterisering och
   atlasen är rendererns — en avvikelse från planens "CPU-geometrin byggs vid
   addShape", som gäller linjerna, ytorna och bilderna.

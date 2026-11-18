@@ -25,6 +25,7 @@
 #include <d3dcompiler.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <unordered_map>
 #include <vector>
@@ -153,9 +154,10 @@ DXGI_FORMAT dxgiFormatOf(AttribFormat f)
 }
 
 // Programmets löpnummer — aldrig återanvänt, till skillnad från en adress.
+// Atomiskt: scen-kontextens renderare skapar program på sin egen tråd.
 std::uint64_t nextProgramSerial()
 {
-    static std::uint64_t n = 0;
+    static std::atomic<std::uint64_t> n{0};
     return ++n;
 }
 

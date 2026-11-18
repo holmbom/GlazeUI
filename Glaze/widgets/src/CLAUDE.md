@@ -335,23 +335,19 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   så en första uppladdning över budgeten lämnar noll kvar i stället för att
   slå runt. **`trim(förvalsbudget, uppladdningsbudget)` är framens början och
   ENDA vräkningsstället** — budgetarna kommer ur App via `renderContent`, så
-  cachen känner aldrig App. Den släpper döda källor (`weak_ptr` utgången),
-  flyttar döda kontons poster till fönstret och vräker, PER KONTO över sin
-  budget, de som legat oritade längst — aldrig de som ritades i förra framen.
+  cachen känner aldrig App. Den släpper döda källor (`weak_ptr` utgången) och
+  kör liggarens `trim` (nedan), som vräker hos ALLA fönstrets ägare — därför
+  körs `CanvasResources::trim` FÖRE den (`renderContent`, print.cpp).
   `uploadsDeferred()` säger att något väntar på nästa frame. **`contentGeneration()`** (PRESTANDA C2) stegas när
   någon textur skapas, kommer ikapp, vräks eller släpps eller en render-textur målas — draperingens markstämpel
   läser den i stället för varje bilds version. Nyckeln är källans id. En Bitmap och en
-  RenderTexture har MIP-KEDJA, och en Bitmap över `maxTextureSize` är RUTOR i SAMMA post (`tiles`, REQ8 5). **KONTONA** (REQ3 10,
-  `Canvas::setMemoryBudget`): en rityta som ritar öppnar sitt konto
-  (`beginAccount(scenens id, scenen som livstecken, budget)` via RAII-typen
-  `detail::ImageAccount`, canvas/scene.h — i ritytans tre ritvägar), och allt
-  som hämtas medan det är öppet räknas på den rityta som RITADE det senast;
-  utanför ritytorna konto 0, fönstret, med appens förval (`budget` 0 =
-  förvalet). Draperingarna läggs på kontot med `setAccountExtra`: `trim`
-  jämför bilderna PLUS dem mot budgeten men vräker bara bilder. All räkning går
-  genom EN väg, `book(postens konto, postens byte, konto, byte)` — en ny post,
-  ny storlek, en annan rityta, en borttagning (byte 0) — med snabbväg när
-  inget ändrats (inga kontouppslag per bild och frame). **BILDER SOM SLÄPPER
+  RenderTexture har MIP-KEDJA, och en Bitmap över `maxTextureSize` är RUTOR i SAMMA post (`tiles`, REQ8 5). **KONTONA** (`Canvas::setMemoryBudget`) bor i
+  **`memory_ledger.h/.cpp`** — fönstrets LIGGARE, ägd av bildcachen (`ledger()`): en rityta som ritar öppnar
+  sitt konto (`canvas/memory_account.h`), varje POST (`Charge` — en textur, buffert eller ett mål hos en ÄGARE,
+  `MemoryHolder`: bildcachen, `CanvasResources`, residensen, draperingarna) räknas på den rityta som ANVÄNDE den
+  senast, CPU-originalen läggs till (`setAccountCpu`), och `trim` vräker per konto över budgeten det som inte
+  användes när ritytan senast ritade — äldst först, i ägarnas ordning. Utanför ritytorna konto 0, fönstret, med
+  appens förval. Bildernas räkning går genom `book`/`use`/`unbook`, som håller `canvasBytes()`. **BILDER SOM SLÄPPER
   SINA PIXLAR** (REQ3 9, `Bitmap::setKeepPixels(false)`): `get(Bitmap)` köar
   bilden (`detail::queuePixelRelease`, med den uppladdade versionen) när
   texturen är HEL och AKTUELL, och App släpper efter ritloopen. Utan pixlar
@@ -610,8 +606,8 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
   tangentbordet; satt av `MenuPresentation`, nollad när kedjan stängs).
   **`renderContent()`**: full väg vid `fullDamage_`/`animating_`/
   `transparent_`/`!retainedValid()`/tröskel (>8 rects eller >60 % yta),
-  annars partiell per damage-rect; chromet HELT utanför damage. ÖVERST
-  `images_->trim(App::canvasMemoryBudget(), uppladdningsbudget)` — förvalet
+  annars partiell per damage-rect; chromet HELT utanför damage. ÖVERST `canvas_->trim()`
+  och `images_->trim(App::canvasMemoryBudget(), uppladdningsbudget)` — förvalet
   per rityta och fönstrets tak —, och en lokal vakt begär NÄSTA frame när en
   bild fick vänta på uppladdningsbudgeten, vilken väg framen än tog ut (varje
   frame laddar upp minst en bild, så kedjan tar slut; scene_pixel_gate B5,
@@ -953,7 +949,18 @@ Allt här ritar/pratar via **gfx-fasaden** (`gfx::Renderer`, `gfx::Event`,
 
 - För SNÅL damage syns som spökpixlar (`setDebugDamage(true)`).
 - **Arbete för NÄSTA BILD går i ramkön** (`detail::postFrameWork`), aldrig i
-  `app().post` (som har en budget). Ramkön är bara UI-trådens.
+  `app().post` (som har en budget). Ramkön är bara UI-trådens — utom
+  `detail::postFrameWorkFromThread`, renderingstrådens väg in (den skapar
+  aldrig App, bara köar och väcker).
+- **RENDERINGSTRÅDEN RIVS FÖRST** (`App::executeClose`): `canvasLoop_` före
+  `canvas_`, `images_` och fonterna — destruktorn lämnar tillbaka de visade
+  bilderna, stoppar tråden och väntar in den. `detail::canvasLoopOf(fönster)`
+  (app_window.cpp) startar den LATT; null för ett stängt eller
+  offscreen-fönster, med trådläget av och när backenden saknar scen-kontext.
+- **`print.cpp` SPELAR IN sidan**: ritfunktionen körs en gång per sida
+  (`recordPage`), jobbet (`detail::PageJob`) ritas av förloppsfönstrets
+  renderingstråd och `pageDone` fortsätter steget i ramkön — utan tråd
+  direkt. En sida inifrån en annan sidas ritfunktion vägras.
 - **En ny profilerarkrok börjar med `if (!profiling()) return;`** — utom
   bildens slut och fönstrets stängning, som städar. Låsordningen är
   registret FÖRE blocket; trådslutet rör inga lås (döda block slås in vid

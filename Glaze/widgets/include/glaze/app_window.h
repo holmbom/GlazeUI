@@ -108,6 +108,17 @@ struct WindowGeometry {
     bool             hasPosition = false;   // false på Wayland och headless
 };
 
+class AppWindow;
+
+namespace detail {
+// Ritytornas renderingstråd (intern, src/canvas/render_loop.h) och fönstrets
+// — startad LAT vid första frågan; nullptr för ett stängt eller
+// offscreen-fönster och när backenden saknar scen-kontext (ritytan ritar då
+// själv, i fönstrets tråd).
+class CanvasRenderLoop;
+CanvasRenderLoop* canvasLoopOf(AppWindow& window);
+} // namespace detail
+
 // Basklass för ett programfönster. Ärv, skapa widgets i konstruktorn med
 // add<T>(...), visa med show() — pumpen bor i glaze::App (se app.h för
 // main-mönstret). TVÅ relationer med TVÅ namn, blanda aldrig ihop dem:
@@ -1724,6 +1735,12 @@ private:
     // Ritytans GPU-resurser — skapas efter images_, rivs
     // FÖRE den; `trim()` överst i renderContent (src/canvas/resources.h).
     std::unique_ptr<CanvasResources> canvas_;
+    // Ritytornas renderingstråd (`detail::canvasLoopOf`) — startad vid första
+    // frågan och riven i App::executeClose FÖRE canvas_: tråden väntas in
+    // innan något av fönstrets resurser eller dess renderare rivs.
+    // `canvasLoopTried_` minns ett försök som inte gav någon.
+    std::unique_ptr<detail::CanvasRenderLoop> canvasLoop_;
+    bool                                      canvasLoopTried_ = false;
     // TEXTFONTERNA — `Ctx::textFonts`, LATA per variant.
     // Skapas i show() efter canvas_, och MÅSTE rivas i samma block som font_
     // i App::executeClose, före window().shutdown(): fonterna hör till
@@ -2284,6 +2301,7 @@ private:
     // `toolWindow_`, `noActivate_`, `showInactive_` och, för ett BURET
     // objekt, `initX_`/`initY_` med `StartPosition::Default`.
     friend class DockFloatWindow;
+    friend detail::CanvasRenderLoop* detail::canvasLoopOf(AppWindow& window);
     friend class Widget;   // Widget::invalidate väcker fönstret (needsRedraw_)
     friend class App;      // pumpen: handleEvent/wantsFrame/executeClose
 };

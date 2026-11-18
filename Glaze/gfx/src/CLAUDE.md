@@ -596,6 +596,16 @@ D3D11 och xkb: `tests/numpad_gate.cpp`.
 - **D3D11-batchern flushar på tillståndsbyte** — nya rit-primitiv går via
   `setState`/`quad`, aldrig egna `Draw` mitt i en frame; `clear()` flushar
   före `ClearRenderTargetView`.
+- **SCEN-KONTEXTEN** (`gfx/scene_context.h`, en fil per backend:
+  `d3d11_scene_context.cpp`, `metal_scene_context.mm`,
+  `linux_scene_context.cpp`): `Renderer::createSceneContext()` ger en
+  fristående renderare på samma grafikkort för en ANNAN tråd, och
+  `SharedTarget` bilderna den lämnar till fönstret (scenen:
+  `beginWrite` → rita → `publish`; fönstret: `acquire` → `drawImage` →
+  `retire`, och `acquire` väntar aldrig). `NullRenderer` och en backend som
+  inte kan svarar nullptr — då ritar anroparen i fönstrets tråd. Det enda i
+  fasaden utöver `postWakeup()` som är till för en annan tråd; allt annat är
+  fönstertrådens. Detaljerna står i varje backends CLAUDE.md.
 - **Win32-detaljer:** ANSI-makron (`IDC_ARROW` m.fl., ingen UNICODE-define)
   — W-API:er + `toWide`; lParam-muskoordinater signerade (negativa vid
   capture); `WM_NCCALCSIZE` kräver `SWP_FRAMECHANGED` efter CreateWindow.

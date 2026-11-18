@@ -61,21 +61,94 @@ std::string rampKey(const std::vector<GradientStop>& stops)
     return k;
 }
 
-} // namespace
+// Posternas SLAG i liggaren — också ordningen bland poster som användes i
+// samma bild: 3D-målen före chunkarna (ett mål ritas om, en chunk laddas upp).
+constexpr int kChargeTarget = 0;
+constexpr int kChargeChunk  = 1;
+constexpr int kChargeGlyphs = 2;
+constexpr int kChargePage   = 3;
+constexpr int kChargeLabels = 4;
+constexpr int kChargeShared = 5;
 
-CanvasResources::CanvasResources(gfx::Renderer& r)
-    : r_(&r), objects_(std::make_unique<detail::ObjectResidency>(r)),
-      drapes_(std::make_unique<detail::DrapeCache>(r)),
-      clips_(std::make_unique<detail::ClipMasks>(r))
+// Ett textbygges byte på GPU:n — chunkarnas buffertar.
+std::size_t buildBytes(const CanvasResources::GlyphBuild& b)
 {
+    std::size_t n = 0;
+    for (const CanvasResources::GlyphGpu& g : b.chunks)
+        n += detail::bufferBytes(g.vb.get()) + detail::bufferBytes(g.ib.get());
+    return n;
 }
 
-CanvasResources::~CanvasResources() = default;
+} // namespace
+
+CanvasResources::CanvasResources(gfx::Renderer& r, detail::MemoryLedger& ledger)
+    : r_(&r), ledger_(&ledger),
+      objects_(std::make_unique<detail::ObjectResidency>(r, ledger)),
+      drapes_(std::make_unique<detail::DrapeCache>(r, ledger)),
+      clips_(std::make_unique<detail::ClipMasks>(r))
+{
+    ledger_->add(*this);
+}
+
+CanvasResources::~CanvasResources()
+{
+    // Posterna dör med resurserna: räkningen tas bort ur kontona.
+    eachCharge([this](detail::Charge& c, const detail::ChargeKey&, bool) { ledger_->drop(c); });
+    ledger_->remove(*this);
+}
+
+// ------------------------------------------------------------- liggarens ägare
+
+void CanvasResources::eachCharge(const Visit& visit)
+{
+    for (auto& [key, t] : targets_)
+        visit(t.charge,
+              detail::ChargeKey{kChargeTarget, key.first, key.second, 0}, true);
+    for (auto& [id, e] : chunks_)
+        visit(e.charge, detail::ChargeKey{kChargeChunk, id, 0, 0}, true);
+    for (auto& [id, e] : glyphs_)
+        visit(e.charge, detail::ChargeKey{kChargeGlyphs, id, 0, 0}, false);
+    for (auto& [id, e] : pageGlyphs_)
+        visit(e.charge, detail::ChargeKey{kChargePage, id, 0, 0}, false);
+    for (auto& [key, s] : labels_)
+        visit(s.charge,
+              detail::ChargeKey{kChargeLabels, key.first, key.second, 0}, false);
+    visit(shared_, detail::ChargeKey{kChargeShared, 0, 0, 0}, false);
+}
+
+void CanvasResources::evict(const detail::ChargeKey& key)
+{
+    if (key.kind == kChargeChunk) {
+        if (const auto it = chunks_.find(key.id); it != chunks_.end()) {
+            ledger_->drop(it->second.charge);
+            chunks_.erase(it);   // laddas upp igen ur ChunkData när den ritas
+        }
+    } else if (key.kind == kChargeTarget) {
+        if (const auto it = targets_.find(std::make_pair(key.id, key.a));
+            it != targets_.end()) {
+            ledger_->drop(it->second.charge);
+            targets_.erase(it);   // skapas och ritas om när ritytan ritas
+        }
+    }
+}
+
+CanvasResources::ResidentMark&
+CanvasResources::resident(const std::shared_ptr<detail::LayerData>& layer)
+{
+    auto [it, fresh] = resident_.try_emplace(layer->id);
+    if (fresh)
+        it->second.life = layer->life;
+    return it->second;
+}
 
 // ------------------------------------------------------------- framens början
 
 void CanvasResources::trim()
 {
+    for (auto it = resident_.begin(); it != resident_.end();)
+        it = it->second.life.expired() ? resident_.erase(it) : std::next(it);
+    for (auto it = exported_.begin(); it != exported_.end();)
+        it = it->second.life.expired() ? exported_.erase(it) : std::next(it);
     retiredBuffers_.clear();
     retiredBuilds_.clear();
     retiredImages_.clear();
@@ -87,18 +160,25 @@ void CanvasResources::trim()
     pageTargets_.trim(r_->frameSerial());   // målen för en rityta på en annan yta
 
     // DÖTT: chunkar och körningar som byggts om eller vars rityta rivits.
-    for (auto it = chunks_.begin(); it != chunks_.end();)
-        it = it->second.src.expired() ? chunks_.erase(it) : std::next(it);
-    for (auto it = glyphs_.begin(); it != glyphs_.end();)
-        it = it->second.src.expired() ? glyphs_.erase(it) : std::next(it);
+    const auto släppDöda = [this](auto& m, const auto& död) {
+        for (auto it = m.begin(); it != m.end();) {
+            if (död(it->second)) {
+                ledger_->drop(it->second.charge);
+                it = m.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
+    const auto utanKälla = [](const auto& e) { return e.src.expired(); };
+    släppDöda(chunks_, utanKälla);
+    släppDöda(glyphs_, utanKälla);
     if (pageGlyphsUsed_ + 2 < r_->frameSerial())
-        pageGlyphs_.clear();
+        släppDöda(pageGlyphs_, [](const GlyphEntry&) { return true; });
     // …och ritytor som rivits: deras placering och synlighetsbild — och
     // deras 3D-mål.
-    for (auto it = labels_.begin(); it != labels_.end();)
-        it = it->second.src.expired() ? labels_.erase(it) : std::next(it);
-    for (auto it = targets_.begin(); it != targets_.end();)
-        it = it->second.src.expired() ? targets_.erase(it) : std::next(it);
+    släppDöda(labels_, utanKälla);
+    släppDöda(targets_, utanKälla);
     // …och egna program som ersatts, tagits bort eller vars rityta rivits.
     for (auto it = programs_.begin(); it != programs_.end();)
         it = it->second.life.expired() ? programs_.erase(it) : std::next(it);
@@ -118,11 +198,25 @@ void CanvasResources::trim()
             if (a)
                 a->clear();
         ++atlasEpoch_;
-        for (auto& [id, e] : glyphs_)
+        for (auto& [id, e] : glyphs_) {
             e.build = GlyphBuild{};
-        for (auto& [id, e] : pageGlyphs_)
+            ledger_->book(e.charge, e.charge.account, 0);
+        }
+        for (auto& [id, e] : pageGlyphs_) {
             e.build = GlyphBuild{};
+            ledger_->book(e.charge, e.charge.account, 0);
+        }
     }
+
+    // DET DELADE på fönstrets konto: atlasernas sidor (R8) och ramperna.
+    std::size_t delat = 0;
+    for (const auto& a : atlases_)
+        if (a)
+            delat += a->pageCount() * static_cast<std::size_t>(gfx::kSdfPageSize) *
+                     static_cast<std::size_t>(gfx::kSdfPageSize);
+    for (const RampEntry& r : ramps_)
+        delat += detail::imageBytes(r.image.get());
+    ledger_->book(shared_, 0, delat);
 }
 
 // ------------------------------------------------------------------ chunkarna
@@ -158,9 +252,11 @@ CanvasResources::sync(const std::shared_ptr<detail::ChunkData>& chp)
     auto [it, fresh] = chunks_.try_emplace(ch.id);
     ChunkEntry& e    = it->second;
     if (fresh)
-        e.src = chp;
-    if (!fresh && e.version == ch.version && e.gpu.vb && e.gpu.ib)
+        e.src = chp->life;
+    if (!fresh && e.version == ch.version && e.gpu.vb && e.gpu.ib) {
+        ledger_->use(e.charge, e.gpu.vbCap + e.gpu.ibCap);
         return &e.gpu;
+    }
 
     // IKAPP MED LOGGEN när den räcker dit, annars hela chunken. En ändring
     // som inte ryms i bufferten (svansen växte förbi kapaciteten) gör också
@@ -191,9 +287,11 @@ CanvasResources::sync(const std::shared_ptr<detail::ChunkData>& chp)
          !reserveAndUpload(e.gpu.ib, e.gpu.ibCap, gfx::BufferKind::Index,
                            ch.indices.data(), ibytes))) {
         e.version = 0;   // försöks igen nästa ritning
+        ledger_->use(e.charge, e.gpu.vbCap + e.gpu.ibCap);
         return nullptr;
     }
     e.version = ch.version;
+    ledger_->use(e.charge, e.gpu.vbCap + e.gpu.ibCap);
     return &e.gpu;
 }
 
@@ -208,7 +306,7 @@ CanvasResources::glyphs(const std::shared_ptr<detail::RunData>& run,
     auto [it, fresh] = (pageRender_ ? pageGlyphs_ : glyphs_).try_emplace(run->id);
     GlyphEntry& e    = it->second;
     if (fresh)
-        e.src = run;
+        e.src = run->life;
     // Inaktuellt: körningen ändrad, tätheten ändrad (mm ↔ px räknas om),
     // atlasen tömd eller terrängen under etiketterna ändrad (regionen under
     // körningens ankarlåda, inte hela terrängens version: en ny platta någon
@@ -216,7 +314,10 @@ CanvasResources::glyphs(const std::shared_ptr<detail::RunData>& run,
     // Världsenhetens skala är INTE ett skäl — det hade gjort varje zoom till
     // en uppladdning (se TextStyle).
     const bool påTerräng = env.terrain != nullptr;
-    if (fresh || e.version != run->glyphVersion || e.pxPerPx != env.pxPerPx ||
+    // En IMPORTERAD post (`importLabels`) bär bara etiketterna — ingen
+    // geometri att rita — och byggs därför alltid.
+    if (fresh || e.imported || e.version != run->glyphVersion ||
+        e.pxPerPx != env.pxPerPx ||
         e.pxPerMm != env.pxPerMm || e.atlasEpoch != atlasEpoch_ ||
         e.onTerrain != påTerräng || (påTerräng && e.terrain != env.terrainKey)) {
         retiredBuilds_.push_back(std::move(e.build));
@@ -228,9 +329,12 @@ CanvasResources::glyphs(const std::shared_ptr<detail::RunData>& run,
         e.atlasEpoch = atlasEpoch_;
         e.onTerrain  = påTerräng;
         e.terrain    = påTerräng ? env.terrainKey : 0;
+        e.imported   = false;
         e.build.serial = ++glyphBuildsMade_;
         detail::profileCount(ProfileCount::GlyphBuilds);
+        ledger_->book(e.charge, e.charge.account, buildBytes(e.build));
     }
+    ledger_->use(e.charge, e.charge.bytes);
     return e.build;
 }
 
@@ -466,7 +570,7 @@ CanvasResources::labelState(const std::shared_ptr<detail::SceneData>& scene,
 {
     auto [it, fresh] = labels_.try_emplace(std::make_pair(scene->id, slot));
     if (fresh)
-        it->second.src = scene;
+        it->second.src = scene->life;
     return it->second;
 }
 
@@ -475,6 +579,63 @@ CanvasResources::findLabelState(std::uint64_t sceneId, int slot) const
 {
     const auto it = labels_.find(std::make_pair(sceneId, slot));
     return it != labels_.end() ? &it->second : nullptr;
+}
+
+// ETIKETTERNA TILL EN ANNAN TRÅD (resources.h `LabelExport`): det
+// träffprovet läser — byggenas etiketter och placeringarnas synlighet — som
+// värden. Etikettlistan kopieras bara när bygget är nytt (löpnumret); samma
+// lista delas sedan av varje export.
+void CanvasResources::exportLabels(const detail::SceneData& scene, LabelExport& out)
+{
+    out.builds.clear();
+    out.placements.clear();
+    for (const std::shared_ptr<detail::LayerData>& L : scene.layers)
+        for (const std::shared_ptr<detail::RunData>& run : L->runs) {
+            if (!detail::isGlyphKind(run->key.kind))
+                continue;
+            const auto it = glyphs_.find(run->id);
+            if (it == glyphs_.end() || it->second.imported)
+                continue;
+            const GlyphEntry& e    = it->second;
+            ExportedLabels&   delad = exported_[run->id];
+            if (!delad.labels || delad.serial != e.build.serial) {
+                delad.labels = std::make_shared<const std::vector<LabelInfo>>(
+                    e.build.labels);
+                delad.serial = e.build.serial;
+                delad.life   = run->life;
+            }
+            out.builds.push_back(LabelExport::Build{run->id, run->life, e.version,
+                                                    e.build.serial, delad.labels});
+        }
+    for (const auto& [nyckel, s] : labels_)
+        if (nyckel.first == scene.id)
+            out.placements.push_back(LabelExport::Placement{
+                nyckel.second, static_cast<bool>(s.tex), s.runs, s.shown});
+}
+
+void CanvasResources::importLabels(const detail::SceneData& scene,
+                                   const LabelExport& in)
+{
+    for (const LabelExport::Build& b : in.builds) {
+        if (!b.labels)
+            continue;
+        GlyphEntry& e = glyphs_[b.run];
+        // Samma bygge igen: listan står redan här.
+        if (!e.imported || e.build.serial != b.serial)
+            e.build.labels = *b.labels;
+        e.src          = b.life;
+        e.version      = b.version;
+        e.atlasEpoch   = atlasEpoch_;
+        e.imported     = true;
+        e.build.serial = b.serial;
+    }
+    for (const LabelExport::Placement& p : in.placements) {
+        LabelState& s = labels_[std::make_pair(scene.id, p.slot)];
+        s.src      = scene.life;
+        s.runs     = p.runs;
+        s.shown    = p.shown;
+        s.imported = p.hides;
+    }
 }
 
 void CanvasResources::uploadLabels(LabelState& s, std::size_t lo, std::size_t hi)
@@ -496,6 +657,7 @@ void CanvasResources::uploadLabels(LabelState& s, std::size_t lo, std::size_t hi
         hi = n;
     }
     hi = std::min(hi, n);
+    ledger_->use(s.charge, detail::imageBytes(s.tex.get()));
     if (!s.tex->valid() || lo >= hi)
         return;
     // Spannet rad för rad: en bit av första raden, hela rader, en bit av
@@ -522,6 +684,7 @@ void CanvasResources::dropLabels(LabelState& s)
 {
     if (s.tex)
         retiredImages_.push_back(std::move(s.tex));
+    ledger_->drop(s.charge);
 }
 
 // ------------------------------------------- atlaserna, ramperna, rutnätet
@@ -639,7 +802,7 @@ CanvasResources::target3D(const std::shared_ptr<detail::SceneData>& scene,
     auto [it, fresh] = targets_.try_emplace(std::make_pair(scene->id, view));
     Target3D& t      = it->second;
     if (fresh)
-        t.src = scene;
+        t.src = scene->life;
     // Provtagningen som renderaren klarar (≤ den begärda) — llvmpipe har 4.
     const int s = r_->supportedSamples(samples);
     if (!t.target || t.w != w || t.h != h || t.samples != s) {
@@ -659,6 +822,7 @@ CanvasResources::target3D(const std::shared_ptr<detail::SceneData>& scene,
         t.samples = s;
         t.drawn   = false;
     }
+    ledger_->use(t.charge, detail::targetBytes(t.target.get()));
     return t;
 }
 
@@ -676,6 +840,7 @@ void CanvasResources::dropViews(std::uint64_t sceneId, int firstView)
          it != targets_.end() && it->first.first == sceneId;) {
         if (it->second.target)
             retiredTargets_.push_back(std::move(it->second.target));
+        ledger_->drop(it->second.charge);
         it = targets_.erase(it);
     }
     const int firstSub = std::max(firstView, detail::kMainView + 1);

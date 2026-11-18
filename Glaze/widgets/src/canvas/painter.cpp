@@ -23,7 +23,9 @@
 #include "camera_math.h"
 #include "drape.h"
 #include "instances.h"
+#include "memory_account.h"
 #include "mesh_data.h"
+#include "paint_list.h"
 #include "programs3d.h"
 #include "residency.h"
 #include "resources.h"
@@ -103,6 +105,21 @@ struct PainterState {
     bool          screen;   // ritytans lokala px (annars världen)
     Xform         xf;
     RenderState   state = kNoDepth;   // setRenderState
+
+    // INSPELNINGEN (paint_list.h): satt ritar målaren ingenting — varje anrop
+    // antecknas här, medan rymden, transformen och renderläget följs som
+    // vanligt (det handlern frågar efter).
+    PaintList* rec = nullptr;
+
+    void record(PaintOp::Kind kind)
+    {
+        PaintOp op;
+        op.kind = kind;
+        rec->push_back(std::move(op));
+    }
+
+    // Ett sparat läge (`Painter::save`).
+    void pushLevel() { saved.push_back(Level{screen, xf, state, clip}); }
 
     // KLIPPET som gäller (clip.h): maskerna rit-anropen binder. Börjar i
     // ritningens (ritytans, lagrets) och snittas av varje `save(…)`.
@@ -340,6 +357,13 @@ struct PainterState {
 
     void add(const Shape& s)
     {
+        if (rec) {
+            PaintOp op;
+            op.kind  = PaintOp::Kind::Draw;
+            op.shape = s.withResolvedText();
+            rec->push_back(std::move(op));
+            return;
+        }
         // SYNLIGHETEN EFTER ZOOM — i världen; skärmrymden har ingen.
         if (!screen && !visibleAtZoom(s, ctx.zoom))
             return;
@@ -569,6 +593,8 @@ struct PainterState {
         if (!md || md->positions.empty())
             return;
         const MeshData&  d  = *md;
+        // Meshens data läses under dess lås (mesh_data.h).
+        const std::lock_guard<std::mutex> lås(d.lock);
         const Placement& pl = s.placement();
         const MeshStyle& st = s.meshStyle();
         // Anropets origo genom transformen (double), och modellen: målarens
@@ -632,6 +658,7 @@ struct PainterState {
         if (!set || set->rows.empty() || !md || md->positions.empty())
             return;
         const MeshData&  d  = *md;
+        const std::lock_guard<std::mutex> lås(d.lock);
         const Placement& pl = s.placement();
         const MeshStyle& st = s.meshStyle();
         // Prototypens ram i instansens (instances.h) — som lagrens.
@@ -823,7 +850,7 @@ struct PainterState {
         case ImageSource::Kind::Asset:   return ctx.c->images->get(src.asset());
         case ImageSource::Kind::Bitmap:  return ctx.c->images->get(src.bitmap());
         case ImageSource::Kind::Texture:
-            return ctx.c->images->get(src.texture(), *ctx.c);
+            return textureOf(ctx.res, ctx.c, src);
         case ImageSource::Kind::Icon:    return ctx.c->images->get(src, *ctx.c);
         case ImageSource::Kind::None:    break;
         }
@@ -890,6 +917,16 @@ struct PainterState {
     // ändliga hörn) — ingen triangulering bara för att fråga.
     void clipTo(std::vector<Polygon> ytor, bool kändGiltig = false)
     {
+        if (rec) {
+            // Ytorna i anropets rymd — uppspelningen för dem genom transformen.
+            saved.back().clipped = true;
+            PaintOp op;
+            op.kind      = PaintOp::Kind::Clip;
+            op.clip      = std::move(ytor);
+            op.clipValid = kändGiltig;
+            rec->push_back(std::move(op));
+            return;
+        }
         flush();
         saved.back().clipped = true;
         for (Polygon& y : ytor) {
@@ -934,13 +971,31 @@ struct PainterState {
     // EN RITYTA PÅ YTAN (painter.h `drawCanvas`): ritytans lager i ett eget
     // mål i rektangelns upplösning, sedan målets bild på rektangelns fyra
     // hörn under målarens klipp. `cam2` eller `cam3` är kameran.
+    // Anropet PRÖVAS och tas som data (`prepareCanvas` — i UI-tråden, där
+    // den andra ritytans målare spelas in), och ritas sedan (`executeCanvas`)
+    // direkt eller ur inspelningen.
     bool drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& scene,
                     std::uint64_t stamp, const Rect& rect, const Camera* cam2,
                     const Camera3D* cam3);
+    std::shared_ptr<const CanvasDraw> prepareCanvas(
+        Canvas& canvas, const std::shared_ptr<SceneData>& scene,
+        std::uint64_t stamp, const Rect& rect, const Camera* cam2,
+        const Camera3D* cam3);
+    bool executeCanvas(const CanvasDraw& d);
+    // Rektangelns hörn genom transformen (z-ordning) och deras lägen i målets
+    // px — false när ett hörn ligger bakom kameran.
+    bool canvasCorners(const Rect& rect, Point c[4], double sx[4],
+                       double sy[4]) const;
 
     // xf = xf · m — m verkar FÖRST på punkterna (som i en ritstack).
     void compose(const Xform& m)
     {
+        if (rec) {
+            PaintOp op;
+            op.kind = PaintOp::Kind::Transform;
+            op.xf   = m;
+            rec->push_back(std::move(op));
+        }
         const Xform t = xf;
         xf.a = t.a * m.a + t.b * m.d;
         xf.b = t.a * m.b + t.b * m.e;
@@ -967,14 +1022,31 @@ const gfx::Color kPageClear{0, 0, 0, 0};
 
 } // namespace
 
-bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& scene,
-                              std::uint64_t stamp, const Rect& rect,
-                              const Camera* cam2, const Camera3D* cam3)
+// Rektangelns hörn (z-ordning: övre vänster, övre höger, nedre vänster, nedre
+// höger) genom transformen, och deras lägen i målets px.
+bool PainterState::canvasCorners(const Rect& rect, Point c[4], double sx[4],
+                                 double sy[4]) const
 {
-    const auto fail = [&](const char* why) {
+    imageCorners(rect, view().yUp, c);
+    for (int i = 0; i < 4; ++i)
+        c[i] = xf.apply(c[i]);
+    const Projection pr = screen ? Projection(ctx.screen)
+                          : ctx.view3D ? Projection(*ctx.view3D)
+                                       : Projection(ctx.world);
+    for (int i = 0; i < 4; ++i)
+        if (!pr.toScreen(c[i].x, c[i].y, sx[i], sy[i]))
+            return false;
+    return true;
+}
+
+std::shared_ptr<const CanvasDraw> PainterState::prepareCanvas(
+    Canvas& canvas, const std::shared_ptr<SceneData>& scene, std::uint64_t stamp,
+    const Rect& rect, const Camera* cam2, const Camera3D* cam3)
+{
+    const auto fail = [&](const char* why) -> std::shared_ptr<const CanvasDraw> {
         gfx::log("Painter::drawCanvas(%s): %s — ritytan ritas inte",
                  canvas.name.c_str(), why);
-        return false;
+        return nullptr;
     };
     if (!ctx.res || !ctx.c || !ctx.c->r)
         return fail("målaren har ingen renderare");   // lang_gate:rad loggens skäl, ingen användartext
@@ -985,24 +1057,86 @@ bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& 
         return fail("rektangeln har ingen yta eller ett tal som inte är ändligt");   // lang_gate:rad loggens skäl, ingen användartext
     if (cam3 ? !validCamera3D(*cam3) : !validCamera(*cam2))
         return fail("ogiltig kamera");   // lang_gate:rad loggens skäl, ingen användartext
+    Point  c[4];
+    double sx[4], sy[4];
+    if (!canvasCorners(rect, c, sx, sy))
+        return fail("rektangeln ligger bakom kameran");   // lang_gate:rad loggens skäl, ingen användartext
+    if (!std::isfinite(std::hypot(sx[1] - sx[0], sy[1] - sy[0])) ||
+        !std::isfinite(std::hypot(sx[2] - sx[0], sy[2] - sy[0])))
+        return fail("rektangeln har inga mått på ytan");   // lang_gate:rad loggens skäl, ingen användartext
+
+    auto d       = std::make_shared<CanvasDraw>();
+    d->name      = canvas.name;
+    // Den andra ritytans scen som en ögonblicksbild — ritningen läser aldrig
+    // de data dess sättare skriver i.
+    d->scene     = publishScene(*scene);
+    d->stamp     = stamp;
+    d->rect      = rect;
+    if (cam2)
+        d->camera = *cam2;
+    else
+        d->camera3 = *cam3;
+    d->lighting  = canvas.lighting();
+    d->yUp       = canvas.yUp();
+    d->maxPitch  = canvas.maxPitch();
+    d->samples   = canvas.multisample();
+    d->labelFade = canvas.labelFade();
+    // Den andra ritytans lagermålare spelas in NU, i dess eget ritläge —
+    // målet ritas som ett 3D-mål (`renderCanvasTarget`).
+    PaintContext pc;
+    pc.c     = ctx.c;
+    pc.res   = ctx.res;
+    pc.scene = scene.get();
+    if (cam2)
+        pc.world = mapView(*cam2, d->yUp, d->maxPitch, ctx.c->box, ctx.c->scale);
+    else
+        pc.world.yUp = d->yUp;
+    pc.screen = ctx.screen;
+    // Ritytan räknas som ritande medan dess målare körs: en målare som ritar
+    // sin egen rityta nekas (ovan) i stället för att spela in sig själv.
+    const PaintingScope ritar(*scene);
+    d->layers = recordPaints(canvas, pc, false, true);
+    return d;
+}
+
+bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& scene,
+                              std::uint64_t stamp, const Rect& rect,
+                              const Camera* cam2, const Camera3D* cam3)
+{
+    const std::shared_ptr<const CanvasDraw> d =
+        prepareCanvas(canvas, scene, stamp, rect, cam2, cam3);
+    if (!d)
+        return false;
+    if (rec) {
+        PaintOp op;
+        op.kind   = PaintOp::Kind::Canvas;
+        op.canvas = d;
+        rec->push_back(std::move(op));
+        return true;
+    }
+    return executeCanvas(*d);
+}
+
+bool PainterState::executeCanvas(const CanvasDraw& d)
+{
+    const std::shared_ptr<SceneData>& scene = d.scene;
+    const Camera*   cam2 = d.camera ? &*d.camera : nullptr;
+    const Camera3D* cam3 = d.camera3 ? &*d.camera3 : nullptr;
+    const auto fail = [&](const char* why) {
+        gfx::log("Painter::drawCanvas(%s): %s — ritytan ritas inte",
+                 d.name.c_str(), why);
+        return false;
+    };
 
     // Det som väntar ritas före — med det gamla klippet.
     flush();
 
-    // Rektangelns hörn (z-ordning: övre vänster, övre höger, nedre vänster,
-    // nedre höger) genom transformen till målets px: målet får rektangelns
-    // upplösning, och en vriden rektangel sina sidors längd.
-    Point c[4];
-    imageCorners(rect, view().yUp, c);
-    for (Point& q : c)
-        q = xf.apply(q);
-    const Projection pr = screen ? Projection(ctx.screen)
-                          : ctx.view3D ? Projection(*ctx.view3D)
-                                       : Projection(ctx.world);
+    // Målet får rektangelns upplösning, och en vriden rektangel sina sidors
+    // längd.
+    Point  c[4];
     double sx[4], sy[4];
-    for (int i = 0; i < 4; ++i)
-        if (!pr.toScreen(c[i].x, c[i].y, sx[i], sy[i]))
-            return fail("rektangeln ligger bakom kameran");   // lang_gate:rad loggens skäl, ingen användartext
+    if (!canvasCorners(d.rect, c, sx, sy))
+        return fail("rektangeln ligger bakom kameran");   // lang_gate:rad loggens skäl, ingen användartext
     const double bredd = std::hypot(sx[1] - sx[0], sy[1] - sy[0]);
     const double höjd  = std::hypot(sx[2] - sx[0], sy[2] - sy[0]);
     if (!std::isfinite(bredd) || !std::isfinite(höjd))
@@ -1015,21 +1149,20 @@ bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& 
     // Ritytans ritläge i målet: ytans resurser och ljus, och kartkameran på
     // målets ruta (en 3D-kamera sätts av `renderCanvasTarget`).
     const gfx::Rectf box{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)};
-    const Lighting   ljus = canvas.lighting();
     PaintContext     pc;
     pc.c        = ctx.c;
     pc.res      = ctx.res;
-    pc.lighting = &ljus;
+    pc.lighting = &d.lighting;
     pc.scene    = scene.get();
     if (cam2)
-        pc.world = mapView(*cam2, canvas.yUp(), canvas.maxPitch(), box, ctx.c->scale);
+        pc.world = mapView(*cam2, d.yUp, d.maxPitch, box, ctx.c->scale);
     else
-        pc.world.yUp = canvas.yUp();
+        pc.world.yUp = d.yUp;
     Target3DArgs a;
-    a.samples    = canvas.multisample();
+    a.samples    = d.samples;
     a.camera     = cam3;
-    a.labelFade  = canvas.labelFade() && !ctx.res->pageRender();
-    a.layerPaint = layerPaintOf(canvas);
+    a.labelFade  = d.labelFade && !ctx.res->pageRender();
+    a.layerPaint = paintsOf(d.layers).layers;
 
     // MÅLETS NYCKEL — det ritningen beror på: ritytan och dess
     // `damageStamp` (varje ändring av den, och fönstrets helomritning),
@@ -1039,7 +1172,7 @@ bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& 
     // värd — återanvänder målet utan att rita ritytan.
     KeyHash nyckel;
     nyckel.mix(scene->id);
-    nyckel.mix(stamp);
+    nyckel.mix(d.stamp);
     nyckel.mix(clipVersions(*scene));
     nyckel.mix(static_cast<std::uint64_t>(w));
     nyckel.mix(static_cast<std::uint64_t>(h));
@@ -1063,8 +1196,7 @@ bool PainterState::drawCanvas(Canvas& canvas, const std::shared_ptr<SceneData>& 
     }
     TargetPool::Slot& mål = ctx.res->pageTarget(nyckel.h, w, h);
     if (!mål.built) {
-        const ImageAccount  konto(*ctx.c, scene);
-        const PaintingScope ritar(*scene);
+        const MemoryAccount konto(*ctx.c, scene);
         bool tonar = false;
         if (!renderCanvasTarget(pc, scene, a, w, h, kPageClear, mål.target, tonar))
             return false;   // målet gick inte att skapa — loggat
@@ -1101,13 +1233,147 @@ void paintWith(Canvas& yta, const Handler<PaintArgs>& h, PaintContext& p, bool s
     callWithoutEpoch(h, &yta, e);
 }
 
-LayerPaint layerPaintOf(Canvas& yta)
+// ------------------------------------------------------------ INSPELNINGEN
+
+namespace {
+
+// Kör `h` med en målare som spelar in i `ut`. `state` är målarens start (ett
+// lagers renderläge) — det handlern läser med `renderState()`; uppspelningen
+// sätter samma start själv.
+void recordWith(Canvas& yta, const Handler<PaintArgs>& h, PaintContext& p,
+                int layer, const RenderState* state, PaintList& ut)
 {
-    if (!yta.onPaintLayer)
-        return {};
-    return [&yta](PaintContext& p, int layer, const RenderState* state) {
-        paintWith(yta, yta.onPaintLayer, p, false, layer, state);
+    Painter painter(p, false);
+    if (state)
+        painter.setRenderState(*state);
+    startRecording(painter, ut);
+    PaintArgs e(painter);
+    e.layer = layer;
+    callWithoutEpoch(h, &yta, e);
+}
+
+// Spelar upp `l` i ritningens läge — en vanlig målare, som tömmer sin sista
+// sats när den går ur räckvidd.
+void replayWith(const PaintList& l, PaintContext& p, const RenderState* state)
+{
+    if (l.empty())
+        return;
+    Painter painter(p, false);
+    if (state)
+        painter.setRenderState(*state);
+    replayPaint(painter, l);
+}
+
+} // namespace
+
+void startRecording(Painter& p, PaintList& ut)
+{
+    p.s_->rec = &ut;
+}
+
+void replayPaint(Painter& p, const PaintList& l)
+{
+    PainterState& s = *p.s_;
+    for (const PaintOp& op : l) {
+        switch (op.kind) {
+        case PaintOp::Kind::Draw:
+            s.add(op.shape);
+            break;
+        case PaintOp::Kind::State:
+            p.setRenderState(op.state);
+            break;
+        case PaintOp::Kind::Save:
+            s.pushLevel();
+            break;
+        case PaintOp::Kind::Clip:
+            s.clipTo(op.clip, op.clipValid);
+            break;
+        case PaintOp::Kind::Restore:
+            p.restore();
+            break;
+        case PaintOp::Kind::Transform:
+            s.compose(op.xf);
+            break;
+        case PaintOp::Kind::ScreenSpace:
+            p.screenSpace();
+            break;
+        case PaintOp::Kind::Canvas:
+            if (op.canvas)
+                s.executeCanvas(*op.canvas);
+            break;
+        }
+    }
+}
+
+std::shared_ptr<const PaintRecording> recordPaints(Canvas& yta, PaintContext& p,
+                                                   bool withMain, bool target3D)
+{
+    auto rec = std::make_shared<PaintRecording>();
+    if (withMain && yta.onPaint)
+        recordWith(yta, yta.onPaint, p, -1, nullptr, rec->main);
+    if (yta.onPaintLayer && p.scene) {
+        const SceneData& sc = *p.scene;
+        rec->layers.resize(sc.layers.size());
+        for (std::size_t li = 0; li < sc.layers.size(); ++li) {
+            const LayerData& L = *sc.layers[li];
+            if (!L.painter)
+                continue;
+            // Lagrets renderläge är målarens start där lagret ritas i rymden
+            // (scene.cpp `drawWorld`) — på marken ritas det utan djup.
+            const bool iRymden = target3D && effectivePlacement(L) != LayerPlacement::Ground;
+            recordWith(yta, yta.onPaintLayer, p, static_cast<int>(li),
+                       iRymden ? &L.state : nullptr, rec->layers[li]);
+        }
+    }
+    return rec;
+}
+
+CanvasPaints paintsOf(std::shared_ptr<const PaintRecording> rec)
+{
+    CanvasPaints k;
+    if (!rec)
+        return k;
+    if (!rec->main.empty())
+        k.main = [rec](PaintContext& p) { replayWith(rec->main, p, nullptr); };
+    bool lager = false;
+    for (const PaintList& l : rec->layers)
+        lager = lager || !l.empty();
+    if (lager)
+        k.layers = [rec](PaintContext& p, int layer, const RenderState* state) {
+            if (layer >= 0 && static_cast<std::size_t>(layer) < rec->layers.size())
+                replayWith(rec->layers[static_cast<std::size_t>(layer)], p, state);
+        };
+    return k;
+}
+
+CanvasPaints lazyPaintsOf(Canvas& yta, bool target3D)
+{
+    // Inspelningen delas av de två krokarna och görs av den som anropas
+    // först, med dess ritläge.
+    struct Lat {
+        Canvas*                               yta;
+        bool                                  target3D;
+        std::shared_ptr<const PaintRecording> rec;
+        const PaintRecording& get(PaintContext& p)
+        {
+            if (!rec)
+                rec = recordPaints(*yta, p, true, target3D);
+            return *rec;
+        }
     };
+    const auto lat = std::make_shared<Lat>(Lat{&yta, target3D, nullptr});
+    CanvasPaints k;
+    if (yta.onPaint)
+        k.main = [lat](PaintContext& p) {
+            replayWith(lat->get(p).main, p, nullptr);
+        };
+    if (yta.onPaintLayer)
+        k.layers = [lat](PaintContext& p, int layer, const RenderState* state) {
+            const PaintRecording& r = lat->get(p);
+            if (layer >= 0 && static_cast<std::size_t>(layer) < r.layers.size())
+                replayWith(r.layers[static_cast<std::size_t>(layer)], p, state);
+        };
+    return k;
 }
 
 } // namespace detail
@@ -1243,6 +1509,12 @@ void Painter::setRenderState(const RenderState& state)
                  "(ignoreras)");
         return;
     }
+    if (s_->rec) {
+        detail::PaintOp op;
+        op.kind  = detail::PaintOp::Kind::State;
+        op.state = state;
+        s_->rec->push_back(std::move(op));
+    }
     // Läget är rit-anropets: det som redan väntar ritas med det gamla.
     if (!detail::sameState(s_->state, state))
         s_->flush();
@@ -1256,8 +1528,9 @@ RenderState Painter::renderState() const
 
 Painter::Saved Painter::save()
 {
-    s_->saved.push_back(
-        detail::PainterState::Level{s_->screen, s_->xf, s_->state, s_->clip});
+    if (s_->rec)
+        s_->record(detail::PaintOp::Kind::Save);
+    s_->pushLevel();
     return Saved(this);
 }
 
@@ -1304,6 +1577,8 @@ void Painter::restore()
 {
     if (s_->saved.empty())
         return;
+    if (s_->rec)
+        s_->record(detail::PaintOp::Kind::Restore);
     const detail::PainterState::Level& l = s_->saved.back();
     // Läget och klippet är rit-anropets: det som väntar ritas med dem.
     if (!detail::sameState(s_->state, l.state) || l.clipped)
@@ -1356,6 +1631,8 @@ void Painter::scale(double sx, double sy)
 
 void Painter::screenSpace()
 {
+    if (s_->rec)
+        s_->record(detail::PaintOp::Kind::ScreenSpace);
     // En ny rymd: transformen talade den gamla rymdens enheter och börjar om.
     s_->screen = true;
     s_->xf     = detail::Xform{};

@@ -16,7 +16,6 @@
 #include "../profiler_hooks.h"
 #include "build.h"
 #include "camera_math.h"
-#include "glaze/app.h"
 #include "labels.h"
 #include "mesh_data.h"
 #include "pick3d.h"
@@ -307,20 +306,25 @@ int cellOf(double v, double origin, double cell, int n)
 
 // TERRÄNGENS RUTNÄT (drape.h `terrainHeight`): de synliga Terrain-lagrens
 // former i ett jämnt XY-rutnät — en form i varje cell dess låda når — med
-// det rutnätet byggdes ur. Pekarna gäller så länge rutnätet är aktuellt:
-// varje ändring av en form eller ett lager i det stegar en av nycklarna, och
-// en riven lagerdata märks på sitt livstecken.
+// det rutnätet byggdes ur: lagrens id, formversion och opacitet, jämförda mot
+// scenens lager som de är nu. Rutnätet HÅLLER formplatserna det pekar på, och
+// följer med från en ögonblicksbild av scenen till nästa — bildens lager är
+// nya noder, så ingenting här pekar in i dem. Frågorna går under rutnätets
+// lås: en bild kan frågas av två trådar.
 struct TerrainIndex {
     struct Layer {
-        std::weak_ptr<const LayerData> life;
-        const LayerData*               data = nullptr;
-        std::uint64_t                  shapesVersion = 0;
+        std::uint64_t id            = 0;
+        std::uint64_t shapesVersion = 0;
+        float         opacity       = 1.0f;
+
+        bool operator==(const Layer&) const = default;
     };
     struct Item {
-        const ShapeEntry* entry = nullptr;
-        Box3              box{};
-        std::uint32_t     layer = 0;
+        std::shared_ptr<const ShapeEntry> entry;
+        Box3                              box{};
+        std::uint32_t                     layer = 0;
     };
+    std::mutex                 lock;
     bool                       built = false;
     std::uint64_t              layerSetVersion = 0, meshGeneration = 0;
     std::vector<Layer>         layers;
@@ -340,10 +344,17 @@ bool current(const TerrainIndex& ix, const SceneData& sc)
     if (!ix.built || ix.layerSetVersion != sc.layerSetVersion ||
         ix.meshGeneration != meshGeneration())
         return false;
-    for (const TerrainIndex::Layer& l : ix.layers)
-        if (l.life.expired() || l.data->shapesVersion != l.shapesVersion)
+    std::size_t n = 0;
+    for (const std::shared_ptr<LayerData>& Lp : sc.layers) {
+        const LayerData& L = *Lp;
+        if (!L.visible || effectivePlacement(L) != LayerPlacement::Terrain)
+            continue;
+        if (n >= ix.layers.size() ||
+            !(ix.layers[n] == TerrainIndex::Layer{L.id, L.shapesVersion, L.opacity}))
             return false;
-    return true;
+        ++n;
+    }
+    return n == ix.layers.size();
 }
 
 void build(TerrainIndex& ix, const SceneData& sc)
@@ -355,12 +366,12 @@ void build(TerrainIndex& ix, const SceneData& sc)
         if (!L.visible || effectivePlacement(L) != LayerPlacement::Terrain)
             continue;
         const auto li = static_cast<std::uint32_t>(ix.layers.size());
-        ix.layers.push_back(TerrainIndex::Layer{Lp, &L, L.shapesVersion});
-        for (const ShapeSlot& slot : L.slots) {
-            if (!heightShape(slot.entry->shape))
+        ix.layers.push_back(TerrainIndex::Layer{L.id, L.shapesVersion, L.opacity});
+        for (const std::shared_ptr<ShapeEntry>& entry : liveObjects(L)) {
+            if (!heightShape(entry->shape))
                 continue;
-            if (const std::optional<Box3>& b = objectBox(*slot.entry))
-                ix.items.push_back(TerrainIndex::Item{slot.entry.get(), *b, li});
+            if (const std::optional<Box3> b = objectBox(*entry))
+                ix.items.push_back(TerrainIndex::Item{entry, *b, li});
         }
     }
     ix.nx = ix.ny = 0;
@@ -421,15 +432,20 @@ void build(TerrainIndex& ix, const SceneData& sc)
     ++terrainIndexStats().builds;
 }
 
-// Scenens rutnät, aktuellt.
-TerrainIndex& terrainIndex(const SceneData& sc)
+// Scenens rutnät — skapat vid den första frågan, under skalets lås.
+std::shared_ptr<TerrainIndex> terrainIndexOf(const SceneData& sc)
 {
+    const std::lock_guard<std::mutex> vakt(nodeLock(sc.id));
     if (!sc.terrainIndex)
         sc.terrainIndex = std::make_shared<TerrainIndex>();
-    TerrainIndex& ix = *sc.terrainIndex;
+    return sc.terrainIndex;
+}
+
+// …gjort aktuellt. Anroparen håller rutnätets lås.
+void refresh(TerrainIndex& ix, const SceneData& sc)
+{
     if (!current(ix, sc))
         build(ix, sc);
-    return ix;
 }
 
 } // namespace
@@ -447,8 +463,8 @@ bool hasTerrain(const PaintContext& f, const SceneData& sc)
         if (!L.visible || effectivePlacement(L) != LayerPlacement::Terrain ||
             !layerDrawn(f, L))
             continue;
-        for (const ShapeSlot& slot : L.slots)
-            if (terrainShape(slot.entry->shape))
+        for (const std::shared_ptr<ShapeEntry>& entry : liveObjects(L))
+            if (terrainShape(entry->shape))
                 return true;
     }
     return false;
@@ -458,7 +474,10 @@ std::optional<double> terrainHeight(const SceneData& sc, double x, double y)
 {
     if (!std::isfinite(x) || !std::isfinite(y))
         return std::nullopt;
-    TerrainIndex& ix = terrainIndex(sc);
+    const std::shared_ptr<TerrainIndex> rutnät = terrainIndexOf(sc);
+    TerrainIndex&                       ix     = *rutnät;
+    const std::lock_guard<std::mutex>   vakt(ix.lock);
+    refresh(ix, sc);
     if (ix.items.empty())
         return std::nullopt;
     // En lodrät stråle uppifrån mot cellens former (pick3d.h
@@ -479,7 +498,7 @@ std::optional<double> terrainHeight(const SceneData& sc, double x, double y)
         if (x < b.min.x || x > b.max.x || y < b.min.y || y > b.max.y)
             continue;
         pk.ray          = verticalRayDown(x, y, b);
-        pk.layerOpacity = ix.layers[it.layer].data->opacity;
+        pk.layerOpacity = ix.layers[it.layer].opacity;
         ix.hits.clear();
         pickShape3D(it.entry->shape, pk, ix.hits);
         for (const SceneHit& t : ix.hits)
@@ -493,8 +512,11 @@ std::uint64_t terrainRegionKey(const SceneData& sc, double x0, double y0,
                                double x1, double y1)
 {
     // SUMMAN av formernas nycklar — ordningsoberoende (drape.h).
-    const TerrainIndex& ix = terrainIndex(sc);
-    std::uint64_t       summa = 0;
+    const std::shared_ptr<TerrainIndex> rutnät = terrainIndexOf(sc);
+    TerrainIndex&                       ix     = *rutnät;
+    const std::lock_guard<std::mutex>   vakt(ix.lock);
+    refresh(ix, sc);
+    std::uint64_t summa = 0;
     for (const TerrainIndex::Item& it : ix.items) {
         const Box3& b = it.box;
         if (b.max.x < x0 || b.min.x > x1 || b.max.y < y0 || b.min.y > y1)
@@ -503,7 +525,7 @@ std::uint64_t terrainRegionKey(const SceneData& sc, double x0, double y0,
         KeyHash                          k;
         k.mix(it.entry->id);
         k.mix(it.entry->version);
-        k.mix(d ? d->version : 0);
+        k.mix(d ? d->version.load() : 0);
         summa += k.h;
     }
     return summa;
@@ -575,7 +597,39 @@ void DrapeCache::trim()
             it = klass.erase(it);
         }
     }
+    // LIGGAREN: en post per rityta med draperingar — dess byte nu, poolens
+    // med; en rityta utan draperingar har ingen post.
+    for (auto it = charges_.begin(); it != charges_.end();) {
+        if (std::find(ytor.begin(), ytor.end(), it->first) != ytor.end()) {
+            ledger_->book(it->second, it->second.account, bytes(it->first));
+            ++it;
+        } else {
+            ledger_->drop(it->second);
+            it = charges_.erase(it);
+        }
+    }
 }
+
+DrapeCache::DrapeCache(gfx::Renderer& r, MemoryLedger& ledger) : r_(&r), ledger_(&ledger)
+{
+    ledger_->add(*this);
+}
+
+DrapeCache::~DrapeCache()
+{
+    for (auto& [scene, c] : charges_)
+        ledger_->drop(c);
+    ledger_->remove(*this);
+}
+
+// Posterna räknas men vräks inte av liggaren (drape.h): slaget 0, ritytans id.
+void DrapeCache::eachCharge(const Visit& visit)
+{
+    for (auto& [scene, c] : charges_)
+        visit(c, ChargeKey{0, scene, 0, 0}, false);
+}
+
+void DrapeCache::evict(const ChargeKey&) {}
 
 void DrapeCache::toPool(std::unique_ptr<gfx::RenderTarget> t, int cls,
                         std::uint64_t scene)
@@ -744,10 +798,10 @@ DrapeFrame prepareDrapes(const PaintContext& f,
         if (!L.visible || lf.placement[li] != LayerPlacement::Terrain ||
             !layerDrawn(f, L))
             continue;
-        for (const ShapeSlot& slot : L.slots) {
-            if (!terrainShape(slot.entry->shape))
+        for (const std::shared_ptr<ShapeEntry>& entry : liveObjects(L)) {
+            if (!terrainShape(entry->shape))
                 continue;
-            const std::optional<Box3>& b = objectBox(*slot.entry);
+            const std::optional<Box3> b = objectBox(*entry);
             if (!b)
                 continue;
             // Den KVADRATISKA lådan kring formens XY-låda.
@@ -764,7 +818,7 @@ DrapeFrame prepareDrapes(const PaintContext& f,
             DrapeView  v{nullptr, cx - side / 2.0, cy - side / 2.0,
                          cx + side / 2.0, cy + side / 2.0, uppifrån};
 
-            const std::uint64_t id = slot.entry->id;
+            const std::uint64_t id = entry->id;
             const auto          it = cache.entries_.find(id);
             DrapeCache::Entry*  e  = it != cache.entries_.end() ? &it->second : nullptr;
             // DOLD: ritas aldrig om — den gamla draperingen står kvar,
@@ -782,7 +836,7 @@ DrapeFrame prepareDrapes(const PaintContext& f,
                 cls = drapeClass(cls, avtryck);
             if (!e) {
                 e      = &cache.entries_[id];
-                e->src = slot.entry;
+                e->src = entry->life;
             }
             e->scene     = sc.id;
             e->lastFrame = cache.frame_;
@@ -838,15 +892,17 @@ DrapeFrame prepareDrapes(const PaintContext& f,
             ut.add(a.id, a.e->view);
     }
 
-    // MINNET (drape.h): över RITYTANS budget — summan av dess konto i
-    // bildcachen, dess draperingar och dess mål i poolen — släpps
+    // MINNET (drape.h): över RITYTANS budget — summan av allt annat på dess
+    // konto i liggaren, dess draperingar och dess mål i poolen — släpps
     // först poolens mål och vräks sedan ritytans draperingar som inte syntes
-    // i framen, äldst först. En platta som syns vräks aldrig. Bildcachen får
-    // draperingarnas byte, så dess `trim` jämför samma summa.
-    const std::size_t budget =
-        sc.memoryBudget > 0 ? sc.memoryBudget : app().canvasMemoryBudget();
+    // i framen, äldst först. En platta som syns vräks aldrig. Liggaren får
+    // draperingarnas byte som ritytans post, så dess `trim` jämför samma summa.
+    const std::size_t budget = cache.ledger_->budgetFor(sc.memoryBudget);
+    Charge&           post   = cache.charges_[sc.id];
+    const std::size_t kontot = cache.ledger_->usage(sc.id).total();
+    // Allt annat än draperingarna själva (posten räknas på ritytans konto).
     const std::size_t bilder =
-        f.c->images ? f.c->images->accountBytes(sc.id) : 0;
+        post.account == sc.id && kontot > post.bytes ? kontot - post.bytes : kontot;
     const std::size_t gräns  = budget > bilder ? budget - bilder : 0;
     std::size_t       totalt = cache.bytes(sc.id);
     if (totalt > gräns)
@@ -860,7 +916,7 @@ DrapeFrame prepareDrapes(const PaintContext& f,
         if (!äldst) {
             if (!cache.overLogged_)
                 gfx::log("Canvas: draperingarna som syns tar %zu byte över "
-                         "ritytans minnesbudget (%zu byte med bilderna) — ingen "
+                         "ritytans minnesbudget (%zu byte med allt ritytan håller) — ingen "
                          "vräks; loggas en gång",
                          totalt + bilder - budget, budget);
             cache.overLogged_ = true;
@@ -874,8 +930,7 @@ DrapeFrame prepareDrapes(const PaintContext& f,
         äldst->cls      = 0;
         äldst->drawnKey = 0;
     }
-    if (f.c->images)
-        f.c->images->setAccountExtra(sc.id, totalt);
+    cache.ledger_->use(post, totalt);
     return ut;
 }
 
