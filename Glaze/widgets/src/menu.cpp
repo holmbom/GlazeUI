@@ -638,7 +638,7 @@ class MenuPresentation;
 // Menyns rader — en `ListBox`-SUBKLASS. Basen bär radloopen (O(synliga)),
 // scrollen, klippet, hit-testen och MARKERINGEN; menyn lägger till radens
 // INNEHÅLL och dess HÖJD. Recepten är därmed ListBoxens, oförändrade:
-// Slate fyller den armerade raden med `accent` och texten blir `windowBg`,
+// Slate fyller den armerade raden med `rowSelected` och texten blir `onRowSelected`,
 // Glaze använder det GRINDADE paret `accentSurface`/`onAccent`,
 // Minimalistic ritar `rowMarkerW`-strecket och accent-text. INGA nya
 // temaroller behövdes.

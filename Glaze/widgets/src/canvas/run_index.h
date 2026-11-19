@@ -25,13 +25,20 @@
 // UI-tråden.
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
+#include "glaze/canvas/geometry.h"
 #include "spatial_index.h"
+
+namespace glaze {
+class Shape;
+}
 
 namespace glaze::detail {
 
 struct RunData;
+struct ShapeEntry;
 struct PaintContext;
 class Projection;
 
@@ -86,6 +93,15 @@ void chunkCandidates(const PaintContext& f, const RunData& run,
 void objectCandidates(const RunData& run, std::uint64_t shapesVersion,
                       const Projection& proj, double slackPx,
                       std::vector<std::uint32_t>& out);
+
+// Föremålets låda i världen, eller ingen: en skärmkonstant mesh (lådan är
+// origot) och ett föremål utan data har ingen — ritningens `objectInView`
+// gör samma undantag.
+std::optional<Box3> objectWorldBox(const Shape& s);
+
+// Föremålets SIGNATUR: platsens id, formens version och datans (en mesh som
+// flyttat sina lägen har en annan låda). Aldrig 0.
+std::uint64_t objectSignature(const ShapeEntry& e);
 
 // Z-spannet över körningens levande föremål, med 0 inräknat.
 void objectZSpan(const RunData& run, std::uint64_t shapesVersion, double& zMin,

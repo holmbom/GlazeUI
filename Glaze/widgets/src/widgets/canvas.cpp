@@ -67,6 +67,7 @@
 
 #include "../canvas/build.h"
 #include "../canvas/camera_math.h"
+#include "../canvas/depth_order.h"
 #include "../canvas/drape.h"
 #include "../canvas/frame_job.h"
 #include "../canvas/hit_index.h"
@@ -3853,6 +3854,7 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
         // det närmaste SYNLIGA på skärmen per form och sort står kvar.
         bool   urval = false;
         double skärm = 0.0;   // skärmavståndet, fysiska px
+        int    rang  = 0;     // föremålets rang i lagrets djupordning
     };
     std::vector<Kandidat> kand;
     const CanvasResources::LabelState* labels =
@@ -3963,11 +3965,16 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
         pk.occluder     = target3D && !ground && L.state.depthWrite;
         pk.vertexTol    = L.snap ? hörnTol : detail::ScreenTol{};
         pk.edgeTol      = L.snap ? kantTol : detail::ScreenTol{};
+        // Lagrets djupordning — i samma plan vinner den högre rangen, som i
+        // ritningen (depth_order.h).
+        const std::shared_ptr<const detail::DepthOrder> ordning =
+            target3D && place == LayerPlacement::World ? detail::depthOrder(L) : nullptr;
         std::vector<detail::SceneHit> träffar;
         for (std::size_t i = 0; i < L.slots.size(); ++i) {
             const Shape& s = L.slots[i].entry->shape;
             if (!isObject3D(s))
                 continue;
+            const int rang = ordning ? detail::slotRank(L, *ordning, L.slots[i]) : 0;
             träffar.clear();
             pk.surface = !(place == LayerPlacement::Terrain && förplockad(s));
             if (!pk.surface)
@@ -3989,6 +3996,7 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
                 k.påStrålen  = t.kind == HitKind::Surface;
                 k.urval      = !k.påStrålen;
                 k.skärm      = t.screen;
+                k.rang       = rang;
                 k.ordning    = kand.size();
                 kand.push_back(k);
             }
@@ -4088,6 +4096,33 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
             return a.h.distance < b.h.distance;
         return a.ordning < b.ordning;
     });
+    // YTOR I SAMMA PLAN: avstånden skiljer bara på avrundningen, och
+    // ritningen låter det senare lagret och den högre rangen vinna
+    // (depth_order.h) — träffarna inom skymningens marginal från den närmaste
+    // står i den ordningen.
+    if (target3D) {
+        const auto yta = [](const Kandidat& k) {
+            return k.påStrålen && k.h.kind == HitKind::Surface;
+        };
+        for (std::size_t a = 0; a < kand.size();) {
+            std::size_t b = a + 1;
+            if (yta(kand[a])) {
+                const double tak =
+                    kand[a].h.distance + detail::occlusionSlack(kand[a].h.distance);
+                while (b < kand.size() && yta(kand[b]) &&
+                       kand[b].grupp == kand[a].grupp && kand[b].h.distance <= tak)
+                    ++b;
+            }
+            std::stable_sort(kand.begin() + static_cast<std::ptrdiff_t>(a),
+                             kand.begin() + static_cast<std::ptrdiff_t>(b),
+                             [](const Kandidat& x, const Kandidat& y) {
+                                 if (x.h.layer != y.h.layer)
+                                     return x.h.layer > y.h.layer;
+                                 return x.rang > y.rang;
+                             });
+            a = b;
+        }
+    }
     // KLIPPET (canvas.h): en träff utanför ritytans eller lagrets klipp räknas
     // inte — ett skärmklipp mot pekaren, ett världsklipp mot träffens punkt
     // (pekarens markpunkt för det som saknar en).

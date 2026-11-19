@@ -23,6 +23,7 @@
 #include "mesh_data.h"
 #include "residency.h"
 #include "resources.h"
+#include "depth_order.h"
 #include "run_index.h"
 
 namespace glaze::detail {
@@ -818,7 +819,8 @@ void drawScreenPass(const PaintContext& f, const SceneData& sc, const Shape& s,
 
 void drawObjects(const PaintContext& f, const SceneData& sc, const LayerFrame& lf,
                  const RunData& run, std::uint64_t shapesVersion, float op, bool draw,
-                 const gfx::RenderState& state)
+                 const gfx::RenderState& state,
+                 const std::vector<std::uint8_t>* ranks)
 {
     // I 3D-målet är allt redan uppladdat (förberedelsen); 2D-vägen
     // laddar upp de SYNLIGA i ritningen, som chunkarna där, och resten efter
@@ -829,8 +831,7 @@ void drawObjects(const PaintContext& f, const SceneData& sc, const LayerFrame& l
     const gfx::View3D view = objectView(f, run, shapesVersion);
     const Projection  proj(view);
     const Lighting    förval;
-    const Pass        p{f,  view, proj, f.lighting ? *f.lighting : förval, state,
-                 op, f.res->objects(), sc, lf.drapes};
+    const Lighting&   ljus = f.lighting ? *f.lighting : förval;
     // KANDIDATERNA ur körningens index, i körningens ordning — varje föremål
     // gallras sedan exakt där det ritas, så anropen är desamma som om alla
     // hade prövats.
@@ -846,6 +847,10 @@ void drawObjects(const PaintContext& f, const SceneData& sc, const LayerFrame& l
         const ObjectResidency::Shown sh = resident(f, e, upload);
         if (!sh.shape)
             continue;   // en ny plats vars data inte är uppe än
+        // Föremålets rang i lagrets djupordning — renderläget med dess bias.
+        const int rang = ranks && i < ranks->size() ? (*ranks)[i] : 0;
+        const gfx::RenderState läge = rang > 0 ? ranked(state, rang) : state;
+        const Pass p{f, view, proj, ljus, läge, op, f.res->objects(), sc, lf.drapes};
         switch (sh.shape->kind()) {
         case Shape::Kind::Mesh:
         case Shape::Kind::Area3:

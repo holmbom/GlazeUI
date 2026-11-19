@@ -19,6 +19,7 @@
 #include "labels.h"
 #include "mesh_data.h"
 #include "resources.h"
+#include "depth_order.h"
 #include "run_index.h"
 #include "scene3d.h"
 
@@ -629,6 +630,13 @@ LayerData::LayerData(const LayerData& o, SnapshotTag)
       deadGlyph(o.deadGlyph), totalObjects(o.totalObjects),
       deadObjects(o.deadObjects)
 {
+    // Bilden ÄRVER lagrets djupordning (depth_order.h): den gäller så länge
+    // föremålens signatur står sig.
+    const std::lock_guard<std::mutex> vakt(nodeLock(o.id));
+    depth       = o.depth;
+    depthShapes = o.depthShapes;
+    depthMeshes = o.depthMeshes;
+    depthSig    = o.depthSig;
 }
 
 SceneData::SceneData(const SceneData& o, SnapshotTag)
@@ -1687,6 +1695,9 @@ LayerFrame prepareLayers(const PaintContext& f,
     SceneData& sc = *scene;
     LayerFrame lf;
     lf.placement.assign(sc.layers.size(), LayerPlacement::Ground);
+    lf.depth.resize(sc.layers.size());
+    lf.depthBase.assign(sc.layers.size(), 0);
+    int rang = 0;   // nästa ritade World-lagers bas (depth_order.h)
     // TERRÄNGEN (drape.h) — bara i 3D-målet; den avgör var
     // Ground-lagren ritas och var deras etiketter står.
     lf.terrain = f.view3D && hasTerrain(f, sc);
@@ -1711,6 +1722,14 @@ LayerFrame prepareLayers(const PaintContext& f,
         // etiketter gör ingen (markdjupet, target3d.h steg 3).
         if (draw && lf.placement[li] == LayerPlacement::Ground && paintsGround(L))
             lf.groundDrawn = true;
+        // DJUPORDNINGEN: ett ritat World-lager med djuptest står över alla
+        // tidigare, och dess föremål har sin rang inom lagret.
+        if (f.view3D && draw && lf.placement[li] == LayerPlacement::World &&
+            L.state.depth != DepthTest::Off) {
+            lf.depth[li]     = depthOrder(L);
+            lf.depthBase[li] = rang;
+            rang += lf.depth[li]->top + 1;
+        }
         for (const std::shared_ptr<RunData>& run : L.runs) {
             if (residentFirst)
                 prepareRun(f, sc, *run, L.shapesVersion, draw);
@@ -1915,27 +1934,38 @@ void drawWorld(const PaintContext& f, const SceneData& sc, const LayerFrame& lf,
             continue;
         const bool             draw  = layerDrawn(f, L);
         const float            op    = std::min(L.opacity, 1.0f) * f.opacity;
-        const gfx::RenderState geo   = gfxState(L.state, false);
-        const gfx::RenderState label = gfxState(L.state, true);
+        // DJUPORDNINGEN (depth_order.h): lagrets bas över de tidigare lagren,
+        // och inom lagret föremålens rang och rangen för det som ritas efter
+        // dem.
+        const DepthOrder*      ord   = li < lf.depth.size() ? lf.depth[li].get() : nullptr;
+        const int              bas   = li < lf.depthBase.size() ? lf.depthBase[li] : 0;
+        const gfx::RenderState geo   = gfxState(ranked(L.state, bas), false);
         const PaintContext     fl    = inLayer(f, lf, li);
-        for (const std::shared_ptr<RunData>& run : L.runs) {
+        for (std::size_t ri = 0; ri < L.runs.size(); ++ri) {
+            const std::shared_ptr<RunData>& run = L.runs[ri];
             if (run->key.kind == PartKind::Pass)
                 continue;   // passen ritas först (`drawPasses`)
+            const int efter = ord && ri < ord->runs.size() ? ord->runs[ri] : 0;
             if (isGlyphKind(run->key.kind)) {
                 if (draw)
-                    drawGlyphs(fl, run, glyphEnv(fl), op, lf.labels, label);
+                    drawGlyphs(fl, run, glyphEnv(fl), op, lf.labels,
+                               gfxState(ranked(L.state, bas + efter), true));
             } else if (isObjectKind(run->key.kind)) {
                 // Terrängens meshar ritas med marken (`drawTerrain`).
                 if (lf.placement[li] != LayerPlacement::Terrain)
-                    drawObjects(fl, sc, lf, *run, L.shapesVersion, op, draw, geo);
+                    drawObjects(fl, sc, lf, *run, L.shapesVersion, op, draw, geo,
+                                ord && ri < ord->objects.size() ? &ord->objects[ri]
+                                                                : nullptr);
             } else {
-                drawChunks(fl, *run, L.shapesVersion, op, draw, geo);
+                drawChunks(fl, *run, L.shapesVersion, op, draw,
+                           gfxState(ranked(L.state, bas + efter), false));
             }
         }
         // MÅLAREN efter lagrets former, med lagrets renderläge som start —
-        // djuptestad som lagret.
+        // djuptestad som lagret, med rangen över lagrets former.
+        const RenderState målat = ranked(L.state, bas + (ord ? ord->top : 0));
         if (draw)
-            paintLayer(fl, paint, L, li, op, &L.state);
+            paintLayer(fl, paint, L, li, op, &målat);
     }
 }
 

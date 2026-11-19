@@ -1174,7 +1174,7 @@ std::string färgText(std::optional<gfx::Color> c)
 // kontraktet och inte läst ur listvyn.
 gfx::Color valdFärg(glaze::UI ui, const glaze::Theme::Colors& col)
 {
-    return ui == glaze::UI::Slate   ? col.windowBg
+    return ui == glaze::UI::Slate   ? col.onRowSelected
            : ui == glaze::UI::Glaze ? col.onAccent
                                     : col.accent;
 }
@@ -1789,8 +1789,10 @@ void fallRadrubriker()
         l.setSelectedIndex(0);
         l.draw(c);
         bool bandIRemsan = false, streck = false;
+        // Slates valband är radmarkeringens yta, de andras accenten.
+        const gfx::Color band = ui == glaze::UI::Slate ? col.rowSelected : col.accent;
         for (const Inspelning::Yta& y : rec.ytor) {
-            if (y.färg == col.accent && y.harKlipp &&
+            if (y.färg == band && y.harKlipp &&
                 y.klipp.x < x0 + 60.0f - 0.01f && !nara(y.r.w, m.rowMarkerW))
                 bandIRemsan = true;   // ett valband som syns i remsan
             if (y.färg == col.accent && nara(y.r.x, x0) &&

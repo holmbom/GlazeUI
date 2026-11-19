@@ -752,12 +752,12 @@ void fallRitningen()
           "31, inte listradens 19) och inte under den");
     check(!rec.fyllSkär(ro, x[0], x[2], y0, y0 + 3 * rh),
           "R1: Slate — de redigerbara kolumnerna fylls inte som skrivskyddade");
-    check(rec.harFyll({x[0], y0 + rh, 80, rh}, slate.colors.accent),
-          "R2: Slate — den aktuella cellen (1, 0) fylls med accent");
-    check(rec.textFärg("a1", slate.colors.windowBg) &&
+    check(rec.harFyll({x[0], y0 + rh, 80, rh}, slate.colors.rowSelected),
+          "R2: Slate — den aktuella cellen (1, 0) fylls med radmarkeringens yta");
+    check(rec.textFärg("a1", slate.colors.onRowSelected) &&
               rec.textFärg("a0", slate.colors.text) &&
               rec.textFärg("i1", slate.colors.text),
-          "R2: Slate — den aktuella cellens text i windowBg, resten (även "
+          "R2: Slate — den aktuella cellens text i onRowSelected, resten (även "
           "den skrivskyddade) i text");
 
     // ---- MINIMALISTIC — samma ytor; markören i vänsterkanten.
@@ -872,7 +872,7 @@ void fallRadfargen()
                                                        : " (Minimalistic)";
         const glaze::Theme::Variant& v   = glaze::defaultTheme(ui).light;
         const auto&                  col = v.colors;
-        const gfx::Color aktFg = ui == glaze::UI::Slate   ? col.windowBg
+        const gfx::Color aktFg = ui == glaze::UI::Slate   ? col.onRowSelected
                                  : ui == glaze::UI::Glaze ? col.onAccent
                                                           : col.accent;
         StegFont   f;
@@ -938,7 +938,7 @@ void fallCellfargerOchRadrubriker()
         const glaze::Theme::Variant& v   = glaze::defaultTheme(ui).light;
         const auto&                  col = v.colors;
         const auto&                  m   = glaze::defaultStyle(ui);
-        const gfx::Color aktFg = ui == glaze::UI::Slate   ? col.windowBg
+        const gfx::Color aktFg = ui == glaze::UI::Slate   ? col.onRowSelected
                                  : ui == glaze::UI::Glaze ? col.onAccent
                                                           : col.accent;
         StegFont   f;

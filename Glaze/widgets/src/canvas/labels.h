@@ -82,6 +82,11 @@ struct LayerFrame {
     // Ett ritat Ground-lager målar marken (scene.h `paintsGround`) — ett
     // tomt gör det inte. Villkoret för markdjupet (target3d.h steg 3).
     bool                        groundDrawn = false;
+    // DJUPORDNINGEN (depth_order.h) i 3D-målet, per lager: ordningen bland
+    // lagrets föremål och lagrets BAS — rangen över alla tidigare ritade
+    // World-lager. Tomt för ett lager utan ordning (rang 0).
+    std::vector<std::shared_ptr<const DepthOrder>> depth;
+    std::vector<int>                               depthBase;
     // TERRÄNGEN (drape.h): en terräng ritas i vyn — då
     // ritas Ground-lagrens geometri genom draperingen, deras stående
     // etiketter byggs vid markhöjd (med terrängens region under körningen i

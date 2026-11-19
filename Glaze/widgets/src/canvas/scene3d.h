@@ -99,11 +99,14 @@ void prepareObject(const PaintContext& f, const SceneData& scene,
 // Körningens föremål ritade med renderläget `state` och lagrets opacitet
 // `op` (tonen inräknad); utan `draw` ritas ingenting. Bara de som kan synas
 // frågas (run_index.h, `shapesVersion` är lagrets). `lf` är förberedelsens
-// svar (labels.h — draperingarna).
+// svar (labels.h — draperingarna). `ranks` är föremålens rang i lagrets
+// djupordning (depth_order.h), en per plats i `run.objects`: varje föremål
+// ritas med `state` och sin rangs bias; nullptr = alla med `state`.
 void drawObjects(const PaintContext& f, const SceneData& scene,
                  const LayerFrame& lf, const RunData& run,
                  std::uint64_t shapesVersion, float op, bool draw,
-                 const gfx::RenderState& state);
+                 const gfx::RenderState& state,
+                 const std::vector<std::uint8_t>* ranks = nullptr);
 
 // Helskärmspasset `s`: förberedelsen — programmet kompilerat och
 // texturerna hämtade, före målet — och ritningen med lagrets opacitet `op`

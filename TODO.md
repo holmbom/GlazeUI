@@ -61,12 +61,17 @@ Ramverket plus `.glazeui`-vägens maskineri: grammatiken (`window_model`/`cpp_re
   För det som inte är en ritning (foton, logotyper): en bild per storlek och för ljust och mörkt läge, vald när den ritas, som de ritade ikonerna gör av sig själva.
 - 💡 🎨 **Ikonernas recept i två nivåer och lägets ton** — [stock_icon.cpp](Glaze/widgets/src/stock_icon.cpp)
   Ett recept för de små storlekarna och ett för de stora, och samma bild några procent nedtonad i mörkt läge och uppljusad i ljust, där bara konturen skiljer. Gäller standardikonerna och appens.
+- 💡 **Menyfliksfält: ett verktygsfält i flikar och grupper**
+  Ett fält överst i fönstret med flikar, där varje flik är en rad namngivna grupper med stora och små knappar, rullgardiner och andra kontroller — för appar med många kommandon. Grupperna viker ihop sig när bredden inte räcker.
+  Öppet: en egen widget eller en utbyggnad av `ToolBar` och `TabControl`, och hur den står mot namnlisten och menyraden.
+- 💡 🎨 **En tät ritning för appar med mycket att visa**
+  En fjärde ritning i Minimalistics anda — kanter i stället för ytor — med egna, tätare mått: lägre rader och kontroller, mindre luft, mindre text. För ritprogram och andra appar där innehållet behöver ytan.
+  Öppet: namnet, och om det är en egen ritning (`UI`) med sina teman eller en tät stil (`Style`) under Minimalistic.
+- 💡 **Automatisk detaljnivå i ritytan** — [canvas/](Glaze/widgets/src/canvas/)
+  Pixelfel som mått; terräng, meshar och punktmoln som ritytan själv delar och förenklar; och instansanrop för former som delar mesh. Minneskontot och det rumsliga trädet per körning är grunden.
 - 🟠 **Windows- och Mac-testet** — [doc/os/](doc/os/)
   Kvar är rader som kräver hårdvara eller handtest: mus, skärmskalning och VS Code på Windows; andra skärm, PC-tangentbord och Intel-Mac på macOS.
   Stängs när `doc/os/windows/TESTS.md` och `doc/os/macos/TESTS.md` är TOMMA.
-- 🟢 **Ritytans minneskonto och rumsliga träd** — [canvas/](Glaze/widgets/src/canvas/) · mätt i [RITYTANS_KONTO_OCH_TRAD.md](doc/research/RITYTANS_KONTO_OCH_TRAD.md)
-  Ritytans minnesbudget räknar allt den håller (GPU och CPU) och vräker det som inte syns, och ett rumsligt träd per körning ger ritningen det som kan synas i stället för att varje chunk och föremål prövas.
-  Kvar: sviten före commit, och Eriks test. Grunden för automatisk detaljnivå — pixelfel som mått, terräng, meshar och punktmoln som ritytan själv delar och förenklar, och instansanrop för former som delar mesh.
 - 🟠 **Ritytans renderingstråd** — [canvas/](Glaze/widgets/src/canvas/) · [gfx/](Glaze/gfx/include/gfx/)
   Ritytan ritar i en egen tråd per fönster med egen grafikkontext, och UI-tråden visar den senast färdiga bilden utan att vänta. Scenen lämnas som frusna ögonblicksbilder, appens målare spelas in, och `renderToBitmap` svarar i efterhand.
   Byggt: scen-kontexten i de tre backendarna (Metal och Linux blint), inspelade målare, ögonblicksbilderna, tråden med jobbkö och tre bilder i växling, ritytans trådläge (`GLAZE_CANVAS_THREAD=0` stänger av det), låsen kring bild- och meshdata, förankrade barn efter den visade bildens kamera, grindarna `scene_context_gate` och `canvas_thread_gate`.

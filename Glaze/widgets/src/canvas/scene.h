@@ -398,7 +398,8 @@ struct ClipState {
     std::uint64_t             version = nextSceneId();
 };
 
-struct LayerCpu;   // cpu_bytes.cpp
+struct LayerCpu;     // cpu_bytes.cpp
+struct DepthOrder;   // depth_order.h
 
 struct LayerData {
     LayerData();
@@ -448,6 +449,11 @@ struct LayerData {
     // Lagrets CPU-original (`sceneCpuBytes`, cpu_bytes.cpp) — en cache för
     // den version den räknades ur, därför `mutable`.
     mutable std::shared_ptr<LayerCpu> cpu;
+    // DJUPORDNINGEN (depth_order.h) och det den räknades ur: formernas
+    // version, meshernas generation och föremålens signatur — en cache,
+    // därför `mutable`, läst och bytt under lagrets lås (`nodeLock`).
+    mutable std::shared_ptr<const DepthOrder> depth;
+    mutable std::uint64_t depthShapes = 0, depthMeshes = 0, depthSig = 0;
     // TEXTENS VERSION — stegas av `touchText` (språkbytet), som bygger om
     // glyfkörningarna utan att formerna ändrats: draperingens markstämpel
     // (drape.cpp) läser den bredvid `shapesVersion`.
