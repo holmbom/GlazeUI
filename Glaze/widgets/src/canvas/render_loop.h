@@ -22,6 +22,7 @@
 // fönstrets egna resurser och dess renderare. Destruktorn lämnar tillbaka de
 // visade bilderna, stoppar tråden och väntar in den.
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -29,7 +30,9 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <gfx/scene_context.h>
@@ -139,6 +142,50 @@ private:
     };
     void enqueue(Order o);
 
+    // BILDTAKTEN (frame_job.h `frameBudgetMs`): ritytans PASS — en bild som
+    // ritas i ett eller flera steg. Trådens eget.
+    //
+    //   ett jobb med NY VY      börjar ett pass i PÅFYLLNING: varje steg
+    //       ritar det som ryms i tiden, störst på skärmen först, och visas.
+    //       Blev bilden hel i första steget är passet klart; annars följer,
+    //       när allt är påfyllt, ett pass i RITORDNING.
+    //   ett jobb med SAMMA VY   väntar tills det pågående passet är klart och
+    //       ritas sedan i RITORDNING — dolt, steg för steg, och visat när det
+    //       är helt. Bilden som visas blinkar alltså aldrig tillbaka till en
+    //       ofullständig.
+    //
+    // Passet i ritordning ger exakt den bild en odelad ritning ger. Ett jobb
+    // utan tid (eller utan 3D-mål) ritas helt i ett steg, som utan bildtakt.
+    struct PassView {
+        bool          valid = false;
+        gfx::View3D   view{};
+        int           width = 0, height = 0;
+        float         scale = 0.0f, pxPerMm = 0.0f;
+    };
+    struct Pass {
+        PassView                      view;     // vyn passet ritar (eller ritade)
+        std::optional<CanvasFrameJob> job;      // satt medan passet pågår
+        std::function<void()>         wake;
+        FramePace::Order              stage = FramePace::Order::Priority;
+        bool                          first = true;
+        std::uint32_t                 epoch = 0;
+        std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> stamps;
+        WorldPos                      cursor{};
+        double                        capacity = 0.0;   // stegets kostnad, anpassad
+        double                        fixedMs  = 0.0;   // senaste stegets fasta del (före urvalet)
+        bool active() const { return job.has_value(); }
+    };
+    static PassView viewOf(const CanvasFrameJob& j);
+    static bool     sameView(const PassView& a, const PassView& b);
+    static bool     paced(const CanvasFrameJob& j);
+    // Ska jobbet börja NU (ett nytt pass), eller vänta på det pågående?
+    bool startsNow(std::uint64_t canvas, const CanvasFrameJob& j) const;
+    // Ett pågående pass att ta nästa steg i — 0 när inget pågår.
+    std::uint64_t nextActive();
+    // Ett steg av ritytans pass; ett väntande jobb tas in där passet byter
+    // till ritordning.
+    void step(std::uint64_t canvas, const Ctx& base);
+
     CanvasRenderLoop();
     void run(gfx::Renderer& window);
     void render(Pending& p, const Ctx& base);
@@ -165,6 +212,8 @@ private:
     std::uint64_t frames_  = 0;
 
     // Trådens — rörs aldrig av fönstertråden.
+    std::map<std::uint64_t, Pass>      passes_;        // per rityta
+    std::uint64_t                      lastStepped_ = 0;
     std::unique_ptr<gfx::SceneContext> context_;
     std::thread                        thread_;
 };
@@ -181,6 +230,53 @@ void setCanvasThreading(bool on);
 // ritas i samma bild).
 bool canvasThreadingOffscreen();
 void setCanvasThreadingOffscreen(bool on);
+
+// MÄTRADENS KOSTNADER (`GLAZE_SCENE_LOG=1`): tiden renderingstråden lägger i
+// uppladdningens delar, summerad per rad. Av kostar en läsning av en flagga.
+enum class SceneCost : std::uint8_t { Pack, Upload, Create, Rebuild, Order, Runs,
+                                      Residency, Labels, Clips, Trim, Queue, Lookup,
+                                      Images, QObjects, QIndex, QSelect, Count_ };
+bool sceneLogging();
+void sceneCost(SceneCost what, std::chrono::steady_clock::duration d);
+// Mätradens räknare: kandidaterna ur körningarnas index och de som syns.
+enum class SceneTally : std::uint8_t { Candidates, Visible, Rebuilds, Inserted, Count_ };
+void sceneTally(SceneTally what, std::uint64_t n);
+// UPPLADDNINGENS TID (packningen, uppladdningen, buffertarna) mäts ALLTID:
+// bildtakten drar den från stegets tid, så att en bild som laddar upp mycket
+// inte ritar mindre. `takeUploadMs` läser och nollar summan.
+inline bool isUploadCost(SceneCost w)
+{
+    return w == SceneCost::Pack || w == SceneCost::Upload || w == SceneCost::Create;
+}
+void   noteUploadTime(std::chrono::steady_clock::duration d);
+double takeUploadMs();
+
+struct SceneCostScope {
+    explicit SceneCostScope(SceneCost w)
+        : what(w), log(sceneLogging()), on(log || isUploadCost(w)),
+          t0(on ? std::chrono::steady_clock::now()
+                : std::chrono::steady_clock::time_point{})
+    {
+    }
+    ~SceneCostScope()
+    {
+        if (!on)
+            return;
+        const std::chrono::steady_clock::duration d =
+            std::chrono::steady_clock::now() - t0;
+        if (log)
+            sceneCost(what, d);
+        if (isUploadCost(what))
+            noteUploadTime(d);
+    }
+    SceneCostScope(const SceneCostScope&)            = delete;
+    SceneCostScope& operator=(const SceneCostScope&) = delete;
+
+    SceneCost                             what;
+    bool                                  log;
+    bool                                  on;
+    std::chrono::steady_clock::time_point t0;
+};
 
 // RITAR bilden `present` gav i fönstret: 1:1 med övre vänstra hörnet i
 // (`x`, `y`) fysiska px, med ritytans ton. Under det klipp som gäller.

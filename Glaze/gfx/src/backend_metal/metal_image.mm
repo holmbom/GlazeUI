@@ -392,6 +392,12 @@ bool MetalRenderer::updateImage(Image& img, int x, int y, int w, int h,
     return true;
 }
 
+// Djupet lagras med 0 vid närplanet (gfx/scene.h `depthReversed`).
+bool depthReversed()
+{
+    return false;
+}
+
 // PNG-encode (glaze-render): encode-spegeln av loadImage — Image I/O:s
 // CGImageDestination (samma OS-komponent, redan länkad). Rå RGBA8 med
 // rak alfa → CGImage via dataprovider (kCGImageAlphaLast — CGImageCreate

@@ -61,6 +61,10 @@ std::string  toUtf8(const std::wstring& wide);
 // nytt mottagarfönster efter shutdown.
 bool platformInitialized();
 
+// Det bortre planets djup — djupet lagras OMVÄNT (gfx/scene.h
+// `depthReversed`), så ett mål rensas till 0.
+inline constexpr float kFarDepth = 0.0f;
+
 // IKONEN SOM HICON (d3d11_window.cpp) — delad av fönstrets programikon och
 // systemfältets ikon (d3d11_tray.cpp), så att reglerna är EN sanning.
 // `iconFromImage` gör en ram till en HICON: en 32-bitars DIB med RAK alfa

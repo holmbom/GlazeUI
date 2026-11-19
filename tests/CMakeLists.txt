@@ -1257,6 +1257,17 @@ target_link_libraries(terrain_perf PRIVATE perf_harness glaze)
 add_test(NAME terrain_perf COMMAND terrain_perf)
 set_tests_properties(terrain_perf PROPERTIES TIMEOUT 900)
 
+# model_perf     MODELLTESTET — INGEN GRIND och inget add_test: en stor
+#                byggnadsmodell som rådata, ett föremål per fragment, med en
+#                verklig modells fördelningar (trianglar och storlek per
+#                fragment, återanvänd geometri, egen skala), ytor i samma plan
+#                i samma och i olika lager, och foton. Fem steg — utifrån,
+#                inne, strömning, pekaren, stilla — mätta med profileraren.
+#                `--fragment N` är ratten: kör för hand och se var takten
+#                sviker.
+add_executable(model_perf model_perf.cpp)
+target_link_libraries(model_perf PRIVATE perf_harness glaze)
+
 # glyph_sheet      GLYFERNAS ARK — INGEN GRIND och inget add_test: Draw-
 #                  formerna och `Draw::icon` i flera storlekar och pennor, och
 #                  varje `glaze::StockIcon` i 16/24/32/48 i mono och färg,

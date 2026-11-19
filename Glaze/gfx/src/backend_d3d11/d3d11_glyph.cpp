@@ -168,7 +168,8 @@ GlyphOut glyphVs(GlyphIn i)
     o.vis   = glyphVisibility(i.label);
     o.clipLocal = i.anchor.xy;
     const float4 c = glyphToClip(i.anchor);
-    if (c.z < 0.0 || c.w <= 1e-6 || o.vis <= 0.0) {
+    // Djupet är omvänt (gfx/scene.h `depthReversed`): bakom närplanet är z > w.
+    if (c.z > c.w || c.w <= 1e-6 || o.vis <= 0.0) {
         // Ankaret bakom närplanet, eller etiketten dold av kollisionen:
         // den syns inte — utanför klippet.
         o.pos = float4(0.0, 0.0, -2.0, 1.0);

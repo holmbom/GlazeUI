@@ -60,6 +60,18 @@ struct Mat4d {
     // Samma ordning som `m`, avrundat till float — uppladdningens form.
     void toFloat(float out[16]) const;
 
+    // TILL GRAFIKKORTET: en vyprojektion (`viewProjection`, också gånger en
+    // modellmatris) i den form backendens program väntar sig. Där backenden
+    // ritar med OMVÄNT DJUP (`gfx::depthReversed()` — klippdjupet w vid
+    // närplanet och 0 vid det bortre) byts djupraden till w − z här, i
+    // double: de små talen djupet då består av avrundas var för sig, så
+    // djupbufferten skiljer ytor åt med en relativ noggrannhet i stället för
+    // en som faller med avståndet i kvadrat. Annars exakt `toFloat`.
+    // `inverseToDevice` är dess parhäst: `*this` är inversen av den vanliga
+    // matrisen, och ut går inversen av den som `toDevice` lämnar.
+    void toDevice(float out[16]) const;
+    void inverseToDevice(float out[16]) const;
+
     // out = M · (x, y, z, w).
     void transform(double x, double y, double z, double w,
                    double out[4]) const;

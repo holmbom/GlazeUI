@@ -42,7 +42,34 @@ struct ShapeEntry;
 struct PaintContext;
 class Projection;
 
+// TABELLENS RAD för ett föremål: det gallringen och bildtakten läser, räknat
+// en gång när platsens signatur ändras — lådan formen har (också en
+// skärmkonstant meshs, för z-spannet), om den gallras på lådan eller alltid
+// är kandidat, och kostnaden (scene3d.h `objectPaceCost`).
+struct ObjectInfo {
+    enum class State : std::uint8_t { None, Boxed, Always };
+    Box3  box{};
+    float cost   = 0.0f;
+    State state  = State::None;
+    bool  hasBox = false;
+};
+
+// Ett föremål som syns (`objectsInView`): platsen, avståndet från ögat till
+// lådan, lådans diagonal och kostnaden. Utan låda är avståndet och
+// diagonalen 0.
+struct ObjectSeen {
+    std::uint32_t index    = 0;
+    double        distance = 0.0;
+    double        diagonal = 0.0;
+    float         cost     = 0.0f;
+    bool          hasBox   = false;
+};
+
 struct RunIndex {
+    // FÖREMÅLENS TABELL, en rad per plats i `RunData::objects` — förd ikapp
+    // på plats, aldrig ombyggd för att föremål byts. En körning under
+    // `kRunTreeMin` gallras rakt igenom tabellen; en längre har trädet ovanpå.
+    std::vector<ObjectInfo> info;
     // Chunkarna: trädet, dess nyckel och körningens största marginal.
     SpatialIndex  chunks;
     std::uint64_t chunkShapes = 0;
@@ -81,6 +108,9 @@ inline constexpr double kIndexStaleShare = 0.25;
 
 // En körning med färre chunkar respektive föremål har inget träd.
 inline constexpr std::size_t kRunIndexMin = 64;
+// Föremålen får ett träd först vid så många: under det är en rak genomgång
+// av tabellen snabbare än trädet, och den behöver aldrig byggas om.
+inline constexpr std::size_t kRunTreeMin = 4096;
 
 // Chunkarna som kan synas i ritningens vy `f` — de med geometri och låda.
 // `slackPx` är gallringens marginal i fysiska px (`chunkVisible`s).
@@ -93,6 +123,31 @@ void chunkCandidates(const PaintContext& f, const RunData& run,
 void objectCandidates(const RunData& run, std::uint64_t shapesVersion,
                       const Projection& proj, double slackPx,
                       std::vector<std::uint32_t>& out);
+
+// De levande föremålen som SYNS genom `proj` — gallrade exakt mot tabellens
+// lådor, i växande ordning — med avståndet från `eye`, diagonalen och
+// kostnaden. Ingenting slås upp i formerna.
+void objectsInView(const RunData& run, std::uint64_t shapesVersion,
+                   const Projection& proj, double slackPx, const Point3& eye,
+                   std::vector<ObjectSeen>& out);
+
+// Platserna vars signatur i tabellen skiljer sig från `seen` (en per plats;
+// en plats bortom dess slut räknas som 0) — bland `only`, eller alla — med
+// tabellens signatur (0 = död) och om platsen syns genom `proj`.
+struct ObjectUnseen {
+    std::uint32_t index  = 0;
+    std::uint64_t sig    = 0;
+    bool          inView = false;
+};
+void objectsUnseen(const RunData& run, std::uint64_t shapesVersion,
+                   const Projection& proj, double slackPx,
+                   const std::vector<std::uint64_t>& seen,
+                   const std::vector<std::uint32_t>* only,
+                   std::vector<ObjectUnseen>& out);
+
+// För körningens index ikapp till `shapesVersion` — före en ögonblicksbild,
+// som ärver det: renderingstråden får då ett index som redan stämmer.
+void syncObjectIndex(const RunData& run, std::uint64_t shapesVersion);
 
 // Föremålets låda i världen, eller ingen: en skärmkonstant mesh (lådan är
 // origot) och ett föremål utan data har ingen — ritningens `objectInView`

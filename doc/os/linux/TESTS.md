@@ -1516,3 +1516,23 @@ context` saknas (loggas en gång); den delade bilden lämnas över med
   *Rätt utfall:* scenen följer, ingen halv bild, ingen hängning — Waylands
   `beforeSwap` väntar som förut. Med `GLAZE_CANVAS_THREAD=0` ritar fönstret
   scenen själv och bilden är densamma.
+
+## Bildtakten och djupets form — BLINT på Linux
+
+- [ ] **Bygget.** `Mat4d::toDevice`/`inverseToDevice`, `gfx::depthReversed()`
+  (false här, `linux_image.cpp`), `Renderer::resumeTarget`,
+  `ScreenInfo::refreshHz` (0 här — skärmens takt läses inte, `VSync` räknar
+  med 60) och ritytans bildtakt är aldrig kompilerade på Linux. *Rätt
+  utfall:* 0 varningar, Wayland och X11.
+- [ ] **`resumeTarget` på ett mål med MSAA.** Ritytans bildtakt fortsätter
+  rita i 3D-målet utan att rensa det. GL löser upp målet med en blit när det
+  lämnas och behåller de provtagna renderbuffertarna — färgen och djupet ska
+  alltså stå kvar. *Vad man gör:* en rityta med `setFramePacing(Fps)` och en
+  scen för tung för takten, kameran still. *Rätt utfall:* bilden fylls på
+  steg för steg och blir till slut densamma som med `DrawAll`.
+- [ ] **Bildtakten i en app.** *Vad man gör:* samma scen, rör kameran, under
+  Wayland och X11. *Rätt utfall:* rörelsen flyter, det största syns först,
+  resten fylls på i vila; `frameComplete()` blir sann.
+- [ ] **Djupets form.** Linux lagrar djupet med 0 vid närplanet som förut;
+  flimmer mellan ytor nära varandra i en kilometerstor scen med ett litet
+  närplan är väntat (TODO: omvänt djup på macOS och Linux).

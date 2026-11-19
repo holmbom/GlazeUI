@@ -158,7 +158,8 @@ utanför sin mapp (metal_backend.h bär ObjC-typer — BARA .mm-filer).
   giltiga bilder, `screenRect` med storlek och ändlig, `worldUv` ändlig) och
   ingen mask som är det bundna målets egen bild (`imageDrawOk`).
   `sceneImageFlags` är bildflaggorna ALLA scenprogram läser.
-  **RENDER-MÅLENS STACK (etapp 6):** `pushTarget` flyttar klippstacken in i
+  **RENDER-MÅLENS STACK (etapp 6):** `resumeTarget` är `pushTarget` utan
+  `clear` (ritytans bildtakt fortsätter i ett mål). `pushTarget` flyttar klippstacken in i
   målnivån och börjar tomt, binder målet (`bindTarget`), tillämpar inget
   klipp och rensar; `popTarget` binder det yttre målet FÖRST och lägger
   sedan tillbaka och tillämpar den sparade stacken — i den ordningen räknas
@@ -213,7 +214,9 @@ utanför sin mapp (metal_backend.h bär ObjC-typer — BARA .mm-filer).
 - **`mat4.cpp` / `camera.cpp` / `geom2d.cpp`** — backend-neutralt, ritytans
   scen (CANVAS_2D etapp 1). `mat4.cpp`: `Mat4d` (inversen är Gauss–Jordan
   med partiell pivotering — kamerans element spänner över flera
-  storleksordningar). `camera.cpp`: kedjan `T(origo − mitt)` (DEN enda
+  storleksordningar; `toDevice`/`inverseToDevice` — matrisen i backendens
+  djupform: med `depthReversed()` byts djupraden till w − z i double före
+  avrundningen, och inversen får samma byte från höger). `camera.cpp`: kedjan `T(origo − mitt)` (DEN enda
   subtraktionen med stora tal, i double) → skala med y/z-spegling för yUp →
   `rotationZ(−bäring)` (moturs i en rymd med y nedåt) → vid tilt
   `rotationX(−pitch)` + kameran på avståndet D + perspektiv, annars ortho →

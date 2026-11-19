@@ -30,7 +30,6 @@
 #include "residency.h"
 #include "resources.h"
 #include "scene.h"
-#include "depth_order.h"
 #include "scene3d.h"
 #include "target3d.h"
 #include "transform3d.h"
@@ -106,8 +105,9 @@ struct PainterState {
     bool          screen;   // ritytans lokala px (annars världen)
     Xform         xf;
     RenderState   state = kNoDepth;   // setRenderState
-    // RANGEN i djupordningen (depth_order.h) för delen som byggs och för
-    // satsen: en forms kontur står över formens egen yta, som i ett lager.
+    // FÖRSPRÅNGET (scene.h `kCoplanarBias`) för delen som byggs och för
+    // satsen: en forms kontur ligger i ytans plan och ritas därför med
+    // försprånget mot ögat, så att den står över formens egen yta.
     int           rank = 0, keyRank = 0;
 
     // INSPELNINGEN (paint_list.h): satt ritar målaren ingenting — varje anrop
@@ -217,7 +217,7 @@ struct PainterState {
         d.vertices   = vs;
         d.indices    = is;
         d.indexCount = static_cast<std::uint32_t>(idx.size());
-        matrix(ox, oy, oz).toFloat(d.uniforms.viewProj);
+        matrix(ox, oy, oz).toDevice(d.uniforms.viewProj);
         d.uniforms.pxPerWidthUnit = worldWidth ? 1.0f : pxPerUnit(ctx, vy, key.unit);
         d.uniforms.widthSpace =
             worldWidth ? gfx::WidthSpace::World : gfx::WidthSpace::Screen;
@@ -258,7 +258,7 @@ struct PainterState {
         // RENDERLÄGET verkar i 3D-målet och i världen (painter.h) — en text
         // eller markör skriver aldrig djup (scene.h `gfxState`).
         if (!keyScreen && ctx.view3D)
-            d.state = gfxState(ranked(state, keyRank),
+            d.state = gfxState(keyRank > 0 ? coplanarAhead(state) : state,
                                prog == gfx::MeshProgram::Glyph ||
                                    prog == gfx::MeshProgram::Glyph3);
         r.drawMesh(d);
@@ -383,7 +383,8 @@ struct PainterState {
                 // Ett föremål är sitt eget rit-anrop: det som väntar först.
                 flush();
                 drawObject(s, z0, z1);
-                // Formens delar efter ytan (konturen) står en rang över den.
+                // Formens delar efter ytan (konturen) ritas med ett försprång
+                // mot ögat (scene.h `coplanarAhead`), som lagrets.
                 if (k.kind == PartKind::Mesh)
                     rank = 1;
                 continue;
@@ -430,13 +431,29 @@ struct PainterState {
             !screen && ctx.view3D
                 ? *ctx.view3D
                 : gfx::toView3D(screen ? ctx.screen : ctx.world, z0, z1);
+        // YTOR I SAMMA PLAN (scene.h `coplanarPass`): en mesh ritas som i ett
+        // lager — först djupet, sedan färgen med försprånget och utan
+        // djupskrivning — så den som ritas sist vinner i planet, och
+        // målarens bild är lagrets.
+        const auto iTvåPass = [&](const auto& rita) {
+            if (screen || !ctx.view3D || !coplanarPass(state)) {
+                rita();
+                return;
+            }
+            const RenderState eget = state;
+            state                  = depthOnly(eget);
+            rita();
+            state = coplanarColor(eget);
+            rita();
+            state = eget;
+        };
         switch (s.kind()) {
         case Shape::Kind::Mesh:
         case Shape::Kind::Area3:
-            drawMeshShape(s, view);
+            iTvåPass([&] { drawMeshShape(s, view); });
             break;
         case Shape::Kind::Instances:
-            drawInstanceShape(s, view);
+            iTvåPass([&] { drawInstanceShape(s, view); });
             break;
         case Shape::Kind::Points3:
             drawPointShape(s, view);

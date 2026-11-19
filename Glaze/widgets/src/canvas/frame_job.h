@@ -77,11 +77,23 @@ struct CanvasFrameJob {
     // så ritningen aldrig frågar appen.
     std::size_t memoryBudget = 0;
     std::size_t uploadBudget = 0;
+
+    // BILDTAKTEN (`Canvas::setFramePacing`): tiden en scenbild får ta, i ms.
+    // 0 = bilden ritas alltid hel. Med en tid ritas bilden i STEG
+    // (render_loop.h): under rörelse det som ryms, störst på skärmen först,
+    // och med stilla kamera fylls resten på i de följande stegen.
+    double frameBudgetMs = 0.0;
+    // Huvudvyns 3D-vy för jobbet — det renderingstråden jämför för att se om
+    // två jobb visar samma vy. Satt för ett jobb med 3D-mål.
+    std::optional<gfx::View3D> paceView;
 };
 
 struct CanvasFrameResult {
     std::uint64_t serial = 0;
     bool          drawn  = false;   // bilden ritades (annars gick målet inte att ta)
+    // Bilden visar ALLT som syns. Falskt för en bild av bildtakten som
+    // fortfarande fylls på — renderingstråden ritar då vidare av sig själv.
+    bool          complete = true;
     // Ritytan vill ha EN BILD TILL (regel 1 — Progress-mönstret): etiketterna
     // tonar, draperingar väntar på nästa bilds budget, eller en uppladdning
     // väntar på framens.
@@ -106,6 +118,21 @@ struct CanvasFrameResult {
     }
 };
 
+// BILDTAKTENS TAL (`Canvas::setFramePacing`): förvalet för en satt takt,
+// prövningen av en takt, och tiden en bild får ta vid takten `hz` (ms).
+double defaultFrameRate();
+bool   validFrameRate(double fps);
+double frameBudgetFor(double hz);
+// Skärmens bildtakt vid punkten `p` i placeringsrymden (`gfx::screens()`) —
+// förvalet när skärmen inte säger sin. Frågan till skärmarna ställs högst en
+// gång i sekunden; däremellan svarar `cache`.
+struct RefreshCache {
+    double        hz    = 0.0;
+    std::uint64_t at    = 0;
+    bool          valid = false;
+};
+double refreshRateAt(RefreshCache& cache, gfx::Pointf p);
+
 // Hur många lämnade jobbs kameror en rityta minns i väntan på deras bilder
 // (den visade bildens kamera placerar de förankrade barnen). Över taket
 // släpps de äldsta — deras bilder ersattes av nyare jobb.
@@ -127,8 +154,12 @@ CanvasFrameBox canvasFrameBox(const gfx::Rectf& windowBox);
 // (`c.r`, `c.images`, `c.canvas`) — resten fyller funktionen ur jobbet. Ett
 // offscreen-block (eller en frame) är öppet på renderaren. Tonen (en
 // inaktiverad rityta) ingår inte: den är kompositens.
+// `pace` är bildtaktens steg (scene.h `FramePace`) — nullptr ritar bilden
+// hel. Ett steg i ritordning som inte avslutar passet ritar bara i ritytans
+// egna mål: `out` rörs inte och svaret är inte `drawn`.
 CanvasFrameResult renderCanvasFrame(const CanvasFrameJob& job, const Ctx& c,
-                                    gfx::RenderTarget& out);
+                                    gfx::RenderTarget& out,
+                                    FramePace* pace = nullptr);
 
 // RITAR JOBBET SOM EN BILD AV PIXLAR (`Canvas::renderToBitmap`): huvudvyns
 // lager med jobbets `camera3` i `width` × `height` px, rensat till

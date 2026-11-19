@@ -783,12 +783,14 @@ struct VsOut
 // för täta moln: aldrig närmare än POINT_STAND_K radier i världen
 // (`rw`) framför punkten, djupet hos punkten flyttad så långt mot ögat längs
 // blicken. En granne längre fram skrivs aldrig över.
+// Djupet är OMVÄNT i den här backenden (gfx/scene.h `depthReversed`):
+// närmare är ett större tal, så taket är ett `min`.
 float pointZ(float4 c, float2 off, float3 pos, float rw)
 {
     float  z = glaze_standingZ(glaze.viewProj, c, off);
     float4 f = mul(glaze.viewProj,
                    float4(pos - glaze.forward.xyz * (POINT_STAND_K * rw), 1.0));
-    return f.w > 0.0 ? max(z, f.z / f.w * c.w) : z;
+    return f.w > 0.0 ? min(z, f.z / f.w * c.w) : z;
 }
 
 VsOut vsMain(VsIn i, uint vid : SV_VertexID)

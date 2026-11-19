@@ -1544,7 +1544,7 @@ void fallVerktygen()
         const V3            o{674010.0, 6580005.0, 25.0};
         const gfx::FrameUniforms u = gfx::frameUniforms(v, o.x, o.y, o.z);
         float vp[16];
-        gfx::viewProjection(v, o.x, o.y, o.z).toFloat(vp);
+        gfx::viewProjection(v, o.x, o.y, o.z).toDevice(vp);
         bool lika = true;
         for (int i = 0; i < 16; ++i)
             lika = lika && u.viewProj[i] == vp[i];

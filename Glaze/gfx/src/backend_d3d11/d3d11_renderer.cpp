@@ -27,14 +27,17 @@ namespace gfx {
 
 namespace {
 
-// Renderlägets tal i D3D11:s form.
+// Renderlägets tal i D3D11:s form. DJUPET LAGRAS OMVÄNT (gfx/scene.h
+// `depthReversed` — 1 vid närplanet, 0 längst bort): "närmare" är ett STÖRRE
+// tal, så jämförelserna vänds här, djupet rensas till `kFarDepth` och biasen
+// byter tecken (`applyMeshState`).
 D3D11_COMPARISON_FUNC comparisonOf(DepthTest t)
 {
     switch (t) {
-    case DepthTest::Less:         return D3D11_COMPARISON_LESS;
-    case DepthTest::LessEqual:    return D3D11_COMPARISON_LESS_EQUAL;
-    case DepthTest::Greater:      return D3D11_COMPARISON_GREATER;
-    case DepthTest::GreaterEqual: return D3D11_COMPARISON_GREATER_EQUAL;
+    case DepthTest::Less:         return D3D11_COMPARISON_GREATER;
+    case DepthTest::LessEqual:    return D3D11_COMPARISON_GREATER_EQUAL;
+    case DepthTest::Greater:      return D3D11_COMPARISON_LESS;
+    case DepthTest::GreaterEqual: return D3D11_COMPARISON_LESS_EQUAL;
     case DepthTest::Equal:        return D3D11_COMPARISON_EQUAL;
     case DepthTest::Always:
     case DepthTest::Off:          break;
@@ -1263,9 +1266,10 @@ void D3dRenderer::applyMeshState(const RenderState& s)
                       .Get());
     // DepthBias är ett heltal i D3D11 (renderläget säger det) — avrundat och
     // klampat till int.
-    const float bias  = depth ? std::clamp(s.depthBias, -2.0e9f, 2.0e9f) : 0.0f;
+    // Omvänt djup: närmare är ett större tal, så biasen byter tecken.
+    const float bias  = depth ? -std::clamp(s.depthBias, -2.0e9f, 2.0e9f) : 0.0f;
     setRasterState(rasterFor(s.cull, static_cast<int>(std::lround(bias)),
-                             depth ? s.slopeBias : 0.0f, depth));
+                             depth ? -s.slopeBias : 0.0f, depth));
     setBlendState(blendStates_[static_cast<int>(s.blend)].Get());
 }
 
@@ -1515,9 +1519,9 @@ void D3dRenderer::clear(Color c)
     const float col[4] = {c.r / 255.0f * a, c.g / 255.0f * a,
                           c.b / 255.0f * a, a};
     context_->ClearRenderTargetView(target, col);
-    // Ett mål med djup får djupet 1 — det bortre planet.
+    // Ett mål med djup får det bortre planets djup (omvänt djup: 0).
     if (activeDsv_)
-        context_->ClearDepthStencilView(activeDsv_, D3D11_CLEAR_DEPTH, 1.0f, 0);
+        context_->ClearDepthStencilView(activeDsv_, D3D11_CLEAR_DEPTH, kFarDepth, 0);
 }
 
 void D3dRenderer::fillRect(const Rectf& r, Color c)

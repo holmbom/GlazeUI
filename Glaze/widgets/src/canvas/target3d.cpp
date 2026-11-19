@@ -69,7 +69,7 @@ void drawGroundDepth(const PaintContext& f, const CanvasResources::GridMesh& p)
     d.indexCount = p.count;
     (gfx::viewProjection(v, v.eye.x, v.eye.y, 0.0) *
      gfx::Mat4d::scale(half, half, 1.0))
-        .toFloat(d.uniforms.viewProj);
+        .toDevice(d.uniforms.viewProj);
     d.state.depth      = gfx::DepthTest::Always;
     d.state.depthWrite = true;
     d.state.depthBias  = kGroundDepthBias;
@@ -111,19 +111,35 @@ Target3DState renderView(PaintContext& f, const std::shared_ptr<SceneData>& scen
 
     fas.emplace(ProfilePhase::CanvasDraw);
     gfx::Renderer& r = *f.c->r;
-    r.pushTarget(t, clear);
-    drawPasses(f, *scene, lf);   // steg 1: helskärmspassen, utan djup
-    if (main)
-        drawGrid(f, a.gridSize, a.gridColor, a.gridMinPx, a.gridWidthPx);
-    drawTerrain(f, *scene, lf);   // steg 2: terrängen, draperad
-    drawGround(f, *scene, lf, GroundPart::Geometry, målare);
-    if (plane)
-        drawGroundDepth(f, *plane);
+    // BILDTAKTEN (scene.h `FramePace`): passets första steg ritar bilden från
+    // början, de följande fortsätter i samma mål. Det som ligger ÖVERST —
+    // Ground-etiketterna och `onPaint` — ritas efter varje steg av
+    // påfyllningen (föremålen som kommer till får inte täcka det) och i
+    // ritordning när det sista föremålet är ritat.
+    const FramePace* takt   = f.pace;
+    const bool       början = !takt || takt->first;
+    const bool       överst = !takt || takt->order == FramePace::Order::Priority ||
+                              takt->complete;
+    if (början)
+        r.pushTarget(t, clear);
+    else
+        r.resumeTarget(t);
+    if (början) {
+        drawPasses(f, *scene, lf);   // steg 1: helskärmspassen, utan djup
+        if (main)
+            drawGrid(f, a.gridSize, a.gridColor, a.gridMinPx, a.gridWidthPx);
+        drawTerrain(f, *scene, lf);   // steg 2: terrängen, draperad
+        drawGround(f, *scene, lf, GroundPart::Geometry, målare);
+        if (plane)
+            drawGroundDepth(f, *plane);
+    }
     drawWorld(f, *scene, lf, målare);
-    drawGround(f, *scene, lf, GroundPart::Labels);
-    if (main && a.paint) {
-        const PhaseScope måla(ProfilePhase::CanvasPaint, *fas);
-        a.paint(f);
+    if (överst) {
+        drawGround(f, *scene, lf, GroundPart::Labels);
+        if (main && a.paint) {
+            const PhaseScope måla(ProfilePhase::CanvasPaint, *fas);
+            a.paint(f);
+        }
     }
     r.popTarget();
     return Target3DState{lf.animating(), drapes.pending() > 0};
@@ -361,7 +377,10 @@ Target3DState renderTargets3D(const PaintContext& wf, PaintContext& tf,
         Pixels                     px;
     };
     std::vector<ViewTarget> vyer;
-    bool                    någon = inaktuellt(t, c.box);
+    // Ett steg av bildtakten ritar alltid i huvudmålet — det börjar om eller
+    // fortsätter där det förra steget slutade.
+    const bool              steg  = tf.pace != nullptr;
+    bool                    någon = steg || inaktuellt(t, c.box);
     for (int i = 1; i <= nViews; ++i) {
         const gfx::Rectf r =
             viewRect(a.views[static_cast<std::size_t>(i - 1)], c.box, c.scale);
@@ -390,7 +409,7 @@ Target3DState renderTargets3D(const PaintContext& wf, PaintContext& tf,
         tf.view3D  = mainView3D(a.camera, tf.world, *scene);
         tf.opacity = 1.0f;   // tonen är kompositens
     }
-    if (inaktuellt(t, c.box)) {
+    if (steg || inaktuellt(t, c.box)) {
         läge = renderView(tf, scene, *t.target, kClear, a, true, DrapeMode::Main);
         ritat(t, c.box);
     }

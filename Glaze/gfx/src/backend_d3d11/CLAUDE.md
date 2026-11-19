@@ -71,7 +71,9 @@ egen fil; backendarnas 3D-del hade inte rymts under 1000 rader).
   **`screens()`** (FONSTER_OCH_TIMER — `EnumDisplayMonitors` +
   `GetMonitorInfoW`: `rcMonitor`/`rcWork` i fysiska px, skalan
   `GetDpiForMonitor(MDT_EFFECTIVE_DPI)` / 96 × användarskalan (shcore),
-  `MONITORINFOF_PRIMARY`; tom före init),
+  `MONITORINFOF_PRIMARY`, och bildtakten `refreshHz` ur skärmens nuvarande
+  läge — `EnumDisplaySettingsW(szDevice, ENUM_CURRENT_SETTINGS)`,
+  `dmDisplayFrequency`; tom före init),
   **`isInProgramFile(adress)`** (DELAT_BIBLIOTEK R3 — modulen som äger
   adressen, `GetModuleHandleExW(FROM_ADDRESS | UNCHANGED_REFCOUNT)`, jämförd
   med `GetModuleHandleW(nullptr)`; frågas av programfilens ankare, också i en
@@ -577,6 +579,21 @@ Kontrakten står i [../../include/gfx/CLAUDE.md](../../include/gfx/CLAUDE.md)
   frågar EN gång med `CheckMultisampleQualityLevels` för BÅDE B8G8R8A8 och
   D32_FLOAT. **`readTarget`**: staging + CopyResource av bilden + Map,
   BGRA → RGBA och `unpremultiplyRgba` (`../image_util.h`).
+- **OMVÄNT DJUP** (`gfx::depthReversed()` är true här, definierad i
+  `d3d11_image.cpp`): djupet lagras med 1 vid närplanet och 0 längst bort.
+  Fyra saker hör ihop och måste ändras tillsammans: matriserna kommer med
+  djupraden w − z (`Mat4d::toDevice`, räknad i double av den som lämnar dem);
+  `comparisonOf` vänder jämförelserna (`Less` = `GREATER`); `applyMeshState`
+  byter tecken på `depthBias` och `slopeBias`; och målen rensas till
+  `kFarDepth` (0, d3d11_backend.h — `clear` och `createRenderTarget`). I
+  programmen är närplanet z = w: `nearSide(c)` = w − z i Line- och
+  Fill-källan (`toNear`, proven "bakom närplanet"), `c.z > c.w` i
+  Glyph-programmets gallring, `glaze_standingZ` drar mot ett STÖRRE z
+  (`max`/`min` bytta), och Points-programmets tak i HLSL är ett `min`
+  (src/canvas/programs3d.cpp). `trimSegment` och `keepInside` prövar båda
+  planen och är oförändrade. Skälet: med ett närplan på centimeter och ett
+  bortre på kilometer var ett djupsteg millimeter till centimeter på håll,
+  och ytor nära varandra slogs om pixlarna vad biasen än var.
 - **RENDERLÄGET** (`d3d11_renderer.cpp`): tillståndsobjekten skapas i init —
   `depthStates_[DepthTest][skriv]` (Off = `DepthEnable FALSE`, också
   skrivningen av), `blendStates_[Blend]` (`blendDescOf`, mot det

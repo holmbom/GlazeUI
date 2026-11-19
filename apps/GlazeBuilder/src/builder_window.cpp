@@ -402,6 +402,10 @@ const BuilderWindow::FieldMeta BuilderWindow::kFieldMeta[] = {
     // 1 MiB är exakta upp till 2⁴⁴, ett godtyckligt bytetal kan avrundas vid
     // redigering i panelen (fas 2); texten i filen round-trippar ordagrant.
     {"glaze::Canvas",     "memoryBudget", FieldKind::Number, "", ""},
+    // BILDTAKTEN: läget och takten för `Fps`.
+    {"glaze::Canvas",     "framePacing", FieldKind::Enum, "DrawAll;VSync;Fps",
+     "glaze::FramePacing::"},
+    {"glaze::Canvas",     "frameRate", FieldKind::Number, "", ""},
     // PROGRAMIKONEN. Bilderna är Raw: värdet är
     // `glaze::img("lista", "nyckel")` ELLER `{}` (förvalet), och `{}` har
     // ingen plats i `img`-radens "lista/nyckel"-val — Raw-grenen i

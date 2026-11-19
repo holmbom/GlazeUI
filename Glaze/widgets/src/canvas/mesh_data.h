@@ -89,6 +89,13 @@ struct MeshData {
 
     std::vector<MeshSegment> segments;
 
+    // HÖRNEN I GPU:NS FORM — varje läge packat en gång, i meshens ordning och
+    // i de strömmar meshen bär (`packedStride` byte per läge). Uppladdningen
+    // kopierar härifrån i stället för att sätta ihop varje hörn; `setPositions`
+    // och `setColors` skriver om de lägen de rör. Under `lock`, som strömmarna.
+    std::vector<std::uint8_t> packed;
+    std::uint16_t             packedStride = 0;
+
     // ÄNDRINGSLOGGEN (som Bitmaps): `version` stegas vid varje ändring och
     // `changes` bär varje ändring med version > `base`, utom de en senare
     // ändring av HELA samma ström gjort överflödiga. Ett fönster som laddat
@@ -128,6 +135,11 @@ struct MeshData {
     void markChanged(MeshStream stream, std::uint32_t first,
                      std::uint32_t count);
 };
+
+// Lägena [first, first + count) packade i `MeshData::packed` — alla när
+// meshen skapas, och de ändrade efter `setPositions`/`setColors`
+// (residency.cpp, som äger layouten).
+void packMeshRange(MeshData& d, std::uint32_t first, std::uint32_t count);
 
 // MESHERNAS GENERATION — stegas varje gång en meshs LÄGEN
 // ändras någonstans i processen (`Mesh::setPositions`, `markChanged` för

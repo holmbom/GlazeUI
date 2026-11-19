@@ -23,7 +23,7 @@
 #include "mesh_data.h"
 #include "residency.h"
 #include "resources.h"
-#include "depth_order.h"
+#include "render_loop.h"
 #include "run_index.h"
 
 namespace glaze::detail {
@@ -454,10 +454,10 @@ gfx::FrameUniforms customFrame(const Pass& p, const Point3& origin,
         return fr;
     }
     const gfx::Mat4d vp = gfx::viewProjection(p.view, origin.x, origin.y, origin.z);
-    (vp * toMat4(model)).toFloat(fr.viewProj);
+    (vp * toMat4(model)).toDevice(fr.viewProj);
     gfx::Mat4d vpInv;
     if (vp.inverse(vpInv))
-        (toMat4(inv) * vpInv).toFloat(fr.invViewProj);
+        (toMat4(inv) * vpInv).inverseToDevice(fr.invViewProj);
     // Ögat och strålbasen genom inversen — utan förflyttning, så ett läge och
     // en riktning tar samma väg.
     for (float* v : {fr.eye, fr.forward, fr.right, fr.up}) {
@@ -698,9 +698,43 @@ void meshUniforms(const MeshStyle& st, const Lighting& light,
         setScreenSize(u, st.size.value, st.size.unit);
 }
 
+namespace {
+
+constexpr double kIndicesPerTriangle = 3.0;
+constexpr double kTrianglesPerPoint  = 2.0;
+
+} // namespace
+
+double objectPaceCost(const Shape& s)
+{
+    double trianglar = 0.0;
+    switch (s.kind()) {
+    case Shape::Kind::Mesh:
+    case Shape::Kind::Area3:
+    case Shape::Kind::Instances:
+        if (const std::shared_ptr<MeshData>& d = MeshAccess::data(s.mesh())) {
+            const std::size_t element = d->indices.empty() ? d->positions.size()
+                                                           : d->indices.size();
+            trianglar = static_cast<double>(element) / kIndicesPerTriangle;
+            if (s.kind() == Shape::Kind::Instances && s.instanceSet())
+                trianglar *= static_cast<double>(s.instanceSet()->rows.size());
+        }
+        break;
+    case Shape::Kind::Points3:
+        if (const std::shared_ptr<PointCloudData>& d = MeshAccess::data(s.pointCloud()))
+            trianglar = static_cast<double>(d->positions.size()) * kTrianglesPerPoint;
+        break;
+    default:
+        break;
+    }
+    return trianglar + kPaceObjectCost;
+}
+
 void queueObjects(const PaintContext& f, const RunData& run,
                   std::uint64_t shapesVersion, bool draw, bool wantRest,
-                  std::vector<UploadItem>& visible, std::vector<UploadItem>& rest)
+                  std::vector<UploadItem>& visible, std::vector<UploadItem>& rest,
+                  std::vector<std::uint64_t>* seen,
+                  const std::vector<std::uint32_t>* only)
 {
     // Ritningens vy och gallring (`drawObjects`) — ett lager som inte ritas
     // syns inte.
@@ -709,34 +743,74 @@ void queueObjects(const PaintContext& f, const RunData& run,
     const Point3      öga = toPoint(view.eye);
     if (draw) {
         // DE SYNLIGA ur körningens index (run_index.h): bara kandidaterna prövas.
-        std::vector<std::uint32_t> kandidater;
-        objectCandidates(run, shapesVersion, proj, kCullSlackPx, kandidater);
-        for (std::uint32_t i : kandidater) {
-            const std::shared_ptr<ShapeEntry>& e = run.objects[i];
-            const std::optional<Box3>&         b = objectBox(*e);
-            if (objectInView(proj, *e, b))
-                visible.push_back(UploadItem{b ? distanceToBox(öga, *b) : 0.0, &e,
-                                             nullptr, true});
+        // DE SYNLIGA ur körningens tabell (run_index.h): gallrade där, med
+        // avstånd, diagonal och kostnad — ingen form slås upp här.
+        std::vector<ObjectSeen> synliga;
+        {
+            const SceneCostScope kostnad(SceneCost::Order);
+            objectsInView(run, shapesVersion, proj, kCullSlackPx, öga, synliga);
+        }
+        sceneTally(SceneTally::Visible, synliga.size());
+        for (const ObjectSeen& s : synliga) {
+            const std::shared_ptr<ShapeEntry>& e = run.objects[s.index];
+            UploadItem u{s.distance, &e, nullptr, true, nullptr, 0, &run, s.index};
+            if (f.pace) {
+                // NYTTAN PER KOSTNAD: ytan på skärmen (lådans diagonal genom
+                // avståndet, i kvadrat) delad med kostnaden i föremål — många
+                // billiga delar som syns går före en dyr. Utan låda (en
+                // skärmkonstant mesh) eller med ögat i lådan: störst.
+                u.cost = s.cost;
+                if (s.hasBox && s.distance > 0.0 && s.cost > 0.0f) {
+                    const double vinkel = s.diagonal / s.distance;
+                    u.priority = static_cast<float>(vinkel * vinkel * kPaceObjectCost /
+                                                    s.cost);
+                } else {
+                    u.priority = std::numeric_limits<float>::max();
+                }
+            }
+            visible.push_back(u);
         }
     }
     if (!wantRest)
         return;
     // RESTEN — bara när lagrets residens ska göras om (scene.h `prepareUploads`).
-    for (const std::shared_ptr<ShapeEntry>& e : run.objects) {
-        if (!e->alive)
-            continue;
-        if (!draw || !objectInView(proj, *e, objectBox(*e)))
-            rest.push_back(UploadItem{0.0, &e, nullptr, draw});
+    // Bara föremålen vars signatur ändrats sedan de senast behandlades: ett
+    // lager där delar byts varje bild går igenom sina platser, inte sina
+    // föremåls lådor och kopior.
+    // Jämförelsen görs mot körningens tabell (run_index.h), som redan bär
+    // varje plats signatur och låda — ingen form slås upp för de oförändrade.
+    if (seen)
+        seen->resize(run.objects.size(), 0);
+    const std::vector<std::uint64_t> inga;
+    std::vector<ObjectUnseen>        osedda;
+    objectsUnseen(run, shapesVersion, proj, kCullSlackPx, seen ? *seen : inga, only,
+                  osedda);
+    for (const ObjectUnseen& o : osedda) {
+        std::uint64_t* plats = seen ? &(*seen)[o.index] : nullptr;
+        if (o.sig == 0) {
+            if (plats)
+                *plats = 0;   // en död plats
+        } else if (!draw || !o.inView) {
+            rest.push_back(UploadItem{0.0, &run.objects[o.index], nullptr, draw, plats,
+                                      o.sig});
+        } else if (plats) {
+            *plats = o.sig;   // syns: den synliga kön tar det
+        }
     }
 }
 
-void prepareObject(const PaintContext& f, const SceneData& sc,
-                   const std::shared_ptr<ShapeEntry>& e, bool draw)
+ObjectResidency::Shown prepareObject(const PaintContext& f, const SceneData& sc,
+                                     const std::shared_ptr<ShapeEntry>& e, bool draw)
 {
     f.res->objects().precompile();   // en gång per fönster — de vanligaste varianterna
-    const ObjectResidency::Shown sh = resident(f, e, true);
+    ObjectResidency::Shown sh;
+    {
+        const SceneCostScope kostnad(SceneCost::Lookup);
+        sh = resident(f, e, true);
+    }
     if (!draw || !sh.shape)
-        return;
+        return sh;
+    const SceneCostScope kostnad(SceneCost::Images);
     // Det ritningen binder och som laddar upp eller kompilerar: texturen,
     // rampen och ett eget program med dess texturer — det
     // inbyggda kan bli reserven, så dess delar hämtas ändå.
@@ -747,7 +821,7 @@ void prepareObject(const PaintContext& f, const SceneData& sc,
             f.res->ramp(ps.ramp.stops);
         if (!ps.program.empty())
             customProgram(f, sc, ps.program);
-        return;
+        return sh;
     }
     const MeshStyle& st = s.meshStyle();
     if (st.texture.kind() != ImageSource::Kind::None)
@@ -760,6 +834,7 @@ void prepareObject(const PaintContext& f, const SceneData& sc,
                  i < st.textures.size() && i < static_cast<std::size_t>(prog->textures());
                  ++i)
                 imageOf(f, st.textures[i]);
+    return sh;
 }
 
 void prepareScreenPass(const PaintContext& f, const SceneData& sc, const Shape& s)
@@ -819,8 +894,7 @@ void drawScreenPass(const PaintContext& f, const SceneData& sc, const Shape& s,
 
 void drawObjects(const PaintContext& f, const SceneData& sc, const LayerFrame& lf,
                  const RunData& run, std::uint64_t shapesVersion, float op, bool draw,
-                 const gfx::RenderState& state,
-                 const std::vector<std::uint8_t>* ranks)
+                 const gfx::RenderState& state)
 {
     // I 3D-målet är allt redan uppladdat (förberedelsen); 2D-vägen
     // laddar upp de SYNLIGA i ritningen, som chunkarna där, och resten efter
@@ -832,30 +906,16 @@ void drawObjects(const PaintContext& f, const SceneData& sc, const LayerFrame& l
     const Projection  proj(view);
     const Lighting    förval;
     const Lighting&   ljus = f.lighting ? *f.lighting : förval;
-    // KANDIDATERNA ur körningens index, i körningens ordning — varje föremål
-    // gallras sedan exakt där det ritas, så anropen är desamma som om alla
-    // hade prövats.
-    std::vector<std::uint32_t> kandidater;
-    objectCandidates(run, shapesVersion, proj, kCullSlackPx, kandidater);
-    for (std::uint32_t i : kandidater) {
-        const std::shared_ptr<ShapeEntry>& e = run.objects[i];
-        // Kandidaterna är en övermängd: ett föremål utanför vyn ritas inte —
-        // och frågas inte heller, så dess kopia räknas inte som använd i
-        // bilden och kan vräkas över budgeten (memory_ledger.h).
-        if (!objectInView(proj, *e, objectBox(*e)))
-            continue;
-        const ObjectResidency::Shown sh = resident(f, e, upload);
+    const Pass p{f, view, proj, ljus, state, op, f.res->objects(), sc, lf.drapes};
+    // Ett föremål med det dess plats visar.
+    const auto rita = [&](std::uint32_t i, const ObjectResidency::Shown& sh) {
         if (!sh.shape)
-            continue;   // en ny plats vars data inte är uppe än
-        // Föremålets rang i lagrets djupordning — renderläget med dess bias.
-        const int rang = ranks && i < ranks->size() ? (*ranks)[i] : 0;
-        const gfx::RenderState läge = rang > 0 ? ranked(state, rang) : state;
-        const Pass p{f, view, proj, ljus, läge, op, f.res->objects(), sc, lf.drapes};
+            return;   // en ny plats vars data inte är uppe än
         switch (sh.shape->kind()) {
         case Shape::Kind::Mesh:
         case Shape::Kind::Area3:
             if (sh.mesh)
-                drawMeshObject(p, *sh.shape, *sh.mesh, e->id);
+                drawMeshObject(p, *sh.shape, *sh.mesh, run.objects[i]->id);
             break;
         case Shape::Kind::Instances:
             if (sh.mesh && sh.inst)
@@ -877,6 +937,28 @@ void drawObjects(const PaintContext& f, const SceneData& sc, const LayerFrame& l
         case Shape::Kind::Pass:
             break;
         }
+    };
+    // FÖRBEREDELSENS LISTA (labels.h `LayerFrame::visible`): de synliga i
+    // körningens ordning, redan gallrade och uppslagna.
+    if (lf.hasVisible) {
+        if (const auto it = lf.visible.find(&run); it != lf.visible.end())
+            for (const LayerFrame::VisibleObject& v : it->second)
+                rita(v.index, v.shown);
+        return;
+    }
+    // KANDIDATERNA ur körningens index, i körningens ordning — varje föremål
+    // gallras sedan exakt där det ritas, så anropen är desamma som om alla
+    // hade prövats.
+    std::vector<std::uint32_t> kandidater;
+    objectCandidates(run, shapesVersion, proj, kCullSlackPx, kandidater);
+    for (std::uint32_t i : kandidater) {
+        const std::shared_ptr<ShapeEntry>& e = run.objects[i];
+        // Kandidaterna är en övermängd: ett föremål utanför vyn ritas inte —
+        // och frågas inte heller, så dess kopia räknas inte som använd i
+        // bilden och kan vräkas över budgeten (memory_ledger.h).
+        if (!objectInView(proj, *e, objectBox(*e)))
+            continue;
+        rita(i, resident(f, e, upload));
     }
 }
 

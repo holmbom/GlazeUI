@@ -238,6 +238,8 @@ std::size_t ImageCache::uploadRoom(std::size_t minimum) const
 {
     if (frameUploaded_ == 0)
         return std::max(uploadBudget_, minimum);
+    if (hasDeadline_ && std::chrono::steady_clock::now() >= deadline_)
+        return 0;
     return uploadBudget_ - std::min(frameUploaded_, uploadBudget_);
 }
 
@@ -646,6 +648,7 @@ void ImageCache::trim(std::size_t defaultBudget, std::size_t uploadBudget)
     uploadBudget_  = uploadBudget;
     frameUploaded_ = 0;
     deferred_      = false;
+    hasDeadline_   = false;
 }
 
 } // namespace glaze

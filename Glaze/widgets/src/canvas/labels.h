@@ -2,10 +2,13 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <unordered_map>
+#include <vector>
 
 #include <gfx/image.h>
 
 #include "camera_math.h"
+#include "residency.h"
 #include "resources.h"
 #include "scene.h"
 
@@ -82,11 +85,18 @@ struct LayerFrame {
     // Ett ritat Ground-lager målar marken (scene.h `paintsGround`) — ett
     // tomt gör det inte. Villkoret för markdjupet (target3d.h steg 3).
     bool                        groundDrawn = false;
-    // DJUPORDNINGEN (depth_order.h) i 3D-målet, per lager: ordningen bland
-    // lagrets föremål och lagrets BAS — rangen över alla tidigare ritade
-    // World-lager. Tomt för ett lager utan ordning (rang 0).
-    std::vector<std::shared_ptr<const DepthOrder>> depth;
-    std::vector<int>                               depthBase;
+    // DE SYNLIGA FÖREMÅLEN per körning, i körningens ordning, med det varje
+    // plats visar — samlade av förberedelsen (`prepareUploads`), så att
+    // ritningen varken gallrar eller slår upp dem en gång till. `hasVisible`
+    // falskt = ingen lista: ritningen gallrar själv (2D-vägen, draperingen).
+    struct VisibleObject {
+        std::uint32_t          index = 0;   // platsen i `RunData::objects`
+        ObjectResidency::Shown shown;
+        std::uint32_t          layer = 0;   // lagret och körningens nummer i det
+        std::uint32_t          run   = 0;
+    };
+    std::unordered_map<const RunData*, std::vector<VisibleObject>> visible;
+    bool                                                          hasVisible = false;
     // TERRÄNGEN (drape.h): en terräng ritas i vyn — då
     // ritas Ground-lagrens geometri genom draperingen, deras stående
     // etiketter byggs vid markhöjd (med terrängens region under körningen i

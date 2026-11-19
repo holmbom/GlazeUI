@@ -386,6 +386,8 @@ struct ScreenInfo {
     Rectf work;            // arbetsytan (utan aktivitetsfält/menyrad)
     float scale   = 1.0f;  // placeringsenheter per LOGISK px för ett fönster där
     bool  primary = false;
+    // Skärmens bildtakt i Hz; 0 = okänd (Windows svarar, de andra inte än).
+    float refreshHz = 0.0f;
 };
 std::vector<ScreenInfo> screens();
 

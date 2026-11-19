@@ -12,6 +12,7 @@
 #include <gfx/platform.h>
 
 #include "../image_cache.h"
+#include "render_loop.h"
 
 namespace glaze::detail {
 
@@ -91,38 +92,26 @@ const std::uint32_t* segmentIndices(const MeshData& d, const MeshSegment& s)
                               : s.indices.data();
 }
 
-// Lägena [first, first + n) i segmentet packade i kopians strömmar — de
-// inbyggda programmens fält och sist user-strömmarna (`withUser`).
-void packVertices(const MeshData& d, const MeshSegment& s,
-                  const MeshVariant& v, std::uint8_t user, std::uint16_t stride,
-                  std::uint32_t first, std::uint32_t n,
-                  std::vector<std::uint8_t>& out)
+// Segmentets lägen [first, first + n) i GPU:ns form: en pekare rakt in i
+// meshens packade hörn när segmentet följer meshens ordning (det vanliga),
+// annars de packade hörnen samlade i `buf` (ett delat segments lägen ligger
+// utspridda i meshen).
+const std::uint8_t* packedVertices(const MeshData& d, const MeshSegment& s,
+                                   std::uint32_t first, std::uint32_t n,
+                                   std::vector<std::uint8_t>& buf)
 {
-    const std::size_t builtin = meshLayout(v).stride[0];
-    out.resize(static_cast<std::size_t>(n) * stride);
-    for (std::uint32_t i = 0; i < n; ++i) {
-        const std::uint32_t g = globalVertex(d, s, first + i);
-        MeshVertex          mv;
-        mv.position = d.positions[g];
-        if (v.normals)
-            mv.normal = d.normals[g];
-        if (v.colors)
-            mv.color = d.colors[g];
-        if (v.uvs) {
-            mv.u = d.uvs[g][0];
-            mv.v = d.uvs[g][1];
-        }
-        if (v.scalars)
-            mv.scalar = d.scalars[g];
-        std::uint8_t* ut = out.data() + static_cast<std::size_t>(i) * stride;
-        packMeshVertex(v, mv, ut);
-        ut += builtin;
-        for (std::size_t k = 0; k < d.user.size(); ++k)
-            if (user & (1u << k)) {
-                std::memcpy(ut, d.user[k][g].data(), sizeof(d.user[k][g]));
-                ut += sizeof(d.user[k][g]);
-            }
-    }
+    const std::size_t stride = d.packedStride;
+    if (!d.isIndexed() || s.vertices.empty())
+        return d.packed.data() +
+               static_cast<std::size_t>(globalVertex(d, s, first)) * stride;
+    const SceneCostScope kostnad(SceneCost::Pack);
+    buf.resize(static_cast<std::size_t>(n) * stride);
+    for (std::uint32_t i = 0; i < n; ++i)
+        std::memcpy(buf.data() + static_cast<std::size_t>(i) * stride,
+                    d.packed.data() +
+                        static_cast<std::size_t>(s.vertices[first + i]) * stride,
+                    stride);
+    return buf.data();
 }
 
 // Hur många element om `elem` byte som får laddas upp nu (minst ett när
@@ -151,7 +140,11 @@ void defer(ImageCache* images)
 std::unique_ptr<gfx::GpuBuffer> newBuffer(gfx::Renderer& r, gfx::BufferKind k,
                                           std::size_t bytes)
 {
-    std::unique_ptr<gfx::GpuBuffer> b = r.createBuffer(k, bytes, nullptr);
+    std::unique_ptr<gfx::GpuBuffer> b;
+    {
+        const SceneCostScope kostnad(SceneCost::Create);
+        b = r.createBuffer(k, bytes, nullptr);
+    }
     if (!b || !b->valid()) {
         if (!g_bufferLogged.exchange(true))
             gfx::log("Canvas: en buffert om %zu byte för ritytans 3D-data gick "
@@ -207,6 +200,38 @@ void release(ObjectResidency::GpuCloud& g)
 }
 
 } // namespace
+
+void packMeshRange(MeshData& d, std::uint32_t first, std::uint32_t count)
+{
+    const MeshVariant  v       = streamsOf(d);
+    const std::uint8_t user    = userStreamsOf(d);
+    const std::size_t  builtin = meshLayout(v).stride[0];
+    const std::size_t  stride  = withUser(meshLayout(v), user).stride[0];
+    d.packedStride             = static_cast<std::uint16_t>(stride);
+    d.packed.resize(d.positions.size() * stride);
+    for (std::uint32_t g = first; g < first + count; ++g) {
+        MeshVertex mv;
+        mv.position = d.positions[g];
+        if (v.normals)
+            mv.normal = d.normals[g];
+        if (v.colors)
+            mv.color = d.colors[g];
+        if (v.uvs) {
+            mv.u = d.uvs[g][0];
+            mv.v = d.uvs[g][1];
+        }
+        if (v.scalars)
+            mv.scalar = d.scalars[g];
+        std::uint8_t* ut = d.packed.data() + static_cast<std::size_t>(g) * stride;
+        packMeshVertex(v, mv, ut);
+        ut += builtin;
+        for (std::size_t k = 0; k < d.user.size(); ++k)
+            if (user & (1u << k)) {
+                std::memcpy(ut, d.user[k][g].data(), sizeof(d.user[k][g]));
+                ut += sizeof(d.user[k][g]);
+            }
+    }
+}
 
 ObjectResidency::ObjectResidency(gfx::Renderer& r, MemoryLedger& ledger)
     : r_(&r), ledger_(&ledger)
@@ -316,12 +341,13 @@ bool ObjectResidency::stream(GpuMesh& g, const MeshData& d, ImageCache* images)
             return false;
         }
         if (g.inIndices) {
+            const SceneCostScope kostnad(SceneCost::Upload);
             r_->updateBuffer(*sg.ib, g.done * elem, segmentIndices(d, ms) + g.done,
                              n * elem);
         } else {
-            packVertices(d, ms, g.streams, g.user, g.layout.stride[0], g.done, n,
-                         buf);
-            r_->updateBuffer(*sg.vb, g.done * elem, buf.data(), n * elem);
+            const std::uint8_t*  src = packedVertices(d, ms, g.done, n, buf);
+            const SceneCostScope kostnad(SceneCost::Upload);
+            r_->updateBuffer(*sg.vb, g.done * elem, src, n * elem);
         }
         spend(images, n * elem);
         g.done += n;
@@ -391,11 +417,11 @@ bool ObjectResidency::catchUp(GpuMesh& g, const MeshData& d, ImageCache* images)
     }
     std::vector<std::uint8_t> buf;
     for (const Bit& b : bitar) {
-        packVertices(d, d.segments[b.seg], g.streams, g.user, g.layout.stride[0],
-                     b.first, b.count, buf);
+        const std::uint8_t* src =
+            packedVertices(d, d.segments[b.seg], b.first, b.count, buf);
         r_->updateBuffer(*g.segments[b.seg].vb,
                          static_cast<std::size_t>(b.first) * g.layout.stride[0],
-                         buf.data(), buf.size());
+                         src, static_cast<std::size_t>(b.count) * g.layout.stride[0]);
     }
     spend(images, byte);
     g.version = d.version;
@@ -650,7 +676,11 @@ ObjectResidency::Shown ObjectResidency::object(
         p.mesh    = std::move(mesh);
         p.inst    = std::move(inst);
         p.cloud   = std::move(cloud);
-        p.shape   = s;
+        if (!p.hasShape || p.shapeVersion != entry->version) {
+            p.shape        = s;
+            p.shapeVersion = entry->version;
+            p.hasShape     = true;
+        }
         p.showing = true;
     }
     if (!p.showing)

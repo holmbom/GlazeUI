@@ -532,6 +532,12 @@ void GlRenderer::drawImageMesh(const MeshDraw& d)
 
 // ---------------------------------------------------------------- encode
 
+// Djupet lagras med 0 vid närplanet (gfx/scene.h `depthReversed`).
+bool depthReversed()
+{
+    return false;
+}
+
 // PNG-encode (glaze-render): encode-spegeln av loadImage. Fasadens
 // kontrakt (rad 0 överst, rak alfa, täta rader) är exakt PNG_FORMAT_RGBA —
 // row_stride w × 4, ingen flipp, ingen swizzle.

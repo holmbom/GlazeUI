@@ -684,7 +684,7 @@ void pxMatris(float out[16], double ox, double oy, double djup,
     m.m[13] = oy;
     m.m[14] = djup;
     m.m[15] = 1.0;
-    m.toFloat(out);
+    m.toDevice(out);   // djupet i backendens form (gfx/mat4.h)
 }
 
 // En form på GPU:n, ritad med ett av de fyra programmen.
@@ -2015,8 +2015,8 @@ program(gfx::Renderer& r, const char* namn, const Källor& k,
 gfx::FrameUniforms pxRam()
 {
     gfx::FrameUniforms f{};
-    gfx::Mat4d::identity().toFloat(f.viewProj);
-    gfx::Mat4d::identity().toFloat(f.invViewProj);
+    gfx::Mat4d::identity().toDevice(f.viewProj);
+    gfx::Mat4d::identity().inverseToDevice(f.invViewProj);
     return f;
 }
 
@@ -3431,7 +3431,7 @@ void rita3(gfx::Renderer& r, const Form3& f, const gfx::View3D& v,
     d.vertices   = gfx::slice(*f.vb);
     d.indices    = gfx::slice(*f.ib);
     d.indexCount = f.count;
-    gfx::viewProjection(v, f.ox, f.oy, f.oz).toFloat(d.uniforms.viewProj);
+    gfx::viewProjection(v, f.ox, f.oy, f.oz).toDevice(d.uniforms.viewProj);
     d.uniforms.pxPerWidthUnit = 1.0f;
     d.uniforms.widthSpace     = rum;
     d.uniforms.dash           = streck;
@@ -5395,18 +5395,19 @@ void fallI6()
 
 // ------------------------------------------------------------------- Z
 //
-// DJUPORDNINGEN (depth_order.h): lådor med översidan i SAMMA plan (z = 1),
-// olika stora — alltså olika trianglar i planet — sedda snett uppifrån.
+// YTOR I SAMMA PLAN (scene.h `coplanarPass` — lagret ritas i två pass, först
+// djupet och sedan färgen): lådor med översidan i SAMMA plan (z = 1), olika
+// stora — alltså olika trianglar i planet — sedda snett uppifrån.
 //   Z1  samma lager: den senare formen vinner i hela överlappet, och
 //       träffprovet svarar med den.
 //   Z2  ett senare lager vinner över båda.
 //   Z3  `moveLayer` vänder lagren: det som nu ligger överst vinner.
 //   Z4  det som ligger FRAMFÖR vinner ändå, också i det understa lagret.
 // Varje prov är ett rutnät av punkter över överlappet: en enda pixel i fel
-// färg är ytor som slåss. Sabotage som SKA fälla: rangens bias 0 (Z1–Z3),
-// lagrens bas 0 (Z2, Z3), föremålens rang 0 (Z1), en bias så stor att den
-// drar förbi det som ligger framför (Z4), träffprovets ordning utan rangen
-// (Z1 träffen).
+// färg är ytor som slåss. Sabotage som SKA fälla: färgpassets försprång 0
+// (`kCoplanarBias`/`kCoplanarSlope`, Z1–Z3), lagret ritat i ett pass (Z1–Z3),
+// ett försprång så stort att det drar förbi det som ligger framför (Z4),
+// träffprovets ordning utan formens plats (Z1 träffen).
 void fallZ()
 {
     Rit3 r;

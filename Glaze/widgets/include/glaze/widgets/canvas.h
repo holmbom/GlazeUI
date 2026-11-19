@@ -190,6 +190,7 @@ class  InputMap;       // src/canvas/input_map.h
 struct DragPlan;       //   …ett drags två axlar
 struct CanvasFrameResult;   // src/canvas/frame_job.h — en ritad bilds svar
 struct CanvasFrameJob;      //   …och jobbet
+struct RefreshCache;        //   …skärmens bildtakt
 class  CanvasRenderLoop;    // src/canvas/render_loop.h — renderingstråden
 struct CanvasAccess;        // src/canvas/canvas_access.h — ritytans scen
 }
@@ -206,6 +207,13 @@ struct CanvasAccess;        // src/canvas/canvas_access.h — ritytans scen
 //           än indexens. Kartans ordning: canvas_perf visar samma
 //           karta på 60 anrop i ByKind och 10 663 i Strict.
 enum class DrawOrder : std::uint8_t { Strict, ByKind };
+
+// BILDTAKTEN för ritytans 3D (`Canvas::setFramePacing`):
+//   DrawAll  varje bild ritas hel, hur lång tid den än tar (förvalet).
+//   VSync    en bild får ta så lång tid som skärmen fönstret står på visar
+//            en bild — 60 bilder i sekunden när skärmens takt inte är känd.
+//   Fps      en bild får ta 1 / `Canvas::frameRate()` sekunder.
+enum class FramePacing : std::uint8_t { DrawAll, VSync, Fps };
 
 // Args till ritytans mushändelser — BASENS `MouseArgs` (widget.h: `button`,
 // `local`, `mods`, `handled`) och det ritytan vet utöver den. Positionen
@@ -1052,6 +1060,27 @@ public:
     // samma fönster får var sin: `karta.setMemoryBudget(std::size_t{2} << 30)`.
     void        setMemoryBudget(std::size_t bytes);
     std::size_t memoryBudget() const;
+
+    // BILDTAKTEN: hur lång tid en bild av en tung 3D-scen får ta. Med
+    // `VSync` eller `Fps` ritas bilden i STEG: medan kameran rör sig ritas
+    // det som ryms i tiden — föremålen som är störst på skärmen först — och
+    // rörelsen flyter. När kameran står still fylls resten på, bild för
+    // bild, och sist ritas bilden en gång till i lagrens och formernas
+    // ordning, så den färdiga bilden är exakt den `DrawAll` ger.
+    // `frameComplete()` säger om bilden som visas är den färdiga.
+    //
+    // Det som delas upp är föremålen (meshar, ytor i rymden, instanser,
+    // punkter) i lager som ligger i rymden; terrängen, marken, linjerna,
+    // texten, `onPaint` och del-vyerna ritas alltid. Stegens storlek följer
+    // den tid bilderna faktiskt tar. Takten gäller när scenen ritas av
+    // fönstrets renderingstråd i ritytans 3D — annars ritas bilden hel.
+    // `setFrameRate` är takten för `Fps` (bilder per sekund, förval 60; ett
+    // tal som inte är ändligt och över noll ⇒ `gfx::log`, ingenting ändras).
+    void        setFramePacing(FramePacing mode);
+    FramePacing framePacing() const { return framePacing_; }
+    void        setFrameRate(double fps);
+    double      frameRate() const { return frameRate_; }
+    bool        frameComplete() const;
     // Det ritytan håller NU, i byte — det budgeten jämförs med. {0, 0} utan
     // ett öppet fönster och före den första ritningen.
     CanvasMemoryUse memoryUsed() const;
@@ -1526,6 +1555,12 @@ private:
     float                            submittedScale_ = 0.0f, submittedMm_ = 0.0f;
     bool                             renderAgain_   = false;
     bool                             labelsPending_ = false;
+    // Bildtakten (`setFramePacing`) och tiden den ger ett jobb, i ms.
+    FramePacing                      framePacing_   = FramePacing::DrawAll;
+    double                           frameRate_     = 0.0;   // satt i konstruktorn
+    double                           frameBudgetMs() const;
+    // Skärmens bildtakt, frågad högst en gång i sekunden (frame_job.h).
+    std::unique_ptr<detail::RefreshCache> refresh_;
     CanvasMemoryUse                  threadMemory_{};
     // DEN VISADE BILDENS KAMERA. Bilden som visas ritades med kameran som
     // den stod när jobbet lämnades — de förankrade barnen placeras efter

@@ -804,7 +804,7 @@ aldrig CMakeLists; "nytt fönster" påminner i statusraden.
   `app_perf` (en app på riktigt: två fönster, strömmande data, minne och
   energi per steg; `--synlig` för hand, `--varv N` för läckor) och
   `terrain_perf` (en terrängkarta och en 3D-vy i 27 steg; i
-  Debug, `--synlig`, `--hp`, `--rå` = scenen som rådata). Mät före och efter
+  Debug, `--synlig`, `--hp`, `--rå` = scenen som rådata) och `model_perf` (en stor byggnadsmodell som rådata, ett föremål per fragment, med ytor i samma plan; `--fragment N`, `--mål Hz`). Mät före och efter
   en optimering. VAR tiden går visar profileraren (`GLAZE_PROFILE=1`,
   `glaze::profiler().report()` — MANUAL `profiler`).
 - Verifiering utan fönster: `makeWidget`/`find<>`/`resolve()` och builderns
@@ -882,7 +882,7 @@ aldrig CMakeLists; "nytt fönster" påminner i statusraden.
   deterministisk. **De backend-neutrala filerna (`camera3d.cpp`, `geom3d.cpp` …) står i TRE block i
   `Glaze/gfx/CMakeLists.txt`**, ett per backend — en ny fil i bara ett block bygger på din plattform och
   länkar fel på de två andra.
-- **RITYTANS MOTOR GÅR I EN ANNAN TRÅD** (`Glaze/widgets/src/canvas/`): den läser bara JOBBET — scenens ögonblicksbild (`publishScene`), de inspelade målarna, kopior av tema och stil — aldrig en widget, `App`, en `TrText` eller fönstrets renderare. Appens kod (`onPaint`, `renderToBitmap`s svar) körs i UI-tråden; det som trådarna delar (bildpixlar, meshdata, ikoncachen) har lås. `GLAZE_CANVAS_THREAD=0` stänger av tråden, och ett offscreen-fönster har ingen.
+- **RITYTANS MOTOR GÅR I EN ANNAN TRÅD** (`Glaze/widgets/src/canvas/`): den läser bara JOBBET — scenens ögonblicksbild (`publishScene`), de inspelade målarna, kopior av tema och stil — aldrig en widget, `App`, en `TrText` eller fönstrets renderare. Appens kod (`onPaint`, `renderToBitmap`s svar) körs i UI-tråden; det som trådarna delar (bildpixlar, meshdata, ikoncachen) har lås. `GLAZE_CANVAS_THREAD=0` stänger av tråden, och ett offscreen-fönster har ingen. BILDTAKTEN (`Canvas::setFramePacing`, förval hel bild) är trådens: med en takt ritar den en tung 3D-scen i steg och fortsätter av sig själv tills bilden är hel — en stilla, färdig scen ritar fortfarande ingenting. `GLAZE_SCENE_LOG=1` skriver trådens takt och var bildens tid går, en rad per sekund. **DJUPET LAGRAS OMVÄNT PÅ WINDOWS** (`gfx::depthReversed()`): en matris till grafikkortet går genom `Mat4d::toDevice`, aldrig `toFloat` — en grind eller ett program som lämnar en egen matris med `toFloat` ritar med fel djup där.
 - **NAMNLISTENS BARN**: `topBar` är ett värdefält, rotens första barn, dolt utan eget chrome, och standardbarnen byggs bara vid `Custom`. Ett barn utöver dem gör att `TopBar::extrasRect` placerar hela raden i stället för flexen; sidan är barnets `dock`. `menuBar.setInTitleBar(true)` flyttar raden mellan roten och namnlisten i `AppWindow::placeMenuBar` (i ett öppet fönster i pump-svansen), och `chromeInsetH` frågar radens FAKTISKA förälder, för utan namnlist står den kvar i innehållsytan.
 - **CHROME-TRÄDETS RÖTTER (PROGRAMIKON B2):** `topBar` och `appIcon`
   resolvas mot chrome-ctx:t (HELA klientytan), allt annat mot

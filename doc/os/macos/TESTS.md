@@ -361,3 +361,28 @@ senast committade kommandobuffert.
   *Rätt utfall:* scenen följer, ingen halv bild, ingen hängning vid
   stängningen. Med `GLAZE_CANVAS_THREAD=0` ritar fönstret scenen själv och
   bilden är densamma.
+
+## Bildtakten och djupets form — BLINT på macOS
+
+- [ ] **Bygget.** `Mat4d::toDevice`/`inverseToDevice`, `gfx::depthReversed()`
+  (false här, `metal_image.mm`), `Renderer::resumeTarget`, `ScreenInfo::refreshHz`
+  (0 här — skärmens takt läses inte) och ritytans bildtakt är aldrig
+  kompilerade på macOS. *Rätt utfall:* 0 varningar.
+- [ ] **`resumeTarget` på ett mål med MSAA.** Ritytans bildtakt fortsätter
+  rita i 3D-målet utan att rensa det (`renderView`, target3d.cpp). Metal löser
+  upp ett MSAA-mål när det lämnas, och behåller provtagningen bara medan målet
+  ligger kvar i målstacken (`resolveTarget`) — ett mål som POPPATS och sedan
+  tas upp igen har alltså bara den upplösta bilden kvar, och djupet är
+  DontCare. *Vad man gör:* en rityta med `setFramePacing(Fps)` och en scen
+  för tung för takten, kameran still. *Rätt utfall:* bilden fylls på steg för
+  steg och blir till slut densamma som med `DrawAll`. Blir kanterna taggiga
+  eller ytor ritade i fel djupordning mellan stegen ska ett mål som tas upp
+  igen behålla färgen OCH djupet (Store i stället för resolve/DontCare när
+  ritytan ritar i steg).
+- [ ] **Bildtakten i en app.** *Vad man gör:* samma scen, rör kameran.
+  *Rätt utfall:* rörelsen flyter, det största syns först, och när kameran
+  står still fylls resten på; `frameComplete()` blir sann.
+- [ ] **Djupets form.** macOS lagrar djupet med 0 vid närplanet som förut.
+  Ytor nära varandra i en kilometerstor scen med ett litet närplan flimrar
+  där (TODO: omvänt djup på macOS och Linux) — det är väntat, inte ett fel i
+  den här ändringen.

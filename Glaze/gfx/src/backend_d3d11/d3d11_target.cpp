@@ -123,7 +123,7 @@ std::unique_ptr<RenderTarget> D3dRenderer::createRenderTarget(
     if (msaa)
         context_->ClearRenderTargetView(rtv.Get(), noll);
     if (dsv)
-        context_->ClearDepthStencilView(dsv.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+        context_->ClearDepthStencilView(dsv.Get(), D3D11_CLEAR_DEPTH, kFarDepth, 0);
     ++stats_.targetsCreated;
     return std::make_unique<D3dRenderTarget>(std::move(tex), std::move(srv),
                                              std::move(msaa), std::move(rtv),

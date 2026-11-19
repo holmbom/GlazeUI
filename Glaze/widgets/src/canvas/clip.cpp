@@ -948,7 +948,7 @@ void ClipMasks::fill(TargetPool::Slot& s, const gfx::Image* parent,
             if (!d.vertices.valid() || !d.indices.valid())
                 continue;
             d.indexCount = static_cast<std::uint32_t>(c.indices.size());
-            gfx::viewProjection(mv, c.originX, c.originY).toFloat(d.uniforms.viewProj);
+            gfx::viewProjection(mv, c.originX, c.originY).toDevice(d.uniforms.viewProj);
             if (parent) {
                 d.uniforms.clip.screen     = parent;
                 d.uniforms.clip.screenRect = parentRect;

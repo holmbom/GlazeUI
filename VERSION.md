@@ -21,6 +21,14 @@ versionen sätts.
 
 ## Nästa
 
+## 0.11.0
+
+- **New** — bildtakten för ritytans 3D: `Canvas::setFramePacing(DrawAll | VSync | Fps)` och `setFrameRate(n)`. Med en takt ritas en tung scen i steg: medan kameran rör sig det som ryms i tiden, valt efter skärmyta per triangel, och när den står still fylls resten på och bilden ritas till sist en gång i lagrens och formernas ordning. `frameComplete()` säger om bilden som visas är den färdiga. Förvalet är `DrawAll` — varje bild hel, som förut.
+- **New** — Windows lagrar djupet OMVÄNT (1 vid närplanet, 0 längst bort): ytor som ligger en bråkdels millimeter isär skiljs åt också med ett närplan på några centimeter och ett bortre på kilometer. **Ändrar beteende:** ett steg i `RenderState::depthBias` är där ungefär en tiomiljondel av avståndet (var millimeter till centimeter på håll), och ett eget HLSL-program som räknar med klippdjupet själv ska läsa det som w vid närplanet och 0 vid det bortre. macOS och Linux lagrar djupet som förut.
+- **Fix** — ytor i samma plan i ritytans 3D: lagrets meshar ritas i två pass — först djupet, sedan färgen — så den som ritas sist vinner utan att något lyser igenom väggar. Varje mesh i ett lager som skriver djup är därmed två rit-anrop. Rangordningen från 0.10.1, som gjorde stora modeller långsamma och gav ränder, är borttagen.
+- **Fix** — stora modeller i ritytans 3D ritas snabbare: meshens vertexdata packas en gång i stället för vid varje uppladdning, gallringen läser föremålens lådor ur en tabell som uppdateras på plats (det rumsliga indexet byggdes om flera gånger per bild när former byttes), och en bild som bara byter några former går igenom de bytta i stället för alla.
+- **New** — `GLAZE_SCENE_LOG=1` skriver en rad per sekund med renderingstrådens takt och var bildens tid går.
+
 ## 0.10.1
 
 - **Fix** — ytor i samma plan i ritytans 3D slåss inte längre om vem som syns: ett senare World-lager vinner över ett tidigare, och inom ett lager vinner den senare formen över en tidigare som den ligger an mot. `hitTest` svarar med den yta som ritas överst.

@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -232,6 +233,14 @@ public:
     std::size_t uploadRoom(std::size_t minimum) const;
     void        spendUpload(std::size_t bytes) { frameUploaded_ += bytes; }
     void        deferUpload() { deferred_ = true; }
+    // UPPLADDNINGENS TIDSGRÄNS för framen (bildtakten, canvas/render_loop.h):
+    // efter den är `uploadRoom` 0 för allt utom framens första uppladdning —
+    // resten väntar på nästa frame. `trim` tar bort gränsen.
+    void setUploadDeadline(std::chrono::steady_clock::time_point t)
+    {
+        deadline_    = t;
+        hasDeadline_ = true;
+    }
 
     // INNEHÅLLETS VERSION i fönstrets textur —
     // draperingens nyckel (canvas/drape.h): bildens version när texturen
@@ -366,6 +375,8 @@ private:
     std::size_t   frameUploaded_ = 0;   // byte i den här framen
     std::size_t   bytes_         = 0;   // alla bilders texturer
     bool          deferred_      = false;
+    bool          hasDeadline_   = false;   // framens uppladdningar har en tidsgräns
+    std::chrono::steady_clock::time_point deadline_{};
     std::uint64_t contentGeneration_ = 1;   // `contentGeneration`
 };
 

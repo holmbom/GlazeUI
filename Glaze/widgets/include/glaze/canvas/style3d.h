@@ -54,14 +54,19 @@ using Cull      = gfx::Cull;
 // och fyllning ligger på samma djup — med skrivning hade gloria skymt
 // fyllningen. De skyms alltså av 3D, men skymmer inget själva.
 //
-// YTOR I SAMMA PLAN har en ordning utan att appen sätter någon bias: ett
-// senare World-lager vinner över ett tidigare, och inom ett lager vinner den
-// senare formen (mesh, yta i rymden, instanser) över en tidigare som den
-// ligger an mot — ramverket lägger en liten bias mot ögat per steg, och
-// `depthBias`/`slopeBias` här läggs ovanpå den. Det som ligger framför vinner
-// som vanligt. I ett lager där många föremål ligger an mot varandra i en lång
-// kedja kan ett tidigare vinna över ett senare; vinnaren är ändå densamma
-// från varje håll. Ett lager med `depth = Off` har ingen plats i ordningen.
+// YTOR I SAMMA PLAN har en ordning utan att appen sätter någon bias: den som
+// ritas SIST vinner — ett senare World-lager över ett tidigare, och inom ett
+// lager den senare formen över den tidigare. Ett lager som skriver djup
+// ritar därför sina meshar (meshar, ytor i rymden, instanser) i två pass,
+// först djupet och sedan färgen — varje mesh är två rit-anrop — och
+// `depthBias`/`slopeBias` här läggs ovanpå. Det som ligger framför vinner som
+// vanligt. Ett lager med `depth = Off` har ingen plats i ordningen.
+//
+// BIASENS STEG är djupbuffertens minsta, och hur stort det är i världen
+// följer plattformen: Windows lagrar djupet omvänt, och ett steg är där
+// ungefär en tiomiljondel av avståndet; macOS och Linux lagrar 0 vid
+// närplanet, och steget växer med avståndet i kvadrat genom närplanet. Skriv
+// en bias som några steg och låt `slopeBias` bära lutningen.
 struct RenderState {
     DepthTest depth      = DepthTest::Less;
     bool      depthWrite = true;

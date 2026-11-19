@@ -467,10 +467,11 @@ FrameUniforms frameUniforms(const View3D& v, double ox, double oy, double oz)
         return u;   // nollmatriser — ingenting ritas
 
     const Mat4d m = viewProjection(v, ox, oy, oz);
-    m.toFloat(u.viewProj);
+    // Till grafikkortet i backendens djupform (mat4.h `toDevice`).
+    m.toDevice(u.viewProj);
     Mat4d inv;
     if (m.inverse(inv))
-        inv.toFloat(u.invViewProj);
+        inv.inverseToDevice(u.invViewProj);
 
     double hx, hy;
     halfExtents(v, hx, hy);

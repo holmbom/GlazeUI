@@ -195,6 +195,10 @@ private:
         std::weak_ptr<const char>       src;   // formplatsens livstecken
         bool                            showing = false;
         Shape                           shape;   // formen platsen VISAR
+        // Formplatsens version när `shape` kopierades — formen kopieras bara
+        // när den bytts, inte varje gång platsen frågas.
+        std::uint64_t                   shapeVersion = 0;
+        bool                            hasShape     = false;
         std::shared_ptr<GpuMesh>        mesh;    // …och dess kopior
         std::shared_ptr<GpuInstances>   inst;
         std::shared_ptr<GpuCloud>       cloud;

@@ -1033,3 +1033,21 @@ adapter, och "ritar med" vid varje ny adapter), `tests/terrain_perf.cpp` och
   tillämpat i det glaze får (B13-antagandet) och vändningen vänder därifrån;
   (2) sidohjulet rullar i sidled; (3) Shift+hjul NED rullar åt HÖGER; (4)
   listan rullar åt andra hållet än de andra, ritytan zoomar ut på hjul upp.
+
+## Omvänt djup och bildtakten — det som kräver ögon
+
+- [ ] **Linjer och etiketter på ytor.** Djupet lagras omvänt, och ett
+  bias-steg är därmed ungefär en tiomiljondel av avståndet. *Vad man gör:*
+  `demo`, fliken med ritytans 3D: linjer som ligger på ytor, markdjupet under
+  det som står på marken, punktmoln vid horisonten, liggande text på terräng.
+  *Rätt utfall:* som före — inga linjer som flimrar mot sin yta, inget som
+  skärs av marken. Flimrar en linje mot sin yta behöver lagrets `depthBias`
+  fler steg.
+- [ ] **Bildtakten.** *Vad man gör:* en rityta med `setFramePacing(Fps)`,
+  `setFrameRate(60)` och en scen för tung för takten; rör kameran, stanna.
+  *Rätt utfall:* rörelsen flyter, och i vila fylls bilden på och blir
+  densamma som med `DrawAll`.
+- [ ] **`VSync` på en skärm med hög takt.** På 240 Hz är en bild 4 ms; en
+  scen vars gallring ensam tar längre får då bara en liten del ritad i
+  rörelse. *Rätt utfall:* ritningen får ändå minst en dryg tredjedel av
+  tiden, och bilden blir hel i vila.
