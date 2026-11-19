@@ -30,6 +30,7 @@
 #include "residency.h"
 #include "resources.h"
 #include "scene.h"
+#include "depth_order.h"
 #include "scene3d.h"
 #include "target3d.h"
 #include "transform3d.h"
@@ -105,6 +106,9 @@ struct PainterState {
     bool          screen;   // ritytans lokala px (annars världen)
     Xform         xf;
     RenderState   state = kNoDepth;   // setRenderState
+    // RANGEN i djupordningen (depth_order.h) för delen som byggs och för
+    // satsen: en forms kontur står över formens egen yta, som i ett lager.
+    int           rank = 0, keyRank = 0;
 
     // INSPELNINGEN (paint_list.h): satt ritar målaren ingenting — varje anrop
     // antecknas här, medan rymden, transformen och renderläget följs som
@@ -254,8 +258,9 @@ struct PainterState {
         // RENDERLÄGET verkar i 3D-målet och i världen (painter.h) — en text
         // eller markör skriver aldrig djup (scene.h `gfxState`).
         if (!keyScreen && ctx.view3D)
-            d.state = gfxState(state, prog == gfx::MeshProgram::Glyph ||
-                                          prog == gfx::MeshProgram::Glyph3);
+            d.state = gfxState(ranked(state, keyRank),
+                               prog == gfx::MeshProgram::Glyph ||
+                                   prog == gfx::MeshProgram::Glyph3);
         r.drawMesh(d);
     }
 
@@ -340,7 +345,7 @@ struct PainterState {
                double z0, double z1)
     {
         const bool samma =
-            open && keyScreen == screen && key == k &&
+            open && keyScreen == screen && keyRank == rank && key == k &&
             std::max(std::abs(x0 - refX), std::abs(x1 - refX)) <= kChunkCell &&
             std::max(std::abs(y0 - refY), std::abs(y1 - refY)) <= kChunkCell &&
             std::max(std::abs(z0 - refZ), std::abs(z1 - refZ)) <= kChunkCell;
@@ -350,6 +355,7 @@ struct PainterState {
         open      = true;
         key       = k;
         keyScreen = screen;
+        keyRank   = rank;
         refX      = x0;
         refY      = y0;
         refZ      = z0;
@@ -371,11 +377,15 @@ struct PainterState {
         if (!shapeBounds(s, x0, y0, x1, y1, xf))
             return;
         shapeZRange(s, z0, z1);
+        rank = 0;
         for (const RunKey& k : partKeys(s)) {
             if (isObjectKind(k.kind)) {
                 // Ett föremål är sitt eget rit-anrop: det som väntar först.
                 flush();
                 drawObject(s, z0, z1);
+                // Formens delar efter ytan (konturen) står en rang över den.
+                if (k.kind == PartKind::Mesh)
+                    rank = 1;
                 continue;
             }
             begin(k, x0, y0, x1, y1, z0, z1);
@@ -402,6 +412,7 @@ struct PainterState {
                 break;
             }
         }
+        rank = 0;
     }
 
     // ---- FÖREMÅLEN: meshen (också primitiverna och

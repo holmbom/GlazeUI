@@ -28,11 +28,7 @@ RunIndex& indexOf(const RunData& run)
 // utan låda syns alltid.
 std::optional<Box3> worldBox(const Shape& s)
 {
-    const Shape::Kind k = s.kind();
-    if ((k == Shape::Kind::Mesh || k == Shape::Kind::Area3 || k == Shape::Kind::Instances) &&
-        s.meshStyle().size.value > 0.0f)
-        return std::nullopt;
-    return objectBox(s);
+    return objectWorldBox(s);
 }
 
 // Signaturens bit för "platsen har en post" — signaturen 0 betyder ingen.
@@ -41,6 +37,22 @@ constexpr std::uint64_t kSigPresent = 1;
 // Föremålets signatur: platsens id, formens version och datans (en mesh som
 // flyttat sina lägen har en annan låda).
 std::uint64_t objectSig(const ShapeEntry& e)
+{
+    return objectSignature(e);
+}
+
+} // namespace
+
+std::optional<Box3> objectWorldBox(const Shape& s)
+{
+    const Shape::Kind k = s.kind();
+    if ((k == Shape::Kind::Mesh || k == Shape::Kind::Area3 || k == Shape::Kind::Instances) &&
+        s.meshStyle().size.value > 0.0f)
+        return std::nullopt;
+    return objectBox(s);
+}
+
+std::uint64_t objectSignature(const ShapeEntry& e)
 {
     KeyHash k;
     k.mix(e.id);
@@ -55,6 +67,8 @@ std::uint64_t objectSig(const ShapeEntry& e)
         }
     return k.h | kSigPresent;
 }
+
+namespace {
 
 std::uint64_t chunkSig(const ChunkData& ch)
 {

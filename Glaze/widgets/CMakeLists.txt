@@ -71,6 +71,7 @@ add_library(glaze_impl ${_glaze_lib_type}
     # ritningen och förberedelsen frågar bara det som kan synas.
     src/canvas/spatial_index.cpp
     src/canvas/run_index.cpp
+    src/canvas/depth_order.cpp
     # CPU-ORIGINALENS BYTE i en scen — ritytans konto räknar dem.
     src/canvas/cpu_bytes.cpp
     # TERRÄNGEN OCH DRAPERINGEN — höjden under en punkt,

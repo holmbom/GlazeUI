@@ -265,11 +265,11 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   överkant är öppen under den (`Draw::frameGap`) — LUCKAN ÄR FLIKENS INSIDA,
   mellan dess sidlinjer (`Draw::penWidth`), så linjerna möts i slutna hörn;
   Glaze med `buttonBorder` och den TÄNDA ovalda fliken laminerad med kontur,
-  Slate med `border` och en `buttonHover`-platta. Minimalistic har INGEN
+  Slate med `border` och en `panelHeader`-platta (knappens hover syns inte mot fönstrets bakgrund i ljust läge). Minimalistic har INGEN
   flikform: rubriker i rad, den valda med `rowMarkerW`-strecket i underkanten
   och texten i `accent` (menyradens recept), ytan `panel` med hel kant.
   Stängknappen följer verktygsknappens recept och ✕ är `tabCloseGlyph`;
-  fokusringen ligger INNANFÖR den valda fliken. Hovern ritar om bara
+  flikkontrollen ritar INGEN fokusring (den valda fliken bär sidans yta). Hovern ritar om bara
   flikraden, ett byte hela flikkontrollen. `TabPage::draw` ritar bara Panels
   ram när `border` är satt (ytan är flikkontrollens). **`setPages`** prövar ALLA sidor
   (`subtreeHasOpenPopup` + `menuPresentationHostedIn`) FÖRE mutationen, släpper
@@ -387,7 +387,7 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   no-op. Radloopen startar vid FÖRSTA SYNLIGA raden (O(synliga)), hjulet
   stegar i RADER. Radens INNEHÅLL ritas av `drawRow`, DELAD av alla tre — det
   som skiljer familjerna är MARKERINGEN: Slate fyller den valda raden med
-  `accent` (text `windowBg`), Glaze med det GRINDADE `accentSurface`/
+  `rowSelected` (text `onRowSelected`), Glaze med det GRINDADE `accentSurface`/
   `onAccent` (OLAMINERAT), Minimalistic `rowMarkerW`-strecket. Hover är
   `buttonHover` och SVAG — spegelvänt mot popupen. Kryssets färg följer RADENS
   textfärg. DISABLED har en egen gren per UI (`textDim` + `buttonDisabled`).
@@ -538,7 +538,7 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   `appTextColor(rad, kolumn, tema)` för omarkerade rader; `setRow` är tilldelning (färgen nollas) och anropar
   kroken `rowReplaced(rad)`, `setCell` lämnar färgen.
 - **`list_view.cpp`** — LISTVYN: valet och de tre recepten — samma som
-  ListBox (Slate `accent`/`windowBg`, Glaze `accentSurface`/`onAccent`
+  ListBox (Slate `rowSelected`/`onRowSelected`, Glaze `accentSurface`/`onAccent`
   olaminerat, Minimalistic `rowMarkerW`-strecket, hover `buttonHover`,
   inaktiv `buttonDisabled`/`textDim`), plus en hårlinje runt den AKTUELLA
   raden i radens textfärg när listan har fokus OCH flerval. Ramen ritas EFTER
@@ -624,7 +624,7 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   skrivytan och `fieldReadOnly` en cell som inte går att redigera
   (TextInputs två ytor), en inaktiv cell skrivyta med dämpad text — och
   rutnätet `border`, inget för kategori- och tomrader. Det som skiljer familjerna
-  är den AKTUELLA cellen, som listvyns val: Slate `accent`/`windowBg`, Glaze
+  är den AKTUELLA cellen, som listvyns val: Slate `rowSelected`/`onRowSelected`, Glaze
   `accentSurface`/`onAccent` olaminerat med ramen i `buttonBorder`,
   Minimalistic `rowMarkerW`-strecket och texten i `accent`; resten av en rad
   bär appens färger (cellens, annars radens — `drawCell(…, på && !markerad)`,

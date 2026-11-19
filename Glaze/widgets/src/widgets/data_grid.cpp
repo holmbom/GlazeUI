@@ -2029,7 +2029,7 @@ void DataGrid::drawCellValue(const Ctx& c, const gfx::Rectf& cellR,
 // Det som skiljer familjerna är den AKTUELLA CELLEN, som markeras som
 // listvyns val:
 //
-//   SLATE         fylld med `accent`, texten `windowBg`
+//   SLATE         fylld med `rowSelected`, texten `onRowSelected`
 //   GLAZE         det GRINDADE paret `accentSurface`/`onAccent` (listvyn,
 //                 PropertyGrids aktiva rad), inte laminerad — en cell har
 //                 ingen kontur. Ramen i den bestämda `buttonBorder`.
@@ -2151,11 +2151,11 @@ void DataGrid::draw(const Ctx& c)
     default:
         if (radval)
             valdaRader([&](const gfx::Rectf& r) {
-                Draw::rect(c, r, 0.0f, på ? col.accent : col.buttonDisabled);
+                Draw::rect(c, r, 0.0f, på ? col.rowSelected : col.buttonDisabled);
             });
         else if (akt >= 0)
-            Draw::rect(c, aktR, 0.0f, på ? col.accent : col.buttonDisabled);
-        aktFg = col.windowBg;
+            Draw::rect(c, aktR, 0.0f, på ? col.rowSelected : col.buttonDisabled);
+        aktFg = col.onRowSelected;
         break;
     }
     Draw::endClip(c);

@@ -448,9 +448,10 @@ gfx::Sizef TabControl::contentSize(const Ctx& c) const
 //                 med en hel hårlinje runt om.
 //
 //   vila     rubriker `text`, ingen platta på de ovalda
-//   hover    den ovalda fliken får `buttonHover` (Glaze laminerad, med kontur)
+//   hover    den ovalda fliken får `buttonHover` (Glaze laminerad, med
+//            kontur) — i Slate `panelHeader`, som syns mot fönstrets bakgrund
 //   vald     se ovan
-//   fokus    ring i `accent` innanför den valda fliken
+//   fokus    ingen ring — den valda fliken är markeringen
 //   inaktiv  all text `textDim`, ingen hover, kanterna i `border` och
 //            Minimalistics streck i `textDim`
 void TabControl::draw(const Ctx& c)
@@ -589,7 +590,11 @@ void TabControl::draw(const Ctx& c)
                 flik(t, col.panel);
                 flikRam(t, col.border);
             } else if (tänd(i)) {
-                flik(t, col.buttonHover);
+                // `panelHeader` och inte `buttonHover`: fliken står på
+                // fönstrets bakgrund, och knappens hover är avstämd mot
+                // knappens yta — i ljust läge ligger den ett steg från
+                // bakgrunden och syns inte.
+                flik(t, col.panelHeader);
             }
             rubrik(i, på ? col.text : col.textDim);
             stäng(i);
@@ -598,10 +603,8 @@ void TabControl::draw(const Ctx& c)
         break;
     }
 
-    if (focused() && på && sel >= 0)
-        Draw::frame(c, Draw::inset(vald, m.focusOffset),
-                    std::max(0.0f, m.tabRadius - m.focusOffset),
-                    Pen{col.accent, m.focusWidth});
+    // Ingen fokusring: den valda fliken bär sidans yta, och det är
+    // markeringen också när flikkontrollen har fokus.
 }
 
 // ---------------------------------------------------------------- beteendet

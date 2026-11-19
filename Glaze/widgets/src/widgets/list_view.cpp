@@ -909,13 +909,13 @@ void ListView::draw(const Ctx& c)
         break;
 
     // SLATE — ett FÄLT (ListBox): `panel`-yta, hårlinje `border`, och den
-    // VALDA raden fylls med `accent` medan texten går till `windowBg`.
+    // VALDA raden fylls med `rowSelected` medan texten går till `onRowSelected`.
     // Kryssrutan som Glazes: kanten `buttonBorder`, bocken i radens
     // TEMAfärg — på den valda raden båda i `windowBg`.
     //
     //   vila     ingen radfyllning, text `text` eller RADENS färg (appens)
     //   hover    `buttonHover`
-    //   vald     `accent`-rad, text `windowBg`
+    //   vald     `rowSelected`-rad, text `onRowSelected`
     //   fokus    fristående ring; med flerval en hårlinje runt den aktuella
     //   inaktiv  markeringen faller till `buttonDisabled`, all text `textDim`,
     //            rutans kant `border`
@@ -932,11 +932,11 @@ void ListView::draw(const Ctx& c)
                 continue;   // kategori- och tomrader: `drawSpanRows`
             const bool vald = isSelected(rad);
             if (vald)
-                Draw::rect(c, r, 0.0f, på ? col.accent : col.buttonDisabled);
+                Draw::rect(c, r, 0.0f, på ? col.rowSelected : col.buttonDisabled);
             else if (p == hov)
                 Draw::rect(c, r, 0.0f, col.buttonHover);
             const gfx::Color fg = !på    ? col.textDim
-                                  : vald ? col.windowBg
+                                  : vald ? col.onRowSelected
                                          : col.text;
             drawCells(c, p, rad, fg, på && !vald);
             drawCheck(c, p, rad, fg,
@@ -945,7 +945,7 @@ void ListView::draw(const Ctx& c)
         Draw::endClip(c);
         drawRowHeaders(c);
         drawSpanRows(c);
-        ramaAktuell(isSelected(currentRow()) ? col.windowBg : col.text);
+        ramaAktuell(isSelected(currentRow()) ? col.onRowSelected : col.text);
         drawHeader(c);
         Draw::frame(c, b, 0.0f, Pen{col.border, m.borderWidth});
         break;

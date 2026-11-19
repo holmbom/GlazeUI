@@ -53,6 +53,15 @@ using Cull      = gfx::Cull;
 // men SKRIVER ALDRIG DJUP: de står upprätta i skärmen, och en etiketts gloria
 // och fyllning ligger på samma djup — med skrivning hade gloria skymt
 // fyllningen. De skyms alltså av 3D, men skymmer inget själva.
+//
+// YTOR I SAMMA PLAN har en ordning utan att appen sätter någon bias: ett
+// senare World-lager vinner över ett tidigare, och inom ett lager vinner den
+// senare formen (mesh, yta i rymden, instanser) över en tidigare som den
+// ligger an mot — ramverket lägger en liten bias mot ögat per steg, och
+// `depthBias`/`slopeBias` här läggs ovanpå den. Det som ligger framför vinner
+// som vanligt. I ett lager där många föremål ligger an mot varandra i en lång
+// kedja kan ett tidigare vinna över ett senare; vinnaren är ändå densamma
+// från varje håll. Ett lager med `depth = Off` har ingen plats i ordningen.
 struct RenderState {
     DepthTest depth      = DepthTest::Less;
     bool      depthWrite = true;

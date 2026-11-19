@@ -5393,6 +5393,110 @@ void fallI6()
     }
 }
 
+// ------------------------------------------------------------------- Z
+//
+// DJUPORDNINGEN (depth_order.h): lådor med översidan i SAMMA plan (z = 1),
+// olika stora — alltså olika trianglar i planet — sedda snett uppifrån.
+//   Z1  samma lager: den senare formen vinner i hela överlappet, och
+//       träffprovet svarar med den.
+//   Z2  ett senare lager vinner över båda.
+//   Z3  `moveLayer` vänder lagren: det som nu ligger överst vinner.
+//   Z4  det som ligger FRAMFÖR vinner ändå, också i det understa lagret.
+// Varje prov är ett rutnät av punkter över överlappet: en enda pixel i fel
+// färg är ytor som slåss. Sabotage som SKA fälla: rangens bias 0 (Z1–Z3),
+// lagrens bas 0 (Z2, Z3), föremålens rang 0 (Z1), en bias så stor att den
+// drar förbi det som ligger framför (Z4), träffprovets ordning utan rangen
+// (Z1 träffen).
+void fallZ()
+{
+    Rit3 r;
+    if (!r.öppna())
+        return;
+    glaze::Canvas& y = r.f.yta;
+    y.setCamera(glaze::Camera3D{.target = {0, 0, 1}, .distance = 14,
+                                .azimuth = 30, .elevation = 35,
+                                .nearPlane = 1, .farPlane = 100});
+    const auto stil = [](gfx::Color c) {
+        return glaze::MeshStyle{.color = c, .lit = false};
+    };
+    const int a = y.addLayer("A");
+    const int b = y.addLayer("B");
+    y.setLayerPlacement(a, glaze::LayerPlacement::World);
+    y.setLayerPlacement(b, glaze::LayerPlacement::World);
+    y.addShape(a, glaze::Shape::box({{-4, -4, 0}, {4, 4, 1}}, stil(kRöd)));
+    y.addShape(a, glaze::Shape::box({{-1, -3, 0.25}, {3, 1, 1}}, stil(kBlå)));
+
+    // Varje punkt i rutnätet över [x0, x1] × [y0, y1] på z = 1 har färgen.
+    const auto alla = [&](double x0, double y0, double x1, double y1,
+                          gfx::Color färg, const std::string& vad) {
+        const Bild bild = r.bild();
+        if (g_ritfel)
+            return;
+        constexpr int kSteg = 12;
+        int           fel   = 0;
+        std::string   första;
+        for (int i = 0; i <= kSteg; ++i)
+            for (int j = 0; j <= kSteg; ++j) {
+                const glaze::Point3 p{x0 + (x1 - x0) * i / kSteg,
+                                      y0 + (y1 - y0) * j / kSteg, 1.0};
+                const std::optional<glaze::Point> l = y.project(p);
+                if (!l) {
+                    ++fel;
+                    continue;
+                }
+                const std::uint8_t* px0 = bild.at(r.x(l->x), r.y(l->y));
+                if (!ärFärg(px0, färg)) {
+                    if (fel == 0)
+                        första = px(px0);
+                    ++fel;
+                }
+            }
+        check(fel == 0, vad,
+              std::to_string(fel) + " punkter i fel färg, den första " + första);
+    };
+
+    alla(-0.7, -2.7, 2.7, 0.7, kBlå,
+         "Z1 samma lager, samma plan: den senare formen vinner i hela överlappet");
+    if (g_ritfel)
+        return;
+    if (const std::optional<glaze::Point> mitt = y.project(glaze::Point3{1, -1, 1})) {
+        const std::vector<glaze::HitResult> t = y.hitTest(*mitt, glaze::HitOptions{});
+        check(!t.empty() && t.front().layer == a && t.front().index == 1,
+              "Z1 träffprovet svarar med formen som ritas överst i planet",
+              t.empty() ? "ingen träff"
+                        : "lager " + std::to_string(t.front().layer) + ", form " +
+                              std::to_string(t.front().index));
+    } else {
+        check(false, "Z1 punkten på översidan syns");
+    }
+
+    y.addShape(b, glaze::Shape::box({{-3, -1, 0.5}, {1, 3, 1}}, stil(kGrön)));
+    alla(-0.7, -0.7, 0.7, 0.7, kGrön,
+         "Z2 ett senare lager vinner i samma plan, över båda formerna under");
+    if (g_ritfel)
+        return;
+
+    check(y.moveLayer(b, a), "Z3 moveLayer flyttar lagret B under A");
+    alla(-0.7, -0.7, 0.7, 0.7, kBlå,
+         "Z3 efter moveLayer vinner det lager som nu ligger överst");
+    if (g_ritfel)
+        return;
+
+    // B ligger nu underst (plats `a`): en låda där vars översida ligger
+    // FRAMFÖR planet syns ändå.
+    y.addShape(a, glaze::Shape::box({{-0.5, -0.5, 0.5}, {0.5, 0.5, 1.5}}, stil(kVit)));
+    const Bild bild = r.bild();
+    if (g_ritfel)
+        return;
+    if (const std::optional<glaze::Point> topp = y.project(glaze::Point3{0, 0, 1.5})) {
+        const std::uint8_t* p = bild.at(r.x(topp->x), r.y(topp->y));
+        check(ärFärg(p, kVit),
+              "Z4 det som ligger framför vinner, också i det understa lagret", px(p));
+    } else {
+        check(false, "Z4 lådans översida syns");
+    }
+}
+
 // ------------------------------------------------------------------- I7
 //
 // KOLLEKTIONSVOKABULÄREN: vyernas nummer, avslagen och
@@ -8128,6 +8232,8 @@ int main(int argc, char** argv)
     if (!g_ritfel) fallI6();
     if (!g_ritfel) fallI7();
     if (!g_ritfel) fallI9();
+    // Del Z — djupordningen: ytor i samma plan.
+    if (!g_ritfel) fallZ();
     // Del C2 — egna program och helskärmspass på ritytan.
     if (!g_ritfel) fallC2a();
     if (!g_ritfel) fallC2b();

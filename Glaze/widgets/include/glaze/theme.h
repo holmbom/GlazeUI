@@ -237,6 +237,15 @@ public:
         // HÄRLEDD i `derivePanelHeader()` och därför SIST, utanför de
         // positionella literalerna.
         gfx::Color panelHeader;
+
+        // DEN MARKERADE RADEN i Slate — raden i en lista, ett träd eller en
+        // tabell, och datagridens aktuella cell. En ton av `accent` på
+        // `panel`, med texten i `onRowSelected`: markeringen ska synas utan
+        // att ta över ytan, och `accent` rakt av är fokusringens och
+        // tillståndens färg. HÄRLEDDA i `deriveRowSelected()` och därför
+        // SIST, utanför de positionella literalerna.
+        gfx::Color rowSelected;
+        gfx::Color onRowSelected;
     };
 
     // Allt en widget behöver vid ritning för ETT läge. Egen nivå (inte

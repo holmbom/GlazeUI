@@ -1153,7 +1153,7 @@ glaze::Ctx ritCtx(glaze::UI ui, gfx::Font& f, gfx::Renderer& r, float skala)
 // `onAccent` på `accentSurface`, Minimalistic `accent` bredvid strecket.
 gfx::Color valdFärg(glaze::UI ui, const glaze::Theme::Colors& col)
 {
-    return ui == glaze::UI::Slate   ? col.windowBg
+    return ui == glaze::UI::Slate   ? col.onRowSelected
            : ui == glaze::UI::Glaze ? col.onAccent
                                     : col.accent;
 }

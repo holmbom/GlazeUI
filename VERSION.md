@@ -21,6 +21,13 @@ versionen sätts.
 
 ## Nästa
 
+## 0.10.1
+
+- **Fix** — ytor i samma plan i ritytans 3D slåss inte längre om vem som syns: ett senare World-lager vinner över ett tidigare, och inom ett lager vinner den senare formen över en tidigare som den ligger an mot. `hitTest` svarar med den yta som ritas överst.
+- **Fix** — Slates färgteman i ljust läge: fönstrets bakgrund, panelerna och knapparnas tillstånd bär nu en kulör som syns (ytornas mättnad 0,45, var 0,10); kanterna är oförändrade.
+- **Fix** — den markerade raden i Slate (listor, träd, tabeller, datagridens aktuella cell, menyernas och dropdownens rader) är en ton av accenten med vanlig text, i stället för accenten rakt av. Nya temaroller: `rowSelected` och `onRowSelected`.
+- **Fix** — flikkontrollen: en ovald flik under pekaren syns i Slates ljusa läge (`panelHeader`), och den valda fliken har ingen fokusring.
+
 ## 0.10.0
 
 - **New** — ritytans minnesbudget (`Canvas::setMemoryBudget`, `App::setCanvasMemoryBudget`) räknar allt ritytan håller: bilder, draperingar, lagrens buffertar, meshar, instanser, punktmoln, textbyggen, 3D-mål och CPU-originalen. Över budgeten vräks det på GPU:n som inte användes när ritytan senast ritade, och laddas upp igen när det syns. Förvalet är 1 GiB per rityta (var 256 MB för bilderna).

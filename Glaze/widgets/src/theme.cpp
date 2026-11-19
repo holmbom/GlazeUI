@@ -262,6 +262,16 @@ void derivePanelHeader(Theme::Colors& c)
     c.panelHeader = mix(c.panel, c.text, kPanelHeader);
 }
 
+// DEN MARKERADE RADEN — en fjärdedel av vägen från panelens yta mot
+// accenten, med texten i palettens vanliga textfärg.
+constexpr float kRowSelected = 0.25f;
+
+void deriveRowSelected(Theme::Colors& c)
+{
+    c.rowSelected   = mix(c.panel, c.accent, kRowSelected);
+    c.onRowSelected = c.text;
+}
+
 // De HÄRLEDDA grupperna i ETT anrop — allt som beräknas ur en färdig
 // palett i stället för att skrivas ut. Kallas av båda handskrivna
 // paletterna OCH av generatorn, så en ny härledd roll kan aldrig glömmas
@@ -275,6 +285,7 @@ void deriveRoles(Theme::Colors& c)
     deriveCanvasGrid(c);
     deriveStockIcon(c);
     derivePanelHeader(c);
+    deriveRowSelected(c);
 }
 
 } // namespace
@@ -564,7 +575,9 @@ const char* hueName(Hue h)
 // LJUSHETSTRAPPAN för ETT läge. Det här ÄR designen — allt annat är
 // mekanik. Värdena är HSL-ljushet (0..1); mättnaden ligger i de tre
 // s-fälten, en per grupp, eftersom ytor, text och accent tål helt olika
-// mycket kulör.
+// mycket kulör. KANTERNA har sin egen: HSL-mättnaden ger kulör i proportion
+// till avståndet från svart eller vitt (1 − |2L − 1|), så en yta nära vitt
+// behöver flera gånger kantens mättnad för att tonen alls ska synas.
 struct Ladder {
     float windowBg, panel, appWorkspace;
     float buttonHover, buttonPress;
@@ -573,6 +586,7 @@ struct Ladder {
     float accent, accentSurface, link, linkHover;
     float titlebar;
     float sSurface, sText, sAccent;
+    float sBorder;
 };
 
 // ---- Minimalistic ("Outline"): kanten ÄR formen, så kantens ljushet är
@@ -587,6 +601,7 @@ constexpr Ladder kMiniLight{
     /* link          */ 0.340f, /* linkHover */ 0.280f,  // länken är TEXT: 4.5:1
     /* titlebar      */ 0.930f,
     /* sSurface      */ 0.16f,  /* sText */ 0.18f, /* sAccent */ 0.30f,
+    /* sBorder       */ 0.16f,
 };
 constexpr Ladder kMiniDark{
     /* windowBg      */ 0.105f, /* panel */ 0.150f, /* appWorkspace */ 0.075f,
@@ -597,6 +612,7 @@ constexpr Ladder kMiniDark{
     /* link          */ 0.680f, /* linkHover */ 0.760f,
     /* titlebar      */ 0.135f,
     /* sSurface      */ 0.13f,  /* sText */ 0.09f, /* sAccent */ 0.32f,
+    /* sBorder       */ 0.13f,
 };
 
 // ---- Slate: EGEN trappa, inte Minimalistics. Slate ritar FYLLDA ytor där
@@ -623,7 +639,10 @@ constexpr Ladder kSlateLight{
     /* accent        */ 0.340f, /* accentSurface */ 0.380f,
     /* link          */ 0.280f, /* linkHover */ 0.240f,
     /* titlebar      */ 0.953f,   // sömlös mot windowBg, som Windows
-    /* sSurface      */ 0.10f,  /* sText */ 0.12f, /* sAccent */ 0.50f,
+    // Ytorna ligger nära vitt, där mättnaden 0,10 gav en kulör på två steg av
+    // 255 — osynlig. 0,45 ger fönstrets bakgrund ungefär tolv.
+    /* sSurface      */ 0.45f,  /* sText */ 0.12f, /* sAccent */ 0.50f,
+    /* sBorder       */ 0.10f,
 };
 constexpr Ladder kSlateDark{
     /* windowBg      */ 0.125f, /* panel */ 0.169f, /* appWorkspace */ 0.094f,
@@ -635,6 +654,7 @@ constexpr Ladder kSlateDark{
     /* link          */ 0.680f, /* linkHover */ 0.760f,
     /* titlebar      */ 0.125f,
     /* sSurface      */ 0.09f,  /* sText */ 0.07f, /* sAccent */ 0.45f,
+    /* sBorder       */ 0.09f,
 };
 
 // onAccent och de två accent-TILLSTÅNDEN hänger ihop och avgörs av en
@@ -665,6 +685,7 @@ Theme buildTheme(Hue h, const Ladder& lightL, const Ladder& darkL,
         const float sS  = neu ? 0.0f : L.sSurface;
         const float sT  = neu ? 0.0f : L.sText;
         const float sA  = neu ? 0.0f : L.sAccent;
+        const float sB  = neu ? 0.0f : L.sBorder;
 
         c.windowBg       = hsl(H, sS, L.windowBg);
         c.panel          = hsl(H, sS, L.panel);
@@ -673,8 +694,8 @@ Theme buildTheme(Hue h, const Ladder& lightL, const Ladder& darkL,
         c.buttonHover    = hsl(H, sS, L.buttonHover);
         c.buttonPress    = hsl(H, sS, L.buttonPress);
         c.buttonDisabled = c.windowBg;
-        c.buttonBorder   = hsl(H, sS, L.buttonBorder);
-        c.border         = hsl(H, sS, L.border);
+        c.buttonBorder   = hsl(H, sB, L.buttonBorder);
+        c.border         = hsl(H, sB, L.border);
         c.text           = hsl(H, sT, L.text);
         c.textDim        = hsl(H, sT, L.textDim);
         c.accent         = hsl(H, sA, L.accent);

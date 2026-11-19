@@ -364,6 +364,14 @@ int checkPanelHeader(bool verbose)
         {"accent/header", 3.0f,
          [](const glaze::Theme::Colors& c) { return c.accent; },
          [](const glaze::Theme::Colors& c) { return c.panelHeader; }},
+        // DEN MARKERADE RADEN (`rowSelected`, härledd som panelrubriken):
+        // raden skiljer sig från panelens yta, och texten på den läses.
+        {"rowSel/panel", 1.2f,
+         [](const glaze::Theme::Colors& c) { return c.rowSelected; },
+         [](const glaze::Theme::Colors& c) { return c.panel; }},
+        {"onRow/rowSel", 4.5f,
+         [](const glaze::Theme::Colors& c) { return c.onRowSelected; },
+         [](const glaze::Theme::Colors& c) { return c.rowSelected; }},
     };
     float       lo[std::size(pairs)];
     std::string loWhere[std::size(pairs)];

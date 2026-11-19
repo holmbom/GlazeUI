@@ -659,6 +659,7 @@ och de hårda reglerna (utseendets fyra delar är regel 3).
   `deriveRoles()` så innehållet under syns; ramen runt den är `accent`) och
   **`canvasGrid`** (ritytans rutnät: en femtedel från `panel` mot `text`,
   HÄRLEDD; tål att halveras av en hårlinje och tonas av en inaktiverad yta) och
+  **`rowSelected`/`onRowSelected`** (Slates markerade rad: `panel` en fjärdedel mot `accent`, texten `text`; HÄRLEDDA, grindade i contrast_gate) och
   **`panelHeader`** (dockningspanelens och det flytande fältets rubrikrad och
   kategoriraden i PropertyGrid och tabellerna: `panel` mot `text`, HÄRLEDD, ≥ 1,3:1 mot panelen och med text,
   `textDim` och `accent` läsbara på den — contrast_gate).

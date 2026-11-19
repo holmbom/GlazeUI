@@ -675,14 +675,14 @@ void ListBox::draw(const Ctx& c)
         break;
 
     // SLATE — ett FÄLT: `panel`-yta, hårlinje
-    // `border`, och den VALDA raden fylls med `accent` medan texten går
-    // till `windowBg`. Det är samma selektion dropdownens popup alltid
+    // `border`, och den VALDA raden fylls med `rowSelected` medan texten går
+    // till `onRowSelected`. Det är samma selektion dropdownens popup alltid
     // haft; skillnaden mot popupen är BARA vilket tillstånd som är
     // starkt (val, inte pekarposition).
     //
     //   vila     ingen radfyllning, text `text`
     //   hover    `buttonHover`
-    //   vald     `accent`-rad, text `windowBg`
+    //   vald     `rowSelected`-rad, text `onRowSelected`
     //   fokus    fristående ring utanför kanten; med flerval en hårlinje
     //            runt den aktuella raden
     //   inaktiv  markeringen faller till `buttonDisabled`, all text `textDim`
@@ -696,17 +696,17 @@ void ListBox::draw(const Ctx& c)
                 break;
             const bool vald = isSelected(i);
             if (vald)
-                Draw::rect(c, r, 0.0f, på ? col.accent : col.buttonDisabled);
+                Draw::rect(c, r, 0.0f, på ? col.rowSelected : col.buttonDisabled);
             else if (i == hov)
                 Draw::rect(c, r, 0.0f, col.buttonHover);
             const gfx::Color fg = !på              ? col.textDim
-                                  : vald           ? col.windowBg
+                                  : vald           ? col.onRowSelected
                                                    : col.text;
             drawRow(c, i, fg, vald ? fg : på ? col.buttonBorder : col.border);
         }
         if (aktuell >= 0)
             Draw::frame(c, rowRect(c, aktuell), 0.0f,
-                        Pen{isSelected(aktuell) ? col.windowBg : col.text,
+                        Pen{isSelected(aktuell) ? col.onRowSelected : col.text,
                             m.borderWidth});
         Draw::endClip(c);
         // En POPUP (dropdownens lista, menyerna) är ett eget fönster utan

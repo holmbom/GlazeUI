@@ -1403,13 +1403,13 @@ void TreeView::draw(const Ctx& c)
         break;
 
     // SLATE — ett FÄLT, ListBoxens recept: `panel`-
-    // yta, hårlinje `border`, och den VALDA raden fylls med `accent` medan
-    // texten och pilen går till `windowBg`. Kryssrutans kant som Glazes.
+    // yta, hårlinje `border`, och den VALDA raden fylls med `rowSelected` medan
+    // texten och pilen går till `onRowSelected`. Kryssrutans kant som Glazes.
     //
     //   vila     ingen radfyllning, text `text` eller nodens färg, pil
     //            `textDim`
     //   hover    `buttonHover`
-    //   vald     `accent`-rad, text och pil `windowBg`
+    //   vald     `rowSelected`-rad, text och pil `onRowSelected`
     //   fokus    fristående ring utanför kanten; med flerval en hårlinje
     //            runt den aktuella raden
     //   inaktiv  markeringen faller till `buttonDisabled`, text `textDim`,
@@ -1424,18 +1424,18 @@ void TreeView::draw(const Ctx& c)
                 break;
             const bool ärVald = rad[std::size_t(i)].n->selected;
             if (ärVald)
-                Draw::rect(c, r, 0.0f, på ? col.accent : col.buttonDisabled);
+                Draw::rect(c, r, 0.0f, på ? col.rowSelected : col.buttonDisabled);
             else if (i == hov)
                 Draw::rect(c, r, 0.0f, col.buttonHover);
             const gfx::Color fg = !på      ? col.textDim
-                                  : ärVald ? col.windowBg
+                                  : ärVald ? col.onRowSelected
                                            : col.text;
             innehåll(i, ärVald, fg, ärVald ? fg : på ? col.textDim : col.border,
                      ärVald ? fg : på ? col.buttonBorder : col.border);
         }
         if (aktuell >= 0)
             Draw::frame(c, rowRect(c, aktuell), 0.0f,
-                        Pen{rad[std::size_t(aktuell)].n->selected ? col.windowBg
+                        Pen{rad[std::size_t(aktuell)].n->selected ? col.onRowSelected
                                                                   : col.text,
                             m.borderWidth});
         if (dropEffect() != DragEffect::None)
