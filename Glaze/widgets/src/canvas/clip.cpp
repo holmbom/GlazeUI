@@ -683,6 +683,37 @@ bool visibleGround(const PaintContext& f, Bounds& syn, double& s)
         if (zlo == zhi)
             break;
     }
+    // SYNPYRAMIDENS EGNA HÖRN mellan de två planen. Det synliga är pyramiden
+    // skuren med skivan zlo..zhi, och dess hörn är planens snitt (ovan) OCH
+    // de pyramidhörn som ligger i skivan — närplanets när ögat står mellan
+    // planen, det bortre planets när blicken inte når något plan inom sikten.
+    // Utan dem saknas marken mellan ögat och planens snitt.
+    {
+        const gfx::Rectf& ruta  = v.box;
+        const double      xs[2] = {ruta.x, ruta.x + ruta.w};
+        const double      ys[2] = {ruta.y, ruta.y + ruta.h};
+        for (const double px : xs)
+            for (const double py : ys) {
+                gfx::Ray3d r;
+                if (!gfx::rayThrough(v, px, py, r))
+                    continue;
+                // Djupet längs blicken: strålens början ligger på djupet d0,
+                // och varje steg längs strålen ger k djup.
+                const double d0 = (r.origin.x - v.eye.x) * v.forward.x +
+                                  (r.origin.y - v.eye.y) * v.forward.y +
+                                  (r.origin.z - v.eye.z) * v.forward.z;
+                const double k = r.dir.x * v.forward.x + r.dir.y * v.forward.y +
+                                 r.dir.z * v.forward.z;
+                if (!(k > 0.0))
+                    continue;
+                for (const double djup : {v.nearZ, v.farZ}) {
+                    const double t = (djup - d0) / k;
+                    const double z = r.origin.z + r.dir.z * t;
+                    if (z >= zlo && z <= zhi)
+                        b.add(r.origin.x + r.dir.x * t, r.origin.y + r.dir.y * t);
+                }
+            }
+    }
     // Ser vyn inget av de två planen (en vågrät blick mellan dem) gäller
     // scenens låda i XY — det synliga ligger där.
     if (!b.any() && scen) {

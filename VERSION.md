@@ -21,6 +21,10 @@ versionen sätts.
 
 ## Nästa
 
+## 0.11.1
+
+- **Fix** — klipp i ritytans 3D: marken mellan ögat och det närmaste snittet med klippets höjdplan räknas med i det synliga, också när ögat står mellan planen eller blicken inte når något plan inom sikten. Förut saknades den, och klippet kunde utebli nära kameran.
+
 ## 0.11.0
 
 - **New** — bildtakten för ritytans 3D: `Canvas::setFramePacing(DrawAll | VSync | Fps)` och `setFrameRate(n)`. Med en takt ritas en tung scen i steg: medan kameran rör sig det som ryms i tiden, valt efter skärmyta per triangel, och när den står still fylls resten på och bilden ritas till sist en gång i lagrens och formernas ordning. `frameComplete()` säger om bilden som visas är den färdiga. Förvalet är `DrawAll` — varje bild hel, som förut.
