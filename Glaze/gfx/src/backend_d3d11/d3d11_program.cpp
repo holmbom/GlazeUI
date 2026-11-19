@@ -112,7 +112,9 @@ const char kHlslStandSrc[] = R"hlsl(
 // alltid helt.
 float glaze_standingZ(float4x4 m, float4 c, float2 off)
 {
-    if (c.w <= 0.0 || c.z > c.w)
+    // Djupet är OMVÄNT (gfx/scene.h `depthReversed`): närmare är ett större
+    // tal, w vid närplanet och 0 vid det bortre.
+    if (c.w <= 0.0 || c.z < 0.0)
         return c.z;
     const float4 mx  = mul(m, float4(1.0, 0.0, 0.0, 0.0));
     const float4 my  = mul(m, float4(0.0, 1.0, 0.0, 0.0));
@@ -132,7 +134,7 @@ float glaze_standingZ(float4x4 m, float4 c, float2 off)
     const float z0   = c.z / c.w;
     const float drag = 1.0 - wq / c.w;
     const float k    = saturate((0.5 - drag) / 0.25);
-    return lerp(z0, min(z0, max(zq, 0.0)), k) * c.w;
+    return lerp(z0, max(z0, min(zq, 1.0)), k) * c.w;
 }
 )hlsl";
 

@@ -395,6 +395,11 @@ public:
         std::size_t   budget = 0;
         bool          drawn  = false;
         bool          done   = false;
+        // Per körning (dess id): signaturen för varje föremål som redan
+        // gjorts resident — bara de vars signatur ändrats behandlas igen, så
+        // ett lager där delar byts varje bild inte går igenom alla sina
+        // föremål varje gång.
+        std::map<std::uint64_t, std::vector<std::uint64_t>> seen;
     };
     ResidentMark& resident(const std::shared_ptr<detail::LayerData>& layer);
 

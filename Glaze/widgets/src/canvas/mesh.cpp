@@ -351,6 +351,7 @@ Mesh::Mesh(MeshDesc desc)
         l.count = std::min(l.count, ne - l.first);
     d->bounds   = detail::boundsOf(d->positions, d->origin);
     d->segments = detail::segmentMesh(*d, detail::kMeshSegmentBytes);
+    detail::packMeshRange(*d, 0, static_cast<std::uint32_t>(d->positions.size()));
     d_          = std::move(d);
 }
 
@@ -418,6 +419,8 @@ void Mesh::setPositions(std::size_t first, std::span<const Float3> positions)
                     static_cast<std::uint32_t>(positions.size()));
     d_->bounds  = detail::boundsOf(d_->positions, d_->origin);
     d_->picking = std::make_shared<detail::MeshPicking>();
+    detail::packMeshRange(*d_, static_cast<std::uint32_t>(first),
+                          static_cast<std::uint32_t>(positions.size()));
 }
 
 void Mesh::setColors(std::size_t first, std::span<const gfx::Color> colors)
@@ -435,6 +438,8 @@ void Mesh::setColors(std::size_t first, std::span<const gfx::Color> colors)
               d_->colors.begin() + static_cast<std::ptrdiff_t>(first));
     d_->markChanged(detail::MeshStream::Colors, static_cast<std::uint32_t>(first),
                     static_cast<std::uint32_t>(colors.size()));
+    detail::packMeshRange(*d_, static_cast<std::uint32_t>(first),
+                          static_cast<std::uint32_t>(colors.size()));
 }
 
 void Mesh::preparePicking() const

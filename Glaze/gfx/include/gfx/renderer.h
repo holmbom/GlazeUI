@@ -425,6 +425,9 @@ public:
     // målet är bundet (loggas, ritas inte).
     void pushTarget(RenderTarget& t, Color c);
     void popTarget();
+    // Som `pushTarget`, men målet RENSAS INTE: ritningen fortsätter ovanpå
+    // det målet bär — färgen och djupet — sedan det senast lämnades.
+    void resumeTarget(RenderTarget& t);
 
     // Renderstatistiken (se `RenderStats` ovan). Icke-virtuell: räknarna
     // bor här och stegas av backendarna, så en mätning läser samma fält

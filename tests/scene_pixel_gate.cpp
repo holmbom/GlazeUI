@@ -593,7 +593,7 @@ public:
         d.vertices   = v;
         d.indices    = i;
         d.indexCount = n;
-        gfx::viewProjection(vy, ox, oy).toFloat(d.uniforms.viewProj);
+        gfx::viewProjection(vy, ox, oy).toDevice(d.uniforms.viewProj);
         d.uniforms.pxPerWidthUnit = breddIMm ? pxPerMm : breddEnhet;
         d.uniforms.widthSpace     = rum;
         d.uniforms.miterLimit     = spetsgräns;
@@ -1340,7 +1340,7 @@ void ritaPlatta(gfx::Renderer& r, const Platta& p, const gfx::MapView& vy,
     d.indices    = gfx::slice(*p.ib);
     d.indexCount = 6;
     d.image      = &img;
-    gfx::viewProjection(vy, 0.0, 0.0).toFloat(d.uniforms.viewProj);
+    gfx::viewProjection(vy, 0.0, 0.0).toDevice(d.uniforms.viewProj);
     d.uniforms.opacity    = opacitet;
     d.uniforms.saturation = j.mättnad;
     d.uniforms.contrast   = j.kontrast;
@@ -2361,7 +2361,7 @@ void fallE(Fönster& f)
         d.indices    = gfx::slice(*lin[0].ib);
         d.indexCount = lin[0].count;
         gfx::viewProjection(vyRt, lin[0].ox, lin[0].oy)
-            .toFloat(d.uniforms.viewProj);
+            .toDevice(d.uniforms.viewProj);
         rr.drawMesh(d);
         rr.popTarget();
         rr.drawImage(scenMål->image(), dE9);
@@ -2562,7 +2562,7 @@ void ritaYta(gfx::Renderer& r, const std::vector<GpuYta>& ytor,
         d.indices    = gfx::slice(*y.ib);
         d.indexCount = y.count;
         d.image      = ramp;
-        gfx::viewProjection(vy, y.ox, y.oy).toFloat(d.uniforms.viewProj);
+        gfx::viewProjection(vy, y.ox, y.oy).toDevice(d.uniforms.viewProj);
         if (g.kind == gfx::PaintKind::Linear)
             d.uniforms.paint = gfx::linearPaint(g.a, g.b, y.ox, y.oy);
         else if (g.kind == gfx::PaintKind::Radial)
@@ -2773,7 +2773,7 @@ void fallC3(Fönster& f)
             d.indices    = gfx::slice(*c.ib);
             d.indexCount = c.count;
             d.image      = ramp.get();
-            gfx::viewProjection(rak, c.ox, c.oy).toFloat(d.uniforms.viewProj);
+            gfx::viewProjection(rak, c.ox, c.oy).toDevice(d.uniforms.viewProj);
             d.uniforms.paint =
                 gfx::linearPaint({-50.0, 0.0}, {50.0, 0.0}, c.ox, c.oy);
             d.uniforms.opacity = opacitet;
@@ -2833,7 +2833,7 @@ void fallC3(Fönster& f)
             d.indices    = gfx::slice(*c.ib);
             d.indexCount = c.count;
             d.image      = skarpRamp.get();
-            gfx::viewProjection(rak, c.ox, c.oy).toFloat(d.uniforms.viewProj);
+            gfx::viewProjection(rak, c.ox, c.oy).toDevice(d.uniforms.viewProj);
             d.uniforms.paint = gfx::linearPaint({-1275.0, 0.0}, {1275.0, 0.0},
                                                 c.ox, c.oy);
             rr.drawMesh(d);
@@ -2960,7 +2960,7 @@ void ritaGlyfer(gfx::Renderer& r, const std::vector<GpuGlyfer>& gl,
         d.image      = atlas && g.page >= 0
                            ? atlas->page(static_cast<std::size_t>(g.page))
                            : nullptr;
-        gfx::viewProjection(vy, g.ox, g.oy).toFloat(d.uniforms.viewProj);
+        gfx::viewProjection(vy, g.ox, g.oy).toDevice(d.uniforms.viewProj);
         d.uniforms.pxPerWidthUnit = pxPerEnhet;
         d.uniforms.glyphMinPx     = golvPx;   // (D10)
         d.uniforms.glyphMaxPx     = takPx;
@@ -3397,7 +3397,7 @@ void fallD7(Fönster& f)
         d.indices    = gfx::slice(*ib);
         d.indexCount = 6;
         d.image      = sida.get();
-        gfx::viewProjection(vy, 0.0, 0.0).toFloat(d.uniforms.viewProj);
+        gfx::viewProjection(vy, 0.0, 0.0).toDevice(d.uniforms.viewProj);
         rr.drawMesh(d);
     };
     const Bild b = bild(f);
@@ -4409,7 +4409,7 @@ void fallH9(Fönster& f)
             d.indices    = gfx::slice(*g.ib);
             d.indexCount = g.count;
             d.image      = img;
-            gfx::viewProjection(vy, g.ox, g.oy).toFloat(d.uniforms.viewProj);
+            gfx::viewProjection(vy, g.ox, g.oy).toDevice(d.uniforms.viewProj);
             d.uniforms.pxPerWidthUnit = 1.0f;
             rr.drawMesh(d);
         }

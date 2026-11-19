@@ -3,12 +3,14 @@
 #include "run_index.h"
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <optional>
 
 #include "build.h"
 #include "camera_math.h"
 #include "mesh_data.h"
+#include "render_loop.h"
 #include "scene.h"
 #include "scene3d.h"
 
@@ -84,6 +86,18 @@ bool tooStale(std::size_t stale, std::size_t live)
     return static_cast<double>(stale) > kIndexStaleShare * static_cast<double>(live);
 }
 
+// Syns tabellens rad genom `proj`? En död plats aldrig, en utan världslåda
+// alltid — ritningens `objectInView`.
+bool rowVisible(const ObjectInfo& rad, const Projection& proj, double slackPx)
+{
+    switch (rad.state) {
+    case ObjectInfo::State::None:   return false;
+    case ObjectInfo::State::Always: return true;
+    case ObjectInfo::State::Boxed:  break;
+    }
+    return boxVisible3(proj, rad.box, slackPx);
+}
+
 RunIndex& objectIndex(const RunData& run, std::uint64_t shapesVersion)
 {
     RunIndex&           ix  = indexOf(run);
@@ -91,55 +105,108 @@ RunIndex& objectIndex(const RunData& run, std::uint64_t shapesVersion)
     if (ix.objectsBuilt && ix.objectShapes == shapesVersion && ix.objectMeshes == gen)
         return ix;
     const std::size_t n    = run.objects.size();
-    const bool        träd = n >= kRunIndexMin;
-    // FRÅN BÖRJAN: första gången, en körning som krympt (platserna har
-    // numrerats om), en kort körning (z-spannet ska vara exakt och bygget är
-    // billigt) eller för många kvarliggande poster.
-    const bool från0 = !ix.objectsBuilt || !träd || !ix.objectTree ||
-                       n < ix.objectSig.size() ||
-                       tooStale(ix.objectStale, ix.objects.size());
+    const bool        träd = n >= kRunTreeMin;
+    // TABELLEN FRÅN BÖRJAN: första gången, eller en körning som krympt
+    // (platserna har numrerats om). Annars förs den ikapp på plats.
+    const bool från0 = !ix.objectsBuilt || n < ix.objectSig.size();
+    // TRÄDET FRÅN BÖRJAN (ur tabellen, utan att något räknas om): med
+    // tabellen, första gången körningen är lång nog, eller när för många
+    // gamla poster ligger kvar.
+    const bool trädOm = träd && (från0 || !ix.objectTree ||
+                                 tooStale(ix.objectStale, ix.objects.size()));
     if (från0) {
-        ix.objects.clear();
         ix.objectSig.assign(n, 0);
         ix.objectAlways.assign(n, 0);
-        ix.objectStale = 0;
-        ix.zMin = ix.zMax = 0.0;
+        ix.info.assign(n, ObjectInfo{});
         ++ix.rebuilds;
+        sceneTally(SceneTally::Rebuilds, 1);
     } else {
         ix.objectSig.resize(n, 0);
         ix.objectAlways.resize(n, 0);
+        ix.info.resize(n);
     }
-    for (std::size_t i = 0; i < n; ++i) {
+    // BARA DE ÄNDRADE platserna ur körningens logg (scene.h), när den räcker
+    // tillbaka till indexets version och ingen mesh flyttat sina lägen —
+    // annars alla.
+    const bool logg = !från0 && ix.objectMeshes == gen &&
+                      ix.objectShapes >= run.objectChangesBase;
+    bool alltidÄndrat = från0;
+    bool ändrat       = från0;
+    const auto plats = [&](std::size_t i) {
         const ShapeEntry&   e   = *run.objects[i];
         const std::uint64_t sig = e.alive ? objectSig(e) : 0;
         if (sig == ix.objectSig[i])
-            continue;   // oförändrad — posten står kvar
+            return;   // oförändrad — posten står kvar
+        ändrat       = true;
+        alltidÄndrat = alltidÄndrat || ix.objectAlways[i];
         // Platsens gamla post ligger kvar i trädet (det redigeras inte).
         if (ix.objectSig[i] != 0 && !ix.objectAlways[i])
             ++ix.objectStale;
         ix.objectSig[i]    = sig;
         ix.objectAlways[i] = 0;
+        ObjectInfo& rad    = ix.info[i];
+        rad                = ObjectInfo{};
         if (sig == 0)
-            continue;
+            return;
         const auto                nr = static_cast<std::uint32_t>(i);
         const std::optional<Box3> b  = objectBox(e.shape);
+        rad.cost = static_cast<float>(objectPaceCost(e.shape));
         if (b) {
-            ix.zMin = std::min(ix.zMin, b->min.z);
-            ix.zMax = std::max(ix.zMax, b->max.z);
+            rad.box    = *b;
+            rad.hasBox = true;
         }
-        if (!träd)
-            continue;   // en kort körning: z-spannet räcker
-        if (const std::optional<Box3> w = worldBox(e.shape))
-            ix.objects.insert(nr, SpatialIndex::Box{w->min.x, w->min.y, w->min.z,
-                                                    w->max.x, w->max.y, w->max.z});
-        else
+        if (const std::optional<Box3> w = worldBox(e.shape)) {
+            rad.state = ObjectInfo::State::Boxed;
+            if (träd && !trädOm)
+                ix.objects.insert(nr, SpatialIndex::Box{w->min.x, w->min.y, w->min.z,
+                                                        w->max.x, w->max.y, w->max.z});
+        } else {
+            rad.state          = ObjectInfo::State::Always;
             ix.objectAlways[i] = 1;
+            alltidÄndrat       = true;
+        }
         ++ix.inserted;
+        sceneTally(SceneTally::Inserted, 1);
+    };
+    if (logg) {
+        for (const RunData::ObjectChange& c : run.objectChanges)
+            if (c.version > ix.objectShapes && c.index < n)
+                plats(c.index);
+    } else {
+        for (std::size_t i = 0; i < n; ++i)
+            plats(i);
     }
-    ix.always.clear();
-    for (std::size_t i = 0; i < n; ++i)
-        if (ix.objectAlways[i])
-            ix.always.push_back(static_cast<std::uint32_t>(i));
+    // Listan över dem utan världslåda görs om bara när någon sådan ändrats.
+    if (alltidÄndrat) {
+        ix.always.clear();
+        for (std::size_t i = 0; i < n; ++i)
+            if (ix.objectAlways[i])
+                ix.always.push_back(static_cast<std::uint32_t>(i));
+    }
+    // Z-spannet exakt över de levande lådorna, ur tabellen.
+    if (ändrat) {
+        ix.zMin = ix.zMax = 0.0;
+        for (const ObjectInfo& rad : ix.info)
+            if (rad.hasBox) {
+                ix.zMin = std::min(ix.zMin, rad.box.min.z);
+                ix.zMax = std::max(ix.zMax, rad.box.max.z);
+            }
+    }
+    if (trädOm) {
+        ix.objects.clear();
+        ix.objectStale = 0;
+        for (std::size_t i = 0; i < n; ++i) {
+            const ObjectInfo& rad = ix.info[i];
+            if (rad.state == ObjectInfo::State::Boxed)
+                ix.objects.insert(static_cast<std::uint32_t>(i),
+                                  SpatialIndex::Box{rad.box.min.x, rad.box.min.y,
+                                                    rad.box.min.z, rad.box.max.x,
+                                                    rad.box.max.y, rad.box.max.z});
+        }
+    } else if (!träd && ix.objectTree) {
+        ix.objects.clear();   // körningen har krympt under trädets gräns
+        ix.objectStale = 0;
+    }
     ix.objectTree   = träd;
     ix.objectShapes = shapesVersion;
     ix.objectMeshes = gen;
@@ -230,7 +297,19 @@ void objectCandidates(const RunData& run, std::uint64_t shapesVersion,
         return;
     }
     const std::lock_guard<std::mutex> vakt(nodeLock(run.id));
-    const RunIndex& ix = objectIndex(run, shapesVersion);
+    const RunIndex* ixp = nullptr;
+    {
+        const SceneCostScope kostnad(SceneCost::QIndex);
+        ixp = &objectIndex(run, shapesVersion);
+    }
+    const RunIndex& ix = *ixp;
+    if (!ix.objectTree) {
+        // Utan träd: tabellen rakt igenom.
+        for (std::size_t i = 0; i < ix.info.size(); ++i)
+            if (rowVisible(ix.info[i], proj, slackPx))
+                out.push_back(static_cast<std::uint32_t>(i));
+        return;
+    }
     ix.objects.query(
         [&](const SpatialIndex::Box& b) {
             return boxVisible3(proj, Box3{{b.minX, b.minY, b.minZ}, {b.maxX, b.maxY, b.maxZ}},
@@ -245,6 +324,89 @@ void objectCandidates(const RunData& run, std::uint64_t shapesVersion,
     out.erase(std::remove_if(out.begin(), out.end(),
                              [&](std::uint32_t i) { return !run.objects[i]->alive; }),
               out.end());
+}
+
+void objectsInView(const RunData& run, std::uint64_t shapesVersion,
+                   const Projection& proj, double slackPx, const Point3& eye,
+                   std::vector<ObjectSeen>& out)
+{
+    out.clear();
+    const std::lock_guard<std::mutex> vakt(nodeLock(run.id));
+    const RunIndex* ixp = nullptr;
+    {
+        const SceneCostScope kostnad(SceneCost::QIndex);
+        ixp = &objectIndex(run, shapesVersion);
+    }
+    const RunIndex& ix  = *ixp;
+    const auto      syn = [&](std::uint32_t i) {
+        const ObjectInfo& rad = ix.info[i];
+        if (!rowVisible(rad, proj, slackPx))
+            return;
+        ObjectSeen s;
+        s.index = i;
+        s.cost  = rad.cost;
+        if (rad.hasBox) {
+            s.distance = distanceToBox(eye, rad.box);
+            const double dx = rad.box.max.x - rad.box.min.x,
+                         dy = rad.box.max.y - rad.box.min.y,
+                         dz = rad.box.max.z - rad.box.min.z;
+            s.diagonal = std::sqrt(dx * dx + dy * dy + dz * dz);
+            s.hasBox   = true;
+        }
+        out.push_back(s);
+    };
+    if (!ix.objectTree) {
+        for (std::size_t i = 0; i < ix.info.size(); ++i)
+            syn(static_cast<std::uint32_t>(i));
+        return;
+    }
+    // Trädets kandidater (en övermängd med gamla poster), växande och utan
+    // dubbletter, och de utan världslåda — var och en prövad mot tabellen.
+    std::vector<std::uint32_t> kandidater;
+    ix.objects.query(
+        [&](const SpatialIndex::Box& b) {
+            return boxVisible3(proj, Box3{{b.minX, b.minY, b.minZ}, {b.maxX, b.maxY, b.maxZ}},
+                               slackPx);
+        },
+        [&kandidater](std::uint32_t i) { kandidater.push_back(i); });
+    kandidater.insert(kandidater.end(), ix.always.begin(), ix.always.end());
+    std::sort(kandidater.begin(), kandidater.end());
+    kandidater.erase(std::unique(kandidater.begin(), kandidater.end()), kandidater.end());
+    for (std::uint32_t i : kandidater)
+        if (i < ix.info.size())
+            syn(i);
+}
+
+void objectsUnseen(const RunData& run, std::uint64_t shapesVersion,
+                   const Projection& proj, double slackPx,
+                   const std::vector<std::uint64_t>& seen,
+                   const std::vector<std::uint32_t>* only,
+                   std::vector<ObjectUnseen>& out)
+{
+    out.clear();
+    const std::lock_guard<std::mutex> vakt(nodeLock(run.id));
+    const RunIndex& ix    = objectIndex(run, shapesVersion);
+    const auto      plats = [&](std::size_t i) {
+        const std::uint64_t sig = ix.objectSig[i];
+        if (sig == (i < seen.size() ? seen[i] : 0))
+            return;
+        out.push_back(ObjectUnseen{static_cast<std::uint32_t>(i), sig,
+                                   sig != 0 && rowVisible(ix.info[i], proj, slackPx)});
+    };
+    if (only) {
+        for (std::uint32_t i : *only)
+            if (i < ix.objectSig.size())
+                plats(i);
+        return;
+    }
+    for (std::size_t i = 0; i < ix.objectSig.size(); ++i)
+        plats(i);
+}
+
+void syncObjectIndex(const RunData& run, std::uint64_t shapesVersion)
+{
+    const std::lock_guard<std::mutex> vakt(nodeLock(run.id));
+    objectIndex(run, shapesVersion);
 }
 
 void objectZSpan(const RunData& run, std::uint64_t shapesVersion, double& zMin,

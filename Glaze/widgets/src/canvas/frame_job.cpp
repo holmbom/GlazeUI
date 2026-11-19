@@ -8,6 +8,7 @@
 #include <gfx/platform.h>
 
 #include "../image_cache.h"
+#include "../window_placement.h"
 #include "camera_math.h"
 #include "glaze/canvas/painter.h"
 #include "glaze/widget.h"
@@ -171,6 +172,46 @@ bool renderPageJob(const PageJob& j, const Ctx& c, std::vector<std::uint8_t>& rg
     }
 }
 
+namespace {
+
+constexpr double        kDefaultFrameRate = 60.0;
+constexpr double        kMaxFrameRate     = 1000.0;
+constexpr double        kMsPerSecond      = 1000.0;
+constexpr std::uint64_t kRefreshPollMs    = 1000;
+// En skärm som säger en takt under den här säger ingenting (0 och 1 är
+// OS:ets "förvald").
+constexpr float         kMinRefreshHz     = 2.0f;
+
+} // namespace
+
+double defaultFrameRate()
+{
+    return kDefaultFrameRate;
+}
+
+bool validFrameRate(double fps)
+{
+    return std::isfinite(fps) && fps > 0.0 && fps <= kMaxFrameRate;
+}
+
+double frameBudgetFor(double hz)
+{
+    return kMsPerSecond / (validFrameRate(hz) ? hz : kDefaultFrameRate);
+}
+
+double refreshRateAt(RefreshCache& cache, gfx::Pointf p)
+{
+    const std::uint64_t nu = gfx::ticksMs();
+    if (cache.valid && nu - cache.at < kRefreshPollMs)
+        return cache.hz;
+    const std::vector<gfx::ScreenInfo> skärmar = gfx::screens();
+    const gfx::ScreenInfo*             s       = screenFor(skärmar, p);
+    cache.hz    = s && s->refreshHz >= kMinRefreshHz ? s->refreshHz : kDefaultFrameRate;
+    cache.at    = nu;
+    cache.valid = true;
+    return cache.hz;
+}
+
 CanvasFrameBox canvasFrameBox(const gfx::Rectf& windowBox)
 {
     CanvasFrameBox b;
@@ -183,7 +224,7 @@ CanvasFrameBox canvasFrameBox(const gfx::Rectf& windowBox)
 }
 
 CanvasFrameResult renderCanvasFrame(const CanvasFrameJob& j, const Ctx& base,
-                                    gfx::RenderTarget& out)
+                                    gfx::RenderTarget& out, FramePace* pace)
 {
     CanvasFrameResult ut;
     ut.serial = j.serial;
@@ -198,11 +239,13 @@ CanvasFrameResult renderCanvasFrame(const CanvasFrameJob& j, const Ctx& base,
 
     PaintContext       pc     = jobPaint(j, c);
     const CanvasPaints målare = paintsOf(j.paints);
+    bool               visas  = true;   // bilden läggs i `out`
 
     if (j.target3D) {
         // 3D-MÅLEN (target3d.h): målen ritas där de är inaktuella, och
         // kompositen läggs i bilden i stället för i fönstret.
         PaintContext tc = pc;
+        tc.pace         = pace;
         Target3DArgs a  = jobArgs(j, målare);
         a.labelFade     = j.labelFade;
         a.views         = j.views;
@@ -210,10 +253,16 @@ CanvasFrameResult renderCanvasFrame(const CanvasFrameJob& j, const Ctx& base,
         const Target3DState läge = renderTargets3D(pc, tc, j.scene, a, bilder);
         ut.labelsAnimating       = läge.labelsAnimating;
         ut.drapesPending         = läge.drapesPending;
-        r.pushTarget(out, kClear);
-        for (const TargetImage& b : bilder)
-            r.drawImage(*b.image, b.rect, kOpaque);
-        r.popTarget();
+        // BILDTAKTEN: ett steg i ritordning visas först när passet är klart
+        // — den bild som visas står kvar till dess.
+        ut.complete = !pace || pace->complete;
+        visas = ut.complete || pace->order == FramePace::Order::Priority;
+        if (visas) {
+            r.pushTarget(out, kClear);
+            for (const TargetImage& b : bilder)
+                r.drawImage(*b.image, b.rect, kOpaque);
+            r.popTarget();
+        }
     } else {
         // 2D-VÄGEN, i bilden: förberedelsen, rutnätet, lagren med sina
         // målare, resten av uppladdningarna och `onPaint` — ritytans ordning
@@ -231,7 +280,7 @@ CanvasFrameResult renderCanvasFrame(const CanvasFrameJob& j, const Ctx& base,
         r.popTarget();
     }
 
-    ut.drawn           = true;
+    ut.drawn           = visas;
     ut.needsUiThread   = res.takeTextureRefused();
     ut.uploadsDeferred = c.images && c.images->uploadsDeferred();
     ut.memory          = res.ledger().usage(j.scene->id);

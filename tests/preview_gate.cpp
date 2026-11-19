@@ -2411,6 +2411,8 @@ const Vantad kVantadMatris[] = {
     {"glaze::Canvas",        "inputMode",     false},
     // MINNET: ritytans minnesbudget i byte — exakt.
     {"glaze::Canvas",        "memoryBudget",  false},
+    {"glaze::Canvas",        "framePacing",   false},
+    {"glaze::Canvas",        "frameRate",     false},
     // PROGRAMIKONEN: de två bilderna och de två
     // bools — exakta. Programmenyn är Call-satser (fallProgramikon).
     {"glaze::AppIcon",       "icon",          false},

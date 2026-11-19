@@ -661,6 +661,14 @@ void Renderer::pushTarget(RenderTarget& t, Color c)
     clear(c);
 }
 
+void Renderer::resumeTarget(RenderTarget& t)
+{
+    targetStack_.push_back(TargetLevel{&t, std::move(clipStack_)});
+    clipStack_.clear();
+    bindTarget(&t);
+    applyTop();   // inget klipp i målet
+}
+
 void Renderer::popTarget()
 {
     if (targetStack_.empty()) {

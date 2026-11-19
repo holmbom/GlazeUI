@@ -19,7 +19,7 @@
 #include "labels.h"
 #include "mesh_data.h"
 #include "resources.h"
-#include "depth_order.h"
+#include "render_loop.h"
 #include "run_index.h"
 #include "scene3d.h"
 
@@ -608,7 +608,8 @@ RunData::RunData(const RunData& o, SnapshotTag)
     : id(o.id), life(o.life), key(o.key), order(o.order), chunks(o.chunks),
       glyphShapes(o.glyphShapes), glyphVersion(o.glyphVersion), minX(o.minX),
       minY(o.minY), minZ(o.minZ), maxX(o.maxX), maxY(o.maxY), maxZ(o.maxZ),
-      hasBox(o.hasBox), objects(o.objects)
+      hasBox(o.hasBox), objects(o.objects), objectChanges(o.objectChanges),
+      objectChangesBase(o.objectChangesBase)
 {
     // Bilden ÄRVER körningens index (run_index.h) som en egen kopia: den förs
     // ikapp med det som ändrats, i stället för att byggas från början för
@@ -625,18 +626,12 @@ LayerData::LayerData(const LayerData& o, SnapshotTag)
       placement(o.placement), state(o.state), shapes3D(o.shapes3D),
       passes(o.passes), groundShapes(o.groundShapes), views(o.views),
       painter(o.painter), clip(o.clip), shapesVersion(o.shapesVersion),
+      objectChanges(o.objectChanges), objectChangesBase(o.objectChangesBase),
       textVersion(o.textVersion), totalIndices(o.totalIndices),
       deadIndices(o.deadIndices), totalGlyph(o.totalGlyph),
       deadGlyph(o.deadGlyph), totalObjects(o.totalObjects),
       deadObjects(o.deadObjects)
 {
-    // Bilden ÄRVER lagrets djupordning (depth_order.h): den gäller så länge
-    // föremålens signatur står sig.
-    const std::lock_guard<std::mutex> vakt(nodeLock(o.id));
-    depth       = o.depth;
-    depthShapes = o.depthShapes;
-    depthMeshes = o.depthMeshes;
-    depthSig    = o.depthSig;
 }
 
 SceneData::SceneData(const SceneData& o, SnapshotTag)
@@ -688,6 +683,10 @@ std::shared_ptr<LayerData> snapshotOf(LayerData& L)
             e->frozen = true;
         for (const std::shared_ptr<ShapeEntry>& e : r->objects)
             e->frozen = true;
+        // Bilden ärver körningens index — fört ikapp HÄR, med bara det som
+        // ändrats, så renderingstråden får ett som redan stämmer.
+        if (isObjectKind(r->key.kind) && r->objects.size() >= kRunIndexMin)
+            syncObjectIndex(*r, L.shapesVersion);
         bild->runs.push_back(std::make_shared<RunData>(*r, SnapshotTag{}));
     }
     L.published       = bild;
@@ -873,6 +872,44 @@ void ChunkData::grow(double x0, double y0, double x1, double y1, double z0,
 
 // ------------------------------------------------------------------- bygget
 
+namespace {
+
+// Föremålets plats antecknad i lagrets ändringslogg (scene.h) — efter att
+// `shapesVersion` stegats. En full logg ger upp sin äldre halva.
+void noteObjectChange(LayerData& L, const ShapeSlot& slot)
+{
+    if (!slot.objectRun)
+        return;
+    if (L.objectChanges.size() >= LayerData::kMaxObjectChanges) {
+        const std::size_t bort = L.objectChanges.size() / 2;
+        L.objectChangesBase    = L.objectChanges[bort - 1].version;
+        L.objectChanges.erase(L.objectChanges.begin(),
+                              L.objectChanges.begin() + static_cast<std::ptrdiff_t>(bort));
+    }
+    L.objectChanges.push_back(LayerData::ObjectChange{
+        L.shapesVersion, slot.objectRun->id, static_cast<std::uint32_t>(slot.objectPos)});
+    // Körningens egen logg, med samma regler.
+    RunData& run = *slot.objectRun;
+    if (run.objectChanges.size() >= LayerData::kMaxObjectChanges) {
+        const std::size_t bort = run.objectChanges.size() / 2;
+        run.objectChangesBase  = run.objectChanges[bort - 1].version;
+        run.objectChanges.erase(run.objectChanges.begin(),
+                                run.objectChanges.begin() +
+                                    static_cast<std::ptrdiff_t>(bort));
+    }
+    run.objectChanges.push_back(RunData::ObjectChange{
+        L.shapesVersion, static_cast<std::uint32_t>(slot.objectPos)});
+}
+
+// Loggen gäller inte längre: allt före den här versionen ska gås igenom.
+void resetObjectChanges(LayerData& L)
+{
+    L.objectChanges.clear();
+    L.objectChangesBase = L.shapesVersion;
+}
+
+} // namespace
+
 void appendShape(LayerData& L, Shape s, bool yUp)
 {
     ++L.shapesVersion;
@@ -880,8 +917,10 @@ void appendShape(LayerData& L, Shape s, bool yUp)
     L.passes += isPass(s) ? 1 : 0;
     L.groundShapes += paintsGround(s) ? 1 : 0;
     L.slots.push_back(ShapeSlot{newEntry(std::move(s)), {}, nullptr});
-    if (!L.dirty)   // ett märkt lager bygger allt på en gång före ritningen
+    if (!L.dirty) {   // ett märkt lager bygger allt på en gång före ritningen
         buildSlot(L, L.slots.back(), yUp);
+        noteObjectChange(L, L.slots.back());
+    }
 }
 
 void removeShapeAt(LayerData& L, std::size_t i)
@@ -913,6 +952,7 @@ void removeShapeAt(LayerData& L, std::size_t i)
         }
         if (slot.objectRun)
             ++L.deadObjects;   // körningen hoppar över den döda formen
+        noteObjectChange(L, slot);
     }
     L.slots.erase(L.slots.begin() + static_cast<std::ptrdiff_t>(i));
     if (overDead(L))
@@ -940,6 +980,7 @@ void replaceShapeAt(LayerData& L, std::size_t i, Shape s, bool yUp)
             ++e.version;
             if (slot.glyphRun)
                 ++slot.glyphRun->glyphVersion;
+            noteObjectChange(L, slot);
             if (overDead(L))   // en krympt form lämnar döda index efter sig
                 L.dirty = true;
             return;
@@ -955,6 +996,7 @@ void rebuildLayer(LayerData& L, bool yUp)
 {
     profileCount(ProfileCount::LayerRebuilds);
     ++L.shapesVersion;
+    resetObjectChanges(L);
     L.runs.clear();
     L.totalIndices = L.deadIndices = 0;
     L.totalGlyph = L.deadGlyph = 0;
@@ -978,6 +1020,7 @@ void assignShapes(LayerData& L, std::vector<Shape> shapes)
 {
     L.slots.clear();
     ++L.shapesVersion;   // träffprovets rutnät gällde de gamla formerna
+    resetObjectChanges(L);
     L.shapes3D = 0;
     L.passes   = 0;
     L.groundShapes = 0;
@@ -1309,7 +1352,7 @@ void drawTiledChunk(const PaintContext& f, const ChunkData& ch,
                 return;
             d.indexCount = static_cast<std::uint32_t>(del.indices.size());
             chunkMatrix(f, del.originX, del.originY, ch.originZ)
-                .toFloat(d.uniforms.viewProj);
+                .toDevice(d.uniforms.viewProj);
             d.image = t.image;
             f.c->r->drawMesh(d);
         }
@@ -1395,7 +1438,7 @@ void drawChunks(const PaintContext& f, RunData& run, std::uint64_t shapesVersion
                                         ch->indices.size() * sizeof(std::uint32_t)};
         d.indexCount = static_cast<std::uint32_t>(ch->indices.size());
         chunkMatrix(f, ch->originX, ch->originY, ch->originZ)
-            .toFloat(d.uniforms.viewProj);
+            .toDevice(d.uniforms.viewProj);
         d.uniforms.pxPerWidthUnit = worldWidth ? 1.0f : unitPx;
         d.uniforms.widthSpace =
             worldWidth ? gfx::WidthSpace::World : gfx::WidthSpace::Screen;
@@ -1499,7 +1542,7 @@ void drawGlyphs(const PaintContext& f, const std::shared_ptr<RunData>& run,
                            ? g.atlas->page(static_cast<std::size_t>(g.page))
                            : nullptr;
         chunkMatrix(f, g.originX, g.originY, g.originZ)
-            .toFloat(d.uniforms.viewProj);
+            .toDevice(d.uniforms.viewProj);
         d.uniforms.pxPerWidthUnit = unitPx;
         d.uniforms.opacity        = op;
         d.uniforms.glyphMinPx     = lim.minPx;
@@ -1531,6 +1574,34 @@ gfx::RenderState gfxState(const RenderState& s, bool label)
     g.blend      = s.blend;
     g.cull       = s.cull;
     return g;
+}
+
+bool coplanarPass(const RenderState& s)
+{
+    return s.depthWrite && s.blend != Blend::DepthOnly &&
+           (s.depth == DepthTest::Less || s.depth == DepthTest::LessEqual);
+}
+
+RenderState depthOnly(RenderState s)
+{
+    s.blend = Blend::DepthOnly;
+    return s;
+}
+
+RenderState coplanarColor(RenderState s)
+{
+    s.depth      = DepthTest::LessEqual;
+    s.depthWrite = false;
+    s.depthBias -= kCoplanarBias;
+    s.slopeBias -= kCoplanarSlope;
+    return s;
+}
+
+RenderState coplanarAhead(RenderState s)
+{
+    s.depthBias -= kCoplanarBias;
+    s.slopeBias -= kCoplanarSlope;
+    return s;
 }
 
 bool validRenderState(const RenderState& s)
@@ -1591,7 +1662,7 @@ void drawGrid(const PaintContext& f, double size, gfx::Color color, float minPx,
     d.vertices   = gfx::slice(*mesh->vb);
     d.indices    = gfx::slice(*mesh->ib);
     d.indexCount = mesh->count;
-    m.toFloat(d.uniforms.viewProj);
+    m.toDevice(d.uniforms.viewProj);
     d.uniforms.pxPerWidthUnit = hairline ? 1.0f : f.c->scale;
     d.uniforms.widthSpace     = gfx::WidthSpace::Screen;
     d.uniforms.opacity        = f.opacity;
@@ -1695,9 +1766,6 @@ LayerFrame prepareLayers(const PaintContext& f,
     SceneData& sc = *scene;
     LayerFrame lf;
     lf.placement.assign(sc.layers.size(), LayerPlacement::Ground);
-    lf.depth.resize(sc.layers.size());
-    lf.depthBase.assign(sc.layers.size(), 0);
-    int rang = 0;   // nästa ritade World-lagers bas (depth_order.h)
     // TERRÄNGEN (drape.h) — bara i 3D-målet; den avgör var
     // Ground-lagren ritas och var deras etiketter står.
     lf.terrain = f.view3D && hasTerrain(f, sc);
@@ -1713,8 +1781,10 @@ LayerFrame prepareLayers(const PaintContext& f,
             continue;   // ett dolt lager är appens val — det laddas upp när det visas
         if (f.view != kMainView && !layerInView(L, f.view))
             continue;   // en del-vy förbereder sina lager; huvudvyn har resten
-        if (L.dirty)
+        if (L.dirty) {
+            const SceneCostScope kostnad(SceneCost::Rebuild);
             rebuildLayer(L, sc.yUp);
+        }
         lf.placement[li] = effectivePlacement(L);
         const bool draw  = layerDrawn(f, L);
         // MARKEN finns där ett ritat Ground-lager har något som målas på
@@ -1722,14 +1792,7 @@ LayerFrame prepareLayers(const PaintContext& f,
         // etiketter gör ingen (markdjupet, target3d.h steg 3).
         if (draw && lf.placement[li] == LayerPlacement::Ground && paintsGround(L))
             lf.groundDrawn = true;
-        // DJUPORDNINGEN: ett ritat World-lager med djuptest står över alla
-        // tidigare, och dess föremål har sin rang inom lagret.
-        if (f.view3D && draw && lf.placement[li] == LayerPlacement::World &&
-            L.state.depth != DepthTest::Off) {
-            lf.depth[li]     = depthOrder(L);
-            lf.depthBase[li] = rang;
-            rang += lf.depth[li]->top + 1;
-        }
+        const SceneCostScope körningar(SceneCost::Runs);
         for (const std::shared_ptr<RunData>& run : L.runs) {
             if (residentFirst)
                 prepareRun(f, sc, *run, L.shapesVersion, draw);
@@ -1749,15 +1812,163 @@ LayerFrame prepareLayers(const PaintContext& f,
     }
     // Föremålen och bilderna, synligt först — också de före
     // målet.
-    if (residentFirst)
-        prepareUploads(f, sc);
-    lf.labels = updateLabels(f, scene, sources, labelFade);
+    if (residentFirst) {
+        const SceneCostScope kostnad(SceneCost::Residency);
+        prepareUploads(f, sc, &lf);
+    }
+    {
+        const SceneCostScope kostnad(SceneCost::Labels);
+        lf.labels = updateLabels(f, scene, sources, labelFade);
+    }
     // Ritytans och lagrens klipp som masker — byggda här, före målet.
+    const SceneCostScope kostnad(SceneCost::Clips);
     lf.clips = prepareClips(f, sc, ClipUse::Scene);
     return lf;
 }
 
-void prepareUploads(const PaintContext& f, const SceneData& sc)
+namespace {
+
+// Prioritetens fack: tvåpotenserna av jämförelsetalet, klampade.
+constexpr int kPaceBuckets   = 64;
+constexpr int kPaceBucketMid = kPaceBuckets / 2;
+constexpr int kPaceKeepBoost = 1;   // fack som det förra passets föremål går före
+
+int paceBucket(float priority)
+{
+    if (!(priority > 0.0f))
+        return 0;
+    int e = 0;
+    std::frexp(priority, &e);
+    return std::clamp(e + kPaceBucketMid, 0, kPaceBuckets - 1);
+}
+
+// STEGETS URVAL (scene.h `FramePace`) ur de synliga föremålen `kö`, som står
+// i ritordning: de som inte hör till steget tas ur kön. Ett föremål med
+// kostnaden 0 är otaktat och står alltid kvar.
+void selectPaced(FramePace& takt, std::vector<UploadItem>& kö)
+{
+    takt.complete = true;
+    takt.cut      = false;
+    takt.spent    = 0.0;
+    const bool    allt = !(takt.budget > 0.0);
+    std::vector<char> ut(kö.size(), 0);
+    if (takt.order == FramePace::Order::Sequence) {
+        takt.end   = kWorldEnd;
+        double sum = 0.0;
+        bool   slut = false;
+        for (std::size_t i = 0; i < kö.size(); ++i) {
+            const UploadItem& u = kö[i];
+            if (!u.object || !(u.cost > 0.0f))
+                continue;
+            const WorldPos här{u.layer, u.runIndex, u.index};
+            if (här < takt.begin) {
+                ut[i] = 1;   // ritat i ett tidigare steg
+                continue;
+            }
+            if (slut) {
+                ut[i] = 1;
+                continue;
+            }
+            // Stegets första föremål ritas alltid — passet går framåt.
+            if (!allt && sum > 0.0 && sum + u.cost > takt.budget) {
+                slut          = true;
+                takt.end      = här;
+                takt.cut      = true;
+                takt.complete = false;
+                ut[i]         = 1;
+                continue;
+            }
+            sum += u.cost;
+        }
+    } else {
+        // Det passet redan ritat tas ur; resten läggs i fack efter storlek.
+        double fack[kPaceBuckets] = {};
+        std::vector<std::uint8_t>   plats(kö.size(), 0);   // föremålets fack
+        const RunData*              senaste = nullptr;
+        std::vector<std::uint32_t>* märken  = nullptr;
+        for (std::size_t i = 0; i < kö.size(); ++i) {
+            const UploadItem& u = kö[i];
+            if (!u.object || !(u.cost > 0.0f))
+                continue;
+            if (u.run != senaste) {
+                senaste = u.run;
+                märken  = &(*takt.stamps)[u.run->id];
+                if (märken->size() < u.run->objects.size())
+                    märken->resize(u.run->objects.size(), 0);
+            }
+            const std::uint32_t märke = (*märken)[u.index];
+            if (märke == takt.epoch) {
+                ut[i] = 1;
+                continue;
+            }
+            // TRÖGHETEN: det förra passet ritade går ett fack före — urvalet
+            // byter inte föremål fram och tillbaka vid gränsen.
+            int b = paceBucket(u.priority);
+            if (märke != 0 && märke + 1 == takt.epoch)
+                b = std::min(b + kPaceKeepBoost, kPaceBuckets - 1);
+            plats[i] = static_cast<std::uint8_t>(b);
+            fack[b] += u.cost;
+        }
+        if (!allt) {
+            // Gränsfacket: de större facken ryms hela, gränsfacket till dess
+            // kostnaden är slut.
+            int    gräns = kPaceBuckets - 1;
+            double över  = 0.0;
+            while (gräns > 0 && över + fack[gräns] <= takt.budget)
+                över += fack[gräns--];
+            double sum = över;
+            for (std::size_t i = 0; i < kö.size(); ++i) {
+                const UploadItem& u = kö[i];
+                if (ut[i] || !u.object || !(u.cost > 0.0f))
+                    continue;
+                const int b = plats[i];
+                if (b > gräns)
+                    continue;
+                if (b == gräns && (sum <= 0.0 || sum + u.cost <= takt.budget)) {
+                    sum += u.cost;
+                    continue;
+                }
+                ut[i]         = 1;
+                takt.cut      = true;
+                takt.complete = false;
+            }
+        }
+    }
+    std::size_t n = 0;
+    for (std::size_t i = 0; i < kö.size(); ++i)
+        if (!ut[i])
+            kö[n++] = kö[i];
+    kö.resize(n);
+}
+
+// STEGETS SLUT: i ritordning ritas inget förbi stegets slut (ett föremål
+// som fick vänta på uppladdningen kortade steget), och passets märken får
+// det steget ritar.
+void commitPaced(FramePace& takt, LayerFrame& lista, const SceneData& sc)
+{
+    for (auto& [run, synliga] : lista.visible) {
+        if (synliga.empty())
+            continue;
+        const std::uint32_t li = synliga.front().layer;
+        if (li >= sc.layers.size() || lista.placement[li] != LayerPlacement::World)
+            continue;
+        if (takt.order == FramePace::Order::Sequence) {
+            std::erase_if(synliga, [&](const LayerFrame::VisibleObject& v) {
+                return !(WorldPos{v.layer, v.run, v.index} < takt.end);
+            });
+            continue;
+        }
+        std::vector<std::uint32_t>& märken = (*takt.stamps)[run->id];
+        if (märken.size() < run->objects.size())
+            märken.resize(run->objects.size(), 0);
+        for (const LayerFrame::VisibleObject& v : synliga)
+            märken[v.index] = takt.epoch;
+    }
+}
+
+} // namespace
+
+void prepareUploads(const PaintContext& f, const SceneData& sc, LayerFrame* lista)
 {
     // KÖN: det synliga i vyn med avståndet från ögat (ritningens gallring —
     // `chunkVisible`, scene3d.cpp:s `queueObjects`) och resten i lagrens
@@ -1771,6 +1982,7 @@ void prepareUploads(const PaintContext& f, const SceneData& sc)
     // (`MemoryLedger::underBudget`). En stilla bild frågar alltså bara det
     // som syns, och det som vräkts över budgeten laddas inte upp igen förrän
     // det ritas.
+    const auto köStart = std::chrono::steady_clock::now();
     std::vector<UploadItem> synligt, resten;
     std::vector<std::shared_ptr<ChunkData>>                 chunkRest;
     std::vector<std::pair<CanvasResources::ResidentMark*, CanvasResources::ResidentMark>> märken;
@@ -1778,10 +1990,15 @@ void prepareUploads(const PaintContext& f, const SceneData& sc)
     const std::size_t   budget  = liggare.budgetFor(sc.memoryBudget);
     const std::uint64_t meshar  = meshGeneration();
     const bool          öga = f.view3D.has_value();
-    for (const std::shared_ptr<LayerData>& Lp : sc.layers) {
+    // BILDTAKTEN (scene.h `FramePace`): stegets föremål väljs bland de
+    // synliga i World-lagren — terrängens och markens ritas alltid.
+    FramePace* takt = lista ? f.pace : nullptr;
+    for (std::size_t li = 0; li < sc.layers.size(); ++li) {
+        const std::shared_ptr<LayerData>& Lp = sc.layers[li];
         const LayerData& L = *Lp;
         if (!L.visible || (f.view != kMainView && !layerInView(L, f.view)))
             continue;
+        const bool taktat = takt && lista->placement[li] == LayerPlacement::World;
         const bool draw = layerDrawn(f, L);
         CanvasResources::ResidentMark&      märke = f.res->resident(Lp);
         const CanvasResources::ResidentMark nu{Lp->life, L.shapesVersion, meshar, budget, draw, true};
@@ -1791,10 +2008,36 @@ void prepareUploads(const PaintContext& f, const SceneData& sc)
         const bool rest = !aktuellt && liggare.underBudget();
         if (!aktuellt)
             märken.emplace_back(&märke, nu);
-        for (const std::shared_ptr<RunData>& run : L.runs) {
+        // BARA DE ÄNDRADE föremålen ur lagrets logg, när bara formerna
+        // ändrats sedan märket och loggen räcker tillbaka dit — annars alla.
+        const bool logg = rest && märke.done && märke.meshes == nu.meshes &&
+                          märke.budget == nu.budget && märke.drawn == nu.drawn &&
+                          märke.shapes >= L.objectChangesBase;
+        std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> ändrade;
+        if (logg)
+            for (const LayerData::ObjectChange& c : L.objectChanges)
+                if (c.version > märke.shapes)
+                    ändrade[c.run].push_back(c.index);
+        for (std::size_t ri = 0; ri < L.runs.size(); ++ri) {
+            const std::shared_ptr<RunData>& run = L.runs[ri];
             const RunKey& k = run->key;
             if (isObjectKind(k.kind)) {
-                queueObjects(f, *run, L.shapesVersion, draw, rest, synligt, resten);
+                const auto egna = ändrade.find(run->id);
+                // Utan ändringar i körningen finns ingen rest att gå igenom.
+                const bool        vill  = rest && (!logg || egna != ändrade.end());
+                const std::size_t först = synligt.size();
+                {
+                    const SceneCostScope kostnad(SceneCost::QObjects);
+                    queueObjects(f, *run, L.shapesVersion, draw, vill, synligt, resten,
+                                 vill ? &märke.seen[run->id] : nullptr,
+                                 logg && egna != ändrade.end() ? &egna->second : nullptr);
+                }
+                for (std::size_t n = först; n < synligt.size(); ++n) {
+                    synligt[n].layer    = static_cast<std::uint32_t>(li);
+                    synligt[n].runIndex = static_cast<std::uint32_t>(ri);
+                    if (!taktat)
+                        synligt[n].cost = 0.0f;   // ritas alltid
+                }
                 continue;
             }
             if (rest && !isGlyphKind(k.kind) && k.kind != PartKind::Pass)
@@ -1826,15 +2069,53 @@ void prepareUploads(const PaintContext& f, const SceneData& sc)
                 resten.push_back(UploadItem{0.0, nullptr, run.get(), true});
         }
     }
-    std::stable_sort(synligt.begin(), synligt.end(),
-                     [](const UploadItem& a, const UploadItem& b) {
-                         return a.distance < b.distance;
-                     });
+    // STEGETS URVAL: kön står här i ritordning (lager, körning, plats).
+    {
+        const SceneCostScope kostnad(SceneCost::QSelect);
+        if (takt) {
+            selectPaced(*takt, synligt);
+            takt->selectedAt = std::chrono::steady_clock::now();
+        }
+        std::stable_sort(synligt.begin(), synligt.end(),
+                         [](const UploadItem& a, const UploadItem& b) {
+                             return a.distance < b.distance;
+                         });
+    }
+    sceneCost(SceneCost::Queue, std::chrono::steady_clock::now() - köStart);
+    const auto väntar = [&] { return f.c->images && f.c->images->uploadsDeferred(); };
     for (const UploadItem& u : synligt) {
-        if (u.object)
-            prepareObject(f, sc, *u.object, u.draw);
-        else if (u.imageRun)
+        if (u.object) {
+            const ObjectResidency::Shown sh = prepareObject(f, sc, *u.object, u.draw);
+            const bool taktad = takt && u.cost > 0.0f;
+            if (taktad && !sh.shape && väntar()) {
+                // Datan väntar på uppladdningens budget: föremålet ritas i ett
+                // senare steg. I ritordning får inget ritas förbi det.
+                takt->complete = false;
+                const WorldPos här{u.layer, u.runIndex, u.index};
+                if (takt->order == FramePace::Order::Sequence && här < takt->end)
+                    takt->end = här;
+                continue;
+            }
+            if (taktad)
+                takt->spent += u.cost;
+            if (lista && u.run)
+                lista->visible[u.run].push_back(
+                    LayerFrame::VisibleObject{u.index, sh, u.layer, u.runIndex});
+        } else if (u.imageRun) {
             runImage(f, u.imageRun->key.image);
+        }
+    }
+    if (takt)
+        commitPaced(*takt, *lista, sc);
+    // Ritningen ritar i körningens ordning (målarordningen och rangerna).
+    if (lista) {
+        for (auto& [run, synliga] : lista->visible)
+            std::sort(synliga.begin(), synliga.end(),
+                      [](const LayerFrame::VisibleObject& a,
+                         const LayerFrame::VisibleObject& b) {
+                          return a.index < b.index;
+                      });
+        lista->hasVisible = true;
     }
     // Resten så länge kontot har plats: chunkarna (de har ingen
     // uppladdningsbudget), sedan föremålen och bildkörningarna.
@@ -1844,19 +2125,29 @@ void prepareUploads(const PaintContext& f, const SceneData& sc)
         f.res->sync(ch);
     }
     for (const UploadItem& u : resten) {
-        if (!liggare.underBudget())
+        // Uppladdningens budget är slut: resten väntar till nästa bild — de
+        // har inte fått sin signatur, så de kommer i kön igen.
+        if (!liggare.underBudget() || väntar())
             break;
         if (u.object)
             prepareObject(f, sc, *u.object, u.draw);
         else if (u.imageRun)
             runImage(f, u.imageRun->key.image);
+        if (u.seen && !väntar())
+            *u.seen = u.sig;   // föremålet är behandlat
     }
     // MÄRKENA: lagrets rest är gjord för det här läget — utom när något fick
     // vänta på framens uppladdningsbudget; då görs den om i nästa bild, som
-    // fönstret begär.
-    if (!(f.c->images && f.c->images->uploadsDeferred()))
-        for (auto& [märke, nu] : märken)
-            *märke = nu;
+    // fönstret begär. Föremålens signaturer (`seen`) står kvar.
+    if (!väntar())
+        for (auto& [märke, nu] : märken) {
+            märke->life   = nu.life;
+            märke->shapes = nu.shapes;
+            märke->meshes = nu.meshes;
+            märke->budget = nu.budget;
+            märke->drawn  = nu.drawn;
+            märke->done   = nu.done;
+        }
 }
 
 void drawGround(const PaintContext& f, const SceneData& sc,
@@ -1934,38 +2225,64 @@ void drawWorld(const PaintContext& f, const SceneData& sc, const LayerFrame& lf,
             continue;
         const bool             draw  = layerDrawn(f, L);
         const float            op    = std::min(L.opacity, 1.0f) * f.opacity;
-        // DJUPORDNINGEN (depth_order.h): lagrets bas över de tidigare lagren,
-        // och inom lagret föremålens rang och rangen för det som ritas efter
-        // dem.
-        const DepthOrder*      ord   = li < lf.depth.size() ? lf.depth[li].get() : nullptr;
-        const int              bas   = li < lf.depthBase.size() ? lf.depthBase[li] : 0;
-        const gfx::RenderState geo   = gfxState(ranked(L.state, bas), false);
+        // YTOR I SAMMA PLAN (scene.h `coplanarPass`): lagret ritas i TVÅ pass
+        // — först bara djupet, sedan färgen med ett litet försprång mot ögat
+        // och utan att skriva djup. Där ytor ligger i samma plan vinner då
+        // den som ritas sist, hur många de än är: senare form över tidigare,
+        // senare lager över tidigare.
+        const bool             två   = f.view3D && coplanarPass(L.state);
+        const gfx::RenderState djup  = gfxState(depthOnly(L.state), false);
+        const RenderState      färgad = två ? coplanarColor(L.state) : L.state;
+        const gfx::RenderState geo   = gfxState(färgad, false);
         const PaintContext     fl    = inLayer(f, lf, li);
+        // Terrängens meshar ritas med marken (`drawTerrain`).
+        const bool föremål = lf.placement[li] != LayerPlacement::Terrain;
+        // BILDTAKTEN (scene.h `FramePace`): föremålen är stegets (listan i
+        // `lf`), och det som inte är föremål ritas i steget som når det.
+        const std::uint32_t lager = static_cast<std::uint32_t>(li);
+        const auto          iSteget = [&](std::size_t ri) {
+            return !f.pace || f.pace->drawsRun(lager, static_cast<std::uint32_t>(ri));
+        };
+        // DJUPPASSET tar bara MESHARNA (meshar, ytor i rymden, instanser):
+        // det är ytorna som kan ligga i samma plan. Linjer, ytor med
+        // kantremsa, punkter och text har kanter med delvis täckning — med
+        // deras djup skrivet i förväg hade ytan bakom kanten inte ritats i
+        // färgpasset, och kanten hade blandats mot det som låg där förut. De
+        // ritas därför i ett pass, med lagrets eget läge.
+        // Det som ritas EFTER lagrets första mesh — en ytas kontur, linjer
+        // och text på den — får färgpassets försprång (`coplanarAhead`), som
+        // målaren ger en forms kontur.
+        if (två && draw && föremål)
+            for (const std::shared_ptr<RunData>& run : L.runs)
+                if (run->key.kind == PartKind::Mesh)
+                    drawObjects(fl, sc, lf, *run, L.shapesVersion, op, draw, djup);
+        bool efterYta = false;
         for (std::size_t ri = 0; ri < L.runs.size(); ++ri) {
             const std::shared_ptr<RunData>& run = L.runs[ri];
             if (run->key.kind == PartKind::Pass)
                 continue;   // passen ritas först (`drawPasses`)
-            const int efter = ord && ri < ord->runs.size() ? ord->runs[ri] : 0;
+            const RenderState eget =
+                två && efterYta ? coplanarAhead(L.state) : L.state;
             if (isGlyphKind(run->key.kind)) {
-                if (draw)
+                if (draw && iSteget(ri))
                     drawGlyphs(fl, run, glyphEnv(fl), op, lf.labels,
-                               gfxState(ranked(L.state, bas + efter), true));
+                               gfxState(eget, true));
+            } else if (run->key.kind == PartKind::Mesh) {
+                if (föremål)
+                    drawObjects(fl, sc, lf, *run, L.shapesVersion, op, draw, geo);
+                efterYta = true;
             } else if (isObjectKind(run->key.kind)) {
-                // Terrängens meshar ritas med marken (`drawTerrain`).
-                if (lf.placement[li] != LayerPlacement::Terrain)
-                    drawObjects(fl, sc, lf, *run, L.shapesVersion, op, draw, geo,
-                                ord && ri < ord->objects.size() ? &ord->objects[ri]
-                                                                : nullptr);
-            } else {
-                drawChunks(fl, *run, L.shapesVersion, op, draw,
-                           gfxState(ranked(L.state, bas + efter), false));
+                if (föremål)
+                    drawObjects(fl, sc, lf, *run, L.shapesVersion, op, draw,
+                                gfxState(eget, false));
+            } else if (iSteget(ri)) {
+                drawChunks(fl, *run, L.shapesVersion, op, draw, gfxState(eget, false));
             }
         }
         // MÅLAREN efter lagrets former, med lagrets renderläge som start —
-        // djuptestad som lagret, med rangen över lagrets former.
-        const RenderState målat = ranked(L.state, bas + (ord ? ord->top : 0));
-        if (draw)
-            paintLayer(fl, paint, L, li, op, &målat);
+        // djuptestad som lagret.
+        if (draw && (!f.pace || f.pace->finishesLayer(lager)))
+            paintLayer(fl, paint, L, li, op, &L.state);
     }
 }
 

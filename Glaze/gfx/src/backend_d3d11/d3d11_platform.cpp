@@ -481,7 +481,7 @@ namespace {
 BOOL CALLBACK samlaSkärm(HMONITOR mon, HDC, LPRECT, LPARAM data)
 {
     auto*       ut = reinterpret_cast<std::vector<ScreenInfo>*>(data);
-    MONITORINFO mi{};
+    MONITORINFOEXW mi{};
     mi.cbSize = sizeof mi;
     if (!GetMonitorInfoW(mon, &mi))
         return TRUE;   // en skärm som inte svarar hoppas över
@@ -499,6 +499,11 @@ BOOL CALLBACK samlaSkärm(HMONITOR mon, HDC, LPRECT, LPARAM data)
                       float(w.bottom - w.top)};
     s.scale   = dpi / static_cast<float>(USER_DEFAULT_SCREEN_DPI) * userScale();
     s.primary = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
+    // Bildtakten ur skärmens nuvarande läge.
+    DEVMODEW läge{};
+    läge.dmSize = sizeof läge;
+    if (EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &läge))
+        s.refreshHz = static_cast<float>(läge.dmDisplayFrequency);
     ut->push_back(s);
     return TRUE;
 }

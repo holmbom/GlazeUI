@@ -128,8 +128,16 @@ float4 toNdc(float4 c)
                   c.z, c.w);
 }
 
-// a flyttad längs a→b till närplanet (klippdjup 0).
-float4 toNear(float4 a, float4 b) { return lerp(a, b, a.z / (a.z - b.z)); }
+// DJUPET ÄR OMVÄNT (gfx/scene.h `depthReversed`): klippdjupet är w vid
+// närplanet och 0 vid det bortre. `nearSide` är avståndet till närplanet i
+// klipprymden — negativt bakom det.
+float nearSide(float4 c) { return c.w - c.z; }
+
+// a flyttad längs a→b till närplanet.
+float4 toNear(float4 a, float4 b)
+{
+    return lerp(a, b, nearSide(a) / (nearSide(a) - nearSide(b)));
+}
 
 // SEGMENTET INNANFÖR KLIPPYTAN. GPU:n får aldrig klippa
 // ett linjeband: klippningen interpolerar de skärmlinjära (noperspective)
@@ -377,7 +385,7 @@ LineOut lineVs(LineIn i)
     } else if (kind == kRound) {
         // En rund skarv eller ände bakom närplanet syns inte (segmenten
         // trimmas där) — kastas som den spetsiga nedan.
-        if (c.z < 0.0) {
+        if (nearSide(c) < 0.0) {
             o.pos = float4(0.0, 0.0, -2.0, 1.0);
             return o;
         }
@@ -386,15 +394,15 @@ LineOut lineVs(LineIn i)
     } else {
         // SKARVEN, räknad i SKÄRMEN ur de projicerade grannarna. Punkten
         // bakom närplanet: ingen skarv syns (segmenten trimmas där).
-        if (c.z < 0.0) {
+        if (nearSide(c) < 0.0) {
             o.pos = float4(0.0, 0.0, -2.0, 1.0);
             return o;
         }
         float4 ca = toClip(i.prev);
         float4 cb = toClip(i.next);
-        if (ca.z < 0.0)
+        if (nearSide(ca) < 0.0)
             ca = toNear(ca, c);
-        if (cb.z < 0.0)
+        if (nearSide(cb) < 0.0)
             cb = toNear(cb, c);
         const float2 pc = toPx(c);
         float2 nA, nB, m;
@@ -530,7 +538,7 @@ LineOut lineVs(LineIn i)
     } else {
         hw = halfWidthAt(i.width, c);
         const float ext = hw + 1.0;
-        if (c.z < 0.0) {
+        if (nearSide(c) < 0.0) {
             // Bakom närplanet: ingen skarv och ingen rund ände syns.
             o.hw  = hw;
             o.pos = float4(0.0, 0.0, -2.0, 1.0);
@@ -542,9 +550,9 @@ LineOut lineVs(LineIn i)
         } else {
             float4 ca = toClip(i.prev);
             float4 cb = toClip(i.next);
-            if (ca.z < 0.0)
+            if (nearSide(ca) < 0.0)
                 ca = toNear(ca, c);
-            if (cb.z < 0.0)
+            if (nearSide(cb) < 0.0)
                 cb = toNear(cb, c);
             const float2 pc = toPx(c);
             float2 nA, nB, m;

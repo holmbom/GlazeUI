@@ -59,18 +59,25 @@ float4 toNdc(float4 c)
                   c.z, c.w);
 }
 
-// a flyttad längs a→b till närplanet (klippdjup 0).
-float4 toNear(float4 a, float4 b) { return lerp(a, b, a.z / (a.z - b.z)); }
+// DJUPET ÄR OMVÄNT (gfx/scene.h `depthReversed`): klippdjupet är w vid
+// närplanet. `nearSide` är avståndet till närplanet — negativt bakom det.
+float nearSide(float4 c) { return c.w - c.z; }
+
+// a flyttad längs a→b till närplanet.
+float4 toNear(float4 a, float4 b)
+{
+    return lerp(a, b, nearSide(a) / (nearSide(a) - nearSide(b)));
+}
 
 // Kantens riktning i skärmen från a till b, med den ände som ligger bakom
 // närplanet flyttad till det; (0, 0) när hela kanten ligger bakom.
 float2 screenDir(float4 a, float4 b)
 {
-    if (a.z < 0.0 && b.z < 0.0)
+    if (nearSide(a) < 0.0 && nearSide(b) < 0.0)
         return float2(0.0, 0.0);
-    if (a.z < 0.0)
+    if (nearSide(a) < 0.0)
         a = toNear(a, b);
-    else if (b.z < 0.0)
+    else if (nearSide(b) < 0.0)
         b = toNear(b, a);
     const float2 d = toPx(b) - toPx(a);
     const float  l = length(d);
@@ -105,16 +112,16 @@ FillOut fillVs(FillIn i)
     const float2 other = start ? i.next : i.prev;
     const float4 nb    = toClip(other);
     const float4 adj   = toClip(start ? i.prev : i.next);
-    if (c.z < 0.0 && nb.z < 0.0) {
+    if (nearSide(c) < 0.0 && nearSide(nb) < 0.0) {
         o.pos = toNdc(c);   // hela kanten bakom närplanet: klipps bort
         return o;
     }
     float2 e = start ? screenDir(c, nb) : screenDir(nb, c);
     float2 g = start ? screenDir(adj, c) : screenDir(c, adj);
-    if (c.z < 0.0) {
+    if (nearSide(c) < 0.0) {
         // Punkten bakom närplanet flyttas längs KANTEN till planet (kanten
         // har egna vertex) — grannkantens gering gäller inte där.
-        const float t = c.z / (c.z - nb.z);
+        const float t = nearSide(c) / (nearSide(c) - nearSide(nb));
         c       = lerp(c, nb, t);
         o.world = lerp(i.pos, other, t);
         g       = float2(0.0, 0.0);

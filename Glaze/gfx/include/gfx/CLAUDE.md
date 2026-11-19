@@ -22,7 +22,7 @@ bor i `src/backend_*/` — läcker en typ hit är abstraktionen bruten.
 - **RITYTANS SCEN (CANVAS_2D etapp 1, 2026-10-09; 3D sedan CANVAS_3D)** —
   sju headers bredvid UI-pipelinen. Innehållet
   laddas upp EN gång; panorering, zoom, vridning och tilt är en ny matris.
-  - **`mat4.h`** — `Mat4d` i DOUBLE, `toFloat` först vid uppladdningen.
+  - **`mat4.h`** — `Mat4d` i DOUBLE, `toFloat` först vid uppladdningen. En vyprojektion som lämnas till grafikkortet går genom **`toDevice`** (inversen genom `inverseToDevice`): där backenden lagrar OMVÄNT djup (`gfx::depthReversed()`, scene.h) byts djupraden till w − z i double, så djupets små tal avrundas var för sig — annars exakt `toFloat`. CPU:ns egen räkning (`project`, `rayThrough`, `Projection`) läser alltid den vanliga matrisen.
     KONVENTIONEN är kontraktet mot tre shaderspråk och står i filen:
     kolumnordning (`m[kolumn * 4 + rad]`) och kolumnvektorer — läses rakt av
     som GLSL-`mat4`, HLSL-`float4x4` (column_major, `mul(M, v)`) och
@@ -170,7 +170,7 @@ bor i `src/backend_*/` — läcker en typ hit är abstraktionen bruten.
     KAMERAN — som triangeln syns i målet — i alla tre backends, så en speglad
     matris vänder den. Biasen är i djupformatets minsta steg (D32F: 2^(e −
     23); D3D11 avrundar till heltal), negativt är närmare. Läget gäller BARA
-    anropet: UI:t ritar alltid med sitt eget efteråt (grind: G9 A8).
+    anropet: UI:t ritar alltid med sitt eget efteråt (grind: G9 A8). **DJUPETS FORM är backendens** (`bool depthReversed()`): renderläget talar alltid om närmare och längre bort, och Windows lagrar djupet OMVÄNT (1 vid närplanet, rensat till 0 — jämförelserna och biasens tecken vänds i backenden, programmen läser klippdjupet w vid närplanet), medan macOS och Linux lagrar 0 vid närplanet. Omvänt i en flyttalsbuffert är ett steg en bråkdel av AVSTÅNDET i stället för avståndet i kvadrat genom närplanet.
     **DE SKÄRMVÄNDA HÖRNENS DJUP (spår G):** Line i skärmläget, Line3 och
     Glyph (utom liggande) ger ett hörn djupet av planet genom punkten
     parallellt med xy-planet där det är närmare än punktens — det som står
@@ -571,7 +571,7 @@ bor i `src/backend_*/` — läcker en typ hit är abstraktionen bruten.
   den ICKE-virtuella bekvämligheten **`createRenderTarget(w, h)`** = 2D-målet
   (`TargetDesc{}`) — en backend som overridar den virtuella tar
   `using Renderer::createRenderTarget;`, annars skuggar den bekvämligheten.
-  De ICKE-virtuella **`pushTarget(mål, rensfärg)`/`popTarget()`**:
+  De ICKE-virtuella **`pushTarget(mål, rensfärg)`/`popTarget()`** (och **`resumeTarget(mål)`** — som push men UTAN rensning: ritningen fortsätter ovanpå målets färg och djup, ritytans bildtakt):
   KLIPPSTACKEN HÖR TILL MÅLET — push SPARAR och TÖMMER den, pop binder det
   yttre målet (eller framens eget) och lägger tillbaka den, så klippet efter
   pop är exakt det före push. Backenden implementerar bara skyddade
@@ -907,7 +907,7 @@ bor i `src/backend_*/` — läcker en typ hit är abstraktionen bruten.
   ignoreras. `effectiveDisplay` gör en mätning Calibrated när dess id har en
   kalibrering. Bor backend-neutralt i `src/display_util.cpp`; i en app går
   vägen genom `glaze::App::setDisplayCalibration`), **`screens()`** (`ScreenInfo
-  {bounds, work, scale, primary}` i placeringsrymden; tom på Wayland och före init), `systemTheme()`
+  {bounds, work, scale, primary, refreshHz}` i placeringsrymden; `refreshHz` är skärmens bildtakt, 0 = okänd — Windows svarar, macOS och Linux inte än; tom på Wayland och före init), `systemTheme()`
   (OS:ets ljus/mörkt, läses färskt per anrop — okänt → Light),
   **`systemLocale()`** (OS:ets SPRÅKVAL som BCP-47-tagg, TOM utan preferens;
   fasaden NORMALISERAR: `sv_SE.UTF-8` → `sv-SE`, `nb_NO@variant` → `nb-NO`,

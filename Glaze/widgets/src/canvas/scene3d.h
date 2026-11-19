@@ -68,6 +68,7 @@
 #include "camera_math.h"
 #include "glaze/canvas/style3d.h"
 #include "programs3d.h"
+#include "residency.h"
 #include "scene.h"
 #include "transform3d.h"
 
@@ -81,32 +82,54 @@ struct UploadItem {
     const std::shared_ptr<ShapeEntry>* object   = nullptr;   // ett föremål …
     const RunData*                     imageRun = nullptr;   // … eller en bildkörning
     bool                               draw     = false;     // lagret ritas
+    // Ett föremål i resten: platsen i lagrets residensmärke som får
+    // signaturen `sig` när föremålet är behandlat (resources.h `ResidentMark`).
+    std::uint64_t*                     seen     = nullptr;
+    std::uint64_t                      sig      = 0;
+    // Ett SYNLIGT föremål: körningen och platsen i den (`LayerFrame::visible`).
+    const RunData*                     run      = nullptr;
+    std::uint32_t                      index    = 0;
+    // BILDTAKTEN (scene.h `FramePace`), för ett synligt föremål: storleken
+    // på skärmen som ett jämförelsetal (lådans diagonal genom avståndet —
+    // störst ritas först), kostnaden, och platsen i ritordningen — lagret
+    // och körningens nummer i det, satta av `prepareUploads`.
+    float                              priority = 0.0f;
+    float                              cost     = 0.0f;
+    std::uint32_t                      layer    = 0;
+    std::uint32_t                      runIndex = 0;
 };
+// Föremålets kostnad i bildtakten: dess trianglar (instanserna gånger sin
+// prototyps, punkterna två var) plus `kPaceObjectCost`.
+double objectPaceCost(const Shape& s);
 // Körningens föremål i kön: de som syns i vyn (`f.view3D`, i 2D-vägen
 // kartkamerans 3D-vy över körningens höjder) med avståndet i `visible` — ur
 // körningens index (run_index.h, `shapesVersion` är lagrets) — och, med
-// `wantRest`, resten i `rest`. En skärmkonstant mesh räknas som synlig — dess
-// låda är origot, och ritningen gallrar den med sin storlek.
+// `wantRest`, resten i `rest` — av resten bara de föremål vars signatur
+// skiljer sig från `seen` (en per plats i körningen; nullptr = alla). En
+// skärmkonstant mesh räknas som synlig — dess låda är origot, och ritningen
+// gallrar den med sin storlek.
+// Med `only` prövas bara de platserna för resten (lagrets ändringslogg) —
+// nullptr = alla.
 void queueObjects(const PaintContext& f, const RunData& run,
                   std::uint64_t shapesVersion, bool draw, bool wantRest,
-                  std::vector<UploadItem>& visible, std::vector<UploadItem>& rest);
+                  std::vector<UploadItem>& visible, std::vector<UploadItem>& rest,
+                  std::vector<std::uint64_t>* seen = nullptr,
+                  const std::vector<std::uint32_t>* only = nullptr);
 // Förberedelsen av ett föremål (se filhuvudet): resident inom budgeten och,
 // med `draw` (lagret ritas), det ritningen binder — texturen, rampen och ett
 // eget program med dess texturer. `scene` bär ritytans egna program.
-void prepareObject(const PaintContext& f, const SceneData& scene,
-                   const std::shared_ptr<ShapeEntry>& e, bool draw);
+// Svarar med det platsen visar (tomt när dess data inte är uppe än).
+ObjectResidency::Shown prepareObject(const PaintContext& f, const SceneData& scene,
+                                     const std::shared_ptr<ShapeEntry>& e, bool draw);
 
 // Körningens föremål ritade med renderläget `state` och lagrets opacitet
 // `op` (tonen inräknad); utan `draw` ritas ingenting. Bara de som kan synas
 // frågas (run_index.h, `shapesVersion` är lagrets). `lf` är förberedelsens
-// svar (labels.h — draperingarna). `ranks` är föremålens rang i lagrets
-// djupordning (depth_order.h), en per plats i `run.objects`: varje föremål
-// ritas med `state` och sin rangs bias; nullptr = alla med `state`.
+// svar (labels.h — draperingarna och listan över de synliga).
 void drawObjects(const PaintContext& f, const SceneData& scene,
                  const LayerFrame& lf, const RunData& run,
                  std::uint64_t shapesVersion, float op, bool draw,
-                 const gfx::RenderState& state,
-                 const std::vector<std::uint8_t>* ranks = nullptr);
+                 const gfx::RenderState& state);
 
 // Helskärmspasset `s`: förberedelsen — programmet kompilerat och
 // texturerna hämtade, före målet — och ritningen med lagrets opacitet `op`

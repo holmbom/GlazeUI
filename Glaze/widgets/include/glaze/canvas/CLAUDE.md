@@ -148,7 +148,10 @@ Allt här kommer in med paraplyet `glaze/glaze.h`.
 - **`style3d.h`** (CANVAS_3D etapp 3) — HUR ett lager ritas i 3D-målet:
   **`RenderState`** (`depth`, `depthWrite`, `depthBias`, `slopeBias`,
   `blend`, `cull` — fasadens typer, men APPENS förval är 3D: Less med
-  skrivning; fältordningen är kontrakt för designerade initierare) och
+  skrivning; fältordningen är kontrakt för designerade initierare; ytor i
+  SAMMA PLAN: den som ritas sist vinner — lagrets meshar ritas i två pass,
+  djupet och sedan färgen —, och ett bias-steg är djupbuffertens minsta, på Windows
+  (omvänt djup) ungefär en tiomiljondel av avståndet) och
   **`LayerPlacement {Auto, Ground, World, Terrain}`** (Auto = World av en
   form i rymden, annars Ground; **Terrain** (etapp 9) — lagrets meshar och
   ytor i rymden ÄR marken: ritade med lagrets läge i 3D-målets steg 2, och

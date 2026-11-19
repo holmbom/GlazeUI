@@ -165,9 +165,11 @@ Möjligt och genomtänkt, men inte beslutat. Ritytan med mycket stora 3D-modelle
 - 💡 **Plockning som inte blockerar — bara meshar med sökträd, eller svar i efterhand**
   En flagga i `HitOptions` (ofullständigt svar, sagt i svaret), och `hitTest` med en svarsfunktion där träden byggs i arbetspoolen.
   Sökträden bör räknas i ritytans minnesbudget och kunna vräkas.
-- 💡 **Omvänt djup i 3D-målet**
-  Nära = 1, långt bort = 0, vänt inuti ramverket så att `DepthTest::Less` fortsätter betyda "närmare vinner"; tar bort flimret i kilometerstora scener.
-  Full effekt på D3D11 och Metal, på GL bara med `glClipControl`. Bias-värdena (markdjupet, stående etiketter, punkter) måste mätas om. Ingen fartvinst.
+- 💡 **Omvänt djup på macOS och Linux**
+  Windows lagrar djupet omvänt sedan 0.11.0 (`gfx::depthReversed()`); Metal och GL lagrar 0 vid närplanet som förut, och där flimrar ytor nära varandra i kilometerstora scener med ett litet närplan.
+  Metal: samma fyra delar som D3D11 (matrisen genom `toDevice`, jämförelserna, biasens tecken, rensningen till 0) och programmens närplan. GL ger full effekt bara med `glClipControl` (4.5 eller ARB_clip_control); utan den blir bilden rätt men upplösningen densamma.
+- 💡 **Lägre detaljnivå i rörelse med bildtakten**
+  Med `setFramePacing` ritas det som ryms i tiden, och det som inte ryms saknas tills kameran står still. Ramverket vet hur mycket som ryms: ge appen det talet (eller välj `Lod`-nivå efter det), så allt syns grövre i rörelse i stället för att delar faller bort.
 - 💡 **Minnesbudgeten när appen har ett eget urval**
   I dag: appen sätter `setMemoryBudget` högt och väljer själv, annars vräker ramverket det appen tror är inladdat.
   Målet är att appen säger vad som är viktigast och ramverket vräker — kräver laddaren ovan.

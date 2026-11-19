@@ -234,6 +234,13 @@ bool D3dRenderer::updateImage(Image& img, int x, int y, int w, int h,
     return true;
 }
 
+// Djupet lagras omvänt (gfx/scene.h) — tillståndet i d3d11_renderer.cpp,
+// programmens klipplan i d3d11_scene/fill/glyph/program.cpp.
+bool depthReversed()
+{
+    return true;
+}
+
 // PNG-encode (glaze-render): encode-spegeln av loadImage — WIC-encodern
 // (samma windowscodecs, redan länkat). PNG-encoderns nativa format är
 // 32bppBGRA — swizzla RGBA→BGRA deterministiskt i stället för att lita

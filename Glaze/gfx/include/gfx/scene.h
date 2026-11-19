@@ -498,6 +498,18 @@ enum class Blend : std::uint8_t { Alpha, Premultiplied, Additive, Opaque,
 // matris vänder alltså framsidan.
 enum class Cull : std::uint8_t { None, Back, Front };
 
+// DJUPETS FORM I BACKENDEN. Renderläget talar alltid om NÄRMARE och LÄNGRE
+// BORT (`Less` = närmare vinner, en negativ bias är närmare) — hur djupet
+// lagras är backendens sak. Sant: backenden lagrar OMVÄNT djup (1 vid
+// närplanet, 0 längst bort, rensat till 0), och matriserna lämnas med
+// `Mat4d::toDevice`. Windows gör det; macOS och Linux lagrar 0 vid närplanet.
+// Med omvänt djup i en flyttalsbuffert är upplösningen en bråkdel av
+// AVSTÅNDET i stället för avståndet i kvadrat genom närplanet — ett närplan
+// på några centimeter och ett bortre på kilometer skiljer ändå ytor en
+// bråkdels millimeter isär. Biasens steg (djupformatets minsta) följer med:
+// ett steg är där ungefär en tiomiljondel av avståndet.
+bool depthReversed();
+
 struct RenderState {
     DepthTest depth      = DepthTest::Off;
     bool      depthWrite = false;   // skriv fragmentets djup (inte med Off)

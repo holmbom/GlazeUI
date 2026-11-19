@@ -67,7 +67,6 @@
 
 #include "../canvas/build.h"
 #include "../canvas/camera_math.h"
-#include "../canvas/depth_order.h"
 #include "../canvas/drape.h"
 #include "../canvas/frame_job.h"
 #include "../canvas/hit_index.h"
@@ -120,7 +119,9 @@ Canvas::Canvas()
       minElevation_(detail::defaultElevationMin()),
       maxElevation_(detail::defaultElevationMax()),
       rotationSnap_(detail::defaultRotationSnap()),
-      rotationSnapTolerance_(detail::defaultRotationSnapTolerance())
+      rotationSnapTolerance_(detail::defaultRotationSnapTolerance()),
+      frameRate_(detail::defaultFrameRate()),
+      refresh_(std::make_unique<detail::RefreshCache>())
 {
     // Lager 0 finns från start — `addShape(form)` lägger där.
     scene_->layers.push_back(std::make_shared<detail::LayerData>());
@@ -177,6 +178,38 @@ bool Canvas::setProp(const std::string& key, const std::string& value)
             !(a < static_cast<double>(std::numeric_limits<std::size_t>::max())))
             return ogiltig();
         setMemoryBudget(static_cast<std::size_t>(a));
+        return true;
+    }
+    // BILDTAKTEN: enumens namn med typens prefix eller utan, skiftläges-
+    // okänsligt på namnet (pekarformens regel) — och takten som ett tal.
+    if (key == "framePacing") {
+        static constexpr struct {
+            const char* namn;
+            FramePacing takt;
+        } kTakter[] = {
+            {"drawall", FramePacing::DrawAll},
+            {"vsync", FramePacing::VSync},
+            {"fps", FramePacing::Fps},
+        };
+        std::string sist = value;
+        for (const char* prefix : {"glaze::FramePacing::", "FramePacing::"})   // lang_gate:rad enumprefix
+            if (value.rfind(prefix, 0) == 0) {
+                sist = value.substr(std::strlen(prefix));
+                break;
+            }
+        for (char& ch : sist)
+            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        for (const auto& t : kTakter)
+            if (sist == t.namn) {
+                setFramePacing(t.takt);
+                return true;
+            }
+        return ogiltig();
+    }
+    if (key == "frameRate") {
+        if (!propparse::parseDouble(value, a))
+            return ogiltig();
+        setFrameRate(a);
         return true;
     }
     // Gesterna, etiketternas toning och orbitens tumling
@@ -531,12 +564,15 @@ bool Canvas::submitThreadFrame(const Ctx& c, detail::CanvasRenderLoop& loop)
         j.gridWidthPx = c.style->canvasGridWidth;
         j.memoryBudget = app().canvasMemoryBudget();
         j.uploadBudget = app().canvasUploadBudget();
+        j.frameBudgetMs = frameBudgetMs();
         {
             // Appens målare körs HÄR, en gång, och spelas in (paint_list.h).
             const detail::PaintingScope ritar(*scene_);
-            if (j.target3D)
+            if (j.target3D) {
                 pc.view3D = detail::mainView3D(is3D_ ? &cam3D_ : nullptr, pc.world,
                                                *j.scene);
+                j.paceView = pc.view3D;
+            }
             j.paints = detail::recordPaints(*this, pc, true, j.target3D);
         }
         // Jobbets kamera — den dess bild visas med (`projectShown`).
@@ -2797,6 +2833,55 @@ std::size_t Canvas::memoryBudget() const
     return scene_->memoryBudget;
 }
 
+// ---------------------------------------------------------------- bildtakten
+
+void Canvas::setFramePacing(FramePacing mode)
+{
+    if (mode == framePacing_)
+        return;
+    framePacing_ = mode;
+    invalidate();   // nästa jobb bär den nya takten
+}
+
+void Canvas::setFrameRate(double fps)
+{
+    if (!detail::validFrameRate(fps)) {
+        gfx::log("Canvas(%s)::setFrameRate: %g bilder per sekund — takten ska "
+                 "vara ändlig och över noll (ignoreras)",
+                 name.c_str(), fps);
+        return;
+    }
+    if (fps == frameRate_)
+        return;
+    frameRate_ = fps;
+    if (framePacing_ == FramePacing::Fps)
+        invalidate();
+}
+
+// Tiden ett jobb får ta: 0 = hel bild. `VSync` frågar skärmen fönstret står
+// på (klientytans hörn i placeringsrymden).
+double Canvas::frameBudgetMs() const
+{
+    switch (framePacing_) {
+    case FramePacing::DrawAll:
+        return 0.0;
+    case FramePacing::Fps:
+        return detail::frameBudgetFor(frameRate_);
+    case FramePacing::VSync:
+        break;
+    }
+    AppWindow* w = appWindow();
+    if (!w)
+        return detail::frameBudgetFor(detail::defaultFrameRate());
+    return detail::frameBudgetFor(
+        detail::refreshRateAt(*refresh_, w->window().clientToScreen(0.0f, 0.0f)));
+}
+
+bool Canvas::frameComplete() const
+{
+    return !threaded() || !frameResult_ || frameResult_->complete;
+}
+
 CanvasMemoryUse Canvas::memoryUsed() const
 {
     // Ritytans konto i fönstrets liggare — det `trim` jämför med budgeten.
@@ -3854,7 +3939,7 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
         // det närmaste SYNLIGA på skärmen per form och sort står kvar.
         bool   urval = false;
         double skärm = 0.0;   // skärmavståndet, fysiska px
-        int    rang  = 0;     // föremålets rang i lagrets djupordning
+        int    rang  = 0;     // formens plats i lagret — den senare ritas överst
     };
     std::vector<Kandidat> kand;
     const CanvasResources::LabelState* labels =
@@ -3965,16 +4050,14 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
         pk.occluder     = target3D && !ground && L.state.depthWrite;
         pk.vertexTol    = L.snap ? hörnTol : detail::ScreenTol{};
         pk.edgeTol      = L.snap ? kantTol : detail::ScreenTol{};
-        // Lagrets djupordning — i samma plan vinner den högre rangen, som i
-        // ritningen (depth_order.h).
-        const std::shared_ptr<const detail::DepthOrder> ordning =
-            target3D && place == LayerPlacement::World ? detail::depthOrder(L) : nullptr;
         std::vector<detail::SceneHit> träffar;
         for (std::size_t i = 0; i < L.slots.size(); ++i) {
             const Shape& s = L.slots[i].entry->shape;
             if (!isObject3D(s))
                 continue;
-            const int rang = ordning ? detail::slotRank(L, *ordning, L.slots[i]) : 0;
+            // I samma plan vinner den form som ritas sist i lagret, som i
+            // ritningen (src/canvas/scene.h `coplanarPass`).
+            const int rang = static_cast<int>(i);
             träffar.clear();
             pk.surface = !(place == LayerPlacement::Terrain && förplockad(s));
             if (!pk.surface)
@@ -4097,9 +4180,9 @@ std::vector<HitResult> Canvas::hitTest(Point local, const HitOptions& options) c
         return a.ordning < b.ordning;
     });
     // YTOR I SAMMA PLAN: avstånden skiljer bara på avrundningen, och
-    // ritningen låter det senare lagret och den högre rangen vinna
-    // (depth_order.h) — träffarna inom skymningens marginal från den närmaste
-    // står i den ordningen.
+    // ritningen låter det senare lagret och den senare formen vinna
+    // (src/canvas/scene.h `coplanarPass`) — träffarna inom skymningens
+    // marginal från den närmaste står i den ordningen.
     if (target3D) {
         const auto yta = [](const Kandidat& k) {
             return k.påStrålen && k.h.kind == HitKind::Surface;

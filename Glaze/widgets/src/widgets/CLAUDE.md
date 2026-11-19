@@ -917,7 +917,7 @@ avslutar med `return Widget::setTextToken(key, value);` (`tooltip_gate`).
   (canvas_gate MR). **INRAMNINGEN** (`zoomToRect`/`zoomToBox`/`panBy`) räknar mot `currentBox` — aldrig
   `lastBox_`, som en inaktiv flik lämnar gammal — eller väntar till `applyPending` (canvas_gate FL). **MINNET**:
   `setMemoryBudget` LAGRAR i `scene_->memoryBudget` och gäller från nästa ritning; ritvägarna i UI-tråden
-  (`drawScene` utan tråd, `drawOverlay`) öppnar sitt konto med `detail::MemoryAccount`, och `memoryUsed()` läser
+  (`drawScene` utan tråd, `drawOverlay`) öppnar sitt konto med `detail::MemoryAccount`, och `memoryUsed()` läser [BILDTAKTEN: `submitThreadFrame` lägger `frameBudgetMs()` (0 = hel bild; `VSync` frågar skärmens takt genom `detail::refreshRateAt`, högst en gång i sekunden) och huvudvyns 3D-vy (`paceView`) i jobbet — talen och prövningen bor i ../canvas/frame_job.cpp, passen i ../canvas/render_loop.h; `frameComplete()` läser den visade bildens svar]
   kontot — med en renderingstråd den visade bildens svar (`threadMemory_`), för kontot bor då hos tråden.
   **TRÅDLÄGET** (`frameStep` tar den färdiga bilden en gång per bild, `submitThreadFrame` lämnar jobbet när nyckeln — `damageStamp()`, rutan, skalan — ändrats och lägger bilden på plats; `renderToBitmap` beställer): ../canvas/render_loop.h.
   **MÅLARNA** spelas in (`../canvas/paint_list.h` — `onPaint`, `onPaintLayer`; `onPaintOverlay` ritas direkt), och

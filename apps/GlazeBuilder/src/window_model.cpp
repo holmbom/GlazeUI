@@ -1333,6 +1333,8 @@ constexpr SetterFieldSpec kSetterFields[] = {
     {"glaze::Canvas",        "inputMode",     false},
     // MINNET: ritytans minnesbudget i byte — ett heltal.
     {"glaze::Canvas",        "memoryBudget",  false},
+    {"glaze::Canvas",        "framePacing",   false},
+    {"glaze::Canvas",        "frameRate",     false},
     // PROGRAMIKONEN. Bilderna är handtag — värdet är
     // `glaze::img("lista", "nyckel")` eller `{}` (= förvalet), som Buttons
     // `img` — och den stora formen och "ingen ikon alls" är bools. EXAKT

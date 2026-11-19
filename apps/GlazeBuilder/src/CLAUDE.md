@@ -642,7 +642,7 @@ delat läge, annars en no-op); VSIX:en buntar alltid det statiska bygget.
   ska ha ett mått man ser och drar i; ärver `glaze::Widget`, setter-fälten `gridSize`/`zoom`/`bearing`/`pitch`/
   `maxPitch` och vridsnäppets `rotationSnap`/`rotationSnapTolerance` (TODO 53) (Number), `border`/`flat` (REQ8
   4)/`yUp`/`pannable`/`zoomable`/`rotatable`/ `pitchable`/`inertia`/`labelFade` (Bool) och sedan CANVAS_3D etapp 12
-  `multisample` (Integer) och `depth`/`orbitTumble` (Bool), REQ3:s `memoryBudget` som Number och INTE Integer (Integer
+  `multisample` (Integer) och `depth`/`orbitTumble` (Bool), bildtaktens `framePacing` (Enum `DrawAll;VSync;Fps`, prefix `glaze::FramePacing::`) och `frameRate` (Number), REQ3:s `memoryBudget` som Number och INTE Integer (Integer
   går genom `int` och spricker över 2 GiB; texten round-trippar ordagrant) och REQ9_INMATNING:s `inputMode` (Text;
   `orbitPan` är RIVET — flygläget är två `setBinding`-rader). Bindningarna och vändningarna är Call-satser i
   `applyCall`s ritytegren med `parseKälla`/`parseHandling`/`parseRiktning`/`parseEnhet` och **`argMods`** (`0` eller

@@ -346,6 +346,11 @@ glaze::Box3 stolpLåda(double x, double y)
 // D: DET INNEHÅLLET KRÄVER — byggarnas kontrakt räknade här ur grindens egna
 // former (filhuvudet). Det fasta i varje frame är kFast.
 constexpr std::uint64_t kFast = 8;
+// Ett lager i rymden som skriver djup ritar sina MESHAR (meshar, ytor i
+// rymden, instanser) i TVÅ PASS — djupet och sedan färgen, så ytor i samma
+// plan får en ordning: varje mesh är två rit-anrop, och dess vertex och
+// instanser räknas två gånger. Linjer, punkter och text ritas i ett.
+constexpr std::uint64_t kMeshPass = 2;
 
 // En mesh: ett anrop per SEGMENT. Ett segment rymmer högst 64 MiB av
 // CPU-strömmarnas vertexdata OCH lika mycket index (mesh_data.h), och en
@@ -838,7 +843,7 @@ int main(int argc, char** argv)
                    glaze::Shape::mesh(s.mesh, {.at = {stolpX(i % kolumner),
                                                       stolpY(i / kolumner), 0.0}}));
         // CPU-strömmarna: läge 12 + normal 12 + färg 4 byte.
-        kravS += meshAnrop(s.mesh.vertexCount() / 3, 28);
+        kravS += kMeshPass * meshAnrop(s.mesh.vertexCount() / 3, 28);
     }
     const auto orbit = [](int i) {
         return glaze::Camera3D{.target    = {kX0, kY0, 10.0},
@@ -951,6 +956,7 @@ int main(int argc, char** argv)
     k.setLayerVisible(lagerRad, true);
     b.frame();
     const gfx::RenderStats medL = b.frame();
+    väntadeV *= kMeshPass;
     check(medL.vertices - basL.vertices == väntadeV,
           "L ritade vertex = summan av varje stolpes detaljnivå (grindens "
           "avstånd ögat–lådan)",
@@ -989,7 +995,8 @@ int main(int argc, char** argv)
             max += d <= halv + bredd + 1.0;
             min += d <= halv - bredd - 1.0;
         }
-        const std::uint32_t ritade = med.drawCalls - bas.drawCalls;
+        const std::uint32_t ritade =
+            (med.drawCalls - bas.drawCalls) / static_cast<std::uint32_t>(kMeshPass);
         check(ritade <= static_cast<std::uint32_t>(max) &&
                   ritade >= static_cast<std::uint32_t>(min),
               "C ringen, giren " + std::to_string(static_cast<int>(gir)) +
@@ -1014,7 +1021,8 @@ int main(int argc, char** argv)
     const Stolpe      ny      = byggStolpe(stolpTri * 3 / 4, 77u);
     glaze::app().setCanvasUploadBudget(budget);
     k.setShape(lagerByte, 0, glaze::Shape::mesh(ny.mesh, {.at = {kX0, kY0, 0.0}}));
-    const std::uint64_t gammalV = stolpar[1].nivå[0], nyV = ny.nivå[0];
+    const std::uint64_t gammalV = kMeshPass * stolpar[1].nivå[0],
+                        nyV     = kMeshPass * ny.nivå[0];
     int           frames = 0, bytet = -1;
     std::uint64_t maxS = 0, brottS = 0;
     bool          ordning = true;
@@ -1102,7 +1110,7 @@ int main(int argc, char** argv)
                         .color = gfx::Color{static_cast<std::uint8_t>(r.mellan(40, 90)),
                                             static_cast<std::uint8_t>(r.mellan(110, 170)),
                                             50, 255}});
-    const std::uint64_t kravT = instansAnrop(träd);   // D — cellkontraktets tak
+    const std::uint64_t kravT = kMeshPass * instansAnrop(träd);   // D — cellkontraktets tak
     const int lagerTräd = k.addLayer("träd");
     k.addShape(lagerTräd, glaze::Shape::instances(glaze::Shape::mesh(konMesh),
                                                   std::move(träd)));
@@ -1151,8 +1159,9 @@ int main(int argc, char** argv)
                 if (smal.inne(c.box))
                     minI += c.count;
             }
-            const std::uint64_t inst   = med.instances - bas.instances;
-            const std::uint32_t anrop  = med.drawCalls - bas.drawCalls;
+            const std::uint64_t inst   = (med.instances - bas.instances) / kMeshPass;
+            const std::uint32_t anrop  =
+                (med.drawCalls - bas.drawCalls) / static_cast<std::uint32_t>(kMeshPass);
             check(inst <= maxI && inst >= minI && inst < static_cast<std::uint64_t>(trädAntal),
                   "T träden, azimut " + std::to_string(static_cast<int>(kam.azimuth)) +
                       "°: ritade instanser inom cellerna som skär synpyramiden",
@@ -1185,6 +1194,7 @@ int main(int argc, char** argv)
             const double d = avståndTillLåda(smal.öga, c.box);
             väntad += std::uint64_t{c.count} * konNivå[d <= kKonGräns ? 0 : 1];
         }
+        väntad *= kMeshPass;
         check(allaInne && med.vertices - bas.vertices == väntad,
               "T detaljnivån per cell: ritade vertex = cellernas instanser × "
               "nivåns index (grindens avstånd)",
@@ -1704,7 +1714,7 @@ int main(int argc, char** argv)
             störst = std::max(störst, s.bytesUploaded);
         }
         glaze::app().setCanvasUploadBudget(förval);
-        check(första.drawCalls == bas.drawCalls + 1,
+        check(första.drawCalls == bas.drawCalls + kMeshPass,
               "M12 den synliga meshen ritas i den FÖRSTA bilden fast den står sist "
               "bland 201 och budgeten räcker till en",
               std::to_string(första.drawCalls - bas.drawCalls) + " nya anrop");

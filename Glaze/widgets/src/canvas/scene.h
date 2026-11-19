@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -9,6 +10,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -346,6 +348,16 @@ struct RunData {
     // räknas ur föremålen när den behövs. Pass: HELSKÄRMSPASSEN i
     // ordning.
     std::vector<std::shared_ptr<ShapeEntry>> objects;
+    // FÖREMÅLENS ÄNDRINGSLOGG för körningen — platsen i `objects` för varje
+    // föremål som lagts till, bytts eller tagits bort, med lagrets
+    // `shapesVersion` efter ändringen; reglerna är lagrets logg
+    // (`LayerData::objectChanges`). Körningens index läser den.
+    struct ObjectChange {
+        std::uint64_t version = 0;
+        std::uint32_t index   = 0;
+    };
+    std::vector<ObjectChange> objectChanges;
+    std::uint64_t             objectChangesBase = 0;
 
     // DET RUMSLIGA INDEXET över chunkarna och föremålen (run_index.h) — en
     // cache byggd vid den första frågan, därför `mutable`; läst och bytt
@@ -398,8 +410,7 @@ struct ClipState {
     std::uint64_t             version = nextSceneId();
 };
 
-struct LayerCpu;     // cpu_bytes.cpp
-struct DepthOrder;   // depth_order.h
+struct LayerCpu;   // cpu_bytes.cpp
 
 struct LayerData {
     LayerData();
@@ -446,14 +457,23 @@ struct LayerData {
     // byggs lat ur formerna och gäller bara för den version det byggdes ur.
     std::uint64_t            shapesVersion = 1;
     std::shared_ptr<HitGrid> hit;
+    // FÖREMÅLENS ÄNDRINGSLOGG: platsen (körningens id och platsen i den) för
+    // varje föremål som lagts till, bytts eller tagits bort, med lagrets
+    // `shapesVersion` efter ändringen. Varje ändring med version >
+    // `objectChangesBase` finns i loggen; den som behandlat lagret till en
+    // version ≥ basen läser bara de nyare, annars går den igenom alla
+    // föremål. En ombyggnad av lagret tömmer loggen och flyttar basen.
+    struct ObjectChange {
+        std::uint64_t version = 0;
+        std::uint64_t run     = 0;
+        std::uint32_t index   = 0;
+    };
+    static constexpr std::size_t kMaxObjectChanges = 4096;
+    std::vector<ObjectChange>    objectChanges;
+    std::uint64_t                objectChangesBase = 0;
     // Lagrets CPU-original (`sceneCpuBytes`, cpu_bytes.cpp) — en cache för
     // den version den räknades ur, därför `mutable`.
     mutable std::shared_ptr<LayerCpu> cpu;
-    // DJUPORDNINGEN (depth_order.h) och det den räknades ur: formernas
-    // version, meshernas generation och föremålens signatur — en cache,
-    // därför `mutable`, läst och bytt under lagrets lås (`nodeLock`).
-    mutable std::shared_ptr<const DepthOrder> depth;
-    mutable std::uint64_t depthShapes = 0, depthMeshes = 0, depthSig = 0;
     // TEXTENS VERSION — stegas av `touchText` (språkbytet), som bygger om
     // glyfkörningarna utan att formerna ändrats: draperingens markstämpel
     // (drape.cpp) läser den bredvid `shapesVersion`.
@@ -671,6 +691,26 @@ std::size_t sceneCpuBytes(const SceneData& scene);
 // fyllning ligger på samma djup (gloria hade skymt fyllningen). Målaren
 // (`Painter::setRenderState`) går samma väg.
 gfx::RenderState gfxState(const RenderState& s, bool label);
+
+// YTOR I SAMMA PLAN. Två ytor i samma plan har samma djup, och djuptestet
+// avgör då vinnaren pixel för pixel ur avrundningen. Ett World-lager som
+// testar och skriver djup (`coplanarPass`) ritas därför i TVÅ pass i
+// 3D-målet: först bara djupet (`depthOnly`), sedan färgen (`coplanarColor`) —
+// LessEqual utan skrivning, med ett litet FAST försprång mot ögat. Varje
+// fragment inom försprånget från den närmaste ytan går då igenom, så där
+// ytor ligger i samma plan vinner den som ritas SIST: en senare form över en
+// tidigare, ett senare lager över ett tidigare. Försprånget växer inte med
+// antalet ytor eller lager, så det som ligger längre bort syns aldrig igenom.
+// Appens egen bias (`RenderState::depthBias`) ligger kvar i båda passen.
+inline constexpr float kCoplanarBias  = 4.0f;   // djupformatets minsta steg
+inline constexpr float kCoplanarSlope = 0.0625f;   // × primitivens djuplutning
+bool        coplanarPass(const RenderState& s);
+RenderState depthOnly(RenderState s);
+RenderState coplanarColor(RenderState s);
+// Läget för det som ritas EFTER en yta och ska ligga på den — en forms
+// kontur, lagrets linjer och text efter dess meshar: samma läge med
+// färgpassets försprång mot ögat. Lagret och målaren delar den.
+RenderState coplanarAhead(RenderState s);
 // Ett renderläge fasaden tar emot: varje uppräkning inom sina värden och
 // biaserna ändliga — annars hade varje rit-anrop med det vägrats.
 bool validRenderState(const RenderState& s);
@@ -691,6 +731,78 @@ bool validRenderState(const RenderState& s);
 // utanför sitt zoomintervall) — och etiketterna placeras i `labelSlot`:
 // vyns egen placering, eller bildens (`kBitmapLabels`), som ritar
 // huvudvyns lager med sin egen kamera.
+// BILDTAKTEN (frame_job.h `frameBudgetMs`): ETT STEG av en bild som ritas i
+// flera. Ritytans FÖREMÅL i World-lagren är det som delas upp — allt annat
+// ritas i passets första steg. Renderingstråden äger läget mellan stegen
+// (render_loop.h), förberedelsen väljer stegets föremål (`prepareUploads`)
+// och ritningen ritar de valda.
+//
+//   Priority  de föremål som inte ritats i passet, störst på skärmen först,
+//             tills stegets kostnad är slut — påfyllningen under rörelse och
+//             strax efter. Märkena (`stamps`, ett per plats i körningen)
+//             säger vad passet redan ritat.
+//   Sequence  föremålen i RITORDNING från `begin`, tills kostnaden är slut;
+//             `end` är var steget slutade. Summan av stegen är exakt den
+//             ordning en odelad bild ritas i.
+//
+// KOSTNADEN är trianglar, med ett tillägg per föremål (`kPaceObjectCost`) —
+// ett rit-anrop kostar som många trianglar.
+struct WorldPos {
+    std::uint32_t layer = 0, run = 0, index = 0;
+    friend bool operator<(const WorldPos& a, const WorldPos& b)
+    {
+        if (a.layer != b.layer)
+            return a.layer < b.layer;
+        if (a.run != b.run)
+            return a.run < b.run;
+        return a.index < b.index;
+    }
+};
+inline constexpr WorldPos kWorldEnd{UINT32_MAX, UINT32_MAX, UINT32_MAX};
+inline constexpr double   kPaceObjectCost = 16384.0;
+
+struct FramePace {
+    enum class Order : std::uint8_t { Priority, Sequence };
+    Order  order  = Order::Priority;
+    double budget = 0.0;    // stegets kostnad; ≤ 0 = allt som är kvar
+    bool   first  = true;   // passets första steg: målet rensas, och allt
+                            // som inte är föremål ritas
+    // Priority: passets nummer och märkena per körning (körningens id).
+    std::uint32_t epoch = 0;
+    std::unordered_map<std::uint64_t, std::vector<std::uint32_t>>* stamps = nullptr;
+    // Sequence: stegets början — och slutet, satt av förberedelsen.
+    WorldPos begin{};
+    WorldPos end = kWorldEnd;
+    // SVARET: kostnaden steget ritade, och om passet därmed ritat allt som
+    // syns.
+    double spent    = 0.0;
+    bool   complete = true;
+    // Stegets kostnad tog slut före föremålen (annars är ett ofullständigt
+    // steg ett som väntar på uppladdningar), och tiden då urvalet var gjort —
+    // det dessförinnan beror inte på stegets kostnad.
+    bool   cut = false;
+    std::chrono::steady_clock::time_point selectedAt{};
+
+    // Ritas körningen `run` i lagret `layer` — en som INTE är föremål — i
+    // det här steget? Priority: i passets första steg. Sequence: i steget
+    // vars intervall börjar vid eller före den och slutar efter den.
+    bool drawsRun(std::uint32_t layer, std::uint32_t run) const
+    {
+        if (order == Order::Priority)
+            return first;
+        const WorldPos p{layer, run, 0};
+        return !(p < WorldPos{begin.layer, begin.run, 0}) &&
+               p < WorldPos{end.layer, end.run, 0};
+    }
+    // Avslutar steget lagret `layer` (lagrets målare ritas då)?
+    bool finishesLayer(std::uint32_t layer) const
+    {
+        if (order == Order::Priority)
+            return first;
+        return begin.layer <= layer && layer < end.layer;
+    }
+};
+
 struct PaintContext {
     const Ctx*       c   = nullptr;
     CanvasResources* res = nullptr;
@@ -711,6 +823,9 @@ struct PaintContext {
     // ritning snittet med lagrets. Satt av den som förberett ritningen
     // (`prepareLayers`); målaren börjar i det.
     ClipScope        clip;
+    // Bildtaktens steg (ovan) — nullptr: bilden ritas hel. Bara huvudvyn i
+    // 3D-målet bär ett.
+    FramePace*       pace = nullptr;
 };
 
 // LAGRETS MÅLARE: ritytans `onPaintLayer` för ett lager med
@@ -789,8 +904,10 @@ LayerFrame prepareLayers(const PaintContext& f,
 // först, och sedan resten i lagrens ordning med det som blir kvar av framens
 // uppladdningsbudget. 3D-målets förberedelse kör den (`prepareLayers`), och
 // 2D-vägen efter sin ritning, där de synliga redan laddats upp. Det som är
-// uppe kostar en uppslagning.
-void prepareUploads(const PaintContext& f, const SceneData& scene);
+// uppe kostar en uppslagning. Med `visible` lämnas de synliga föremålen där
+// (labels.h `LayerFrame::visible`), så att ritningen ritar ur listan.
+void prepareUploads(const PaintContext& f, const SceneData& scene,
+                    LayerFrame* visible = nullptr);
 
 // Vad `drawGround` ritar av Ground-lagren: GEOMETRIN (bilder, ytor, linjer —
 // också i rymden — den liggande texten och föremålen) och/eller ETIKETTERNA

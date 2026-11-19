@@ -4,6 +4,8 @@
 
 #include "gfx/mat4.h"
 
+#include "gfx/scene.h"
+
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -214,6 +216,43 @@ void Mat4d::toFloat(float out[16]) const
 {
     for (int i = 0; i < 16; ++i)
         out[i] = static_cast<float>(m[i]);
+}
+
+namespace {
+// Radernas och kolumnernas plats i `m` (kolumnordning): djupet och w.
+constexpr int kDepth = 2;
+constexpr int kW     = 3;
+constexpr int kSide  = 4;
+} // namespace
+
+void Mat4d::toDevice(float out[16]) const
+{
+    if (!depthReversed()) {
+        toFloat(out);
+        return;
+    }
+    // Djupraden blir w-raden minus djupraden.
+    Mat4d r = *this;
+    for (int k = 0; k < kSide; ++k)
+        r.m[k * kSide + kDepth] = m[k * kSide + kW] - m[k * kSide + kDepth];
+    r.toFloat(out);
+}
+
+void Mat4d::inverseToDevice(float out[16]) const
+{
+    if (!depthReversed()) {
+        toFloat(out);
+        return;
+    }
+    // Inversen av radbytet ovan, från höger: djupkolumnen byter tecken och
+    // w-kolumnen får djupkolumnen tillagd.
+    Mat4d r = *this;
+    for (int row = 0; row < kSide; ++row) {
+        const double djup = m[kDepth * kSide + row];
+        r.m[kDepth * kSide + row] = -djup;
+        r.m[kW * kSide + row]     = m[kW * kSide + row] + djup;
+    }
+    r.toFloat(out);
 }
 
 void Mat4d::transform(double x, double y, double z, double w,
