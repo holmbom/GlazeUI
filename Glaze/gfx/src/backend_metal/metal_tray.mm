@@ -12,11 +12,16 @@
 //     klick …), så ett dubbelklick ger Click och därefter DoubleClick som
 //     kontraktet säger. En action UTAN mushändelse (VoiceOver,
 //     tangentbordet) är ett Click. Ankaret är pekaren i placeringsrymden.
-//   * Vid Click och DoubleClick AKTIVERAS appen FÖRE eventet köas: en app
-//     med Accessory-policy (ingen dockikon) aktiveras inte av ett klick i
+//   * Vid VARJE klick AKTIVERAS appen FÖRE eventet köas: en app med
+//     Accessory-policy (ingen dockikon) aktiveras inte av ett klick i
 //     menyraden, och ett fönster som handlern visar hade annars hamnat bakom
-//     den app användaren stod i. ContextMenu aktiverar inte — menyns
-//     värdfönster gör det själv (`raise()`).
+//     den app användaren stod i. Också vid ContextMenu, annars blir menyns
+//     värdfönster aldrig key och ett klick utanför menyn stänger den inte.
+//     Aktiveringen är `activateIgnoringOtherApps:YES` och inte `activate`:
+//     den senare är kooperativ (macOS 14) och aktiverar bara när den aktiva
+//     appen lämnar ifrån sig, vilket den inte gör vid ett klick i menyraden
+//     — fönstret som klicket visade hamnade under den appens fönster, och
+//     menyn med det. Klicket på ikonen är användarens uttryckliga val.
 //   * HOVERN är en spåryta på knappen: `EnteredAndExited | ActiveAlways |
 //     InVisibleRect`, utan `CursorUpdate` (stöds inte ihop med ActiveAlways,
 //     NSTrackingArea.h). Dubbletter sållas av glaze (gfx/events.h).
@@ -103,8 +108,7 @@ Pointf pointerInPlacementSpace()
     else if (vänster && ev.clickCount % 2 == 0)
         a = gfx::TrayAction::DoubleClick;
 
-    if (a != gfx::TrayAction::ContextMenu)
-        [NSApp activate];   // FÖRE eventet — se filhuvudet
+    gfx::trayActivate();   // FÖRE eventet och i klicket — se filhuvudet
     const gfx::Pointf p = gfx::pointerInPlacementSpace();
     gfx::pushTray(trayId_, a, p.x, p.y);
 }
@@ -155,6 +159,24 @@ std::map<TrayId, Entry> g_entries;
 
 // Öppen mellan `trayInit` och `trayShutdown` (gfx::init / gfx::shutdown).
 bool g_live = false;
+
+// Programmet som var aktivt när ett klick på en statuspost aktiverade appen
+// — det som får aktiveringen tillbaka (`trayReturnActivation`). nil när
+// appen redan var aktiv eller aktiveringen redan lämnats tillbaka.
+NSRunningApplication* g_prevApp = nil;
+// Nollar `g_prevApp` när appen slutar vara aktiv: användaren har gått vidare,
+// och en senare döljning ska inte aktivera ett gammalt program.
+id g_resignObserver = nil;
+
+// Ett av appens fönster som syns och kan ta tangenterna — statuspostens
+// eget fönster (statusnivån) och popuper som aldrig blir key räknas inte.
+bool appHasKeyableWindow()
+{
+    for (NSWindow* w in NSApp.windows)
+        if (w.visible && w.canBecomeKeyWindow && w.level < NSStatusWindowLevel)
+            return true;
+    return false;
+}
 
 // BILDEN i fältet: `programFirst` + paketikon ⇒ appens ikon (paketets
 // `CFBundleIconFile`, samma regel som `MetalWindow::applyIcon`), annars en
@@ -222,6 +244,12 @@ void dropEntry(Entry& e)
 void trayInit()
 {
     g_live = true;
+    if (!g_resignObserver)
+        g_resignObserver = [NSNotificationCenter.defaultCenter
+            addObserverForName:NSApplicationDidResignActiveNotification
+                        object:nil
+                         queue:nil
+                    usingBlock:^(NSNotification*) { g_prevApp = nil; }];
 }
 
 void trayShutdown()
@@ -231,7 +259,44 @@ void trayShutdown()
             dropEntry(kv.second);
     }
     g_entries.clear();
-    g_live = false;
+    g_live    = false;
+    g_prevApp = nil;
+    if (g_resignObserver) {
+        [NSNotificationCenter.defaultCenter removeObserver:g_resignObserver];
+        g_resignObserver = nil;
+    }
+}
+
+// ------------------------------------------------------ aktiveringen
+
+void trayActivate()
+{
+    NSRunningApplication* const aktiv =
+        NSWorkspace.sharedWorkspace.frontmostApplication;
+    g_prevApp = (NSApp.active || !aktiv ||
+                 [aktiv isEqual:NSRunningApplication.currentApplication])
+                    ? nil
+                    : aktiv;
+    // Oavsett andra appar — se filhuvudet.
+    [NSApp activateIgnoringOtherApps:YES];
+}
+
+void trayReturnActivation()
+{
+    NSRunningApplication* const förra = g_prevApp;
+    if (!förra)
+        return;
+    if (!NSApp.active) {
+        g_prevApp = nil;   // användaren har redan gått vidare
+        return;
+    }
+    if (appHasKeyableWindow())
+        return;            // ett fönster står kvar — frågan ställs igen när det går
+    g_prevApp = nil;
+    if (förra.terminated)
+        return;
+    [NSApp yieldActivationToApplication:förra];
+    [förra activateWithOptions:0];
 }
 
 // ---------------------------------------------------------------- fasaden

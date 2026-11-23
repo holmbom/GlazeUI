@@ -1002,6 +1002,7 @@ NSCursor* nsCursorFor(PointerShape s)
 - (void)windowDidBecomeKey:(NSNotification*)n
 {
     if (owner_) {
+        owner_->finishActiveSpaceMove(false);
         owner_->liftOwned();   // ägda över ägaren
         gfx::pushSimple(owner_->id(), gfx::EventType::WindowFocusGained);
     }
@@ -1052,6 +1053,10 @@ bool MetalWindow::init(const WindowDesc& desc)
     // i `setVisible(true)`.
     startState_  = desc.startState;
     firstShown_  = false;
+    // DEN AKTIVA SPACEN: ett nytt NSWindow bär appens beteende orört.
+    spaceMovePending_   = false;
+    spaceRestoreQueued_ = false;
+    spaceBehavior_      = 0;
 
     // Transparent ⇒ chrome av (fri geometri och titelrad är oförenliga).
     // Flaggan lagras här och styr composite-vägen.
@@ -1523,6 +1528,9 @@ void MetalWindow::shutdown()
         nsWindow_ = nil;
         view_     = nil;
         delegate_ = nil;
+        spaceMovePending_   = false;
+        spaceRestoreQueued_ = false;
+        trayReturnActivation();
     }
 }
 
@@ -1732,10 +1740,41 @@ void MetalWindow::setVisible(bool on)
         // `showInactive_` den FÖRSTA gången: ett
         // flytande dockningsfönster som lossnar mitt i ett drag tar inte key
         // från fönstret som håller trycket; en senare visning gör det.
-        if (noActivate_ || (showInactive_ && !firstShown_))
-            [nsWindow_ orderFront:nil];
-        else
+        const bool blirKey = !(noActivate_ || (showInactive_ && !firstShown_));
+        // DEN AKTIVA SPACEN: AppKit lägger tillbaka ett dolt fönster på den
+        // Space det senast låg på, och när appens aktivering — asynkron,
+        // ofta efter att fönstret visats — är klar byter macOS dit. Ett dolt
+        // fönster som visas ska i stället komma fram där användaren står.
+        // Fönstret tas därför fram med `CanJoinAllSpaces`, så det ritas på
+        // den aktiva Spacen, och när flaggan tas bort stannar det där — också
+        // ett fönster som aldrig blir key (det flytande verktygsfältet följer
+        // sitt huvudfönster). Ett fönster som ska bli key men inte blev det i
+        // `makeKeyAndOrderFront` (appen är inte aktiv än) behåller
+        // `MoveToActiveSpace` tills det blir key (`finishActiveSpaceMove`),
+        // så aktiveringen flyttar det i stället för att byta Space. Ett
+        // barnfönster följer sin förälder, ett fönster som redan syns flyttas
+        // inte, och appens eget Space-val vinner.
+        const NSWindowCollectionBehavior spaceVal =
+            NSWindowCollectionBehaviorCanJoinAllSpaces |
+            NSWindowCollectionBehaviorMoveToActiveSpace;
+        const bool tillHit = !nsWindow_.visible && !nsWindow_.parentWindow &&
+                             !(nsWindow_.collectionBehavior & spaceVal);
+        if (tillHit) {
+            spaceBehavior_ = nsWindow_.collectionBehavior;
+            nsWindow_.collectionBehavior =
+                spaceBehavior_ | NSWindowCollectionBehaviorCanJoinAllSpaces;
+        }
+        if (blirKey)
             [nsWindow_ makeKeyAndOrderFront:nil];
+        else
+            [nsWindow_ orderFront:nil];
+        if (tillHit) {
+            spaceMovePending_ = blirKey && !nsWindow_.keyWindow;
+            nsWindow_.collectionBehavior =
+                spaceMovePending_
+                    ? spaceBehavior_ | NSWindowCollectionBehaviorMoveToActiveSpace
+                    : spaceBehavior_;
+        }
         // STARTLÄGET vid FÖRSTA synligheten:
         // efter `orderFront`, för en zoom eller miniatyr på ett fönster som
         // aldrig visats animerar från ingenting. Normalrutan bar redan den
@@ -1750,12 +1789,43 @@ void MetalWindow::setVisible(bool on)
         pushSimple(windowId_, EventType::WindowShown);
         pushSimple(windowId_, EventType::WindowExposed);
     } else {
+        finishActiveSpaceMove(true);
         [nsWindow_ orderOut:nil];
+        trayReturnActivation();
         // Appens EGET döljande vinner över ägarens minimering: dolt nu ska
         // förbli dolt när ägaren återställs.
         if (ownerWin_)
             std::erase(ownerWin_->hiddenByMinimize_, this);
     }
+}
+
+// Appens eget `collectionBehavior` tillbaka efter flytten till den aktiva
+// Spacen. När fönstret BLIR KEY ett runloop-varv senare och inte i
+// `windowDidBecomeKey:`: aktiveringen avgör efter notisen om macOS ska byta
+// till fönstrets Space, och utan `MoveToActiveSpace` då bytte den till den
+// gamla. När fönstret DÖLJS direkt — också en återställning som väntar på
+// sitt varv, så en visning i samma varv ser appens beteende och flyttar igen.
+// Har appen hunnit byta beteendet under tiden rörs det inte.
+void MetalWindow::finishActiveSpaceMove(bool now)
+{
+    if (!nsWindow_ || !(spaceMovePending_ || (now && spaceRestoreQueued_)))
+        return;
+    const NSWindowCollectionBehavior medFlytt =
+        spaceBehavior_ | NSWindowCollectionBehaviorMoveToActiveSpace;
+    spaceMovePending_ = false;
+    if (now) {
+        spaceRestoreQueued_ = false;
+        if (nsWindow_.collectionBehavior == medFlytt)
+            nsWindow_.collectionBehavior = spaceBehavior_;
+        return;
+    }
+    spaceRestoreQueued_ = true;
+    NSWindow* const                  w = nsWindow_;
+    const NSWindowCollectionBehavior b = spaceBehavior_;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (w.collectionBehavior == medFlytt)
+            w.collectionBehavior = b;
+    });
 }
 
 // Upprepande NSTimer på main-runloopen. Callbacket pushar Timer-eventet;
