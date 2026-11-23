@@ -21,6 +21,11 @@ versionen sätts.
 
 ## Nästa
 
+## 0.11.2
+
+- **Fix** — macOS: ett dolt fönster som visas kommer fram på den Space användaren står på, inte på den där det låg när det doldes (ett klick på systemfältets ikon tog förut användaren till ett annat skrivbord).
+- **Fix** — macOS: ett klick på systemfältets ikon, också ett högerklick, aktiverar appen även när ett annat program är aktivt. Förut hamnade fönstret som klicket visade, och snabbmenyn, under det programmets fönster, och ett klick utanför menyn stängde den inte. När appens sista synliga fönster (eller menyn) sedan stängs får programmet man kom från tillbaka fokus.
+
 ## 0.11.1
 
 - **Fix** — klipp i ritytans 3D: marken mellan ögat och det närmaste snittet med klippets höjdplan räknas med i det synliga, också när ögat står mellan planen eller blicken inte når något plan inom sikten. Förut saknades den, och klippet kunde utebli nära kameran.

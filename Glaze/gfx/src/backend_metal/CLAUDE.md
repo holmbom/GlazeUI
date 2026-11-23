@@ -110,6 +110,25 @@ normalspårningen, startläget och de tre nya pekarna.
   för `makeKeyAndOrderFront:` (`showInactive_ && !firstShown_`, som
   `noActivate_` gör för alltid) — ett flytande dockningsfönster som lossnar
   mitt i ett drag tar inte key från fönstret som håller trycket.
+  **DEN AKTIVA SPACEN:** AppKit lägger tillbaka ett dolt (`orderOut`) fönster
+  på den Space det senast låg på och tar användaren dit — ett systemfältsklick
+  som visar fönstret drog användaren till ett annat skrivbord, för appens
+  aktivering är ASYNKRON och blir klar först efter visningen. `setVisible(true)`
+  tar därför fram varje DOLT fönster med `CanJoinAllSpaces` (det ritas på den
+  aktiva Spacen och stannar där när flaggan tas bort — också ett som aldrig blir
+  key, så det flytande verktygsfältet följer sitt huvudfönster). Ett fönster
+  som ska bli key men inte blev det i `makeKeyAndOrderFront` (appen är inte
+  aktiv än) behåller `MoveToActiveSpace` tills det blir key —
+  `finishActiveSpaceMove` lägger tillbaka appens `collectionBehavior` ETT
+  RUNLOOP-VARV EFTER `windowDidBecomeKey:` (aktiveringen avgör Space-bytet
+  efter notisen — en synkron återställning där tog användaren till den gamla
+  Spacen, uppmätt) och DIREKT vid `setVisible(false)`, också en som väntar på
+  sitt varv (`spaceRestoreQueued_`); blev fönstret key redan i
+  `makeKeyAndOrderFront` (notisen kommer där inne när appen är aktiv) läggs
+  det tillbaka på stället. init och shutdown nollar. Ett barnfönster (följer
+  föräldern), ett fönster som redan syns och ett som redan har
+  `CanJoinAllSpaces`/`MoveToActiveSpace` rörs inte. `raise()` på ett synligt
+  fönster följer macOS: användaren tas till fönstrets Space.
   **`captureMouse()`** och **`hasMouseCapture()`** svarar false: AppKit
   levererar redan hela trycket (`mouseDragged:` också utanför vyn) till
   fönstret där det började, och `MouseCaptureLost` skickas inte.
@@ -195,9 +214,18 @@ normalspårningen, startläget och de tre nya pekarna.
   **`GlazeTrayTarget`** tar knappens action med `sendActionOn:` vänster- och
   högersläpp: höger eller Ctrl = ContextMenu, ett JÄMNT `clickCount` =
   DoubleClick (klick, dubbelklick, klick …), en action utan mushändelse
-  (VoiceOver, tangentbordet) = Click; vid Click och DoubleClick körs
-  `[NSApp activate]` FÖRE eventet köas (en Accessory-app aktiveras inte av
-  ett klick i menyraden), och ankaret är pekaren i placeringsrymden. En
+  (VoiceOver, tangentbordet) = Click; vid VARJE klick, också ContextMenu, körs
+  `[NSApp activateIgnoringOtherApps:YES]` FÖRE eventet köas och i klicket (en
+  Accessory-app aktiveras inte av ett klick i menyraden, och `activate` är
+  kooperativ sedan macOS 14 — den aktiva appen lämnar inte ifrån sig, så
+  fönstret som klicket visade hamnade under den, menyvärden blev aldrig key och
+  menyn stängdes inte vid ett klick utanför) — `trayActivate`, som också
+  minns programmet som var aktivt. När appens sista synliga fönster som kan bli
+  key döljs eller stängs medan appen fortfarande är aktiv får det programmet
+  aktiveringen tillbaka (`trayReturnActivation` ur `setVisible(false)` och
+  `shutdown`; `yieldActivationToApplication:` + `activateWithOptions:`), så en
+  snabbmeny lämnar inte appen aktiv utan fönster; appens `DidResignActive`
+  glömmer programmet. Ankaret är pekaren i placeringsrymden. En
   spåryta på knappen (`EnteredAndExited | ActiveAlways | InVisibleRect`)
   ger Enter/Leave. `trayIconRect` = `button.window.frame` och skärmens
   `visibleFrame`, vända mot huvudskärmens höjd; Tick = en `NSTimer` i

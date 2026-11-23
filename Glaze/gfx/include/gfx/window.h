@@ -691,7 +691,9 @@ public:
     virtual Rectf screenArea() const = 0;
 
     // Dölj/visa fönstret utan att röra dess liv (AppWindow::hide/show —
-    // fönstret finns kvar, OS-ytan göms bara). No-op-säker före init.
+    // fönstret finns kvar, OS-ytan göms bara). No-op-säker före init. På
+    // macOS kommer ett dolt fönster som visas fram på den Space användaren
+    // står på, inte på den där det låg när det doldes.
     virtual void setVisible(bool on) = 0;
 
     // Chromets färger — alltid säker att kalla (lagras bara); slår igenom

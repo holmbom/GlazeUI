@@ -97,6 +97,16 @@ void          logDevice(id<MTLDevice> d, const std::string& adapterId);
 void trayInit();
 void trayShutdown();
 
+// AKTIVERINGEN TILLBAKA (metal_tray.mm): ett klick på en statuspost
+// aktiverar appen och minns det program som var aktivt (`trayActivate`).
+// När appens sista synliga fönster döljs eller stängs medan appen
+// fortfarande är aktiv får det programmet aktiveringen tillbaka
+// (`trayReturnActivation`, ur `MetalWindow::setVisible(false)` och
+// `shutdown`) — annars stod appen kvar som aktiv utan fönster efter en
+// snabbmeny, och tangenterna gick ingenstans.
+void trayActivate();
+void trayReturnActivation();
+
 // APPENS TIMER (metal_timer.mm) — samma livstid som
 // systemfältet: `appTimerInit` öppnar fasaden i gfx/timer.h (i `gfx::init`),
 // `appTimerShutdown` invaliderar varje timer och stänger den (i
@@ -1118,6 +1128,19 @@ private:
     // (`setVisible(true)` — i init eller efter en dold start).
     WindowState   startState_ = WindowState::Normal;
     bool          firstShown_ = false;
+    // DEN AKTIVA SPACEN: ett dolt fönster som ska bli key men inte blev det
+    // i `setVisible(true)` (appens aktivering är asynkron) behåller
+    // `MoveToActiveSpace` tills det blir key eller döljs. Appens eget
+    // `collectionBehavior` sparas här och läggs tillbaka i
+    // `finishActiveSpaceMove` — ett varv efter key (`spaceRestoreQueued_`
+    // medan det väntar), direkt vid döljning; init och shutdown nollar.
+    bool                       spaceMovePending_   = false;
+    bool                       spaceRestoreQueued_ = false;
+    NSWindowCollectionBehavior spaceBehavior_      = 0;
+public:
+    // `now` = döljningen (direkt), annars key-notisen (ett varv senare).
+    void finishActiveSpaceMove(bool now);
+private:
 
     // ÄGARSKAPET. Bara
     // popup-kontraktets ANKRADE fönster (listor, menyer, tooltips, färg- och
