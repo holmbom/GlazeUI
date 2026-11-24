@@ -21,6 +21,8 @@ versionen sätts.
 
 ## Nästa
 
+- **New** — `glaze-icons` (tools/glaze-icons): ritar ikonarket ur glyfrecept i en fil, utan att appen byggs om. Läser `GLAZE_REGISTER_ICON(...)` och `GLAZE_REGISTER_ICON_PART(...)` med strängliteraler och strängmakron, lägger standardikoner bredvid (`--with`), förstorar (`--zoom`) och ritar en stor remsa (`--big`).
+
 ## 0.11.2
 
 - **Fix** — macOS: ett dolt fönster som visas kommer fram på den Space användaren står på, inte på den där det låg när det doldes (ett klick på systemfältets ikon tog förut användaren till ett annat skrivbord).
