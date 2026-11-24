@@ -144,7 +144,7 @@ GlazeUI tas in med `FetchContent` (snippeten i `start`) eller med `add_subdirect
 - `-DGLAZE_BACKEND=auto|d3d11|metal|linux` — auto väljer D3D11 (Windows), Metal (macOS), linux (Wayland + X11); okänt värde ⇒ `FATAL_ERROR`.
 - `-DGLAZE_NETWORKING=OFF` — bygg inte `glaze_net` (på Linux kräver den annars systemets libcurl).
 - `-DGLAZE_TERMINAL=OFF` — bygg inte sidopaketet Terminal (inga externa beroenden på något OS; verktygens preview visar då en terminal som stand-in).
-- `-DGLAZE_TOOLS=ON` — bygg verktygen (`glaze-render`, `GlazeBuilder`, `glazeassets`, `glazelanguage`) också när GlazeUI är ett beroende. Länka in appens egna widgets med `target_link_libraries(glaze-render PRIVATE <OBJECT-bibliotek>)` (och `GlazeBuilder`) — då ritar verktygen dem på riktigt i stället för som stand-ins (`custom-widget`).
+- `-DGLAZE_TOOLS=ON` — bygg verktygen (`glaze-render`, `GlazeBuilder`, `glazeassets`, `glazelanguage`, `glaze-icons`) också när GlazeUI är ett beroende. Länka in appens egna widgets med `target_link_libraries(glaze-render PRIVATE <OBJECT-bibliotek>)` (och `GlazeBuilder`) — då ritar verktygen dem på riktigt i stället för som stand-ins (`custom-widget`).
 - `-DFETCHCONTENT_SOURCE_DIR_GLAZEUI=<sökväg>` — CMakes egen override: använd en lokal utcheckning, ingen kloning.
 
 ### Exempel
@@ -6255,6 +6255,7 @@ Previewn utför raden, men den generiska previewn känner inte appens recept (de
 - `K`-texten STANSAS UT och visar det som ligger under: lägg ett eget lager under texten (en mörk platta med `over ink <färg>` för mörk text på en ljus skylt — en fyllning och inte konturens ton, som speglas i mörkt läge) och gör plattan lite högre än texten. Texten läses från 24 px.
 - Mono tonar ned ytorna mot papperet (ljust) eller bakgrunden (mörkt), och det gäller också en sådan platta — en text som ska läsas i Mono behöver en djup ton.
 - Ett fel i en beskrivning loggas EN gång per ikon, med ikonens namn och ordet där felet sitter, och resten av det lagret ritas inte; titta på arket (`writeIconSheet`).
+- **Arket utan att bygga om appen:** `glaze-icons <receptfil ...> -o ark.png [--only A,B] [--with Save,Open] [--zoom N] [--big N]` ([tools/glaze-icons](tools/glaze-icons/CLAUDE.md)) läser `GLAZE_REGISTER_ICON(...)` ur en fil i körtid — en `.cpp` eller en ren receptfil, med strängliteraler och filens strängmakron — och ritar samma ark som `writeIconSheet`. Felen i ett recept skrivs på stderr. Verktyget byggs i en utcheckning av GlazeUI (`cmake --build build --target glaze-icons`) eller med `-DGLAZE_TOOLS=ON`.
 - Ramverkets 395 standardikoner står i samma form i [stock_icon.cpp](Glaze/widgets/src/stock_icon.cpp) — namn, kontur och färg med `|` mellan lagren — och är exempel på allt språket kan.
 <!-- END:drawn-icons -->
 

@@ -129,11 +129,11 @@ endif()
 # VERKTYGEN SOM BEROENDE: glaze-render och
 # GlazeBuilder slår upp widgetarna i REGISTRET, så ett verktygsbygge som länkar
 # appens egna widgets ritar dem på riktigt. `-DGLAZE_TOOLS=ON` hos en
-# konsument bygger de fyra verktygen också när GlazeUI är ett beroende; appen
+# konsument bygger verktygen också när GlazeUI är ett beroende; appen
 # länkar sina widgets in med `target_link_libraries(glaze-render PRIVATE
 # <objektbibliotek>)` — ett OBJECT-bibliotek, för ur ett statiskt hade länkaren
 # strukit registreringarna (MANUAL `cmake`).
-option(GLAZE_TOOLS "Bygg glaze-render, GlazeBuilder, glazeassets och glazelanguage också som beroende" OFF)
+option(GLAZE_TOOLS "Bygg glaze-render, GlazeBuilder, glazeassets, glazelanguage och glaze-icons också som beroende" OFF)
 
 # Apparna byggs bara när GlazeUI är toppprojektet, inte som beroende —
 # verktygen också med GLAZE_TOOLS.
@@ -145,6 +145,7 @@ if(PROJECT_IS_TOP_LEVEL OR GLAZE_TOOLS)
     add_subdirectory(apps/glazeassets)   # CLI för assets.bin — bara glaze_assets
     add_subdirectory(apps/glazelanguage) # CLI för language.bin — bara glaze_language
     add_subdirectory(apps/glaze-render)  # CLI fönster-.h → PNG — glaze + builder_core
+    add_subdirectory(tools/glaze-icons)  # CLI glyfrecept → ikonark (PNG) — glaze
 endif()
 if(PROJECT_IS_TOP_LEVEL)
     # Grindarna (tests/) — bara i repot självt, aldrig hos den som

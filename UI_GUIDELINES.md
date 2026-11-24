@@ -215,7 +215,8 @@ lagren sätter ramverket, och `stockicon_gate` grindar den. Programmet `glyph_sh
 i mono och färg, ljust och mörkt, och ramverkets ritade glyfer (`Draw`-formerna och
 `Draw::icon`) — titta på arket innan ikonen är klar. Appens ikoner skrivs i samma
 språk och granskas på appens ark (`glaze::writeIconSheet`, i demon
-`demo --icons-sheet ut.png`).
+`demo --icons-sheet ut.png`). Medan en glyf ritas går arket fortare med `glaze-icons recept.txt -o ark.png`
+(tools/glaze-icons), som läser recepten ur en fil utan att appen byggs om.
 
 ## Exempel — en dialog efter riktlinjerna
 
